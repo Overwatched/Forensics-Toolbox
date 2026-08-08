@@ -28,41 +28,42 @@
 <body>
     <div id="container">
         <header class="page-header">
-            <h1>Photos.sqlite Queries</h1>
-            <p>Generera SQL för app/källa, tider och filnamn — iOS 10 → latest. Kopiera till DB Browser / sqlite3.</p>
+            <h1>Photos.sqlite</h1>
+            <p>Välj iOS-version och vad du vill ta reda på. Kopiera SQL till DB Browser / sqlite3.</p>
         </header>
 
         <div id="load-error" class="banner error display-none"></div>
-
         <div id="meta-box" class="banner display-none"></div>
 
-        <label class="field-label" for="band-select">iOS-version</label>
+        <div class="step-label">1. iOS-version</div>
         <select id="band-select" disabled></select>
-
-        <label class="field-label" for="query-select">Query</label>
-        <select id="query-select" disabled></select>
-
         <div id="band-notes" class="notes display-none"></div>
+
+        <div class="step-label">2. Vad vill du ta reda på?</div>
+        <div id="question-list" class="question-list"></div>
+
+        <div id="question-detail" class="question-detail display-none"></div>
 
         <div id="params" class="params"></div>
 
         <div class="button-row">
-            <button id="generate-button" type="button" disabled>Generera SQL</button>
+            <button id="generate-button" type="button" disabled>Uppdatera SQL</button>
             <button id="copy-button" class="secondary" type="button" disabled>Kopiera SQL</button>
         </div>
 
+        <div id="column-guide" class="guide display-none"></div>
         <div id="caveats" class="caveats display-none"></div>
 
-        <label class="field-label" for="sql-out">SQL</label>
-        <textarea id="sql-out" spellcheck="false" readonly placeholder="SQL visas här…"></textarea>
+        <label class="field-label" for="sql-out">SQL (färdig att klistra in)</label>
+        <textarea id="sql-out" spellcheck="false" readonly placeholder="Välj en fråga ovan…"></textarea>
 
         <section class="help">
-            <h2>Så använder du det</h2>
+            <h2>Kort flöde</h2>
             <ol>
-                <li>Öppna <code>Photos.sqlite</code> i DB Browser for SQLite (eller sqlite3).</li>
-                <li>Kör <strong>Schema-probe</strong> först och jämför kolumner med queryn.</li>
-                <li>Fyll i filnamn/UUID/bundle-ID, generera, kopiera och kör.</li>
-                <li>Tolka Cocoa-tider med <strong>Time Converter</strong> vid behov.</li>
+                <li>Välj rätt <strong>iOS-version</strong>.</li>
+                <li>Börja med <strong>Allt om en bildfil</strong> och fyll i filnamn.</li>
+                <li>Kopiera SQL → kör i DB Browser.</li>
+                <li>Läs kolumnguiden under resultatet. Använd Time Converter för cocoa_*-värden.</li>
             </ol>
         </section>
     </div>

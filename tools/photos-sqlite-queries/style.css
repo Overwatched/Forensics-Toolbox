@@ -11,6 +11,7 @@
     --accent-soft: rgba(10, 132, 255, 0.14);
     --warn-soft: rgba(255, 159, 10, 0.12);
     --error: #ff453a;
+    --ok: #30d158;
 }
 
 [data-theme="light"] {
@@ -26,6 +27,7 @@
     --accent-soft: rgba(0, 122, 255, 0.12);
     --warn-soft: rgba(255, 149, 0, 0.12);
     --error: #ff3b30;
+    --ok: #248a3d;
 }
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -42,12 +44,12 @@ body {
 
 #container {
     width: 100%;
-    max-width: 760px;
+    max-width: 780px;
     display: flex;
     flex-direction: column;
 }
 
-.page-header { text-align: center; margin-bottom: 24px; }
+.page-header { text-align: center; margin-bottom: 22px; }
 .page-header h1 { font-size: 28px; }
 .page-header p {
     margin-top: 10px;
@@ -56,11 +58,14 @@ body {
     line-height: 1.45;
 }
 
-.field-label {
+.step-label, .field-label {
     font-size: 13px;
+    font-weight: 600;
     color: var(--text-muted);
     margin-bottom: 8px;
 }
+
+.step-label { margin-top: 4px; }
 
 select, input[type="text"], textarea {
     width: 100%;
@@ -84,11 +89,91 @@ select {
 }
 
 textarea {
-    min-height: 280px;
+    min-height: 260px;
     resize: vertical;
     font-family: Consolas, Monaco, monospace;
     font-size: 12.5px;
     line-height: 1.45;
+}
+
+.question-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-bottom: 14px;
+}
+
+.q-card {
+    text-align: left;
+    width: 100%;
+    padding: 12px 14px;
+    border-radius: 12px;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--text);
+    cursor: pointer;
+    font-weight: 500;
+}
+
+.q-card:hover { border-color: var(--border-hover); background: var(--surface-hover); }
+
+.q-card.active {
+    border-color: var(--accent);
+    background: var(--accent-soft);
+}
+
+.q-card .q-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 14px;
+    font-weight: 700;
+}
+
+.q-card .q-sub {
+    margin-top: 4px;
+    font-size: 12px;
+    color: var(--text-muted);
+    font-weight: 400;
+    line-height: 1.4;
+}
+
+.badge {
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: #fff;
+    background: var(--ok);
+    border-radius: 999px;
+    padding: 2px 8px;
+}
+
+.q-card.advanced .q-title { font-weight: 600; color: var(--text-muted); }
+.q-card.advanced .q-sub { font-size: 11px; }
+
+.question-detail, .banner, .notes, .caveats, .guide, .help {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 12px 14px;
+    margin-bottom: 14px;
+    font-size: 13px;
+    color: var(--text-muted);
+    line-height: 1.45;
+}
+
+.banner { background: var(--accent-soft); }
+.banner.error { color: var(--error); }
+.question-detail strong, .guide strong, .help h2 { color: var(--text); }
+.question-detail ul, .guide ul, .caveats ul, .help ol {
+    margin: 8px 0 0 18px;
+}
+.caveats { background: var(--warn-soft); }
+.help h2 { font-size: 14px; margin-bottom: 4px; }
+.help code, .banner code {
+    font-family: Consolas, Monaco, monospace;
+    font-size: 12px;
 }
 
 .button-row {
@@ -121,43 +206,7 @@ button.secondary {
 
 button.secondary:hover:not(:disabled) { border-color: var(--border-hover); }
 
-.banner, .notes, .caveats, .help {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 12px;
-    padding: 12px 14px;
-    margin-bottom: 14px;
-    font-size: 13px;
-    color: var(--text-muted);
-    line-height: 1.45;
-}
-
-.banner { background: var(--accent-soft); }
-.banner.error { color: var(--error); }
-
-.notes { margin-top: -4px; }
-
-.caveats {
-    background: var(--warn-soft);
-}
-
-.caveats ul, .help ol {
-    margin: 8px 0 0 18px;
-}
-
-.help h2 {
-    font-size: 14px;
-    color: var(--text);
-    margin-bottom: 4px;
-}
-
-.help code, .banner code {
-    font-family: Consolas, Monaco, monospace;
-    font-size: 12px;
-}
-
 .params .param-block { margin-bottom: 4px; }
-
 .display-none { display: none !important; }
 
 .toast {
@@ -172,5 +221,19 @@ button.secondary:hover:not(:disabled) { border-color: var(--border-hover); }
     border-radius: 8px;
     z-index: 20;
 }
-
 .toast.show { visibility: visible; }
+
+.advanced-toggle {
+    margin: 4px 0 10px;
+    background: transparent;
+    color: var(--text-muted);
+    border: none;
+    padding: 6px 0;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    flex: none;
+    width: auto;
+    text-align: left;
+}
+.advanced-toggle:hover { color: var(--accent); background: transparent; }

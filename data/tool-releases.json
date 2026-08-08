@@ -3,6 +3,17 @@
   "note": "Kuraterad lista — uppdateras manuellt. Appen gör inga nätverksanrop för att hämta releaser.",
   "tools": [
     {
+      "id": "cyberchef",
+      "name": "CyberChef",
+      "category": "encoding",
+      "latest": "v11.3.0",
+      "releasedAt": "2026-07-24",
+      "url": "https://github.com/gchq/CyberChef",
+      "releasesUrl": "https://github.com/gchq/CyberChef/releases",
+      "license": "Apache-2.0",
+      "notes": "Ingår offline i Forensics Toolbox (tools/CyberChef)."
+    },
+    {
       "id": "ileapp",
       "name": "iLEAPP",
       "category": "mobile",
