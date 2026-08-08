@@ -77,19 +77,24 @@ jobs:
 
       - name: Bygg Windows
         if: matrix.platform == 'win'
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          npx electron-builder --win
+          npx electron-builder --win --publish never
           node scripts/finalize-artifacts.js
 
       - name: Bygg Linux (AppImage)
         if: matrix.platform == 'linux'
-        run: npx electron-builder --linux AppImage
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: npx electron-builder --linux AppImage --publish never
 
       - name: Bygg macOS (osignerat DMG + ZIP)
         if: matrix.platform == 'mac'
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: false
-        run: npx electron-builder --mac
+          GH_TOKEN: ${{ github.token }}
+        run: npx electron-builder --mac --publish never
 
       - name: Lista release-filer
         shell: bash

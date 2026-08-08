@@ -32,6 +32,7 @@
     "directories": {
       "output": "release"
     },
+    "publish": null,
     "asar": false,
     "files": [
       "electron/**/*",
