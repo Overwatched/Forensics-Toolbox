@@ -6,21 +6,45 @@
 const { downloadArtifact } = require('@electron/get');
 const { execFileSync } = require('node:child_process');
 const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
 
 const electronDir = path.join(__dirname, '..', 'node_modules', 'electron');
 const distDir = path.join(electronDir, 'dist');
-const binary = path.join(distDir, process.platform === 'win32' ? 'electron.exe' : 'electron');
 const { version } = require(path.join(electronDir, 'package.json'));
 
+function platformPath() {
+  switch (process.platform) {
+    case 'win32':
+      return 'electron.exe';
+    case 'darwin':
+      return path.join('Electron.app', 'Contents', 'MacOS', 'Electron');
+    default:
+      return 'electron';
+  }
+}
+
+function resolveBinary() {
+  return path.join(distDir, platformPath());
+}
+
+function writePathTxt() {
+  fs.writeFileSync(path.join(electronDir, 'path.txt'), platformPath());
+}
+
+const binary = resolveBinary();
+
 if (fs.existsSync(binary)) {
+  try {
+    writePathTxt();
+  } catch (e) {
+    /* ignore */
+  }
   console.log(`ensure-electron: OK (${binary})`);
   process.exit(0);
 }
 
 (async () => {
-  console.log(`ensure-electron: saknar binär, hämtar Electron ${version}...`);
+  console.log(`ensure-electron: saknar binär (${process.platform}), hämtar Electron ${version}...`);
   const zipPath = await downloadArtifact({
     version,
     artifactName: 'electron',
@@ -33,13 +57,14 @@ if (fs.existsSync(binary)) {
 
   // System-unzip är mer pålitligt än extract-zip på vissa Node-versioner.
   execFileSync('unzip', ['-o', zipPath, '-d', distDir], { stdio: 'inherit' });
-  fs.writeFileSync(path.join(electronDir, 'path.txt'), process.platform === 'win32' ? 'electron.exe' : 'electron');
+  writePathTxt();
 
-  if (!fs.existsSync(binary)) {
-    console.error('ensure-electron: uppackning klar men binären saknas fortfarande');
+  const installed = resolveBinary();
+  if (!fs.existsSync(installed)) {
+    console.error(`ensure-electron: uppackning klar men binären saknas fortfarande: ${installed}`);
     process.exit(1);
   }
-  console.log(`ensure-electron: installerad -> ${binary}`);
+  console.log(`ensure-electron: installerad -> ${installed}`);
 })().catch((err) => {
   console.error(err);
   process.exit(1);
