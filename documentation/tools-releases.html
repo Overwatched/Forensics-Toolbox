@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="sv">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Verktyg &amp; releaser</title>
+    <script>
+        (function () {
+            try {
+                var params = new URLSearchParams(location.search);
+                var fromParent = params.get('theme');
+                var saved = localStorage.getItem('theme');
+                var theme = (fromParent === 'light' || fromParent === 'dark') ? fromParent
+                    : (saved === 'light' || saved === 'dark') ? saved : 'dark';
+                document.documentElement.setAttribute('data-theme', theme);
+                if (fromParent === 'light' || fromParent === 'dark') {
+                    localStorage.setItem('theme', fromParent);
+                }
+            } catch (e) {
+                document.documentElement.setAttribute('data-theme', 'dark');
+            }
+        })();
+    </script>
+    <style>
+        :root {
+            --bg: #1e1e23;
+            --surface: #28282d;
+            --border: #3a3a40;
+            --text: #e8e8ed;
+            --text-muted: #98989f;
+            --accent: #0a84ff;
+            --accent-soft: rgba(10, 132, 255, 0.14);
+            --tag-bg: #323238;
+        }
+        [data-theme="light"] {
+            --bg: #f2f2f7;
+            --surface: #ffffff;
+            --border: #d2d2d7;
+            --text: #1d1d1f;
+            --text-muted: #6e6e73;
+            --accent: #007aff;
+            --accent-soft: rgba(0, 122, 255, 0.12);
+            --tag-bg: #e8e8ed;
+        }
+        * { box-sizing: border-box; }
+        body {
+            margin: 0;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            padding: 40px 24px 80px;
+            line-height: 1.5;
+        }
+        .wrap { max-width: 860px; margin: 0 auto; }
+        h1 { font-size: 28px; margin: 0 0 8px; }
+        .lead { color: var(--text-muted); margin: 0 0 12px; }
+        .meta {
+            font-size: 13px;
+            color: var(--text-muted);
+            margin-bottom: 24px;
+            padding: 12px 14px;
+            background: var(--accent-soft);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+        }
+        .card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 16px 18px;
+            margin-bottom: 12px;
+        }
+        .card-top {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px 16px;
+            align-items: baseline;
+            justify-content: space-between;
+            margin-bottom: 8px;
+        }
+        .name { font-size: 17px; font-weight: 700; }
+        .latest {
+            font-family: Consolas, Monaco, monospace;
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--accent);
+        }
+        .notes { font-size: 14px; color: var(--text-muted); margin: 0 0 10px; }
+        .tags { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
+        .tag {
+            font-size: 11px;
+            padding: 4px 8px;
+            border-radius: 999px;
+            background: var(--tag-bg);
+            color: var(--text-muted);
+        }
+        .links { display: flex; flex-wrap: wrap; gap: 14px; font-size: 13px; }
+        .links a { color: var(--accent); text-decoration: none; }
+        .links a:hover { text-decoration: underline; }
+        .error { color: #ff453a; }
+    </style>
+</head>
+
+<body>
+    <div class="wrap">
+        <h1>Verktyg &amp; releaser</h1>
+        <p class="lead">Externa forensikverktyg och senast noterade releaser. Länkar öppnas utanför appen.</p>
+        <div id="meta" class="meta">Laddar…</div>
+        <div id="list"></div>
+    </div>
+
+    <script>
+        function escapeHtml(s) {
+            return String(s)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;');
+        }
+
+        function categoryLabel(c) {
+            const map = {
+                mobile: 'Mobil',
+                commercial: 'Kommersiell',
+                disk: 'Disk/image',
+                memory: 'Minne',
+                metadata: 'Metadata',
+                sqlite: 'SQLite',
+            };
+            return map[c] || c;
+        }
+
+        async function load() {
+            const meta = document.getElementById('meta');
+            const list = document.getElementById('list');
+            try {
+                const res = await fetch('../data/tool-releases.json');
+                if (!res.ok) throw new Error('HTTP ' + res.status);
+                const data = await res.json();
+                meta.textContent = (data.note || '') +
+                    (data.updatedAt ? ' Senast uppdaterad i repot: ' + data.updatedAt + '.' : '');
+
+                list.innerHTML = (data.tools || []).map((t) => {
+                    const released = t.releasedAt
+                        ? `<span class="tag">Release-datum: ${escapeHtml(t.releasedAt)}</span>`
+                        : '';
+                    return `
+                      <article class="card">
+                        <div class="card-top">
+                          <div class="name">${escapeHtml(t.name)}</div>
+                          <div class="latest">${escapeHtml(t.latest || '—')}</div>
+                        </div>
+                        <p class="notes">${escapeHtml(t.notes || '')}</p>
+                        <div class="tags">
+                          <span class="tag">${escapeHtml(categoryLabel(t.category))}</span>
+                          <span class="tag">${escapeHtml(t.license || 'Licens okänd')}</span>
+                          ${released}
+                        </div>
+                        <div class="links">
+                          <a href="${escapeHtml(t.url)}" target="_blank" rel="noopener noreferrer">Webbplats / repo</a>
+                          ${t.releasesUrl ? `<a href="${escapeHtml(t.releasesUrl)}" target="_blank" rel="noopener noreferrer">Releases / nyheter</a>` : ''}
+                        </div>
+                      </article>`;
+                }).join('');
+            } catch (err) {
+                meta.innerHTML = '<span class="error">Kunde inte läsa data/tool-releases.json. Kontrollera att filen finns i paketet.</span>';
+                console.error(err);
+            }
+        }
+
+        load();
+
+        window.addEventListener('message', function (event) {
+            if (event.source !== window.parent) return;
+            var data = event.data;
+            if (data && (data.source === 'forensics-toolbox' || data.source === 'verktygslada') &&
+                data.type === 'theme' && (data.theme === 'light' || data.theme === 'dark')) {
+                document.documentElement.setAttribute('data-theme', data.theme);
+                try { localStorage.setItem('theme', data.theme); } catch (e) {}
+            }
+        });
+    </script>
+</body>
+
+</html>

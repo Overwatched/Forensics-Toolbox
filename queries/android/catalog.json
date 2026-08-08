@@ -1,0 +1,172 @@
+{
+  "id": "android-queries",
+  "title": "Android Queries",
+  "source": "https://github.com/abrignoni/ALEAPP",
+  "sourceNote": "Mallarna är anpassade för copy-SQL i Forensics Toolbox, inspirerade av vanliga ALEAPP-/DFIR-artefakter. Verifiera schema mot din dump — Android/OEM varierar kraftigt.",
+  "generalCaveats": [
+    "Paths och tabellnamn skiljer sig mellan Android-versioner, OEM (Samsung/Xiaomi/…) och om du har full filsystemsextrakt vs ADB backup.",
+    "Tider: MediaStore date_added/date_modified är ofta Unix-sekunder; date_taken kan vara ms. Jämför med Time Converter.",
+    "UsageStats lagras ofta som XML under /data/system/usagestats/ — då räcker inte SQL. Mallarna täcker även SQLite-varianter där de finns.",
+    "Queries är hypotesstöd. Kör schema-probe först."
+  ],
+  "categories": [
+    {
+      "id": "mediastore",
+      "label": "MediaStore / filer",
+      "apiHint": "API 21+ (Android 5) → latest",
+      "dbPathHints": [
+        "/data/data/com.android.providers.media/databases/external.db",
+        "/data/data/com.android.providers.media.module/databases/external.db",
+        "media/0/external.db (vissa extrakt)"
+      ],
+      "notes": "Primär källa för bild-/videofiler på delad lagring. Nyare Android kan använda files-tabellen i stället för images/video.",
+      "queries": [
+        {
+          "id": "schema-probe",
+          "title": "Schema-probe (tabeller)",
+          "goal": "probe",
+          "params": [],
+          "caveats": "Identifiera om DB har 'files', 'images' och/eller 'video'.",
+          "sql": "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name;"
+        },
+        {
+          "id": "columns-files",
+          "title": "Schema-probe (kolumner files)",
+          "goal": "probe",
+          "params": [],
+          "caveats": "Om tabellen saknas: prova images / video.",
+          "sql": "PRAGMA table_info(files);"
+        },
+        {
+          "id": "by-filename-files",
+          "title": "Sök filnamn i files (tider + MIME)",
+          "goal": "filename",
+          "params": ["filename"],
+          "caveats": "date_added/date_modified = Unix s; date_taken ofta ms — justera datetime() om värden ser fel ut.",
+          "sql": "SELECT\n  _id,\n  _data,\n  _display_name,\n  mime_type,\n  media_type,\n  datetime(date_added, 'unixepoch') AS date_added_utc,\n  datetime(date_modified, 'unixepoch') AS date_modified_utc,\n  CASE\n    WHEN date_taken > 1000000000000 THEN datetime(date_taken/1000, 'unixepoch')\n    WHEN date_taken > 0 THEN datetime(date_taken, 'unixepoch')\n    ELSE NULL\n  END AS date_taken_utc,\n  date_added AS unix_added,\n  date_modified AS unix_modified,\n  date_taken AS raw_taken,\n  width,\n  height,\n  owner_package_name\nFROM files\nWHERE IFNULL(_display_name, '') LIKE '%{{filename}}%'\n   OR IFNULL(_data, '') LIKE '%{{filename}}%'\nORDER BY date_added DESC;"
+        },
+        {
+          "id": "by-filename-images",
+          "title": "Sök filnamn i images (äldre schema)",
+          "goal": "filename",
+          "params": ["filename"],
+          "caveats": "Använd om 'files' saknas. Kolumnuppsättning varierar.",
+          "sql": "SELECT\n  _id,\n  _data,\n  _display_name,\n  mime_type,\n  datetime(date_added, 'unixepoch') AS date_added_utc,\n  datetime(date_modified, 'unixepoch') AS date_modified_utc,\n  CASE\n    WHEN datetaken > 1000000000000 THEN datetime(datetaken/1000, 'unixepoch')\n    WHEN datetaken > 0 THEN datetime(datetaken, 'unixepoch')\n    ELSE NULL\n  END AS date_taken_utc,\n  datetaken AS raw_taken,\n  bucket_display_name\nFROM images\nWHERE IFNULL(_display_name, '') LIKE '%{{filename}}%'\n   OR IFNULL(_data, '') LIKE '%{{filename}}%'\nORDER BY date_added DESC;"
+        },
+        {
+          "id": "by-package",
+          "title": "Filer skapade/ägda av paket (owner_package_name)",
+          "goal": "creator",
+          "params": ["packageName"],
+          "caveats": "Kräver kolumnen owner_package_name (nyare MediaStore). Ex: com.whatsapp, com.google.android.GoogleCamera",
+          "sql": "SELECT\n  _id,\n  _data,\n  _display_name,\n  mime_type,\n  owner_package_name,\n  datetime(date_added, 'unixepoch') AS date_added_utc,\n  datetime(date_modified, 'unixepoch') AS date_modified_utc,\n  CASE\n    WHEN date_taken > 1000000000000 THEN datetime(date_taken/1000, 'unixepoch')\n    WHEN date_taken > 0 THEN datetime(date_taken, 'unixepoch')\n    ELSE NULL\n  END AS date_taken_utc\nFROM files\nWHERE IFNULL(owner_package_name, '') LIKE '%{{packageName}}%'\nORDER BY date_added DESC;"
+        },
+        {
+          "id": "recent-images",
+          "title": "Senaste bild-/mediafiler (översikt)",
+          "goal": "overview",
+          "params": [],
+          "caveats": "media_type: 1=image, 3=video (vanligt). Begränsat till 200 rader.",
+          "sql": "SELECT\n  _id,\n  _data,\n  _display_name,\n  mime_type,\n  media_type,\n  owner_package_name,\n  datetime(date_added, 'unixepoch') AS date_added_utc,\n  CASE\n    WHEN date_taken > 1000000000000 THEN datetime(date_taken/1000, 'unixepoch')\n    WHEN date_taken > 0 THEN datetime(date_taken, 'unixepoch')\n    ELSE NULL\n  END AS date_taken_utc\nFROM files\nWHERE mime_type LIKE 'image/%'\n   OR mime_type LIKE 'video/%'\n   OR media_type IN (1, 3)\nORDER BY date_added DESC\nLIMIT 200;"
+        },
+        {
+          "id": "around-time",
+          "title": "Media runt tidpunkt (Unix s)",
+          "goal": "timerange",
+          "params": ["unixStart", "unixEnd"],
+          "caveats": "Ange Unix-sekunder (UTC). Använd Time Converter. Jämför både date_added och date_taken.",
+          "sql": "SELECT\n  _id,\n  _data,\n  _display_name,\n  mime_type,\n  owner_package_name,\n  datetime(date_added, 'unixepoch') AS date_added_utc,\n  datetime(date_modified, 'unixepoch') AS date_modified_utc,\n  CASE\n    WHEN date_taken > 1000000000000 THEN datetime(date_taken/1000, 'unixepoch')\n    WHEN date_taken > 0 THEN datetime(date_taken, 'unixepoch')\n    ELSE NULL\n  END AS date_taken_utc,\n  date_added,\n  date_taken\nFROM files\nWHERE (date_added BETWEEN {{unixStart}} AND {{unixEnd}})\n   OR (\n        CASE\n          WHEN date_taken > 1000000000000 THEN date_taken/1000\n          ELSE date_taken\n        END\n      ) BETWEEN {{unixStart}} AND {{unixEnd}}\nORDER BY date_added DESC;"
+        }
+      ]
+    },
+    {
+      "id": "usage",
+      "label": "App-användning",
+      "apiHint": "API 21+ (UsageStats) → latest",
+      "dbPathHints": [
+        "/data/system/usagestats/ (XML per dag/intervall — inte SQL)",
+        "/data/data/com.android.providers.settings/ eller OEM-specifika usage-DB:er",
+        "Vissa verktyg exporterar parsed usage till SQLite/CSV via ALEAPP"
+      ],
+      "notes": "Native UsageStats är oftast XML. SQL-mallarna nedan gäller när du har en SQLite som ALEAPP eller annat verktyg skapat, eller OEM-DB. Annars: kör ALEAPP på usagestats-mappen.",
+      "queries": [
+        {
+          "id": "schema-probe",
+          "title": "Schema-probe (tabeller)",
+          "goal": "probe",
+          "params": [],
+          "caveats": "Om inga tabeller: du har troligen XML-usagestats — använd ALEAPP.",
+          "sql": "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name;"
+        },
+        {
+          "id": "usage-by-package",
+          "title": "Usage per paket (generisk mall)",
+          "goal": "creator",
+          "params": ["packageName"],
+          "caveats": "Kolumnnamn varierar (package / packageName / pkg_name). Justera efter PRAGMA. Tider kan vara ms.",
+          "sql": "-- Justera tabell-/kolumnnamn efter schema-probe!\n-- Exempelmall:\nSELECT *\nFROM sqlite_master\nWHERE type='table' AND name LIKE '%usage%';\n\n-- När du vet tabellen, exempel:\n-- SELECT *\n-- FROM usage_stats\n-- WHERE package LIKE '%{{packageName}}%'\n-- ORDER BY last_time_used DESC;"
+        },
+        {
+          "id": "aleapp-hint",
+          "title": "ALEAPP-tips (usagestats XML)",
+          "goal": "overview",
+          "params": [],
+          "caveats": "Detta är en checklista i SQL-kommentarform — körs inte mot DB.",
+          "sql": "-- Android App Usage (UsageStats)\n-- Typisk path: /data/system/usagestats/<user_id>/\n-- Innehåll: daily/weekly/monthly/yearly XML (eller analog struktur per Android-version)\n--\n-- Rekommenderat flöde:\n-- 1) Extrahera usagestats-mappen från filsystemsimage\n-- 2) Kör ALEAPP med relevant usage-artefakt aktiverad\n-- 3) Läs rapport: last time used / time in foreground / activity\n-- 4) Korsreferera med MediaStore date_taken/date_added för bildfilen\n--\n-- ALEAPP: https://github.com/abrignoni/ALEAPP\n-- Sök i ALEAPP artifacts efter: usagestats, appusage, offlineUsage, etc."
+        }
+      ]
+    },
+    {
+      "id": "camera",
+      "label": "Kameraaktivitet",
+      "apiHint": "Beroende på OEM; MediaStore + app-privata DB:er",
+      "dbPathHints": [
+        "MediaStore external.db (date_taken nära kameratid)",
+        "/data/data/com.google.android.GoogleCamera/…",
+        "/data/data/com.sec.android.app.camera/… (Samsung)",
+        "OEM gallery DB:er (cmh.db m.fl. — se ALEAPP)"
+      ],
+      "notes": "Det finns sällan en enda 'camera.db' för alla Android. Kombinera MediaStore (DCIM/Camera) med OEM-/Google Camera-artefakter via ALEAPP.",
+      "queries": [
+        {
+          "id": "dcim-camera",
+          "title": "MediaStore: filer under DCIM/Camera",
+          "goal": "camera",
+          "params": [],
+          "caveats": "Stark indikator på kamerafångst, men screenshot/other apps kan också spara under DCIM.",
+          "sql": "SELECT\n  _id,\n  _data,\n  _display_name,\n  mime_type,\n  owner_package_name,\n  datetime(date_added, 'unixepoch') AS date_added_utc,\n  CASE\n    WHEN date_taken > 1000000000000 THEN datetime(date_taken/1000, 'unixepoch')\n    WHEN date_taken > 0 THEN datetime(date_taken, 'unixepoch')\n    ELSE NULL\n  END AS date_taken_utc\nFROM files\nWHERE IFNULL(_data, '') LIKE '%/DCIM/Camera/%'\n   OR IFNULL(_data, '') LIKE '%/DCIM/CAMERA/%'\nORDER BY date_added DESC\nLIMIT 300;"
+        },
+        {
+          "id": "dcim-around-time",
+          "title": "DCIM/Camera runt tidpunkt (Unix s)",
+          "goal": "timerange",
+          "params": ["unixStart", "unixEnd"],
+          "caveats": "Bra steg i playbook: 'var kameran aktiv?' via media nära T.",
+          "sql": "SELECT\n  _id,\n  _data,\n  _display_name,\n  mime_type,\n  owner_package_name,\n  datetime(date_added, 'unixepoch') AS date_added_utc,\n  CASE\n    WHEN date_taken > 1000000000000 THEN datetime(date_taken/1000, 'unixepoch')\n    WHEN date_taken > 0 THEN datetime(date_taken, 'unixepoch')\n    ELSE NULL\n  END AS date_taken_utc,\n  date_added,\n  date_taken\nFROM files\nWHERE (IFNULL(_data, '') LIKE '%/DCIM/Camera/%' OR IFNULL(_data, '') LIKE '%/DCIM/CAMERA/%')\n  AND (\n    (date_added BETWEEN {{unixStart}} AND {{unixEnd}})\n    OR (\n      CASE WHEN date_taken > 1000000000000 THEN date_taken/1000 ELSE date_taken END\n    ) BETWEEN {{unixStart}} AND {{unixEnd}}\n  )\nORDER BY date_added DESC;"
+        },
+        {
+          "id": "camera-package",
+          "title": "Media ägd av kamera-app",
+          "goal": "camera",
+          "params": [],
+          "caveats": "owner_package_name måste finnas. Utöka LIKE-listan för OEM-kameror.",
+          "sql": "SELECT\n  _id,\n  _data,\n  _display_name,\n  owner_package_name,\n  mime_type,\n  datetime(date_added, 'unixepoch') AS date_added_utc,\n  CASE\n    WHEN date_taken > 1000000000000 THEN datetime(date_taken/1000, 'unixepoch')\n    WHEN date_taken > 0 THEN datetime(date_taken, 'unixepoch')\n    ELSE NULL\n  END AS date_taken_utc\nFROM files\nWHERE IFNULL(owner_package_name, '') LIKE '%camera%'\n   OR IFNULL(owner_package_name, '') LIKE '%Camera%'\n   OR IFNULL(owner_package_name, '') IN (\n        'com.google.android.GoogleCamera',\n        'com.sec.android.app.camera',\n        'com.android.camera',\n        'com.huawei.camera',\n        'com.miui.camera'\n      )\nORDER BY date_added DESC\nLIMIT 300;"
+        },
+        {
+          "id": "aleapp-camera-hint",
+          "title": "ALEAPP-tips (OEM camera/gallery)",
+          "goal": "overview",
+          "params": [],
+          "caveats": "Checklista — kör ALEAPP för Samsung CMH, gallery, etc.",
+          "sql": "-- Kamera / gallery artifacts (Android)\n-- Utöver MediaStore, kolla ALEAPP för bland annat:\n--   - Samsung CMH / gallery databases\n--   - Google Camera private app data\n--   - OEM 'recent images' / clipboard / cache\n--\n-- Flöde:\n-- 1) Hitta tid för bildfilen (MediaStore / EXIF)\n-- 2) DCIM/Camera + owner_package_name (SQL ovan)\n-- 3) Kör ALEAPP på fullt filsystemsextrakt\n-- 4) Korsreferera app usage (usagestats) runt samma tid\n--\n-- ALEAPP: https://github.com/abrignoni/ALEAPP"
+        }
+      ]
+    }
+  ],
+  "paramLabels": {
+    "filename": "Filnamn eller path-delsträng (t.ex. IMG_20240101)",
+    "packageName": "Paketnamn-delsträng (t.ex. whatsapp, GoogleCamera)",
+    "unixStart": "Start (Unix-sekunder, UTC)",
+    "unixEnd": "Slut (Unix-sekunder, UTC)"
+  }
+}

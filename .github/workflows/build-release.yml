@@ -1,0 +1,160 @@
+name: Bygg och publicera (Windows, Linux, macOS)
+
+# Bygger native på respektive runner via matrix (inte cross-compile från en maskin).
+# Push till main (utom rena .md-ändringar) eller manuell "Run workflow".
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - '**.md'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Läs version från Toolbox.html
+        id: version
+        run: node scripts/sync-version.js
+
+  build:
+    needs: version
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            platform: win
+          - os: ubuntu-latest
+            platform: linux
+          - os: macos-latest
+            platform: mac
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Cacha electron-builder (Windows)
+        if: matrix.platform == 'win'
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~\AppData\Local\electron\Cache
+            ~\AppData\Local\electron-builder\Cache
+          key: ${{ runner.os }}-electron-cache-${{ hashFiles('package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-electron-cache-
+
+      - name: Cacha electron-builder (Unix)
+        if: matrix.platform != 'win'
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/electron
+            ~/.cache/electron-builder
+          key: ${{ runner.os }}-electron-cache-${{ hashFiles('package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-electron-cache-
+
+      - name: Installera beroenden
+        run: npm ci
+
+      - name: Synka version
+        run: npm run sync-version
+
+      - name: Bygg Windows
+        if: matrix.platform == 'win'
+        run: |
+          npx electron-builder --win
+          node scripts/finalize-artifacts.js
+
+      - name: Bygg Linux (AppImage)
+        if: matrix.platform == 'linux'
+        run: npx electron-builder --linux AppImage
+
+      - name: Bygg macOS (osignerat DMG + ZIP)
+        if: matrix.platform == 'mac'
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: false
+        run: npx electron-builder --mac
+
+      - name: Lista release-filer
+        shell: bash
+        run: ls -la release/ || true
+
+      - name: Ladda upp build-artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: forensics-toolbox-${{ matrix.platform }}
+          path: |
+            release/ForensicsToolbox*
+            release/*.AppImage
+            release/*.dmg
+            release/*.zip
+            release/*.exe
+          if-no-files-found: warn
+
+  release:
+    needs: [version, build]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ladda ner alla plattformsartifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          pattern: forensics-toolbox-*
+          merge-multiple: true
+
+      - name: Lista filer
+        run: find dist -type f | sort
+
+      - name: Rensa gamla assets i releasen (om den finns)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="v${{ needs.version.outputs.version }}"
+          if gh release view "$TAG" --repo "${{ github.repository }}" >/dev/null 2>&1; then
+            gh release view "$TAG" --repo "${{ github.repository }}" --json assets --jq '.assets[].name' |
+              while IFS= read -r name; do
+                echo "Tar bort tidigare asset: $name"
+                gh release delete-asset "$TAG" "$name" --repo "${{ github.repository }}" --yes
+              done
+          else
+            echo "Ingen befintlig release för $TAG ännu."
+          fi
+
+      - name: Skapa/uppdatera GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ needs.version.outputs.version }}
+          name: Forensics Toolbox ${{ needs.version.outputs.version }}
+          body: |
+            Automatiskt byggd från commit `${{ github.sha }}`.
+
+            ## Windows
+            - **ForensicsToolbox-${{ needs.version.outputs.version }}.exe** — portabel
+            - **ForensicsToolbox-${{ needs.version.outputs.version }}-Installer.exe** — NSIS-installer
+
+            ## Linux
+            - **ForensicsToolbox-*.AppImage** — körbar AppImage (x64)
+
+            ## macOS
+            - **ForensicsToolbox-*.dmg** / **.zip** — osignerat bygge (Gatekeeper kan varna; högerklicka → Öppna)
+
+            > macOS-binären är **inte** notariserad/signerad i CI. Windows är osignerad också.
+          files: |
+            dist/**
+          fail_on_unmatched_files: false

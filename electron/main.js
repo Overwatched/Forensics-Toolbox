@@ -32,13 +32,13 @@ function createWindow() {
         webPreferences: {
             // Verktygen körs som lokalt, statiskt innehåll och behöver aldrig Node-åtkomst.
             // Det här är säkra standardinställningar som isolerar sidans JS (inkl. tredjeparts-
-            // bibliotek som jQuery/bitcoinjs/CyberChef) från operativsystemet.
+            // bibliotek som CyberChef) från operativsystemet.
             contextIsolation: true,
             nodeIntegration: false,
             sandbox: true,
             webSecurity: true,
             spellcheck: false,
-            // Krävs för Chromiums inbyggda PDF-visare (används av documentation/phantom.pdf).
+            // Krävs för Chromiums inbyggda PDF-visare.
             plugins: true,
         },
     };
@@ -109,16 +109,16 @@ function buildMenu() {
             submenu: [
                 {
                     label: 'Öppna på GitHub',
-                    click: () => shell.openExternal('https://github.com/AdrianNeshad/CryptoToolbox'),
+                    click: () => shell.openExternal('https://github.com/Overwatched/Forensics-Toolbox'),
                 },
                 {
-                    label: 'Om Verktygslådan',
+                    label: 'Om Forensics Toolbox',
                     click: () => {
                         dialog.showMessageBox(mainWindow, {
                             type: 'info',
-                            title: 'Om Verktygslådan',
-                            message: 'Verktygslådan',
-                            detail: `Version ${app.getVersion()}\n\nKörs helt lokalt på den här datorn. Ingen internetanslutning krävs för verktygen — endast för de valfria GitHub-nedladdningarna och externa länkarna i sidopanelen.`,
+                            title: 'Om Forensics Toolbox',
+                            message: 'Forensics Toolbox',
+                            detail: `Version ${app.getVersion()}\n\nLokal verktygslåda för IT-forensik. Körs helt lokalt på den här datorn. Ingen internetanslutning krävs för verktygen — endast för de valfria externa länkarna i sidopanelen.\n\nBaserad på CryptoToolbox av Adrian Neshad.`,
                         });
                     },
                 },
@@ -130,8 +130,8 @@ function buildMenu() {
 }
 
 app.whenReady().then(() => {
-    // Visa en "Spara som"-dialog för nedladdningar (t.ex. GitHub-zip-filerna i sidopanelen)
-    // istället för att tyst spara dem i standardmappen för nedladdningar.
+    // Visa en "Spara som"-dialog för nedladdningar istället för att tyst spara dem
+    // i standardmappen för nedladdningar.
     session.defaultSession.on('will-download', (_event, item) => {
         item.setSaveDialogOptions({ defaultPath: item.getFilename() });
     });

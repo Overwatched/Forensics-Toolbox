@@ -1,12 +1,8 @@
 #!/usr/bin/env node
 // Döper om de filer electron-builder just byggde i release/ till det slutgiltiga,
-// användarvända namnet: "VerktygslådanX.Y.exe" (portabel) och
-// "VerktygslådanX.Y-Installer.exe" (NSIS-installer) — där X.Y alltid är samma
+// användarvända namnet: "ForensicsToolbox-X.Y.exe" (portabel) och
+// "ForensicsToolbox-X.Y-Installer.exe" (NSIS-installer) — där X.Y alltid är samma
 // version som visas i Toolbox.htmls sidopanel.
-//
-// Obs: GitHub Releases sanerar automatiskt asset-filnamn vid uppladdning (å/ä/ö -> a/a/o,
-// mellanslag -> punkt). Vi använder därför bindestreck istället för mellanslag här, så det
-// sanerade resultatet blir "Verktygsladan1.6-Installer.exe" och inte "...1.6.Installer.exe".
 //
 // Körs automatiskt efter `npm run dist` / `dist:portable` / `dist:installer`.
 
@@ -29,13 +25,13 @@ if (!fs.existsSync(RELEASE_DIR)) {
     process.exit(1);
 }
 
-const portableName = `Verktygslådan${shortVersion}.exe`;
-const installerName = `Verktygslådan${shortVersion}-Installer.exe`;
+const portableName = `ForensicsToolbox-${shortVersion}.exe`;
+const installerName = `ForensicsToolbox-${shortVersion}-Installer.exe`;
 
 // Städa bort ev. tidigare omdöpta filer från lokala testbyggen av en annan version,
 // så de inte ligger kvar och skapar förvirring bredvid den nya byggen.
 for (const file of fs.readdirSync(RELEASE_DIR)) {
-    if (/^Verktygslådan\d+\.\d+(-Installer)?\.exe$/.test(file) && file !== portableName && file !== installerName) {
+    if (/^ForensicsToolbox-\d+\.\d+(-Installer)?\.exe$/.test(file) && file !== portableName && file !== installerName) {
         fs.unlinkSync(path.join(RELEASE_DIR, file));
     }
 }
@@ -55,5 +51,5 @@ function renameFirstMatch(pattern, targetName) {
     console.log(`finalize-artifacts: ${found} -> ${targetName}`);
 }
 
-renameFirstMatch(/^Verktygslådan-Portable-.*\.exe$/i, portableName);
-renameFirstMatch(/^Verktygslådan Setup .*\.exe$/i, installerName);
+renameFirstMatch(/^ForensicsToolbox-Portable-.*\.exe$/i, portableName);
+renameFirstMatch(/^Forensics Toolbox Setup .*\.exe$/i, installerName);

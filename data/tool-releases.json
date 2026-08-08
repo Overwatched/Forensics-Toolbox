@@ -1,0 +1,83 @@
+{
+  "updatedAt": "2026-08-09",
+  "note": "Kuraterad lista — uppdateras manuellt. Appen gör inga nätverksanrop för att hämta releaser.",
+  "tools": [
+    {
+      "id": "ileapp",
+      "name": "iLEAPP",
+      "category": "mobile",
+      "latest": "v2026.2.0",
+      "releasedAt": "2026-07-20",
+      "url": "https://github.com/abrignoni/iLEAPP",
+      "releasesUrl": "https://github.com/abrignoni/iLEAPP/releases",
+      "license": "MIT",
+      "notes": "iOS Logs, Events And Protobuf Parser — logical extraction / artifact parsing."
+    },
+    {
+      "id": "aleapp",
+      "name": "ALEAPP",
+      "category": "mobile",
+      "latest": "v2026.2.0",
+      "releasedAt": "2026-07-24",
+      "url": "https://github.com/abrignoni/ALEAPP",
+      "releasesUrl": "https://github.com/abrignoni/ALEAPP/releases",
+      "license": "MIT",
+      "notes": "Android Logs, Events And Protobuf Parser — logical extraction / artifact parsing."
+    },
+    {
+      "id": "passware",
+      "name": "Passware Kit Forensic",
+      "category": "commercial",
+      "latest": "2026 v3",
+      "releasedAt": "2026-07-23",
+      "url": "https://www.passware.com/kit-forensic/",
+      "releasesUrl": "https://blog.passware.com/passware-kit-2026-v3/",
+      "license": "Commercial",
+      "notes": "Lösenordsåterställning / dekryptering. Synliggör senaste publika release — ingen mjukvara ingår i denna toolbox."
+    },
+    {
+      "id": "autopsy",
+      "name": "Autopsy",
+      "category": "disk",
+      "latest": "Se GitHub Releases",
+      "releasedAt": null,
+      "url": "https://www.autopsy.com/",
+      "releasesUrl": "https://github.com/sleuthkit/autopsy/releases",
+      "license": "Apache-2.0",
+      "notes": "Disk-/image-forensik med The Sleuth Kit."
+    },
+    {
+      "id": "volatility3",
+      "name": "Volatility 3",
+      "category": "memory",
+      "latest": "Se GitHub Releases",
+      "releasedAt": null,
+      "url": "https://github.com/volatilityfoundation/volatility3",
+      "releasesUrl": "https://github.com/volatilityfoundation/volatility3/releases",
+      "license": "Custom / VSSPL-related",
+      "notes": "Minnesforensik (RAM-analyser)."
+    },
+    {
+      "id": "exiftool",
+      "name": "ExifTool",
+      "category": "metadata",
+      "latest": "Se project page",
+      "releasedAt": null,
+      "url": "https://exiftool.org/",
+      "releasesUrl": "https://exiftool.org/",
+      "license": "Artistic / GPL",
+      "notes": "Läs/skriv metadata i bilder och andra filer."
+    },
+    {
+      "id": "db-browser-sqlite",
+      "name": "DB Browser for SQLite",
+      "category": "sqlite",
+      "latest": "Se GitHub Releases",
+      "releasedAt": null,
+      "url": "https://sqlitebrowser.org/",
+      "releasesUrl": "https://github.com/sqlitebrowser/sqlitebrowser/releases",
+      "license": "MPL-2.0 / GPL",
+      "notes": "GUI för att öppna och köra SQL mot SQLite-databaser (t.ex. Photos.sqlite)."
+    }
+  ]
+}

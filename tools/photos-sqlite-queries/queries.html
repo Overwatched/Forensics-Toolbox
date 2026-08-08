@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="sv">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Photos.sqlite Queries</title>
+    <script>
+        (function () {
+            try {
+                var params = new URLSearchParams(location.search);
+                var fromParent = params.get('theme');
+                var saved = localStorage.getItem('theme');
+                var theme = (fromParent === 'light' || fromParent === 'dark') ? fromParent
+                    : (saved === 'light' || saved === 'dark') ? saved : 'dark';
+                document.documentElement.setAttribute('data-theme', theme);
+                if (fromParent === 'light' || fromParent === 'dark') {
+                    localStorage.setItem('theme', fromParent);
+                }
+            } catch (e) {
+                document.documentElement.setAttribute('data-theme', 'dark');
+            }
+        })();
+    </script>
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+    <div id="container">
+        <header class="page-header">
+            <h1>Photos.sqlite Queries</h1>
+            <p>Generera SQL för app/källa, tider och filnamn — iOS 10 → latest. Kopiera till DB Browser / sqlite3.</p>
+        </header>
+
+        <div id="load-error" class="banner error display-none"></div>
+
+        <div id="meta-box" class="banner display-none"></div>
+
+        <label class="field-label" for="band-select">iOS-version</label>
+        <select id="band-select" disabled></select>
+
+        <label class="field-label" for="query-select">Query</label>
+        <select id="query-select" disabled></select>
+
+        <div id="band-notes" class="notes display-none"></div>
+
+        <div id="params" class="params"></div>
+
+        <div class="button-row">
+            <button id="generate-button" type="button" disabled>Generera SQL</button>
+            <button id="copy-button" class="secondary" type="button" disabled>Kopiera SQL</button>
+        </div>
+
+        <div id="caveats" class="caveats display-none"></div>
+
+        <label class="field-label" for="sql-out">SQL</label>
+        <textarea id="sql-out" spellcheck="false" readonly placeholder="SQL visas här…"></textarea>
+
+        <section class="help">
+            <h2>Så använder du det</h2>
+            <ol>
+                <li>Öppna <code>Photos.sqlite</code> i DB Browser for SQLite (eller sqlite3).</li>
+                <li>Kör <strong>Schema-probe</strong> först och jämför kolumner med queryn.</li>
+                <li>Fyll i filnamn/UUID/bundle-ID, generera, kopiera och kör.</li>
+                <li>Tolka Cocoa-tider med <strong>Time Converter</strong> vid behov.</li>
+            </ol>
+        </section>
+    </div>
+
+    <div id="toast" class="toast">Kopierat</div>
+    <script src="script.js"></script>
+</body>
+
+</html>

@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="sv">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Vanliga artifacts</title>
+    <script>
+        (function () {
+            try {
+                var params = new URLSearchParams(location.search);
+                var fromParent = params.get('theme');
+                var saved = localStorage.getItem('theme');
+                var theme = (fromParent === 'light' || fromParent === 'dark') ? fromParent
+                    : (saved === 'light' || saved === 'dark') ? saved : 'dark';
+                document.documentElement.setAttribute('data-theme', theme);
+                if (fromParent === 'light' || fromParent === 'dark') {
+                    localStorage.setItem('theme', fromParent);
+                }
+            } catch (e) {
+                document.documentElement.setAttribute('data-theme', 'dark');
+            }
+        })();
+    </script>
+    <style>
+        :root {
+            --bg: #1e1e23;
+            --surface: #28282d;
+            --border: #3a3a40;
+            --text: #e8e8ed;
+            --text-muted: #98989f;
+            --accent: #0a84ff;
+        }
+        [data-theme="light"] {
+            --bg: #f2f2f7;
+            --surface: #ffffff;
+            --border: #d2d2d7;
+            --text: #1d1d1f;
+            --text-muted: #6e6e73;
+            --accent: #007aff;
+        }
+        * { box-sizing: border-box; }
+        body {
+            margin: 0;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            padding: 40px 24px 80px;
+            line-height: 1.5;
+        }
+        .wrap { max-width: 860px; margin: 0 auto; }
+        h1 { font-size: 28px; margin: 0 0 8px; }
+        .lead { color: var(--text-muted); margin: 0 0 28px; }
+        h2 { font-size: 18px; margin: 28px 0 12px; }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            overflow: hidden;
+        }
+        th, td {
+            text-align: left;
+            padding: 12px 14px;
+            border-bottom: 1px solid var(--border);
+            vertical-align: top;
+            font-size: 14px;
+        }
+        th { color: var(--text-muted); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.03em; }
+        tr:last-child td { border-bottom: none; }
+        code {
+            font-family: Consolas, Monaco, monospace;
+            font-size: 12px;
+            word-break: break-all;
+        }
+        .note {
+            margin-top: 24px;
+            padding: 14px 16px;
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            color: var(--text-muted);
+            font-size: 13px;
+            background: var(--surface);
+        }
+    </style>
+</head>
+
+<body>
+    <div class="wrap">
+        <h1>Vanliga artifacts</h1>
+        <p class="lead">Snabbreferens för vanliga IT-forensiska artefaktplatser. Börja här — utöka efter behov.</p>
+
+        <h2>Windows</h2>
+        <table>
+            <thead>
+                <tr><th>Artifact</th><th>Typisk plats</th><th>Användning</th></tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td>Prefetch</td>
+                    <td><code>C:\Windows\Prefetch\*.pf</code></td>
+                    <td>Programkörning, ungefärlig tid</td>
+                </tr>
+                <tr>
+                    <td>Amcache</td>
+                    <td><code>C:\Windows\AppCompat\Programs\Amcache.hve</code></td>
+                    <td>Exekverade program, SHA-1</td>
+                </tr>
+                <tr>
+                    <td>Event Logs</td>
+                    <td><code>C:\Windows\System32\winevt\Logs\</code></td>
+                    <td>Inloggningar, processer, säkerhet</td>
+                </tr>
+                <tr>
+                    <td>Registry (SYSTEM/SOFTWARE)</td>
+                    <td><code>C:\Windows\System32\config\</code></td>
+                    <td>Systemkonfiguration, tjänster, USB</td>
+                </tr>
+                <tr>
+                    <td>NTUSER.DAT</td>
+                    <td><code>C:\Users\&lt;user&gt;\NTUSER.DAT</code></td>
+                    <td>Användaraktivitet, Run-nycklar</td>
+                </tr>
+                <tr>
+                    <td>$MFT</td>
+                    <td><code>C:\$MFT</code></td>
+                    <td>Filmetadata, tidslinje</td>
+                </tr>
+            </tbody>
+        </table>
+
+        <h2>Webbläsare</h2>
+        <table>
+            <thead>
+                <tr><th>Artifact</th><th>Typisk plats</th><th>Användning</th></tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td>Chrome History</td>
+                    <td><code>%LocalAppData%\Google\Chrome\User Data\Default\History</code></td>
+                    <td>Besökta URL:er</td>
+                </tr>
+                <tr>
+                    <td>Chrome Cookies</td>
+                    <td><code>%LocalAppData%\Google\Chrome\User Data\Default\Cookies</code></td>
+                    <td>Sessioner, tracking</td>
+                </tr>
+                <tr>
+                    <td>Firefox places</td>
+                    <td><code>%AppData%\Mozilla\Firefox\Profiles\&lt;profile&gt;\places.sqlite</code></td>
+                    <td>Historik och bokmärken</td>
+                </tr>
+                <tr>
+                    <td>Edge History</td>
+                    <td><code>%LocalAppData%\Microsoft\Edge\User Data\Default\History</code></td>
+                    <td>Besökta URL:er</td>
+                </tr>
+            </tbody>
+        </table>
+
+        <h2>Linux</h2>
+        <table>
+            <thead>
+                <tr><th>Artifact</th><th>Typisk plats</th><th>Användning</th></tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td>Auth / syslog</td>
+                    <td><code>/var/log/auth.log</code>, <code>/var/log/syslog</code></td>
+                    <td>Inloggningar, systemhändelser</td>
+                </tr>
+                <tr>
+                    <td>Bash history</td>
+                    <td><code>~/.bash_history</code></td>
+                    <td>Kommandohistorik</td>
+                </tr>
+                <tr>
+                    <td>systemd journal</td>
+                    <td><code>journalctl</code> / <code>/var/log/journal/</code></td>
+                    <td>Tjänster och boot</td>
+                </tr>
+            </tbody>
+        </table>
+
+        <div class="note">
+            Detta är en startpunkt, inte en komplett checklista. Paths kan variera mellan OS-versioner och profiler.
+        </div>
+    </div>
+
+    <script>
+        window.addEventListener('message', function (event) {
+            if (event.source !== window.parent) return;
+            var data = event.data;
+            if (data && (data.source === 'forensics-toolbox' || data.source === 'verktygslada') &&
+                data.type === 'theme' && (data.theme === 'light' || data.theme === 'dark')) {
+                document.documentElement.setAttribute('data-theme', data.theme);
+                try { localStorage.setItem('theme', data.theme); } catch (e) {}
+            }
+        });
+    </script>
+</body>
+
+</html>

@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="sv">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Android Queries</title>
+    <script>
+        (function () {
+            try {
+                var params = new URLSearchParams(location.search);
+                var fromParent = params.get('theme');
+                var saved = localStorage.getItem('theme');
+                var theme = (fromParent === 'light' || fromParent === 'dark') ? fromParent
+                    : (saved === 'light' || saved === 'dark') ? saved : 'dark';
+                document.documentElement.setAttribute('data-theme', theme);
+                if (fromParent === 'light' || fromParent === 'dark') {
+                    localStorage.setItem('theme', fromParent);
+                }
+            } catch (e) {
+                document.documentElement.setAttribute('data-theme', 'dark');
+            }
+        })();
+    </script>
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+    <div id="container">
+        <header class="page-header">
+            <h1>Android Queries</h1>
+            <p>MediaStore, kamera (DCIM) och app-användning — SQL-mallar + ALEAPP-tips. Android 5 → latest där det går.</p>
+        </header>
+
+        <div id="load-error" class="banner error display-none"></div>
+        <div id="meta-box" class="banner display-none"></div>
+
+        <label class="field-label" for="category-select">Kategori</label>
+        <select id="category-select" disabled></select>
+
+        <label class="field-label" for="query-select">Query</label>
+        <select id="query-select" disabled></select>
+
+        <div id="category-notes" class="notes display-none"></div>
+        <div id="path-hints" class="notes display-none"></div>
+        <div id="params" class="params"></div>
+
+        <div class="button-row">
+            <button id="generate-button" type="button" disabled>Generera SQL</button>
+            <button id="copy-button" class="secondary" type="button" disabled>Kopiera</button>
+        </div>
+
+        <div id="caveats" class="caveats display-none"></div>
+
+        <label class="field-label" for="sql-out">SQL / checklista</label>
+        <textarea id="sql-out" spellcheck="false" readonly placeholder="SQL visas här…"></textarea>
+
+        <section class="help">
+            <h2>Så använder du det</h2>
+            <ol>
+                <li>Hitta rätt DB (paths under kategorin) eller kör <strong>ALEAPP</strong> på extraktet.</li>
+                <li>Börja med <strong>Schema-probe</strong> och justera kolumnnamn vid behov.</li>
+                <li>För UsageStats XML: följ ALEAPP-tipsen — det är ofta inte SQL.</li>
+                <li>Korsreferera tider med <strong>Time Converter</strong>.</li>
+            </ol>
+        </section>
+    </div>
+
+    <div id="toast" class="toast">Kopierat</div>
+    <script src="script.js"></script>
+</body>
+
+</html>

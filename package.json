@@ -1,19 +1,24 @@
 {
-  "name": "verktygslada",
-  "productName": "Verktygslådan",
-  "version": "1.6.0",
-  "description": "Lokal verktygslåda för kryptografi, BIP38/BIP39, QR-avkodning, CyberChef m.m. Körs helt offline.",
-  "author": "Adrian Neshad",
+  "name": "forensics-toolbox",
+  "productName": "Forensics Toolbox",
+  "version": "0.1.0",
+  "description": "Lokal verktygslåda för IT-forensik. Encoding, hash, tidskonvertering, CyberChef m.m. Körs helt offline.",
+  "author": "Overwatched",
   "license": "UNLICENSED",
   "private": true,
   "main": "electron/main.js",
   "scripts": {
-    "start": "electron .",
+    "start": "env -u ELECTRON_RUN_AS_NODE electron .",
+    "postinstall": "node scripts/ensure-electron.js",
     "sync-version": "node scripts/sync-version.js",
+    "pack": "electron-builder --dir",
+    "pack:linux": "npm run sync-version && electron-builder --linux --dir",
+    "dist:linux": "npm run sync-version && electron-builder --linux AppImage",
+    "dist:mac": "npm run sync-version && CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --mac",
     "dist": "npm run sync-version && electron-builder --win && node scripts/finalize-artifacts.js",
+    "dist:win": "npm run dist",
     "dist:installer": "npm run sync-version && electron-builder --win nsis && node scripts/finalize-artifacts.js",
-    "dist:portable": "npm run sync-version && electron-builder --win portable && node scripts/finalize-artifacts.js",
-    "pack": "electron-builder --dir"
+    "dist:portable": "npm run sync-version && electron-builder --win portable && node scripts/finalize-artifacts.js"
   },
   "devDependencies": {
     "electron": "^33.4.11",
@@ -22,8 +27,8 @@
     "sharp": "^0.35.3"
   },
   "build": {
-    "appId": "se.adrianneshad.verktygslada",
-    "productName": "Verktygslådan",
+    "appId": "com.overwatched.forensics-toolbox",
+    "productName": "Forensics Toolbox",
     "directories": {
       "output": "release"
     },
@@ -34,9 +39,44 @@
       "src/**/*",
       "tools/**/*",
       "documentation/**/*",
+      "data/**/*",
+      "queries/**/*",
       "package.json",
       "!**/*.md"
     ],
+    "linux": {
+      "target": [
+        {
+          "target": "AppImage",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "category": "Utility",
+      "artifactName": "ForensicsToolbox-${version}.${ext}"
+    },
+    "mac": {
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        }
+      ],
+      "category": "public.app-category.utilities",
+      "identity": null,
+      "artifactName": "ForensicsToolbox-${version}-${arch}.${ext}"
+    },
     "win": {
       "target": [
         {
@@ -61,10 +101,10 @@
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "Verktygslådan"
+      "shortcutName": "Forensics Toolbox"
     },
     "portable": {
-      "artifactName": "Verktygslådan-Portable-${version}.exe"
+      "artifactName": "ForensicsToolbox-Portable-${version}.exe"
     }
   },
   "allowScripts": {

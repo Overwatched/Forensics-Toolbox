@@ -1,0 +1,256 @@
+{
+  "id": "photos-sqlite",
+  "title": "Photos.sqlite",
+  "dbPathHint": "Media/PhotoData/Photos.sqlite (iOS-backup / filsystemsextrakt)",
+  "timeNote": "ZDATECREATED, ZMODIFICATIONDATE och ZADDEDDATE är normalt Apple Cocoa-tid (sekunder sedan 2001-01-01 UTC). Mallarna konverterar med +978307200 → unixepoch. Verifiera mot Time Converter vid behov.",
+  "generalCaveats": [
+    "Scheman ändras mellan iOS-versioner — kör alltid 'Schema-probe' mot din DB först.",
+    "Kolumn-/FK-namn (t.ex. ZASSET vs ZGENERICASSET) kan skilja sig; prova närmaste versionsband.",
+    "Queries är hypotesstöd, inte bevis. Attribution: mönster i linje med iLEAPP/DFIR-praxis — anpassa efter din dump.",
+    "Bundle-ID (ZCREATORBUNDLEID / ZEDITORBUNDLEID) indikerar ofta källapp/importväg, men kan saknas eller vara generisk."
+  ],
+  "source": "https://github.com/abrignoni/iLEAPP",
+  "bands": [
+    {
+      "id": "ios10-12",
+      "label": "iOS 10–12",
+      "versionMin": 10,
+      "versionMax": 12,
+      "notes": "ZGENERICASSET + ZADDITIONALASSETATTRIBUTES. Äldre kolumnuppsättning.",
+      "queries": [
+        {
+          "id": "schema-probe",
+          "title": "Schema-probe (tabeller)",
+          "goal": "probe",
+          "params": [],
+          "caveats": "Lista tabellnamn så du ser om ZGENERICASSET / ZASSET finns.",
+          "sql": "SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'Z%' ORDER BY name;"
+        },
+        {
+          "id": "columns-asset",
+          "title": "Schema-probe (kolumner asset)",
+          "goal": "probe",
+          "params": [],
+          "caveats": "Byt tabellnamn om probe visar ZASSET istället för ZGENERICASSET.",
+          "sql": "PRAGMA table_info(ZGENERICASSET);\nPRAGMA table_info(ZADDITIONALASSETATTRIBUTES);"
+        },
+        {
+          "id": "by-filename",
+          "title": "Sök via filnamn (app + tider)",
+          "goal": "filename",
+          "params": ["filename"],
+          "caveats": "Partial match. Om JOIN misslyckas: kontrollera FK-kolumn (ZASSET).",
+          "sql": "SELECT\n  a.Z_PK AS asset_pk,\n  a.ZDIRECTORY,\n  a.ZFILENAME,\n  datetime(a.ZDATECREATED + 978307200, 'unixepoch') AS date_created_utc,\n  datetime(a.ZMODIFICATIONDATE + 978307200, 'unixepoch') AS modification_utc,\n  datetime(a.ZADDEDDATE + 978307200, 'unixepoch') AS added_utc,\n  a.ZDATECREATED AS cocoa_created,\n  a.ZMODIFICATIONDATE AS cocoa_modified,\n  a.ZADDEDDATE AS cocoa_added,\n  aa.ZORIGINALFILENAME,\n  aa.ZCREATORBUNDLEID,\n  aa.ZEDITORBUNDLEID,\n  aa.ZEXIFTIMESTAMPSTRING\nFROM ZGENERICASSET a\nLEFT JOIN ZADDITIONALASSETATTRIBUTES aa ON aa.ZASSET = a.Z_PK\nWHERE a.ZFILENAME LIKE '%{{filename}}%'\n   OR IFNULL(aa.ZORIGINALFILENAME, '') LIKE '%{{filename}}%'\nORDER BY a.ZADDEDDATE DESC;"
+        },
+        {
+          "id": "by-uuid",
+          "title": "Sök via UUID",
+          "goal": "uuid",
+          "params": ["uuid"],
+          "caveats": "UUID-kolumn kan heta ZUUID. Justera om PRAGMA visar annat.",
+          "sql": "SELECT\n  a.Z_PK AS asset_pk,\n  a.ZUUID,\n  a.ZDIRECTORY,\n  a.ZFILENAME,\n  datetime(a.ZDATECREATED + 978307200, 'unixepoch') AS date_created_utc,\n  datetime(a.ZMODIFICATIONDATE + 978307200, 'unixepoch') AS modification_utc,\n  datetime(a.ZADDEDDATE + 978307200, 'unixepoch') AS added_utc,\n  aa.ZORIGINALFILENAME,\n  aa.ZCREATORBUNDLEID,\n  aa.ZEDITORBUNDLEID,\n  aa.ZEXIFTIMESTAMPSTRING\nFROM ZGENERICASSET a\nLEFT JOIN ZADDITIONALASSETATTRIBUTES aa ON aa.ZASSET = a.Z_PK\nWHERE a.ZUUID LIKE '%{{uuid}}%';"
+        },
+        {
+          "id": "recent-with-creator",
+          "title": "Senast tillagda (med skapar-app)",
+          "goal": "overview",
+          "params": [],
+          "caveats": "Begränsad till 200 rader. Bra överblick innan filnamnssök.",
+          "sql": "SELECT\n  a.Z_PK AS asset_pk,\n  a.ZDIRECTORY,\n  a.ZFILENAME,\n  datetime(a.ZADDEDDATE + 978307200, 'unixepoch') AS added_utc,\n  datetime(a.ZDATECREATED + 978307200, 'unixepoch') AS date_created_utc,\n  aa.ZCREATORBUNDLEID,\n  aa.ZEDITORBUNDLEID,\n  aa.ZORIGINALFILENAME\nFROM ZGENERICASSET a\nLEFT JOIN ZADDITIONALASSETATTRIBUTES aa ON aa.ZASSET = a.Z_PK\nORDER BY a.ZADDEDDATE DESC\nLIMIT 200;"
+        },
+        {
+          "id": "by-creator",
+          "title": "Filtrera på creator bundle-ID",
+          "goal": "creator",
+          "params": ["bundleId"],
+          "caveats": "Exempel: com.apple.camera, net.whatsapp.WhatsApp, com.apple.mobilesafari",
+          "sql": "SELECT\n  a.Z_PK AS asset_pk,\n  a.ZDIRECTORY,\n  a.ZFILENAME,\n  datetime(a.ZDATECREATED + 978307200, 'unixepoch') AS date_created_utc,\n  datetime(a.ZADDEDDATE + 978307200, 'unixepoch') AS added_utc,\n  aa.ZCREATORBUNDLEID,\n  aa.ZEDITORBUNDLEID,\n  aa.ZORIGINALFILENAME\nFROM ZGENERICASSET a\nLEFT JOIN ZADDITIONALASSETATTRIBUTES aa ON aa.ZASSET = a.Z_PK\nWHERE IFNULL(aa.ZCREATORBUNDLEID, '') LIKE '%{{bundleId}}%'\n   OR IFNULL(aa.ZEDITORBUNDLEID, '') LIKE '%{{bundleId}}%'\nORDER BY a.ZADDEDDATE DESC;"
+        }
+      ]
+    },
+    {
+      "id": "ios13-14",
+      "label": "iOS 13–14",
+      "versionMin": 13,
+      "versionMax": 14,
+      "notes": "Samma kärnmodell; fler attribut och resurstabeller kan finnas.",
+      "queries": [
+        {
+          "id": "schema-probe",
+          "title": "Schema-probe (tabeller)",
+          "goal": "probe",
+          "params": [],
+          "caveats": "",
+          "sql": "SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'Z%' ORDER BY name;"
+        },
+        {
+          "id": "columns-asset",
+          "title": "Schema-probe (kolumner asset)",
+          "goal": "probe",
+          "params": [],
+          "caveats": "",
+          "sql": "PRAGMA table_info(ZGENERICASSET);\nPRAGMA table_info(ZADDITIONALASSETATTRIBUTES);"
+        },
+        {
+          "id": "by-filename",
+          "title": "Sök via filnamn (app + tider)",
+          "goal": "filename",
+          "params": ["filename"],
+          "caveats": "Inkluderar kind/trash/favorite om kolumnerna finns.",
+          "sql": "SELECT\n  a.Z_PK AS asset_pk,\n  a.ZDIRECTORY,\n  a.ZFILENAME,\n  a.ZKIND,\n  a.ZTRASHEDSTATE,\n  a.ZFAVORITE,\n  datetime(a.ZDATECREATED + 978307200, 'unixepoch') AS date_created_utc,\n  datetime(a.ZMODIFICATIONDATE + 978307200, 'unixepoch') AS modification_utc,\n  datetime(a.ZADDEDDATE + 978307200, 'unixepoch') AS added_utc,\n  a.ZDATECREATED AS cocoa_created,\n  a.ZMODIFICATIONDATE AS cocoa_modified,\n  a.ZADDEDDATE AS cocoa_added,\n  aa.ZORIGINALFILENAME,\n  aa.ZCREATORBUNDLEID,\n  aa.ZEDITORBUNDLEID,\n  aa.ZEXIFTIMESTAMPSTRING,\n  aa.ZTIMEZONENAME\nFROM ZGENERICASSET a\nLEFT JOIN ZADDITIONALASSETATTRIBUTES aa ON aa.ZASSET = a.Z_PK\nWHERE a.ZFILENAME LIKE '%{{filename}}%'\n   OR IFNULL(aa.ZORIGINALFILENAME, '') LIKE '%{{filename}}%'\nORDER BY a.ZADDEDDATE DESC;"
+        },
+        {
+          "id": "by-uuid",
+          "title": "Sök via UUID",
+          "goal": "uuid",
+          "params": ["uuid"],
+          "caveats": "",
+          "sql": "SELECT\n  a.Z_PK AS asset_pk,\n  a.ZUUID,\n  a.ZDIRECTORY,\n  a.ZFILENAME,\n  datetime(a.ZDATECREATED + 978307200, 'unixepoch') AS date_created_utc,\n  datetime(a.ZMODIFICATIONDATE + 978307200, 'unixepoch') AS modification_utc,\n  datetime(a.ZADDEDDATE + 978307200, 'unixepoch') AS added_utc,\n  aa.ZORIGINALFILENAME,\n  aa.ZCREATORBUNDLEID,\n  aa.ZEDITORBUNDLEID,\n  aa.ZEXIFTIMESTAMPSTRING\nFROM ZGENERICASSET a\nLEFT JOIN ZADDITIONALASSETATTRIBUTES aa ON aa.ZASSET = a.Z_PK\nWHERE a.ZUUID LIKE '%{{uuid}}%';"
+        },
+        {
+          "id": "recent-with-creator",
+          "title": "Senast tillagda (med skapar-app)",
+          "goal": "overview",
+          "params": [],
+          "caveats": "",
+          "sql": "SELECT\n  a.Z_PK AS asset_pk,\n  a.ZDIRECTORY,\n  a.ZFILENAME,\n  a.ZKIND,\n  a.ZTRASHEDSTATE,\n  datetime(a.ZADDEDDATE + 978307200, 'unixepoch') AS added_utc,\n  datetime(a.ZDATECREATED + 978307200, 'unixepoch') AS date_created_utc,\n  aa.ZCREATORBUNDLEID,\n  aa.ZEDITORBUNDLEID,\n  aa.ZORIGINALFILENAME\nFROM ZGENERICASSET a\nLEFT JOIN ZADDITIONALASSETATTRIBUTES aa ON aa.ZASSET = a.Z_PK\nORDER BY a.ZADDEDDATE DESC\nLIMIT 200;"
+        },
+        {
+          "id": "by-creator",
+          "title": "Filtrera på creator bundle-ID",
+          "goal": "creator",
+          "params": ["bundleId"],
+          "caveats": "",
+          "sql": "SELECT\n  a.Z_PK AS asset_pk,\n  a.ZDIRECTORY,\n  a.ZFILENAME,\n  datetime(a.ZDATECREATED + 978307200, 'unixepoch') AS date_created_utc,\n  datetime(a.ZADDEDDATE + 978307200, 'unixepoch') AS added_utc,\n  aa.ZCREATORBUNDLEID,\n  aa.ZEDITORBUNDLEID,\n  aa.ZORIGINALFILENAME\nFROM ZGENERICASSET a\nLEFT JOIN ZADDITIONALASSETATTRIBUTES aa ON aa.ZASSET = a.Z_PK\nWHERE IFNULL(aa.ZCREATORBUNDLEID, '') LIKE '%{{bundleId}}%'\n   OR IFNULL(aa.ZEDITORBUNDLEID, '') LIKE '%{{bundleId}}%'\nORDER BY a.ZADDEDDATE DESC;"
+        }
+      ]
+    },
+    {
+      "id": "ios15-16",
+      "label": "iOS 15–16",
+      "versionMin": 15,
+      "versionMax": 16,
+      "notes": "Fler flaggor (hidden/trashed). UTI kan finnas. Om kolumn saknas: ta bort den ur SELECT.",
+      "queries": [
+        {
+          "id": "schema-probe",
+          "title": "Schema-probe (tabeller)",
+          "goal": "probe",
+          "params": [],
+          "caveats": "",
+          "sql": "SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'Z%' ORDER BY name;"
+        },
+        {
+          "id": "columns-asset",
+          "title": "Schema-probe (kolumner asset)",
+          "goal": "probe",
+          "params": [],
+          "caveats": "",
+          "sql": "PRAGMA table_info(ZGENERICASSET);\nPRAGMA table_info(ZADDITIONALASSETATTRIBUTES);"
+        },
+        {
+          "id": "by-filename",
+          "title": "Sök via filnamn (app + tider)",
+          "goal": "filename",
+          "params": ["filename"],
+          "caveats": "ZUNIFORMTYPEIDENTIFIER / ZHIDDEN kan saknas på vissa builds — ta bort vid fel.",
+          "sql": "SELECT\n  a.Z_PK AS asset_pk,\n  a.ZDIRECTORY,\n  a.ZFILENAME,\n  a.ZKIND,\n  a.ZTRASHEDSTATE,\n  a.ZFAVORITE,\n  a.ZHIDDEN,\n  a.ZUNIFORMTYPEIDENTIFIER,\n  datetime(a.ZDATECREATED + 978307200, 'unixepoch') AS date_created_utc,\n  datetime(a.ZMODIFICATIONDATE + 978307200, 'unixepoch') AS modification_utc,\n  datetime(a.ZADDEDDATE + 978307200, 'unixepoch') AS added_utc,\n  a.ZDATECREATED AS cocoa_created,\n  a.ZMODIFICATIONDATE AS cocoa_modified,\n  a.ZADDEDDATE AS cocoa_added,\n  aa.ZORIGINALFILENAME,\n  aa.ZCREATORBUNDLEID,\n  aa.ZEDITORBUNDLEID,\n  aa.ZEXIFTIMESTAMPSTRING,\n  aa.ZTIMEZONENAME,\n  aa.ZTIMEZONEOFFSET\nFROM ZGENERICASSET a\nLEFT JOIN ZADDITIONALASSETATTRIBUTES aa ON aa.ZASSET = a.Z_PK\nWHERE a.ZFILENAME LIKE '%{{filename}}%'\n   OR IFNULL(aa.ZORIGINALFILENAME, '') LIKE '%{{filename}}%'\nORDER BY a.ZADDEDDATE DESC;"
+        },
+        {
+          "id": "by-uuid",
+          "title": "Sök via UUID",
+          "goal": "uuid",
+          "params": ["uuid"],
+          "caveats": "",
+          "sql": "SELECT\n  a.Z_PK AS asset_pk,\n  a.ZUUID,\n  a.ZDIRECTORY,\n  a.ZFILENAME,\n  a.ZUNIFORMTYPEIDENTIFIER,\n  datetime(a.ZDATECREATED + 978307200, 'unixepoch') AS date_created_utc,\n  datetime(a.ZMODIFICATIONDATE + 978307200, 'unixepoch') AS modification_utc,\n  datetime(a.ZADDEDDATE + 978307200, 'unixepoch') AS added_utc,\n  aa.ZORIGINALFILENAME,\n  aa.ZCREATORBUNDLEID,\n  aa.ZEDITORBUNDLEID,\n  aa.ZEXIFTIMESTAMPSTRING\nFROM ZGENERICASSET a\nLEFT JOIN ZADDITIONALASSETATTRIBUTES aa ON aa.ZASSET = a.Z_PK\nWHERE a.ZUUID LIKE '%{{uuid}}%';"
+        },
+        {
+          "id": "recent-with-creator",
+          "title": "Senast tillagda (med skapar-app)",
+          "goal": "overview",
+          "params": [],
+          "caveats": "",
+          "sql": "SELECT\n  a.Z_PK AS asset_pk,\n  a.ZDIRECTORY,\n  a.ZFILENAME,\n  a.ZKIND,\n  a.ZTRASHEDSTATE,\n  a.ZHIDDEN,\n  datetime(a.ZADDEDDATE + 978307200, 'unixepoch') AS added_utc,\n  datetime(a.ZDATECREATED + 978307200, 'unixepoch') AS date_created_utc,\n  aa.ZCREATORBUNDLEID,\n  aa.ZEDITORBUNDLEID,\n  aa.ZORIGINALFILENAME\nFROM ZGENERICASSET a\nLEFT JOIN ZADDITIONALASSETATTRIBUTES aa ON aa.ZASSET = a.Z_PK\nORDER BY a.ZADDEDDATE DESC\nLIMIT 200;"
+        },
+        {
+          "id": "by-creator",
+          "title": "Filtrera på creator bundle-ID",
+          "goal": "creator",
+          "params": ["bundleId"],
+          "caveats": "",
+          "sql": "SELECT\n  a.Z_PK AS asset_pk,\n  a.ZDIRECTORY,\n  a.ZFILENAME,\n  datetime(a.ZDATECREATED + 978307200, 'unixepoch') AS date_created_utc,\n  datetime(a.ZADDEDDATE + 978307200, 'unixepoch') AS added_utc,\n  aa.ZCREATORBUNDLEID,\n  aa.ZEDITORBUNDLEID,\n  aa.ZORIGINALFILENAME\nFROM ZGENERICASSET a\nLEFT JOIN ZADDITIONALASSETATTRIBUTES aa ON aa.ZASSET = a.Z_PK\nWHERE IFNULL(aa.ZCREATORBUNDLEID, '') LIKE '%{{bundleId}}%'\n   OR IFNULL(aa.ZEDITORBUNDLEID, '') LIKE '%{{bundleId}}%'\nORDER BY a.ZADDEDDATE DESC;"
+        }
+      ]
+    },
+    {
+      "id": "ios17-plus",
+      "label": "iOS 17 → latest",
+      "versionMin": 17,
+      "versionMax": 99,
+      "notes": "Inkluderar nyare iOS (17/18/26-generation). Börja alltid med schema-probe — iLEAPP har haft särskilda uppdateringar för nyare Photos.sqlite.",
+      "queries": [
+        {
+          "id": "schema-probe",
+          "title": "Schema-probe (tabeller)",
+          "goal": "probe",
+          "params": [],
+          "caveats": "Om ZGENERICASSET saknas: leta efter ZASSET eller liknande och byt tabellnamn.",
+          "sql": "SELECT name FROM sqlite_master WHERE type='table' AND (name LIKE '%ASSET%' OR name LIKE '%PHOTO%' OR name LIKE 'ZADDITIONAL%') ORDER BY name;"
+        },
+        {
+          "id": "columns-asset",
+          "title": "Schema-probe (kolumner asset)",
+          "goal": "probe",
+          "params": [],
+          "caveats": "Kör båda; ignorera fel om en tabell saknas.",
+          "sql": "PRAGMA table_info(ZGENERICASSET);\nPRAGMA table_info(ZADDITIONALASSETATTRIBUTES);"
+        },
+        {
+          "id": "by-filename",
+          "title": "Sök via filnamn (app + tider)",
+          "goal": "filename",
+          "params": ["filename"],
+          "caveats": "Ta bort kolumner som PRAGMA visar saknas. Jämför cocoa_* med Time Converter.",
+          "sql": "SELECT\n  a.Z_PK AS asset_pk,\n  a.ZDIRECTORY,\n  a.ZFILENAME,\n  a.ZKIND,\n  a.ZTRASHEDSTATE,\n  a.ZFAVORITE,\n  a.ZHIDDEN,\n  a.ZUNIFORMTYPEIDENTIFIER,\n  datetime(a.ZDATECREATED + 978307200, 'unixepoch') AS date_created_utc,\n  datetime(a.ZMODIFICATIONDATE + 978307200, 'unixepoch') AS modification_utc,\n  datetime(a.ZADDEDDATE + 978307200, 'unixepoch') AS added_utc,\n  a.ZDATECREATED AS cocoa_created,\n  a.ZMODIFICATIONDATE AS cocoa_modified,\n  a.ZADDEDDATE AS cocoa_added,\n  aa.ZORIGINALFILENAME,\n  aa.ZCREATORBUNDLEID,\n  aa.ZEDITORBUNDLEID,\n  aa.ZEXIFTIMESTAMPSTRING,\n  aa.ZTIMEZONENAME,\n  aa.ZTIMEZONEOFFSET\nFROM ZGENERICASSET a\nLEFT JOIN ZADDITIONALASSETATTRIBUTES aa ON aa.ZASSET = a.Z_PK\nWHERE a.ZFILENAME LIKE '%{{filename}}%'\n   OR IFNULL(aa.ZORIGINALFILENAME, '') LIKE '%{{filename}}%'\nORDER BY a.ZADDEDDATE DESC;"
+        },
+        {
+          "id": "by-uuid",
+          "title": "Sök via UUID",
+          "goal": "uuid",
+          "params": ["uuid"],
+          "caveats": "",
+          "sql": "SELECT\n  a.Z_PK AS asset_pk,\n  a.ZUUID,\n  a.ZDIRECTORY,\n  a.ZFILENAME,\n  a.ZUNIFORMTYPEIDENTIFIER,\n  datetime(a.ZDATECREATED + 978307200, 'unixepoch') AS date_created_utc,\n  datetime(a.ZMODIFICATIONDATE + 978307200, 'unixepoch') AS modification_utc,\n  datetime(a.ZADDEDDATE + 978307200, 'unixepoch') AS added_utc,\n  aa.ZORIGINALFILENAME,\n  aa.ZCREATORBUNDLEID,\n  aa.ZEDITORBUNDLEID,\n  aa.ZEXIFTIMESTAMPSTRING\nFROM ZGENERICASSET a\nLEFT JOIN ZADDITIONALASSETATTRIBUTES aa ON aa.ZASSET = a.Z_PK\nWHERE CAST(a.ZUUID AS TEXT) LIKE '%{{uuid}}%';"
+        },
+        {
+          "id": "recent-with-creator",
+          "title": "Senast tillagda (med skapar-app)",
+          "goal": "overview",
+          "params": [],
+          "caveats": "",
+          "sql": "SELECT\n  a.Z_PK AS asset_pk,\n  a.ZDIRECTORY,\n  a.ZFILENAME,\n  a.ZKIND,\n  a.ZTRASHEDSTATE,\n  a.ZHIDDEN,\n  datetime(a.ZADDEDDATE + 978307200, 'unixepoch') AS added_utc,\n  datetime(a.ZDATECREATED + 978307200, 'unixepoch') AS date_created_utc,\n  aa.ZCREATORBUNDLEID,\n  aa.ZEDITORBUNDLEID,\n  aa.ZORIGINALFILENAME\nFROM ZGENERICASSET a\nLEFT JOIN ZADDITIONALASSETATTRIBUTES aa ON aa.ZASSET = a.Z_PK\nORDER BY a.ZADDEDDATE DESC\nLIMIT 200;"
+        },
+        {
+          "id": "by-creator",
+          "title": "Filtrera på creator bundle-ID",
+          "goal": "creator",
+          "params": ["bundleId"],
+          "caveats": "",
+          "sql": "SELECT\n  a.Z_PK AS asset_pk,\n  a.ZDIRECTORY,\n  a.ZFILENAME,\n  datetime(a.ZDATECREATED + 978307200, 'unixepoch') AS date_created_utc,\n  datetime(a.ZADDEDDATE + 978307200, 'unixepoch') AS added_utc,\n  aa.ZCREATORBUNDLEID,\n  aa.ZEDITORBUNDLEID,\n  aa.ZORIGINALFILENAME\nFROM ZGENERICASSET a\nLEFT JOIN ZADDITIONALASSETATTRIBUTES aa ON aa.ZASSET = a.Z_PK\nWHERE IFNULL(aa.ZCREATORBUNDLEID, '') LIKE '%{{bundleId}}%'\n   OR IFNULL(aa.ZEDITORBUNDLEID, '') LIKE '%{{bundleId}}%'\nORDER BY a.ZADDEDDATE DESC;"
+        },
+        {
+          "id": "alt-join-genericasset",
+          "title": "Alt. JOIN om FK heter ZGENERICASSET",
+          "goal": "filename",
+          "params": ["filename"],
+          "caveats": "Använd om JOIN på ZASSET ger 0 träffar men filnamn finns. Vanligt schema-variant.",
+          "sql": "SELECT\n  a.Z_PK AS asset_pk,\n  a.ZDIRECTORY,\n  a.ZFILENAME,\n  datetime(a.ZDATECREATED + 978307200, 'unixepoch') AS date_created_utc,\n  datetime(a.ZMODIFICATIONDATE + 978307200, 'unixepoch') AS modification_utc,\n  datetime(a.ZADDEDDATE + 978307200, 'unixepoch') AS added_utc,\n  aa.ZORIGINALFILENAME,\n  aa.ZCREATORBUNDLEID,\n  aa.ZEDITORBUNDLEID,\n  aa.ZEXIFTIMESTAMPSTRING\nFROM ZGENERICASSET a\nLEFT JOIN ZADDITIONALASSETATTRIBUTES aa ON aa.ZGENERICASSET = a.Z_PK\nWHERE a.ZFILENAME LIKE '%{{filename}}%'\n   OR IFNULL(aa.ZORIGINALFILENAME, '') LIKE '%{{filename}}%'\nORDER BY a.ZADDEDDATE DESC;"
+        }
+      ]
+    }
+  ],
+  "paramLabels": {
+    "filename": "Filnamn (delsträng, t.ex. IMG_1234)",
+    "uuid": "Asset UUID (delsträng)",
+    "bundleId": "Bundle-ID (delsträng, t.ex. whatsapp eller com.apple.camera)"
+  }
+}

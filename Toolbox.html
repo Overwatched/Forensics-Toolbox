@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Verktygslådan</title>
+    <title>Forensics Toolbox</title>
 
     <script>
         (function () {
@@ -29,9 +29,9 @@
 
             <div class="sidebar-header">
                 <div class="sidebar-header-text">
-                    <h1>Verktygslådan</h1>
+                    <h1>Forensics Toolbox</h1>
                     <div class="version-row">
-                        <p>Version 1.7</p>
+                        <p>Version 0.1</p>
                         <div id="net-status" class="net-status">
                             <span id="net-status-text"></span>
                         </div>
@@ -69,31 +69,76 @@
                 <div class="nav-group">
                     <div class="nav-group-title">Lokala verktyg</div>
 
-                    <button class="nav-item" data-type="frame" data-src="tools/Magic/magic.html">
+                    <button class="nav-item" data-type="frame" data-src="tools/hash-calculator/hash.html">
                         <span class="nav-item-icon nav-item-icon--local">
                             <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                                <path d="M15 2L16.6 7.4L22 9L16.6 10.6L15 16L13.4 10.6L8 9L13.4 7.4L15 2Z" stroke="currentColor"
-                                    stroke-width="1.5" stroke-linejoin="round" />
-                                <path d="M6 12L7 15L10 16L7 17L6 20L5 17L2 16L5 15L6 12Z" stroke="currentColor" stroke-width="1.3"
-                                    stroke-linejoin="round" />
+                                <path d="M12 3L4 7V12C4 17 7.5 20 12 21C16.5 20 20 17 20 12V7L12 3Z"
+                                    stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" />
+                                <path d="M9 12L11 14L15 10" stroke="currentColor" stroke-width="1.6"
+                                    stroke-linecap="round" stroke-linejoin="round" />
                             </svg>
                         </span>
                         <span class="nav-item-text">
-                            <span class="nav-item-title">Magic Tool</span>
-                            <span class="nav-item-desc">Identifiera nycklar, adresser, entropy och kodningar i valfri text</span>
+                            <span class="nav-item-title">Hash Calculator</span>
+                            <span class="nav-item-desc">MD5, SHA-1, SHA-256 för text och filer</span>
                         </span>
                     </button>
 
-                    <button class="nav-item" data-type="frame" data-src="tools/BIP38-keycompression/BIP38.html">
+                    <button class="nav-item" data-type="frame" data-src="tools/time-converter/time.html">
                         <span class="nav-item-icon nav-item-icon--local">
                             <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                                <path d="M14.7 6.3A4 4 0 0 0 9.3 11.7L4 17a2 2 0 1 0 2.8 2.8l5.3-5.3a4 4 0 0 0 5.4-5.4l-2.2 2.2-2.2-2.2 2.4-2.4z"
-                                    stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
+                                <circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="1.6" />
+                                <path d="M12 7V12L15.5 14.5" stroke="currentColor" stroke-width="1.6"
+                                    stroke-linecap="round" stroke-linejoin="round" />
                             </svg>
                         </span>
                         <span class="nav-item-text">
-                            <span class="nav-item-title">BIP38 Key Compression</span>
-                            <span class="nav-item-desc">Komprimera/dekomprimera Bitcoin-nycklar</span>
+                            <span class="nav-item-title">Time Converter</span>
+                            <span class="nav-item-desc">Unix, Apple NSDate, WebKit, FILETIME — alla format</span>
+                        </span>
+                    </button>
+
+                    <button class="nav-item" data-type="frame" data-src="tools/photos-sqlite-queries/queries.html">
+                        <span class="nav-item-icon nav-item-icon--local">
+                            <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                <ellipse cx="12" cy="6" rx="7" ry="3" stroke="currentColor" stroke-width="1.6" />
+                                <path d="M5 6V12C5 13.66 8.13 15 12 15C15.87 15 19 13.66 19 12V6" stroke="currentColor"
+                                    stroke-width="1.6" />
+                                <path d="M5 12V18C5 19.66 8.13 21 12 21C15.87 21 19 19.66 19 18V12" stroke="currentColor"
+                                    stroke-width="1.6" />
+                            </svg>
+                        </span>
+                        <span class="nav-item-text">
+                            <span class="nav-item-title">Photos.sqlite Queries</span>
+                            <span class="nav-item-desc">iOS 10→latest — app, tider, filnamn (copy SQL)</span>
+                        </span>
+                    </button>
+
+                    <button class="nav-item" data-type="frame" data-src="tools/android-queries/queries.html">
+                        <span class="nav-item-icon nav-item-icon--local">
+                            <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                <rect x="7" y="3" width="10" height="18" rx="2" stroke="currentColor" stroke-width="1.6" />
+                                <path d="M10 6H14M11 18H13" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" />
+                            </svg>
+                        </span>
+                        <span class="nav-item-text">
+                            <span class="nav-item-title">Android Queries</span>
+                            <span class="nav-item-desc">MediaStore, DCIM/kamera, usage + ALEAPP-tips</span>
+                        </span>
+                    </button>
+
+                    <button class="nav-item" data-type="frame" data-src="tools/JSON-formatter/JSON.html">
+                        <span class="nav-item-icon nav-item-icon--local">
+                            <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                <path d="M8 4C6 4 6 6 6 8C6 10 4 10 4 12C4 14 6 14 6 16C6 18 6 20 8 20"
+                                    stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" />
+                                <path d="M16 4C18 4 18 6 18 8C18 10 20 10 20 12C20 14 18 14 18 16C18 18 18 20 16 20"
+                                    stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" />
+                            </svg>
+                        </span>
+                        <span class="nav-item-text">
+                            <span class="nav-item-title">JSON Formatter</span>
+                            <span class="nav-item-desc">Compact JSON till Pretty Print</span>
                         </span>
                     </button>
 
@@ -113,75 +158,6 @@
                         </span>
                     </button>
 
-                    <button class="nav-item" data-type="frame" data-src="tools/JSON-formatter/JSON.html">
-                        <span class="nav-item-icon nav-item-icon--local">
-                            <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                                <path d="M8 4C6 4 6 6 6 8C6 10 4 10 4 12C4 14 6 14 6 16C6 18 6 20 8 20"
-                                    stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" />
-                                <path d="M16 4C18 4 18 6 18 8C18 10 20 10 20 12C20 14 18 14 18 16C18 18 18 20 16 20"
-                                    stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" />
-                            </svg>
-                        </span>
-                        <span class="nav-item-text">
-                            <span class="nav-item-title">JSON Formatter</span>
-                            <span class="nav-item-desc">Compact JSON till Pretty Print</span>
-                        </span>
-                    </button>
-
-                    <button class="nav-item" data-type="frame" data-src="tools/Entropy2Mnemonic/Entropy2Mnemonic.html">
-                        <span class="nav-item-icon nav-item-icon--local">
-                            <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                                <rect x="3" y="10" width="4" height="7" rx="1" stroke="currentColor" stroke-width="1.6" />
-                                <rect x="10" y="6" width="4" height="11" rx="1" stroke="currentColor" stroke-width="1.6" />
-                                <rect x="17" y="13" width="4" height="4" rx="1" stroke="currentColor" stroke-width="1.6" />
-                                <path d="M3 20H21" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" />
-                            </svg>
-                        </span>
-                        <span class="nav-item-text">
-                            <span class="nav-item-title">Entropy to Mnemonic</span>
-                            <span class="nav-item-desc">Konvertera entropi-bytes till BIP39-fras</span>
-                        </span>
-                    </button>
-
-                    <button class="nav-item" data-type="frame" data-src="tools/BIP39/bip39-standalone.html">
-                        <span class="nav-item-icon nav-item-icon--local">
-                            <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                                <path d="M14.7 6.3A4 4 0 0 0 9.3 11.7L4 17a2 2 0 1 0 2.8 2.8l5.3-5.3a4 4 0 0 0 5.4-5.4l-2.2 2.2-2.2-2.2 2.4-2.4z"
-                                    stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
-                            </svg>
-                        </span>
-                        <span class="nav-item-text">
-                            <span class="nav-item-title">BIP39 Tool</span>
-                            <span class="nav-item-desc">Complete BIP39 tool</span>
-                        </span>
-                    </button>
-
-                    <button class="nav-item" data-type="frame" data-src="tools/BIP39-english/BIP39.html">
-                        <span class="nav-item-icon nav-item-icon--local">
-                            <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                                <path d="M4 6H20M4 12H20M4 18H20" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" />
-                            </svg>
-                        </span>
-                        <span class="nav-item-text">
-                            <span class="nav-item-title">BIP39 English Word List</span>
-                            <span class="nav-item-desc">Alla BIP39-ord med sökfunktion</span>
-                        </span>
-                    </button>
-
-                    <button class="nav-item" data-type="frame" data-src="tools/BIP39-checksum/BIP39-checksum.html">
-                        <span class="nav-item-icon nav-item-icon--local">
-                            <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                                <path
-                                    d="M9 12L11 14L15 10M12 3L4 6.5V11.5C4 16.14 7.24 20.47 12 21.5C16.76 20.47 20 16.14 20 11.5V6.5L12 3Z"
-                                    stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" />
-                            </svg>
-                        </span>
-                        <span class="nav-item-text">
-                            <span class="nav-item-title">BIP39 Checksum Finder</span>
-                            <span class="nav-item-desc">Sista checksum-ord (12 &amp; 24 ord)</span>
-                        </span>
-                    </button>
-
                     <button class="nav-item" data-type="frame" data-src="tools/CyberChef/index.html">
                         <span class="nav-item-icon nav-item-icon--local">
                             <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -191,29 +167,36 @@
                         </span>
                         <span class="nav-item-text">
                             <span class="nav-item-title">CyberChef</span>
-                            <span class="nav-item-desc">Encryption, encoding &amp; compression</span>
-                        </span>
-                    </button>
-
-                    <button class="nav-item" data-type="frame" data-src="tools/BalletCrypto/index.html">
-                        <span class="nav-item-icon nav-item-icon--local">
-                            <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                                <path d="M14.7 6.3A4 4 0 0 0 9.3 11.7L4 17a2 2 0 1 0 2.8 2.8l5.3-5.3a4 4 0 0 0 5.4-5.4l-2.2 2.2-2.2-2.2 2.4-2.4z"
-                                    stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
-                            </svg>
-                        </span>
-                        <span class="nav-item-text">
-                            <span class="nav-item-title">BalletCrypto Cold Storage Decoder</span>
-                            <span class="nav-item-desc">Dekryptera BalletCrypto-kort</span>
+                            <span class="nav-item-desc">Encoding, decoding, crypto &amp; compression</span>
                         </span>
                     </button>
 
                 </div>
 
                 <div class="nav-group">
+                    <div class="nav-group-title">Bedömningsflöden</div>
+
+                    <button class="nav-item" data-type="frame" data-src="documentation/playbook-image-origin.html">
+                        <span class="nav-item-icon nav-item-icon--doc">
+                            <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                <path d="M8 6H20M8 12H20M8 18H16" stroke="currentColor" stroke-width="1.6"
+                                    stroke-linecap="round" />
+                                <circle cx="4.5" cy="6" r="1" fill="currentColor" />
+                                <circle cx="4.5" cy="12" r="1" fill="currentColor" />
+                                <circle cx="4.5" cy="18" r="1" fill="currentColor" />
+                            </svg>
+                        </span>
+                        <span class="nav-item-text">
+                            <span class="nav-item-title">Bildfil — härkomst</span>
+                            <span class="nav-item-desc">Statisk playbook: DB → kamera → app → EXIF → övrigt</span>
+                        </span>
+                    </button>
+                </div>
+
+                <div class="nav-group">
                     <div class="nav-group-title">Dokumentation</div>
-                    
-                    <button class="nav-item" data-type="frame" data-src="documentation/wallets.html">
+
+                    <button class="nav-item" data-type="frame" data-src="documentation/artifacts.html">
                         <span class="nav-item-icon nav-item-icon--doc">
                             <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
                                 <path d="M5 4.5C5 3.67 5.67 3 6.5 3H18a1 1 0 0 1 1 1v15.5a1 1 0 0 1-1 1H6.5A1.5 1.5 0 0 0 5 22V4.5ZM5 22h13"
@@ -222,83 +205,31 @@
                             </svg>
                         </span>
                         <span class="nav-item-text">
-                            <span class="nav-item-title">Krypto wallets lagring</span>
-                            <span class="nav-item-desc">Wallet-lagringsformat och kryptering</span>
+                            <span class="nav-item-title">Vanliga artifacts</span>
+                            <span class="nav-item-desc">Windows, webbläsare och loggplatser</span>
                         </span>
                     </button>
-                
-                    <button class="nav-item" data-type="frame" data-src="documentation/phantom.pdf">
+
+                    <button class="nav-item" data-type="frame" data-src="documentation/tools-releases.html">
                         <span class="nav-item-icon nav-item-icon--doc">
                             <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                                <path
-                                    d="M5 4.5C5 3.67 5.67 3 6.5 3H18a1 1 0 0 1 1 1v15.5a1 1 0 0 1-1 1H6.5A1.5 1.5 0 0 0 5 22V4.5ZM5 22h13"
+                                <path d="M5 4.5C5 3.67 5.67 3 6.5 3H18a1 1 0 0 1 1 1v15.5a1 1 0 0 1-1 1H6.5A1.5 1.5 0 0 0 5 22V4.5ZM5 22h13"
                                     stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
                                 <path d="M8 7h7M8 10h7M8 13h5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
                             </svg>
                         </span>
                         <span class="nav-item-text">
-                            <span class="nav-item-title">Phantom Wallet Decryption</span>
-                            <span class="nav-item-desc">Entropy & JSON decryption</span>
+                            <span class="nav-item-title">Verktyg &amp; releaser</span>
+                            <span class="nav-item-desc">iLEAPP, ALEAPP, Passware 2026 v3, m.fl.</span>
                         </span>
                     </button>
-                
+
                 </div>
 
                 <div class="nav-group">
-                    <div class="nav-group-title">Nedladdningar / Skript</div>
+                    <div class="nav-group-title">Externa forensikverktyg</div>
 
-                    <a class="nav-item nav-item--download" href="https://github.com/AdrianNeshad/secoUnlock/archive/refs/heads/main.zip" download>
-                        <span class="nav-item-icon nav-item-icon--download">
-                            <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                                <path d="M12 3V15M12 15L7 10M12 15L17 10" stroke="currentColor" stroke-width="1.8"
-                                    stroke-linecap="round" stroke-linejoin="round" />
-                                <path d="M4 17V19C4 20.1046 4.89543 21 6 21H18C19.1046 21 20 20.1046 20 19V17"
-                                    stroke="currentColor" stroke-width="1.8" stroke-linecap="round"
-                                    stroke-linejoin="round" />
-                            </svg>
-                        </span>
-                        <span class="nav-item-text">
-                            <span class="nav-item-title">Exodus secoUnlock</span>
-                            <span class="nav-item-desc">Lås upp Exodus seed.seco-filer (.zip)</span>
-                        </span>
-                    </a>
-
-                    <a class="nav-item nav-item--download" href="https://github.com/AdrianNeshad/electrumUnlock/archive/refs/heads/main.zip" download>
-                        <span class="nav-item-icon nav-item-icon--download">
-                            <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                                <path d="M12 3V15M12 15L7 10M12 15L17 10" stroke="currentColor" stroke-width="1.8"
-                                    stroke-linecap="round" stroke-linejoin="round" />
-                                <path d="M4 17V19C4 20.1046 4.89543 21 6 21H18C19.1046 21 20 20.1046 20 19V17"
-                                    stroke="currentColor" stroke-width="1.8" stroke-linecap="round"
-                                    stroke-linejoin="round" />
-                            </svg>
-                        </span>
-                        <span class="nav-item-text">
-                            <span class="nav-item-title">Electrum Unlock</span>
-                            <span class="nav-item-desc">Lås upp Electrum-plånboksfiler (.zip)</span>
-                        </span>
-                    </a>
-
-                    <a class="nav-item nav-item--download" href="https://github.com/AdrianNeshad/ciphertextUnlock/archive/refs/heads/main.zip" download>
-                        <span class="nav-item-icon nav-item-icon--download">
-                            <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                                <path d="M12 3V15M12 15L7 10M12 15L17 10" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"
-                                    stroke-linejoin="round" />
-                                <path d="M4 17V19C4 20.1046 4.89543 21 6 21H18C19.1046 21 20 20.1046 20 19V17" stroke="currentColor"
-                                    stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
-                            </svg>
-                        </span>
-                        <span class="nav-item-text">
-                            <span class="nav-item-title">Ciphertext Unlock</span>
-                            <span class="nav-item-desc">Brute force ciphertext (.zip)</span>
-                        </span>
-                    </a>
-                </div>
-
-                <div class="nav-group">
-                    <div class="nav-group-title">Externa länkar</div>
-
-                    <a class="nav-item nav-item--link" href="https://learnmeabitcoin.com/technical/" target="_blank"
+                    <a class="nav-item nav-item--link" href="https://github.com/abrignoni/iLEAPP" target="_blank"
                         rel="noopener noreferrer">
                         <span class="nav-item-icon nav-item-icon--link">
                             <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -311,27 +242,12 @@
                             </svg>
                         </span>
                         <span class="nav-item-text">
-                            <span class="nav-item-title">Learn Me A Bitcoin</span>
-                            <span class="nav-item-desc">Teknisk information om Bitcoin</span>
+                            <span class="nav-item-title">iLEAPP</span>
+                            <span class="nav-item-desc">iOS artifact parsing (Abrignoni)</span>
                         </span>
                     </a>
 
-                    <a class="nav-item nav-item--link" href="https://blocksec.com/usdt-freeze-checker" target="_blank" rel="noopener noreferrer">
-                        <span class="nav-item-icon nav-item-icon--link">
-                            <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                                <path d="M14 5H19V10" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
-                                <path d="M10 14L19 5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
-                                <path d="M19 14V18C19 19.1046 18.1046 20 17 20H6C4.89543 20 4 19.1046 4 18V7C4 5.89543 4.89543 5 6 5H10"
-                                    stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
-                            </svg>
-                        </span>
-                        <span class="nav-item-text">
-                            <span class="nav-item-title">USDT Freeze Checker</span>
-                            <span class="nav-item-desc">Blocksec</span>
-                        </span>
-                    </a>
-
-                    <a class="nav-item nav-item--link" href="https://whatismyipaddress.com/ip-lookup" target="_blank"
+                    <a class="nav-item nav-item--link" href="https://github.com/abrignoni/ALEAPP" target="_blank"
                         rel="noopener noreferrer">
                         <span class="nav-item-icon nav-item-icon--link">
                             <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -344,8 +260,103 @@
                             </svg>
                         </span>
                         <span class="nav-item-text">
-                            <span class="nav-item-title">IP Lookup</span>
-                            <span class="nav-item-desc">IP Address Lookup</span>
+                            <span class="nav-item-title">ALEAPP</span>
+                            <span class="nav-item-desc">Android artifact parsing (Abrignoni)</span>
+                        </span>
+                    </a>
+
+                    <a class="nav-item nav-item--link" href="https://exiftool.org/" target="_blank"
+                        rel="noopener noreferrer">
+                        <span class="nav-item-icon nav-item-icon--link">
+                            <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                <path d="M14 5H19V10" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"
+                                    stroke-linejoin="round" />
+                                <path d="M10 14L19 5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"
+                                    stroke-linejoin="round" />
+                                <path d="M19 14V18C19 19.1046 18.1046 20 17 20H6C4.89543 20 4 19.1046 4 18V7C4 5.89543 4.89543 5 6 5H10"
+                                    stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
+                            </svg>
+                        </span>
+                        <span class="nav-item-text">
+                            <span class="nav-item-title">ExifTool</span>
+                            <span class="nav-item-desc">Metadata i bilder och andra filer</span>
+                        </span>
+                    </a>
+
+                    <a class="nav-item nav-item--link" href="https://sqlitebrowser.org/" target="_blank"
+                        rel="noopener noreferrer">
+                        <span class="nav-item-icon nav-item-icon--link">
+                            <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                <path d="M14 5H19V10" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"
+                                    stroke-linejoin="round" />
+                                <path d="M10 14L19 5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"
+                                    stroke-linejoin="round" />
+                                <path d="M19 14V18C19 19.1046 18.1046 20 17 20H6C4.89543 20 4 19.1046 4 18V7C4 5.89543 4.89543 5 6 5H10"
+                                    stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
+                            </svg>
+                        </span>
+                        <span class="nav-item-text">
+                            <span class="nav-item-title">DB Browser for SQLite</span>
+                            <span class="nav-item-desc">Öppna och query:a SQLite-databaser</span>
+                        </span>
+                    </a>
+
+                    <a class="nav-item nav-item--link" href="https://www.autopsy.com/" target="_blank"
+                        rel="noopener noreferrer">
+                        <span class="nav-item-icon nav-item-icon--link">
+                            <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                <path d="M14 5H19V10" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"
+                                    stroke-linejoin="round" />
+                                <path d="M10 14L19 5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"
+                                    stroke-linejoin="round" />
+                                <path d="M19 14V18C19 19.1046 18.1046 20 17 20H6C4.89543 20 4 19.1046 4 18V7C4 5.89543 4.89543 5 6 5H10"
+                                    stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
+                            </svg>
+                        </span>
+                        <span class="nav-item-text">
+                            <span class="nav-item-title">Autopsy</span>
+                            <span class="nav-item-desc">Disk-/image-forensik</span>
+                        </span>
+                    </a>
+
+                    <a class="nav-item nav-item--link" href="https://www.passware.com/kit-forensic/" target="_blank"
+                        rel="noopener noreferrer">
+                        <span class="nav-item-icon nav-item-icon--link">
+                            <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                <path d="M14 5H19V10" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"
+                                    stroke-linejoin="round" />
+                                <path d="M10 14L19 5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"
+                                    stroke-linejoin="round" />
+                                <path d="M19 14V18C19 19.1046 18.1046 20 17 20H6C4.89543 20 4 19.1046 4 18V7C4 5.89543 4.89543 5 6 5H10"
+                                    stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
+                            </svg>
+                        </span>
+                        <span class="nav-item-text">
+                            <span class="nav-item-title">Passware Kit Forensic</span>
+                            <span class="nav-item-desc">Senaste noterade: 2026 v3</span>
+                        </span>
+                    </a>
+
+                </div>
+
+                <div class="nav-group">
+                    <div class="nav-group-title">Övriga länkar</div>
+
+                    <a class="nav-item nav-item--link" href="https://www.sans.org/tools/" target="_blank"
+                        rel="noopener noreferrer">
+                        <span class="nav-item-icon nav-item-icon--link">
+                            <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                <path d="M14 5H19V10" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"
+                                    stroke-linejoin="round" />
+                                <path d="M10 14L19 5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"
+                                    stroke-linejoin="round" />
+                                <path d="M19 14V18C19 19.1046 18.1046 20 17 20H6C4.89543 20 4 19.1046 4 18V7C4 5.89543 4.89543 5 6 5H10"
+                                    stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
+                            </svg>
+                        </span>
+                        <span class="nav-item-text">
+                            <span class="nav-item-title">SANS Tools</span>
+                            <span class="nav-item-desc">Forensik- och DFIR-resurser</span>
                         </span>
                     </a>
 
@@ -365,14 +376,14 @@
                             <span class="nav-item-desc">Kollektion av OSINT-verktyg</span>
                         </span>
                     </a>
-                    
+
                 </div>
 
             </nav>
 
             <footer id="footer">
-                <a href="https://github.com/AdrianNeshad/CryptoToolbox" target="_blank" rel="noopener">
-                    Github.com/AdrianNeshad/CryptoToolbox
+                <a href="https://github.com/Overwatched/Forensics-Toolbox" target="_blank" rel="noopener">
+                    Github.com/Overwatched/Forensics-Toolbox
                 </a>
             </footer>
 
@@ -381,7 +392,7 @@
         <main class="content">
 
             <div id="content-placeholder" class="content-placeholder">
-                <h2>Verktygslådan</h2>
+                <h2>Forensics Toolbox</h2>
                 <p>Klicka på ett verktyg i listan till vänster för att öppna det här</p>
 
                 <div class="good-to-know">
@@ -394,9 +405,9 @@
                         <span>Bra att veta</span>
                     </div>
                     <ul class="good-to-know-list">
-                        <li>Allt innehåll körs lokalt i din webbläsare, inga nätverksanrop görs.</li>
-                        <li>Samtliga verktyg finns tillgängliga med öppen källkod på Github.</li>
-                        <li>Glöm inte att rensa clipboard-historiken efter att du kopierat känslig data, t.ex. mnemonics/seed phrases eller privata nycklar. (⊞ Win + V för att öppna clipboard-historiken)</li>
+                        <li>Allt innehåll körs lokalt — inga nätverksanrop från verktygen.</li>
+                        <li>Dokumentera kedjan av bevis (chain of custody) när du hanterar bevisfiler.</li>
+                        <li>Rensa clipboard-historiken efter känslig data. (⊞ Win + V)</li>
                     </ul>
                 </div>
             </div>
@@ -421,7 +432,7 @@
     <div id="external-link-modal" class="modal-overlay display-none">
         <div class="modal-box">
             <h3>Öppna länk i ny flik</h3>
-            <p id="external-link-modal-text">Du är på väg att lämna Verktygslådan.</p>
+            <p id="external-link-modal-text">Du är på väg att lämna Forensics Toolbox.</p>
             <div class="modal-actions">
                 <button id="external-link-modal-cancel" class="modal-button secondary">Avbryt</button>
                 <button id="external-link-modal-confirm" class="modal-button confirm">Fortsätt</button>

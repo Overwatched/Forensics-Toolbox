@@ -78,7 +78,7 @@ function initThemeToggle() {
     function broadcastTheme(value) {
         if (frame && frame.contentWindow) {
             try {
-                frame.contentWindow.postMessage({ source: 'verktygslada', type: 'theme', theme: value }, '*');
+                frame.contentWindow.postMessage({ source: 'forensics-toolbox', type: 'theme', theme: value }, '*');
             } catch (e) {
                 /* verktyget kunde inte nås (t.ex. fortfarande under laddning) — ignorera */
             }
@@ -174,7 +174,7 @@ function initExternalLinkConfirm() {
     function openModal(link) {
         pendingHref = link.href;
         const title = link.querySelector('.nav-item-title')?.textContent.trim() || 'webbplatsen';
-        text.textContent = `Vill du lämna Verktygslådan och öppna "${title}" i ny flik?`;
+        text.textContent = `Vill du lämna Forensics Toolbox och öppna "${title}" i ny flik?`;
         modal.classList.remove('display-none');
     }
 
