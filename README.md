@@ -1,6 +1,6 @@
 # Forensics Toolbox
 
-Lokal verktygslåda för **IT-forensik**. Körs helt offline via Electron (eller öppna `Toolbox.html` i webbläsaren).
+Lokal verktygslåda för **IT-forensik**. Körs helt offline som Electron-app (ladda ner en release, eller `npm start` under utveckling).
 
 Forkad och omarbetad från [AdrianNeshad/CryptoToolbox](https://github.com/AdrianNeshad/CryptoToolbox) (Verktygslådan).
 
@@ -41,7 +41,7 @@ npm install
 npm start          # Electron-fönster (rekommenderas för test)
 ```
 
-Eller öppna `Toolbox.html` i webbläsaren (de flesta verktyg funkar så).
+Öppna inte `Toolbox.html` direkt i webbläsaren — moderna webbläsare blockerar lokala CSS/JS via `file://`. Använd Electron (`npm start` eller en nedladdad release).
 
 Paketerad Linux-build (AppImage + uppackad mapp):
 

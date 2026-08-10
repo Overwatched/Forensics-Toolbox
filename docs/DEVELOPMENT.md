@@ -19,7 +19,7 @@ npm start
 
 `npm start` kör Electron med `ELECTRON_RUN_AS_NODE` avstängt (annars kan appen krascha i vissa miljöer, t.ex. Cursor).
 
-Alternativ utan Electron: öppna `Toolbox.html` i webbläsaren.
+Öppna inte `Toolbox.html` direkt i Firefox/Chrome/Brave — `file://` blockerar ofta `src/style.css` och sidan ser ostylad ut. Appen är tänkt att köras via Electron (dev: `npm start`, användare: GitHub Releases).
 
 ### Om Electron klagar på saknad binär
 
