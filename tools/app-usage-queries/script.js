@@ -44,9 +44,17 @@ function currentQuery() {
     return (db.queries || []).find((q) => q.id === querySelect.value) || db.queries[0];
 }
 
-function unixFromDatetimeLocal(value) {
-    if (!value) return null;
-    const ms = new Date(value).getTime();
+function unixFromUserTime(value) {
+    if (value == null) return null;
+    const t = String(value).trim();
+    if (!t) return null;
+    if (/^\d{10}$/.test(t)) return Number(t);
+    if (/^\d{13}$/.test(t)) return Math.floor(Number(t) / 1000);
+    let s = t.replace(/\//g, '-');
+    if (/^\d{4}-\d{2}-\d{2}$/.test(s)) s += 'T00:00:00';
+    s = s.replace(' ', 'T');
+    if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(s)) s += ':00';
+    const ms = new Date(s).getTime();
     if (Number.isNaN(ms)) return null;
     return Math.floor(ms / 1000);
 }
@@ -54,8 +62,8 @@ function unixFromDatetimeLocal(value) {
 function fillTimePlaceholders(sql) {
     const startEl = document.getElementById('param-timeStart');
     const endEl = document.getElementById('param-timeEnd');
-    const startUnix = unixFromDatetimeLocal(startEl && startEl.value) ;
-    const endUnix = unixFromDatetimeLocal(endEl && endEl.value);
+    const startUnix = unixFromUserTime(startEl && startEl.value);
+    const endUnix = unixFromUserTime(endEl && endEl.value);
 
     const cocoaStart = startUnix == null ? 0 : (startUnix - COCOA_EPOCH);
     const cocoaEnd = endUnix == null ? (MAX_UNIX - COCOA_EPOCH) : (endUnix - COCOA_EPOCH);
@@ -132,10 +140,12 @@ function renderParams() {
             html += `
               <div class="param-block">
                 <label class="field-label" for="param-${escapeHtml(name)}">${escapeHtml(labels[name] || name)}</label>
-                <input type="datetime-local" id="param-${escapeHtml(name)}" data-param="${escapeHtml(name)}" step="1">
+                <input type="text" id="param-${escapeHtml(name)}" data-param="${escapeHtml(name)}"
+                  spellcheck="false" autocomplete="off" placeholder="2024-08-01 00:00">
               </div>`;
         }
-        html += `</div>`;
+        html += `</div>
+          <div id="time-preview" class="time-preview"></div>`;
     }
     if (other.length) {
         html += `<div class="step-label">${timeParams.length ? '4' : '3'}. App (valfritt)</div>`;
@@ -171,6 +181,33 @@ function generateSql() {
     sql = applyTextParams(sql, q.params || []);
     sqlOut.value = sql;
     copyButton.disabled = !sqlOut.value;
+    updateTimePreview();
+}
+
+function updateTimePreview() {
+    const el = document.getElementById('time-preview');
+    if (!el) return;
+    const startEl = document.getElementById('param-timeStart');
+    const endEl = document.getElementById('param-timeEnd');
+    const startRaw = startEl && startEl.value.trim();
+    const endRaw = endEl && endEl.value.trim();
+    if (!startRaw && !endRaw) {
+        el.textContent = 'Ingen tidsgräns — tomt fält = hela databasen.';
+        return;
+    }
+    const startUnix = unixFromUserTime(startRaw);
+    const endUnix = unixFromUserTime(endRaw);
+    const bad = [];
+    if (startRaw && startUnix == null) bad.push('Från');
+    if (endRaw && endUnix == null) bad.push('Till');
+    if (bad.length) {
+        el.textContent = 'Ogiltigt datum i ' + bad.join(' och ') + '. Använd ÅÅÅÅ-MM-DD TT:MM.';
+        return;
+    }
+    const cocoaStart = startUnix == null ? 0 : (startUnix - COCOA_EPOCH);
+    const cocoaEnd = endUnix == null ? (MAX_UNIX - COCOA_EPOCH) : (endUnix - COCOA_EPOCH);
+    el.textContent = 'SQL-filter Cocoa ' + cocoaStart + '–' + cocoaEnd +
+        ' (unix ' + (startUnix == null ? 0 : startUnix) + '–' + (endUnix == null ? MAX_UNIX : endUnix) + ').';
 }
 
 async function init() {

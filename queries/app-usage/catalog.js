@@ -4,8 +4,8 @@ window.APP_USAGE_CATALOG = {
   "title": "App-aktivitet Queries",
   "sourceNote": "SQL från iLEAPP, ALEAPP och Sarah Edwards (APOLLO/mac4n6). Tiderna visas med datetime(..., 'unixepoch', 'localtime'). Kolumnnamnen är desamma som i databasen. Biome App.InFocus är inte SQLite — använd iLEAPP.",
   "paramLabels": {
-    "timeStart": "Från",
-    "timeEnd": "Till",
+    "timeStart": "Från (ÅÅÅÅ-MM-DD TT:MM)",
+    "timeEnd": "Till (ÅÅÅÅ-MM-DD TT:MM)",
     "bundleId": "Bundle-ID (valfritt, t.ex. com.apple.camera)",
     "packageName": "Paketnamn (valfritt, t.ex. com.whatsapp)"
   },
