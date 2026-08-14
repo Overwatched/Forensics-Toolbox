@@ -9,11 +9,11 @@ Forkad och omarbetad från [AdrianNeshad/CryptoToolbox](https://github.com/Adria
 | Verktyg | Beskrivning |
 |---------|-------------|
 | Time Converter | Unix, Apple Cocoa/NSDate, WebKit/Chrome, FILETIME, ISO — full matris + tolkningsjämförelse |
-| Hash Calculator | MD5 / SHA-1 / SHA-256 för text och filer |
+| Hash Calculator | MD5 / SHA-1 / SHA-256 (fler algoritmer valbara) |
 | JSON Formatter | Pretty-print / minify / validera |
 | QR Code Decoder | Avkoda QR från bild |
 | CyberChef | Offline encoding / decoding / crypto |
-| Photos.sqlite Queries | iOS 10→latest — SQL för app/källa, tider, filnamn |
+| iOS Queries | Photos.sqlite — iOS-version, filnamn, SQL |
 | Android Queries | MediaStore, DCIM/kamera, usage + ALEAPP-tips |
 | Playbook: Bildfil härkomst | Statisk 5-stegs bedömningsguide |
 | Vanliga artifacts | Referens för Windows / browser / Linux |
@@ -41,7 +41,7 @@ npm install
 npm start          # Electron-fönster (rekommenderas för test)
 ```
 
-Öppna inte `Toolbox.html` direkt i webbläsaren — moderna webbläsare blockerar lokala CSS/JS via `file://`. Använd Electron (`npm start` eller en nedladdad release).
+Öppna inte `Toolbox.html` direkt i webbläsaren om sidan ser ostylad ut — vissa webbläsare blockerar lokala filer via `file://`. Appen är tänkt att köras via Electron (`npm start` eller en nedladdad release). JSON-sidor (t.ex. Verktyg & releaser) har en `.js`-fallback så de fungerar även när `fetch()` av `.json` blockeras.
 
 Paketerad Linux-build (AppImage + uppackad mapp):
 

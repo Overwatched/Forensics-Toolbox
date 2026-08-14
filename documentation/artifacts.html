@@ -159,6 +159,59 @@
             </tbody>
         </table>
 
+        <h2>iOS</h2>
+        <table>
+            <thead>
+                <tr><th>Artifact</th><th>Typisk plats</th><th>Användning</th></tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td>Photos.sqlite</td>
+                    <td><code>Media/PhotoData/Photos.sqlite</code> (+ <code>-wal</code>, <code>-shm</code>)</td>
+                    <td>Fotobibliotek: tider, filnamn, bundle-ID. Använd iOS Queries.</td>
+                </tr>
+            </tbody>
+        </table>
+
+        <h2>Android</h2>
+        <table>
+            <thead>
+                <tr><th>Artifact</th><th>Typisk plats</th><th>Användning</th></tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td>MediaStore (external.db)</td>
+                    <td><code>/data/data/com.android.providers.media/databases/external.db</code></td>
+                    <td>Bilder/video på delad lagring. Använd Android Queries.</td>
+                </tr>
+                <tr>
+                    <td>MediaStore module</td>
+                    <td><code>/data/data/com.android.providers.media.module/databases/external.db</code></td>
+                    <td>Nyare Android (scoped MediaProvider).</td>
+                </tr>
+                <tr>
+                    <td>MediaStore (vissa extrakt)</td>
+                    <td><code>media/0/external.db</code></td>
+                    <td>Samma MediaStore, annan sökväg i extraktet.</td>
+                </tr>
+                <tr>
+                    <td>UsageStats</td>
+                    <td><code>/data/system/usagestats/</code></td>
+                    <td>App-användning (ofta XML, inte SQL). ALEAPP rekommenderas.</td>
+                </tr>
+                <tr>
+                    <td>Google Camera</td>
+                    <td><code>/data/data/com.google.android.GoogleCamera/</code></td>
+                    <td>App-privat kameradata.</td>
+                </tr>
+                <tr>
+                    <td>Samsung Camera</td>
+                    <td><code>/data/data/com.sec.android.app.camera/</code></td>
+                    <td>OEM-kamera. Gallery/CMH via ALEAPP.</td>
+                </tr>
+            </tbody>
+        </table>
+
         <h2>Linux</h2>
         <table>
             <thead>
