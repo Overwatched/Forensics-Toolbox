@@ -96,6 +96,10 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: npx electron-builder --mac --publish never
 
+      - name: Packa HTML-mapp (utan exe)
+        if: matrix.platform == 'linux'
+        run: node scripts/pack-html-folder.js
+
       - name: Lista release-filer
         shell: bash
         run: ls -la release/ || true
@@ -152,6 +156,9 @@ jobs:
             ## Windows
             - **ForensicsToolbox-${{ needs.version.outputs.version }}.exe** — portabel
             - **ForensicsToolbox-${{ needs.version.outputs.version }}-Installer.exe** — NSIS-installer
+
+            ## HTML-mapp (ingen .exe)
+            - **ForensicsToolbox-${{ needs.version.outputs.version }}-html.zip** — packa upp och öppna `Toolbox.html` i webbläsaren (för miljöer där körbara filer inte är tillåtna)
 
             ## Linux
             - **ForensicsToolbox-*.AppImage** — körbar AppImage (x64)
