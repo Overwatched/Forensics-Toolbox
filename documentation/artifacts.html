@@ -170,6 +170,26 @@
                     <td><code>Media/PhotoData/Photos.sqlite</code> (+ <code>-wal</code>, <code>-shm</code>)</td>
                     <td>Fotobibliotek: tider, filnamn, bundle-ID. Använd iOS Queries.</td>
                 </tr>
+                <tr>
+                    <td>KnowledgeC</td>
+                    <td><code>/private/var/mobile/Library/CoreDuet/Knowledge/knowledgeC.db</code></td>
+                    <td>App- och enhetsaktivitet (t.ex. i förgrunden).</td>
+                </tr>
+                <tr>
+                    <td>Biome</td>
+                    <td><code>/private/var/mobile/Library/Biome/</code> (iOS 15+)</td>
+                    <td>Strömmar t.ex. App.InFocus. Fullt filsystemsextrakt, sällan i backup.</td>
+                </tr>
+                <tr>
+                    <td>interactionC</td>
+                    <td><code>/private/var/mobile/Library/CoreDuet/People/interactionC.db</code></td>
+                    <td>Interaktioner med personer (samtal, meddelanden, Siri-förslag).</td>
+                </tr>
+                <tr>
+                    <td>Significant Locations</td>
+                    <td><code>/private/var/mobile/Library/Caches/com.apple.routined/</code></td>
+                    <td>Rutinerade platser. Jämför med EXIF/Photos GPS.</td>
+                </tr>
             </tbody>
         </table>
 
@@ -197,7 +217,12 @@
                 <tr>
                     <td>UsageStats</td>
                     <td><code>/data/system/usagestats/</code></td>
-                    <td>App-användning (ofta XML, inte SQL). ALEAPP rekommenderas.</td>
+                    <td>App-användning (ofta XML, inte SQL). ALEAPP rekommenderas. Android Queries har tips.</td>
+                </tr>
+                <tr>
+                    <td>Google Play Services (plats)</td>
+                    <td><code>/data/data/com.google.android.gms/</code></td>
+                    <td>Plats-/Maps-relaterad appdata. Jämför med EXIF GPS.</td>
                 </tr>
                 <tr>
                     <td>Google Camera</td>

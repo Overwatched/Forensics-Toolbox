@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Playbook — Bildfil härkomst</title>
+    <title>Bildfil — härkomst</title>
     <script>
         (function () {
             try {
@@ -30,7 +30,6 @@
             --text: #e8e8ed;
             --text-muted: #98989f;
             --accent: #0a84ff;
-            --accent-soft: rgba(10, 132, 255, 0.14);
             --step: #0a84ff;
         }
         [data-theme="light"] {
@@ -40,7 +39,6 @@
             --text: #1d1d1f;
             --text-muted: #6e6e73;
             --accent: #007aff;
-            --accent-soft: rgba(0, 122, 255, 0.12);
             --step: #007aff;
         }
         * { box-sizing: border-box; }
@@ -49,218 +47,213 @@
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
             background: var(--bg);
             color: var(--text);
-            padding: 40px 24px 80px;
-            line-height: 1.5;
+            padding: 32px 24px 72px;
+            line-height: 1.45;
         }
         .wrap { max-width: 820px; margin: 0 auto; }
-        h1 { font-size: 28px; margin: 0 0 8px; }
-        .lead { color: var(--text-muted); margin: 0 0 16px; }
-        .disclaimer {
-            font-size: 13px;
-            color: var(--text-muted);
-            background: var(--accent-soft);
-            border: 1px solid var(--border);
-            border-radius: 10px;
-            padding: 12px 14px;
-            margin-bottom: 24px;
-        }
+        h1 { font-size: 24px; margin: 0 0 18px; font-weight: 650; }
+        a { color: var(--accent); text-decoration: none; }
+        a:hover { text-decoration: underline; }
         .step {
             background: var(--surface);
             border: 1px solid var(--border);
             border-radius: 12px;
-            padding: 18px 18px 16px;
-            margin-bottom: 14px;
+            padding: 14px 16px 12px;
+            margin-bottom: 10px;
+        }
+        .step-head {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 8px;
         }
         .step-num {
             display: inline-flex;
             align-items: center;
             justify-content: center;
-            width: 28px;
-            height: 28px;
+            width: 26px;
+            height: 26px;
+            flex-shrink: 0;
             border-radius: 50%;
             background: var(--step);
             color: #fff;
             font-size: 13px;
             font-weight: 700;
-            margin-right: 10px;
         }
         .step h2 {
-            display: inline;
-            font-size: 16px;
+            font-size: 15px;
             margin: 0;
-            vertical-align: middle;
+            font-weight: 650;
         }
-        .step p { margin: 12px 0 8px; font-size: 14px; color: var(--text-muted); }
-        .step h3 {
-            margin: 12px 0 6px;
-            font-size: 12px;
+        .cols {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px 20px;
+        }
+        @media (max-width: 640px) {
+            .cols { grid-template-columns: 1fr; }
+        }
+        h3 {
+            margin: 4px 0 4px;
+            font-size: 11px;
             text-transform: uppercase;
             letter-spacing: 0.04em;
             color: var(--text-muted);
+            font-weight: 650;
         }
-        ul { margin: 0 0 0 18px; padding: 0; font-size: 14px; color: var(--text-muted); }
-        li { margin-bottom: 4px; }
+        ul { margin: 0 0 0 18px; padding: 0; font-size: 14px; }
+        li { margin-bottom: 3px; }
         code {
             font-family: Consolas, Monaco, monospace;
             font-size: 12px;
+            word-break: break-all;
         }
+        .shared { margin: 0 0 8px; font-size: 14px; }
+        .shared ul { margin-top: 4px; }
         .tools {
-            margin-top: 10px;
+            margin-top: 8px;
             font-size: 13px;
+            color: var(--text-muted);
         }
-        .tools strong { color: var(--text); }
-        .toc {
-            margin-bottom: 24px;
-            padding: 14px 16px;
-            background: var(--surface);
-            border: 1px solid var(--border);
-            border-radius: 12px;
-            font-size: 14px;
-        }
-        .toc ol { margin: 8px 0 0 20px; color: var(--text-muted); }
-        .toc a { color: var(--accent); text-decoration: none; }
-        .toc a:hover { text-decoration: underline; }
     </style>
 </head>
 
 <body>
     <div class="wrap">
-        <h1>Playbook: Bildfil — härkomst</h1>
-        <p class="lead">Statisk checklista för IT-forensikern. Stegen leder bedömningen — de ger inte automatisk slutsats.</p>
-
-        <div class="disclaimer">
-            Använd som hypotesstöd. Dokumentera vad du hittade, vad som saknas, och vilka begränsningar som gäller
-            (OS-version, OEM, ofullständigt extrakt). Öppna verktygen i sidopanelen (Time Converter, iOS Queries, Android Queries, ExifTool-länk).
-        </div>
-
-        <nav class="toc">
-            <strong>Stegöversikt</strong>
-            <ol>
-                <li><a href="#step-1">Media-DB: vilken app / vilka tider?</a></li>
-                <li><a href="#step-2">Var kameran aktiv?</a></li>
-                <li><a href="#step-3">Var applikationen aktiv?</a></li>
-                <li><a href="#step-4">Vad säger filens metadata (EXIF)?</a></li>
-                <li><a href="#step-5">Andra faktorer</a></li>
-            </ol>
-        </nav>
+        <h1>Bildfil — härkomst</h1>
 
         <section class="step" id="step-1">
-            <span class="step-num">1</span>
-            <h2>Analysera media-databasen (app + tider)</h2>
-            <p>
-                Mål: koppla filnamn/UUID/path till <strong>skapande-/importtid</strong> och eventuell
-                <strong>källapp</strong> (bundle-ID / owner package).
+            <div class="step-head">
+                <span class="step-num">1</span>
+                <h2>Filen: EXIF, tider, sökväg</h2>
+            </div>
+            <div class="shared">
+                <ul>
+                    <li>EXIF: DateTimeOriginal, Make/Model/Software, GPS</li>
+                    <li>Filtider (skapad/ändrad) mot EXIF-tid</li>
+                    <li>Sökväg — DCIM/Camera, Screenshots, WhatsApp/Media, nedladdningar…?</li>
+                </ul>
+            </div>
+            <div class="cols">
+                <div>
+                    <h3>iOS</h3>
+                    <ul>
+                        <li>Katalog + filnamn i extraktet</li>
+                        <li>Bundle-ID om det syns i sökvägen</li>
+                    </ul>
+                </div>
+                <div>
+                    <h3>Android</h3>
+                    <ul>
+                        <li><code>_data</code> / mappnamn i extraktet</li>
+                        <li><code>owner_package_name</code> om det finns</li>
+                    </ul>
+                </div>
+            </div>
+            <p class="tools">
+                <a href="https://exiftool.org/" target="_blank" rel="noopener noreferrer">ExifTool</a>
+                ·
+                <a href="../tools/time-converter/time.html" data-tool="tools/time-converter/time.html">Time Converter</a>
             </p>
-            <h3>iOS</h3>
-            <ul>
-                <li>Öppna <code>Media/PhotoData/Photos.sqlite</code></li>
-                <li>Kör schema-probe, sedan sök via filnamn/UUID</li>
-                <li>Notera <code>ZCREATORBUNDLEID</code> / <code>ZEDITORBUNDLEID</code>, created/modified/added (Cocoa → Time Converter)</li>
-            </ul>
-            <h3>Android</h3>
-            <ul>
-                <li>Öppna MediaStore <code>external.db</code> (files/images)</li>
-                <li>Sök path/filnamn; notera <code>date_added</code>, <code>date_taken</code>, <code>owner_package_name</code></li>
-            </ul>
-            <p class="tools"><strong>Verktyg:</strong> iOS Queries · Android Queries (MediaStore) · Time Converter · DB Browser</p>
-            <h3>Begränsningar</h3>
-            <ul>
-                <li>Schema/FK skiljer sig mellan OS-versioner</li>
-                <li>Saknad creator betyder inte “ingen app” — bara saknad metadata</li>
-            </ul>
         </section>
 
         <section class="step" id="step-2">
-            <span class="step-num">2</span>
-            <h2>Var kameran aktiv på enheten?</h2>
-            <p>
-                Mål: bedöma om tidpunkten för bilden sammanfaller med <strong>kamerarelaterad aktivitet</strong>
-                (DCIM/Camera, kamera-app, OEM gallery/camera-DB).
-            </p>
-            <h3>iOS</h3>
-            <ul>
-                <li>Jämför Photos.sqlite-tider med KnowledgeC / andra sensor-/appartefakter (via iLEAPP)</li>
-                <li>Bundle <code>com.apple.camera</code> som creator är en stark indikator — men inte enda vägen</li>
-            </ul>
-            <h3>Android</h3>
-            <ul>
-                <li>SQL: filer under <code>DCIM/Camera</code> runt tid T</li>
-                <li>SQL: <code>owner_package_name</code> liknande camera</li>
-                <li>Kör ALEAPP för OEM camera/gallery (Samsung CMH m.fl.)</li>
-            </ul>
-            <p class="tools"><strong>Verktyg:</strong> Android Queries (Kamera) · iLEAPP · ALEAPP · Time Converter</p>
-            <h3>Begränsningar</h3>
-            <ul>
-                <li>Andra appar kan spara under DCIM</li>
-                <li>Importerade bilder kan ha kameralik EXIF utan lokal kamerasession</li>
-            </ul>
+            <div class="step-head">
+                <span class="step-num">2</span>
+                <h2>Kameraloggar</h2>
+            </div>
+            <div class="cols">
+                <div>
+                    <h3>iOS</h3>
+                    <ul>
+                        <li><code>Media/PhotoData/Photos.sqlite</code> (+ <code>-wal</code>, <code>-shm</code>)</li>
+                        <li>Filnamn, tider, <code>ZCREATORBUNDLEID</code> / <code>ZEDITORBUNDLEID</code></li>
+                    </ul>
+                    <p class="tools"><a href="../tools/photos-sqlite-queries/queries.html" data-tool="tools/photos-sqlite-queries/queries.html">iOS Queries</a></p>
+                </div>
+                <div>
+                    <h3>Android</h3>
+                    <ul>
+                        <li><code>/data/data/com.android.providers.media/databases/external.db</code></li>
+                        <li>eller <code>…/com.android.providers.media.module/databases/external.db</code></li>
+                        <li>DCIM/Camera, <code>date_taken</code>, <code>owner_package_name</code></li>
+                    </ul>
+                    <p class="tools"><a href="../tools/android-queries/queries.html" data-tool="tools/android-queries/queries.html">Android Queries</a></p>
+                </div>
+            </div>
         </section>
 
         <section class="step" id="step-3">
-            <span class="step-num">3</span>
-            <h2>Var applikationen aktiv?</h2>
-            <p>
-                Mål: korsreferera om den misstänkta källappen (WhatsApp, Safari, Files, Gallery, …)
-                var i förgrunden / använd nära tidpunkten.
-            </p>
-            <h3>iOS</h3>
-            <ul>
-                <li>KnowledgeC / Biome / relaterade artifacts via iLEAPP</li>
-                <li>Jämför app bundle-ID från steg 1 med usage-artefakter</li>
-            </ul>
-            <h3>Android</h3>
-            <ul>
-                <li>UsageStats under <code>/data/system/usagestats/</code> (ofta XML) → ALEAPP</li>
-                <li>Android Queries har tips/mallar när SQLite finns</li>
-            </ul>
-            <p class="tools"><strong>Verktyg:</strong> Android Queries (App-användning) · iLEAPP · ALEAPP</p>
-            <h3>Begränsningar</h3>
-            <ul>
-                <li>UsageStats kan saknas, vara roterad eller OEM-modifierad</li>
-                <li>Bakgrundsaktivitet ≠ användarinteraktion</li>
-            </ul>
+            <div class="step-head">
+                <span class="step-num">3</span>
+                <h2>Var appen aktiv?</h2>
+            </div>
+            <div class="cols">
+                <div>
+                    <h3>iOS</h3>
+                    <ul>
+                        <li>KnowledgeC: <code>/private/var/mobile/Library/CoreDuet/Knowledge/knowledgeC.db</code></li>
+                        <li>Biome (iOS 15+): <code>/private/var/mobile/Library/Biome/</code> — t.ex. App.InFocus</li>
+                        <li>interactionC: <code>/private/var/mobile/Library/CoreDuet/People/interactionC.db</code></li>
+                    </ul>
+                </div>
+                <div>
+                    <h3>Android</h3>
+                    <ul>
+                        <li>UsageStats: <code>/data/system/usagestats/</code> (ofta XML)</li>
+                        <li>Digital Wellbeing / OEM usage om det finns</li>
+                    </ul>
+                    <p class="tools"><a href="../tools/android-queries/queries.html" data-tool="tools/android-queries/queries.html">Android Queries</a> (App-användning)</p>
+                </div>
+            </div>
         </section>
 
         <section class="step" id="step-4">
-            <span class="step-num">4</span>
-            <h2>Vad säger filens metadata (EXIF m.m.)?</h2>
-            <p>
-                Mål: jämföra <strong>embedded metadata</strong> med databastider och källhypotes.
-            </p>
-            <ul>
-                <li>DateTimeOriginal / CreateDate / ModifyDate</li>
-                <li>Make / Model / Software / HostComputer</li>
-                <li>GPS (om finns) — policy/integritet!</li>
-                <li>Saknad EXIF kan tyda på export/omkodning/messaging-app</li>
-            </ul>
-            <p class="tools"><strong>Verktyg:</strong> ExifTool (extern länk under Verktyg &amp; releaser)</p>
-            <h3>Begränsningar</h3>
-            <ul>
-                <li>EXIF kan redigeras eller strippas</li>
-                <li>DB-tid och EXIF-tid behöver inte vara samma händelse</li>
-            </ul>
+            <div class="step-head">
+                <span class="step-num">4</span>
+                <h2>Positionsinformation — är den pålitlig?</h2>
+            </div>
+            <p class="shared">Jämför flera, helst oberoende, källor för var telefonen var.</p>
+            <div class="cols">
+                <div>
+                    <h3>iOS</h3>
+                    <ul>
+                        <li>EXIF GPS</li>
+                        <li>Photos.sqlite (lat/long om kolumnerna finns)</li>
+                        <li>Significant Locations: <code>/private/var/mobile/Library/Caches/com.apple.routined/</code></li>
+                        <li>locationd: <code>/private/var/root/Library/Caches/locationd/</code></li>
+                    </ul>
+                </div>
+                <div>
+                    <h3>Android</h3>
+                    <ul>
+                        <li>EXIF GPS</li>
+                        <li>MediaStore lat/long</li>
+                        <li>Google Play Services / Maps-appdata</li>
+                        <li>cell / Wi-Fi-historik</li>
+                    </ul>
+                </div>
+            </div>
         </section>
 
         <section class="step" id="step-5">
-            <span class="step-num">5</span>
-            <h2>Andra faktorer</h2>
-            <p>Komplettera med kontext som ofta avgör bedömningen:</p>
+            <div class="step-head">
+                <span class="step-num">5</span>
+                <h2>Andra faktorer</h2>
+            </div>
             <ul>
-                <li>Messaging (WhatsApp, Signal, SMS/MMS) — mottagen bilaga vs tagen bild</li>
+                <li>Chattbilaga vs tagen bild (WhatsApp, Signal, SMS/MMS)</li>
                 <li>Moln/sync (iCloud Photos, Google Photos, OneDrive)</li>
-                <li>AirDrop / Nearby Share / Bluetooth-överföring</li>
-                <li>Screenshot-heuristik (filnamn, resolution, saknad kamera-EXIF)</li>
-                <li>Hashjämförelse mot andra enheter/medier</li>
-                <li>Trash/hidden/favorit-flaggor i Photos/MediaStore</li>
-                <li>Sideload / USB-MTP / SD-kortskopior</li>
+                <li>AirDrop / Nearby Share / USB-MTP / SD-kort</li>
+                <li>Skärmdump (filnamn, upplösning, saknad kamera-EXIF)</li>
+                <li>Hash mot andra enheter/medier</li>
+                <li>Papperskorg / hidden / favorit i Photos eller MediaStore</li>
             </ul>
-            <p class="tools"><strong>Verktyg:</strong> iLEAPP · ALEAPP · Hash Calculator · CyberChef · OSINT-länkar vid behov</p>
-            <h3>Sammanfatta bedömningen</h3>
-            <ul>
-                <li>Vad stöder hypotesen “tagen med enhetens kamera”?</li>
-                <li>Vad stöder “importerad / mottagen / synkad”?</li>
-                <li>Vad är <em>okänt</em> p.g.a. saknade artefakter?</li>
-            </ul>
+            <p class="tools">
+                <a href="../tools/hash-calculator/hash.html" data-tool="tools/hash-calculator/hash.html">Hash Calculator</a>
+                ·
+                <a href="artifacts.html" data-tool="documentation/artifacts.html">Vanliga artifacts</a>
+            </p>
         </section>
     </div>
 
@@ -273,6 +266,18 @@
                 document.documentElement.setAttribute('data-theme', data.theme);
                 try { localStorage.setItem('theme', data.theme); } catch (e) {}
             }
+        });
+
+        document.querySelectorAll('[data-tool]').forEach(function (link) {
+            link.addEventListener('click', function (event) {
+                if (!window.parent || window.parent === window) return;
+                event.preventDefault();
+                window.parent.postMessage({
+                    source: 'forensics-toolbox',
+                    type: 'open-tool',
+                    src: link.getAttribute('data-tool')
+                }, '*');
+            });
         });
     </script>
 </body>

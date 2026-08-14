@@ -15,7 +15,7 @@ Forkad och omarbetad från [AdrianNeshad/CryptoToolbox](https://github.com/Adria
 | CyberChef | Offline encoding / decoding / crypto |
 | iOS Queries | Photos.sqlite — iOS-version, filnamn, SQL |
 | Android Queries | MediaStore, DCIM/kamera, usage + ALEAPP-tips |
-| Playbook: Bildfil härkomst | Statisk 5-stegs bedömningsguide |
+| Playbook: Bildfil härkomst | Kort checklista: EXIF, kamera, app, position |
 | Vanliga artifacts | Referens för Windows / browser / Linux |
 | Verktyg & releaser | Kuraterad lista (iLEAPP, ALEAPP, Passware 2026 v3, …) |
 

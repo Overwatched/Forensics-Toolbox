@@ -23,18 +23,34 @@ function initToolNav() {
     const placeholder = document.getElementById('content-placeholder');
     if (!frame || !placeholder) return;
 
+    function openTool(src) {
+        const item = document.querySelector(`.nav-item[data-type="frame"][data-src="${src}"]`);
+        if (!item) return false;
+
+        document.querySelectorAll('.nav-item.active').forEach((el) => el.classList.remove('active'));
+        item.classList.add('active');
+
+        const theme = document.documentElement.getAttribute('data-theme') || 'dark';
+        const separator = src.indexOf('?') === -1 ? '?' : '&';
+        frame.src = src + separator + 'theme=' + theme;
+        frame.style.display = 'block';
+        placeholder.style.display = 'none';
+        return true;
+    }
+
     document.querySelectorAll('.nav-item[data-type="frame"]').forEach((item) => {
         item.addEventListener('click', () => {
-            document.querySelectorAll('.nav-item.active').forEach((el) => el.classList.remove('active'));
-            item.classList.add('active');
-
-            const theme = document.documentElement.getAttribute('data-theme') || 'dark';
-            const src = item.dataset.src;
-            const separator = src.indexOf('?') === -1 ? '?' : '&';
-            frame.src = src + separator + 'theme=' + theme;
-            frame.style.display = 'block';
-            placeholder.style.display = 'none';
+            openTool(item.dataset.src);
         });
+    });
+
+    window.addEventListener('message', (event) => {
+        if (event.source !== frame.contentWindow) return;
+        const data = event.data;
+        if (!data || (data.source !== 'forensics-toolbox' && data.source !== 'verktygslada')) return;
+        if (data.type === 'open-tool' && typeof data.src === 'string') {
+            openTool(data.src);
+        }
     });
 }
 
