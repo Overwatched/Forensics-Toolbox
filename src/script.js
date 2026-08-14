@@ -45,12 +45,11 @@ function initToolNav() {
     });
 
     window.addEventListener('message', (event) => {
-        if (event.source !== frame.contentWindow) return;
         const data = event.data;
         if (!data || (data.source !== 'forensics-toolbox' && data.source !== 'verktygslada')) return;
-        if (data.type === 'open-tool' && typeof data.src === 'string') {
-            openTool(data.src);
-        }
+        if (data.type !== 'open-tool' || typeof data.src !== 'string') return;
+        // Allowlist: only paths that already exist as sidebar tools.
+        openTool(data.src);
     });
 }
 
