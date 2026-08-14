@@ -109,11 +109,12 @@ jobs:
         with:
           name: forensics-toolbox-${{ matrix.platform }}
           path: |
-            release/ForensicsToolbox*
+            release/*.exe
             release/*.AppImage
             release/*.dmg
-            release/*.zip
-            release/*.exe
+            release/*-html.zip
+            release/*-x64.zip
+            release/*-arm64.zip
           if-no-files-found: warn
 
   release:

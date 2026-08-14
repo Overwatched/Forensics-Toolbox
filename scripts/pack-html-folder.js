@@ -98,6 +98,7 @@ execFileSync('zip', ['-r', '-q', zipPath, folderName], { cwd: RELEASE_DIR });
 
 const fileCount = countFiles(dest);
 const zipStat = fs.statSync(zipPath);
+fs.rmSync(dest, { recursive: true, force: true });
 
 console.log(`pack-html-folder: ${folderName} (${fileCount} filer)`);
 console.log(`pack-html-folder: ${path.basename(zipPath)} (${Math.round(zipStat.size / 1024 / 1024)} MB)`);
