@@ -72,6 +72,41 @@ body {
     color: #fff;
 }
 
+.algo-picker {
+    width: 100%;
+    margin: 0 0 16px;
+    padding: 12px 14px;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: var(--surface);
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px 16px;
+}
+
+.algo-picker legend {
+    padding: 0 6px;
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--text-muted);
+}
+
+.algo-picker label {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    color: var(--text);
+}
+
+.algo-picker input {
+    width: 15px;
+    height: 15px;
+    accent-color: var(--accent);
+}
+
 .panel { width: 100%; margin-bottom: 14px; }
 
 textarea {
@@ -149,7 +184,7 @@ button.secondary:hover { border-color: var(--border-hover); }
 
 .result-row {
     display: grid;
-    grid-template-columns: 80px 1fr auto;
+    grid-template-columns: 88px 1fr auto;
     gap: 10px;
     align-items: center;
     padding: 10px 8px;

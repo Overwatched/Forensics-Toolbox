@@ -29,8 +29,18 @@
     <div id="container">
         <header class="page-header">
             <h1>Hash Calculator</h1>
-            <p>Beräkna MD5, SHA-1 och SHA-256 lokalt</p>
+            <p>Beräkna hash lokalt — MD5, SHA-1 och SHA-256 är förvalda</p>
         </header>
+
+        <fieldset class="algo-picker">
+            <legend>Algoritmer</legend>
+            <label><input type="checkbox" name="algo" value="md5" checked> MD5</label>
+            <label><input type="checkbox" name="algo" value="sha1" checked> SHA-1</label>
+            <label><input type="checkbox" name="algo" value="sha256" checked> SHA-256</label>
+            <label><input type="checkbox" name="algo" value="sha384"> SHA-384</label>
+            <label><input type="checkbox" name="algo" value="sha512"> SHA-512</label>
+            <label><input type="checkbox" name="algo" value="crc32"> CRC-32</label>
+        </fieldset>
 
         <div class="tabs">
             <button type="button" class="tab active" data-mode="text">Text</button>
@@ -55,23 +65,7 @@
 
         <div id="status">Ingen data laddad</div>
 
-        <div id="results" class="results display-none">
-            <div class="result-row">
-                <span class="algo">MD5</span>
-                <code id="md5-out"></code>
-                <button type="button" class="copy-btn" data-target="md5-out">Kopiera</button>
-            </div>
-            <div class="result-row">
-                <span class="algo">SHA-1</span>
-                <code id="sha1-out"></code>
-                <button type="button" class="copy-btn" data-target="sha1-out">Kopiera</button>
-            </div>
-            <div class="result-row">
-                <span class="algo">SHA-256</span>
-                <code id="sha256-out"></code>
-                <button type="button" class="copy-btn" data-target="sha256-out">Kopiera</button>
-            </div>
-        </div>
+        <div id="results" class="results display-none"></div>
     </div>
 
     <div id="toast" class="toast">Kopierat</div>
