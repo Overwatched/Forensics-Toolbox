@@ -1,20 +1,19 @@
 const bandSelect = document.getElementById('band-select');
 const questionList = document.getElementById('question-list');
-const questionDetail = document.getElementById('question-detail');
-const bandNotes = document.getElementById('band-notes');
 const paramsEl = document.getElementById('params');
-const caveatsEl = document.getElementById('caveats');
-const columnGuide = document.getElementById('column-guide');
 const sqlOut = document.getElementById('sql-out');
 const metaBox = document.getElementById('meta-box');
 const loadError = document.getElementById('load-error');
-const generateButton = document.getElementById('generate-button');
 const copyButton = document.getElementById('copy-button');
+const showQueriesBtn = document.getElementById('show-queries-btn');
+const recommendedBox = document.getElementById('recommended-box');
 const toast = document.getElementById('toast');
 
 let catalog = null;
 let selectedQuestionId = null;
+let showQueries = false;
 let showAdvanced = false;
+let sqlDirty = false;
 
 function escapeHtml(s) {
     return String(s)
@@ -50,15 +49,36 @@ function visibleQuestions() {
     return (catalog.questions || []).filter((q) => {
         if (q.onlyBands && !q.onlyBands.includes(bandId)) return false;
         if (q.group === 'advanced' && !showAdvanced) return false;
-        // Hide alt-join unless advanced
         if (q.id === 'full-story-alt-join' && !showAdvanced) return false;
-        // Only show alt-join if SQL exists in band
         if (!findSql(q.id)) return false;
         return true;
     });
 }
 
+function renderRecommended() {
+    const q = currentQuestion();
+    const isDefault = q && q.recommended;
+    recommendedBox.classList.toggle('display-none', showQueries);
+    recommendedBox.innerHTML = `
+      <div class="q-title"><span class="badge">Rekommenderas</span><span>${escapeHtml(q ? q.label : 'Standardquery för Photos.sqlite')}</span></div>
+      <div class="q-sub">${escapeHtml(q && q.subtitle ? q.subtitle : '')}</div>`;
+    if (!isDefault && showQueries) {
+        recommendedBox.classList.add('display-none');
+    }
+}
+
 function renderQuestions() {
+    if (!showQueries) {
+        questionList.classList.add('display-none');
+        showQueriesBtn.textContent = 'Visa enskilda queries';
+        renderRecommended();
+        return;
+    }
+
+    questionList.classList.remove('display-none');
+    showQueriesBtn.textContent = 'Dölj enskilda queries';
+    recommendedBox.classList.add('display-none');
+
     const items = visibleQuestions();
     const investigate = items.filter((q) => q.group !== 'advanced');
     const advanced = items.filter((q) => q.group === 'advanced');
@@ -76,8 +96,8 @@ function renderQuestions() {
     questionList.querySelectorAll('.q-card').forEach((btn) => {
         btn.addEventListener('click', () => {
             selectedQuestionId = btn.dataset.id;
+            sqlDirty = false;
             renderQuestions();
-            renderQuestionDetail();
             renderParams();
             generateSql();
         });
@@ -103,20 +123,6 @@ function cardHtml(q, advanced) {
       </button>`;
 }
 
-function renderQuestionDetail() {
-    const q = currentQuestion();
-    if (!q) {
-        questionDetail.classList.add('display-none');
-        return;
-    }
-    const helps = (q.helpsAnswer || []).map((h) => `<li>${escapeHtml(h)}</li>`).join('');
-    questionDetail.innerHTML = `
-      <strong>${escapeHtml(q.label)}</strong>
-      <div>${escapeHtml(q.subtitle || '')}</div>
-      ${helps ? `<ul>${helps}</ul>` : ''}`;
-    questionDetail.classList.remove('display-none');
-}
-
 function renderParams() {
     const q = currentQuestion();
     const labels = catalog.paramLabels || {};
@@ -128,7 +134,7 @@ function renderParams() {
     }
 
     paramsEl.innerHTML = `
-      <div class="step-label">3. Fyll i sökvärde</div>
+      <div class="step-label">3. Filnamn / sökvärde</div>
       ${params.map((name) => `
         <div class="param-block">
           <label class="field-label" for="param-${escapeHtml(name)}">${escapeHtml(labels[name] || name)}</label>
@@ -137,99 +143,99 @@ function renderParams() {
         </div>`).join('')}`;
 
     paramsEl.querySelectorAll('input').forEach((input) => {
-        input.addEventListener('input', generateSql);
+        input.addEventListener('input', () => {
+            sqlDirty = false;
+            generateSql();
+        });
         input.addEventListener('keydown', (e) => {
-            if (e.key === 'Enter') generateSql();
+            if (e.key === 'Enter') {
+                sqlDirty = false;
+                generateSql();
+            }
         });
     });
+}
+
+function splitTerms(raw) {
+    const terms = String(raw || '').split(',').map((s) => s.trim()).filter(Boolean);
+    return terms.length ? terms : ['…'];
+}
+
+function applyListParam(sql, name, raw) {
+    const placeholder = '{{' + name + '}}';
+    if (!sql.includes(placeholder)) return sql;
+
+    const values = splitTerms(raw).map((t) => t.replace(/'/g, "''"));
+    if (values.length === 1) {
+        return sql.split(placeholder).join(values[0]);
+    }
+
+    const whereMatch = sql.match(/WHERE\s+([\s\S]*?)(?=\nORDER BY|\nLIMIT|;?\s*$)/i);
+    if (!whereMatch) {
+        return sql.split(placeholder).join(values[0]);
+    }
+
+    const whereBody = whereMatch[1];
+    const expanded = values.map((term) => {
+        return '(' + whereBody.split(placeholder).join(term).trim().replace(/;?\s*$/, '') + ')';
+    }).join('\n   OR ');
+
+    return sql.slice(0, whereMatch.index) + 'WHERE\n   ' + expanded + '\n' + sql.slice(whereMatch.index + whereMatch[0].length);
 }
 
 function applyParams(sql, params) {
     let out = sql;
     for (const name of params || []) {
         const el = document.getElementById('param-' + name);
-        let value = el ? el.value.trim() : '';
-        value = value.replace(/'/g, "''");
-        if (!value) value = '…';
-        out = out.split('{{' + name + '}}').join(value);
+        const value = el ? el.value.trim() : '';
+        if (name === 'filename' || name === 'bundleId') {
+            out = applyListParam(out, name, value);
+        } else {
+            let v = value.replace(/'/g, "''");
+            if (!v) v = '…';
+            out = out.split('{{' + name + '}}').join(v);
+        }
     }
     return out;
 }
 
-function renderColumnGuide() {
-    const guide = catalog.columnGuide || [];
-    if (!guide.length) {
-        columnGuide.classList.add('display-none');
-        return;
-    }
-    columnGuide.innerHTML = '<strong>Så läser du resultatet</strong><ul>' +
-        guide.map((g) => `<li><code>${escapeHtml(g.col)}</code> — ${escapeHtml(g.meaning)}</li>`).join('') +
-        '</ul>';
-    columnGuide.classList.remove('display-none');
-}
-
 function generateSql() {
     if (!catalog) return;
-    const band = currentBand();
+    if (sqlDirty) return;
     const q = currentQuestion();
     const rawSql = findSql(q.id);
 
     if (!rawSql) {
         sqlOut.value = '';
         copyButton.disabled = true;
-        caveatsEl.innerHTML = '<strong>Saknas</strong><ul><li>Den här frågan finns inte för valt iOS-band.</li></ul>';
-        caveatsEl.classList.remove('display-none');
         return;
     }
 
-    const sql = applyParams(rawSql, q.params || []);
-    sqlOut.value = sql;
-
-    const items = [];
-    (catalog.generalCaveats || []).forEach((c) => items.push(c));
-    if (band.notes) items.push('Versionsband: ' + band.label + ' — ' + band.notes);
-    if ((q.params || []).includes('filename')) {
-        items.push('Om du får 0 rader: prova kortare del av filnamnet, eller Avancerat → alternativ JOIN.');
-    }
-
-    caveatsEl.innerHTML = '<strong>Att tänka på</strong><ul>' +
-        items.map((c) => `<li>${escapeHtml(c)}</li>`).join('') +
-        '</ul>';
-    caveatsEl.classList.remove('display-none');
-    renderColumnGuide();
-    copyButton.disabled = !sql;
+    sqlOut.value = applyParams(rawSql, q.params || []);
+    copyButton.disabled = !sqlOut.value;
 }
 
 function onBandChange() {
-    const band = currentBand();
-    if (band.notes) {
-        bandNotes.textContent = band.notes;
-        bandNotes.classList.remove('display-none');
-    } else {
-        bandNotes.classList.add('display-none');
-    }
-
-    // Keep selection if still valid, else recommended
     if (!findSql(selectedQuestionId)) {
         const rec = (catalog.questions || []).find((q) => q.recommended && findSql(q.id));
         selectedQuestionId = rec ? rec.id : (visibleQuestions()[0] || {}).id;
     }
-
+    sqlDirty = false;
     renderQuestions();
-    renderQuestionDetail();
     renderParams();
     generateSql();
 }
 
 async function init() {
     try {
-        const res = await fetch('../../queries/ios/photos-sqlite/catalog.json');
-        if (!res.ok) throw new Error('HTTP ' + res.status);
-        catalog = await res.json();
+        catalog = await loadLocalJson(
+            '../../queries/ios/photos-sqlite/catalog.json',
+            'PHOTOS_SQLITE_CATALOG'
+        );
 
         metaBox.innerHTML =
-            `<strong>Databas:</strong> <code>${escapeHtml(catalog.dbPathHint || '')}</code><br>` +
-            `${escapeHtml(catalog.timeNote || '')}`;
+            `<strong>Databas:</strong> <code>${escapeHtml(catalog.dbPathHint || '')}</code>` +
+            (catalog.timeNote ? `<br>${escapeHtml(catalog.timeNote)}` : '');
         metaBox.classList.remove('display-none');
 
         bandSelect.innerHTML = catalog.bands.map((b) =>
@@ -237,7 +243,6 @@ async function init() {
         ).join('');
 
         bandSelect.disabled = false;
-        generateButton.disabled = false;
 
         if (catalog.bands.length) {
             bandSelect.value = catalog.bands[catalog.bands.length - 1].id;
@@ -255,7 +260,23 @@ async function init() {
 }
 
 bandSelect.addEventListener('change', onBandChange);
-generateButton.addEventListener('click', generateSql);
+
+showQueriesBtn.addEventListener('click', () => {
+    showQueries = !showQueries;
+    if (!showQueries) {
+        const rec = (catalog.questions || []).find((q) => q.recommended && findSql(q.id));
+        if (rec) selectedQuestionId = rec.id;
+        sqlDirty = false;
+        renderParams();
+        generateSql();
+    }
+    renderQuestions();
+});
+
+sqlOut.addEventListener('input', () => {
+    sqlDirty = true;
+    copyButton.disabled = !sqlOut.value;
+});
 
 copyButton.addEventListener('click', async () => {
     try {
