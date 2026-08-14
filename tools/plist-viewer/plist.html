@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="sv">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Plist-visare</title>
+    <script>
+        (function () {
+            try {
+                var params = new URLSearchParams(location.search);
+                var fromParent = params.get('theme');
+                var saved = localStorage.getItem('theme');
+                var theme = (fromParent === 'light' || fromParent === 'dark') ? fromParent
+                    : (saved === 'light' || saved === 'dark') ? saved : 'dark';
+                document.documentElement.setAttribute('data-theme', theme);
+                if (fromParent === 'light' || fromParent === 'dark') {
+                    localStorage.setItem('theme', fromParent);
+                }
+            } catch (e) {
+                document.documentElement.setAttribute('data-theme', 'dark');
+            }
+        })();
+    </script>
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+    <div id="container">
+        <header class="page-header">
+            <h1>Plist-visare</h1>
+            <p>XML-plist eller binär bplist00 → läsbar JSON.</p>
+        </header>
+
+        <div class="tabs">
+            <button type="button" class="tab active" data-mode="paste">Klistra in</button>
+            <button type="button" class="tab" data-mode="file">Fil</button>
+        </div>
+
+        <div id="paste-panel" class="panel">
+            <textarea id="text-input" spellcheck="false" placeholder="Klistra in XML-plist här…"></textarea>
+        </div>
+
+        <div id="file-panel" class="panel display-none">
+            <label class="file-drop" for="file-input">
+                <span id="file-label">Välj .plist / bplist eller dra hit</span>
+                <input id="file-input" type="file">
+            </label>
+        </div>
+
+        <div class="button-row">
+            <button id="parse-button" type="button">Visa</button>
+            <button id="clear-button" class="secondary" type="button">Rensa</button>
+        </div>
+
+        <div id="status">Ingen plist laddad</div>
+        <pre id="output">Resultat visas här</pre>
+
+        <div class="button-row">
+            <button id="copy-button" type="button">Kopiera JSON</button>
+        </div>
+    </div>
+
+    <div id="toast" class="toast">Kopierat</div>
+    <script src="plist.js"></script>
+    <script src="script.js"></script>
+</body>
+
+</html>
