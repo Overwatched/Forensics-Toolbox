@@ -110,15 +110,29 @@ Varje mall: `id`, `title`, `os`, `versionRange`, `dbPathHint`, `sql`, `notes`, `
 
 ## D. Playbook (statisk) – “Bildfil – härkomst”
 
-En sida som **listar stegen** (ingen interaktiv wizard ännu):
+Kort checklista (ingen mål-/begränsningstext). Användaren kan redan forensik.
 
-1. Analysera Photos.sqlite (app, tider) → länk till query-verktyg  
-2. Var kameran aktiv? (iOS/Android-queries)  
-3. Var appen aktiv?  
-4. Metadata i bildfilen (ExifTool-länk + checklista)  
-5. Andra faktorer (AirDrop, iCloud, messaging, screenshot, hash, …)
+1. Filen: EXIF, tider, sökväg (app?)  
+2. Kameraloggar: Photos.sqlite / MediaStore `external.db` → iOS Queries / Android Queries  
+3. Var appen aktiv? KnowledgeC, Biome (iOS 15+), interactionC; Android usagestats → Android Queries  
+4. Positionsinformation — jämför flera oberoende källor  
+5. Andra faktorer (chatt, moln, AirDrop, skärmdump, hash, …)
 
-Varje steg: kort “vad du får ut” + “begränsningar” + pekare till rätt verktyg/query.
+---
+
+## E. Nästa bedömningsflöden (plan — inte byggt)
+
+Samma ton: korta steg, paths, länkar till queries när de finns. Inga mål/begränsningar.
+
+| Flöde | När | Kärnsteg (utkast) |
+|-------|-----|-------------------|
+| **Okänd app** | Sideload, APK/IPA, “vad gör den här appen?” | Identitet (paket/bundle, signerare, version) → behörigheter → privat lagring + WAL → nätverk/konton → residual (KnowledgeC/usagestats, notiser, foton appen skapat) |
+| **Krypto / plånbok** | Misstanke om krypto, seed, exchange | App/plånbok på enheten → seed/QR/address i foton, anteckningar, clipboard → webbläsarhistorik/exchange → hash/CyberChef på strängar → kedja mot block explorer (OSINT-länk, inte inbäddat) |
+| **Position vid tid T** | Utvidgning av steg 4 i bildflödet | EXIF/DB-GPS → Significant Locations / GMS → cell/Wi-Fi → Maps-appar → jämför oberoende källor mot samma tidsfönster |
+| **Chattbilaga vid tid T** | Mottagen vs skickad vs tagen | Tråd/meddelande-DB → bifogad filhash mot fotobibliotek → app aktiv (steg 3) → molnbackup |
+| **Raderat material** | Saknad bild/fil | Trash/hidden-flaggor → WAL/SHM → unallocated/carve → moln/andra enheter |
+
+**Först ut efter bildflödet:** Okänd app, därefter krypto. Position-vid-T kan återanvända steg 4. Chatt och radering väntar tills query-täckning finns.
 
 ---
 
