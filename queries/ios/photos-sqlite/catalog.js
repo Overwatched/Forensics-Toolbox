@@ -1,4 +1,5 @@
-{
+/* Genererad från photos-sqlite/catalog.json — används när fetch() blockeras (file://). */
+window.PHOTOS_SQLITE_CATALOG = {
   "id": "photos-sqlite",
   "title": "iOS Queries",
   "dbPathHint": "Media/PhotoData/Photos.sqlite (+ -wal och -shm)",
@@ -286,4 +287,4 @@
       ]
     }
   ]
-}
+};

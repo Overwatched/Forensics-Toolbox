@@ -11,6 +11,7 @@
     --accent-soft: rgba(10, 132, 255, 0.14);
     --warn-soft: rgba(255, 159, 10, 0.12);
     --error: #ff453a;
+    --ok: #30d158;
 }
 
 [data-theme="light"] {
@@ -26,6 +27,7 @@
     --accent-soft: rgba(0, 122, 255, 0.12);
     --warn-soft: rgba(255, 149, 0, 0.12);
     --error: #ff3b30;
+    --ok: #248a3d;
 }
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -46,7 +48,8 @@ body {
 .page-header h1 { font-size: 28px; }
 .page-header p { margin-top: 10px; color: var(--text-muted); font-size: 14px; line-height: 1.45; }
 
-.field-label { font-size: 13px; color: var(--text-muted); margin-bottom: 8px; }
+.field-label, .step-label { font-size: 13px; color: var(--text-muted); margin-bottom: 8px; }
+.step-label { font-weight: 600; margin-top: 4px; }
 
 select, input[type="text"], textarea {
     width: 100%;
@@ -102,7 +105,7 @@ button.secondary {
 
 button.secondary:hover:not(:disabled) { border-color: var(--border-hover); }
 
-.banner, .notes, .caveats, .help {
+.banner, .notes, .help, .recommended-box {
     background: var(--surface);
     border: 1px solid var(--border);
     border-radius: 12px;
@@ -116,10 +119,50 @@ button.secondary:hover:not(:disabled) { border-color: var(--border-hover); }
 .banner { background: var(--accent-soft); }
 .banner.error { color: var(--error); }
 .notes { margin-top: -4px; }
-.caveats { background: var(--warn-soft); }
-.caveats ul, .help ol, .notes ul { margin: 8px 0 0 18px; }
+.notes ul, .help ol { margin: 8px 0 0 18px; }
 .help h2 { font-size: 14px; color: var(--text); margin-bottom: 4px; }
-.help code, .banner code { font-family: Consolas, Monaco, monospace; font-size: 12px; }
+.help.flow { margin-bottom: 18px; }
+.help code, .banner code, .notes code { font-family: Consolas, Monaco, monospace; font-size: 12px; }
+
+.recommended-box .q-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--text);
+}
+.recommended-box .q-sub {
+    margin-top: 4px;
+    font-size: 12px;
+    color: var(--text-muted);
+}
+
+.badge {
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: #fff;
+    background: var(--ok);
+    border-radius: 999px;
+    padding: 2px 8px;
+}
+
+.advanced-toggle {
+    margin: 0 0 14px;
+    background: transparent;
+    color: var(--text-muted);
+    border: none;
+    padding: 6px 0;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    flex: none;
+    width: auto;
+    text-align: left;
+}
+.advanced-toggle:hover { color: var(--accent); background: transparent; }
 .params .param-block { margin-bottom: 4px; }
 .display-none { display: none !important; }
 

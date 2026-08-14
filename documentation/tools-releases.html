@@ -110,6 +110,8 @@
         <div id="list"></div>
     </div>
 
+    <script src="../src/load-local-json.js"></script>
+    <script src="../data/tool-releases.js"></script>
     <script>
         function escapeHtml(s) {
             return String(s)
@@ -121,6 +123,7 @@
 
         function categoryLabel(c) {
             const map = {
+                encoding: 'Encoding',
                 mobile: 'Mobil',
                 commercial: 'Kommersiell',
                 disk: 'Disk/image',
@@ -135,9 +138,7 @@
             const meta = document.getElementById('meta');
             const list = document.getElementById('list');
             try {
-                const res = await fetch('../data/tool-releases.json');
-                if (!res.ok) throw new Error('HTTP ' + res.status);
-                const data = await res.json();
+                const data = await loadLocalJson('../data/tool-releases.json', 'TOOL_RELEASES');
                 meta.textContent = (data.note || '') +
                     (data.updatedAt ? ' Senast uppdaterad i repot: ' + data.updatedAt + '.' : '');
 

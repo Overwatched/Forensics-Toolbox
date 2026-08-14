@@ -4,16 +4,16 @@ Lokal verktygslåda för **IT-forensik**. Körs helt offline som Electron-app (l
 
 Forkad och omarbetad från [AdrianNeshad/CryptoToolbox](https://github.com/AdrianNeshad/CryptoToolbox) (Verktygslådan).
 
-## Verktyg (v0.1)
+## Verktyg (v0.2)
 
 | Verktyg | Beskrivning |
 |---------|-------------|
 | Time Converter | Unix, Apple Cocoa/NSDate, WebKit/Chrome, FILETIME, ISO — full matris + tolkningsjämförelse |
-| Hash Calculator | MD5 / SHA-1 / SHA-256 för text och filer |
+| Hash Calculator | MD5 / SHA-1 / SHA-256 (fler algoritmer valbara) |
 | JSON Formatter | Pretty-print / minify / validera |
 | QR Code Decoder | Avkoda QR från bild |
 | CyberChef | Offline encoding / decoding / crypto |
-| Photos.sqlite Queries | iOS 10→latest — SQL för app/källa, tider, filnamn |
+| iOS Queries | Photos.sqlite — iOS-version, filnamn, SQL |
 | Android Queries | MediaStore, DCIM/kamera, usage + ALEAPP-tips |
 | Playbook: Bildfil härkomst | Statisk 5-stegs bedömningsguide |
 | Vanliga artifacts | Referens för Windows / browser / Linux |
@@ -41,13 +41,13 @@ npm install
 npm start          # Electron-fönster (rekommenderas för test)
 ```
 
-Öppna inte `Toolbox.html` direkt i webbläsaren — moderna webbläsare blockerar lokala CSS/JS via `file://`. Använd Electron (`npm start` eller en nedladdad release).
+Öppna inte `Toolbox.html` direkt i webbläsaren om sidan ser ostylad ut — vissa webbläsare blockerar lokala filer via `file://`. Appen är tänkt att köras via Electron (`npm start` eller en nedladdad release). JSON-sidor (t.ex. Verktyg & releaser) har en `.js`-fallback så de fungerar även när `fetch()` av `.json` blockeras.
 
 Paketerad Linux-build (AppImage + uppackad mapp):
 
 ```bash
 npm run dist:linux
-# AppImage: release/ForensicsToolbox-0.1.AppImage
+# AppImage: release/ForensicsToolbox-0.2.AppImage
 # Uppackad:  release/linux-unpacked/  → kör ./forensics-toolbox
 ```
 
@@ -77,6 +77,11 @@ npm run dist:mac      # osignerat DMG + ZIP
 
 **CI (rekommenderas):** GitHub Actions bygger **Windows + Linux + macOS** parallellt via matrix
 (`.github/workflows/build-release.yml`) vid push till `main`.
+
+Release-filer (GitHub Releases):
+
+- `ForensicsToolbox-0.2.exe` — portabel Windows
+- `ForensicsToolbox-0.2-html.zip` — packa upp och öppna `Toolbox.html` (ingen .exe)
 
 | Mål | Kommando | Output |
 |-----|----------|--------|

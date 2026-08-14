@@ -152,7 +152,7 @@ textarea {
 .q-card.advanced .q-title { font-weight: 600; color: var(--text-muted); }
 .q-card.advanced .q-sub { font-size: 11px; }
 
-.question-detail, .banner, .notes, .caveats, .guide, .help {
+.banner, .notes, .help, .recommended-box {
     background: var(--surface);
     border: 1px solid var(--border);
     border-radius: 12px;
@@ -165,12 +165,22 @@ textarea {
 
 .banner { background: var(--accent-soft); }
 .banner.error { color: var(--error); }
-.question-detail strong, .guide strong, .help h2 { color: var(--text); }
-.question-detail ul, .guide ul, .caveats ul, .help ol {
-    margin: 8px 0 0 18px;
-}
-.caveats { background: var(--warn-soft); }
+.help h2, .recommended-box .q-title { color: var(--text); }
+.help ol { margin: 8px 0 0 18px; }
+.help.flow { margin-bottom: 18px; }
 .help h2 { font-size: 14px; margin-bottom: 4px; }
+.recommended-box .q-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 14px;
+    font-weight: 700;
+}
+.recommended-box .q-sub {
+    margin-top: 4px;
+    font-size: 12px;
+    color: var(--text-muted);
+}
 .help code, .banner code {
     font-family: Consolas, Monaco, monospace;
     font-size: 12px;

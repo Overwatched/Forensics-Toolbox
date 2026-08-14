@@ -1,4 +1,5 @@
-{
+/* Genererad från android/catalog.json — används när fetch() blockeras (file://). */
+window.ANDROID_QUERIES_CATALOG = {
   "id": "android-queries",
   "title": "Android Queries",
   "source": "https://github.com/abrignoni/ALEAPP",
@@ -161,4 +162,4 @@
     "unixStart": "Start (Unix-sekunder)",
     "unixEnd": "Slut (Unix-sekunder)"
   }
-}
+};

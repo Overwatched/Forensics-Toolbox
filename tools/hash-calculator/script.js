@@ -5,8 +5,21 @@ const statusEl = document.getElementById('status');
 const results = document.getElementById('results');
 const toast = document.getElementById('toast');
 
+const ALGO_STORAGE_KEY = 'hash-calculator-algos';
+const DEFAULT_ALGOS = ['md5', 'sha1', 'sha256'];
+
+const ALGORITHMS = [
+    { id: 'md5', label: 'MD5' },
+    { id: 'sha1', label: 'SHA-1' },
+    { id: 'sha256', label: 'SHA-256' },
+    { id: 'sha384', label: 'SHA-384' },
+    { id: 'sha512', label: 'SHA-512' },
+    { id: 'crc32', label: 'CRC-32' },
+];
+
 let mode = 'text';
 let selectedFile = null;
+let lastBuffer = null;
 
 function setStatus(msg, isError) {
     statusEl.textContent = msg;
@@ -18,14 +31,42 @@ function showToast() {
     setTimeout(() => toast.classList.remove('show'), 1400);
 }
 
+function selectedAlgos() {
+    return ALGORITHMS
+        .map((algo) => algo.id)
+        .filter((id) => {
+            const el = document.querySelector(`input[name="algo"][value="${id}"]`);
+            return el && el.checked;
+        });
+}
+
+function persistAlgos() {
+    try {
+        localStorage.setItem(ALGO_STORAGE_KEY, JSON.stringify(selectedAlgos()));
+    } catch (e) {
+        /* ignoreras */
+    }
+}
+
+function restoreAlgos() {
+    let saved = null;
+    try {
+        saved = JSON.parse(localStorage.getItem(ALGO_STORAGE_KEY) || 'null');
+    } catch (e) {
+        saved = null;
+    }
+    const chosen = Array.isArray(saved) && saved.length ? saved : DEFAULT_ALGOS;
+    document.querySelectorAll('input[name="algo"]').forEach((input) => {
+        input.checked = chosen.includes(input.value);
+    });
+}
+
 async function digest(algo, buffer) {
     const hash = await crypto.subtle.digest(algo, buffer);
     return [...new Uint8Array(hash)].map((b) => b.toString(16).padStart(2, '0')).join('');
 }
 
-// MD5 via SubtleCrypto saknas i många miljöer — använd en liten ren JS-implementation.
 function md5(buffer) {
-    // Minimal MD5 (RFC 1321) för ArrayBuffer/Uint8Array
     function cmn(q, a, b, x, s, t) {
         a = (a + q + x + t) | 0;
         return (((a << s) | (a >>> (32 - s))) + b) | 0;
@@ -121,19 +162,76 @@ function md5(buffer) {
     return hex(a) + hex(b) + hex(c) + hex(d);
 }
 
-async function hashBuffer(buffer) {
-    const [sha1, sha256] = await Promise.all([
-        digest('SHA-1', buffer),
-        digest('SHA-256', buffer),
-    ]);
-    return { md5: md5(buffer), sha1, sha256 };
+const CRC32_TABLE = (function () {
+    const table = new Uint32Array(256);
+    for (let i = 0; i < 256; i++) {
+        let c = i;
+        for (let k = 0; k < 8; k++) c = (c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1);
+        table[i] = c >>> 0;
+    }
+    return table;
+})();
+
+function crc32(buffer) {
+    const bytes = new Uint8Array(buffer);
+    let crc = 0xFFFFFFFF;
+    for (let i = 0; i < bytes.length; i++) {
+        crc = CRC32_TABLE[(crc ^ bytes[i]) & 0xFF] ^ (crc >>> 8);
+    }
+    return ((crc ^ 0xFFFFFFFF) >>> 0).toString(16).padStart(8, '0');
 }
 
-function renderHashes(hashes) {
-    document.getElementById('md5-out').textContent = hashes.md5;
-    document.getElementById('sha1-out').textContent = hashes.sha1;
-    document.getElementById('sha256-out').textContent = hashes.sha256;
+async function hashBuffer(buffer, ids) {
+    const out = {};
+    const jobs = [];
+    for (const id of ids) {
+        if (id === 'md5') out.md5 = md5(buffer);
+        else if (id === 'crc32') out.crc32 = crc32(buffer);
+        else if (id === 'sha1') jobs.push(digest('SHA-1', buffer).then((v) => { out.sha1 = v; }));
+        else if (id === 'sha256') jobs.push(digest('SHA-256', buffer).then((v) => { out.sha256 = v; }));
+        else if (id === 'sha384') jobs.push(digest('SHA-384', buffer).then((v) => { out.sha384 = v; }));
+        else if (id === 'sha512') jobs.push(digest('SHA-512', buffer).then((v) => { out.sha512 = v; }));
+    }
+    await Promise.all(jobs);
+    return out;
+}
+
+function renderHashes(hashes, ids) {
+    results.innerHTML = ids.map((id) => {
+        const algo = ALGORITHMS.find((a) => a.id === id);
+        const value = hashes[id] || '';
+        return `
+          <div class="result-row">
+            <span class="algo">${algo.label}</span>
+            <code id="${id}-out">${value}</code>
+            <button type="button" class="copy-btn" data-target="${id}-out">Kopiera</button>
+          </div>`;
+    }).join('');
     results.classList.remove('display-none');
+
+    results.querySelectorAll('.copy-btn').forEach((btn) => {
+        btn.addEventListener('click', async () => {
+            const value = document.getElementById(btn.dataset.target).textContent;
+            try {
+                await navigator.clipboard.writeText(value);
+                showToast();
+            } catch (e) {
+                setStatus('Kunde inte kopiera', true);
+            }
+        });
+    });
+}
+
+async function computeFromBuffer(buffer, statusText) {
+    const ids = selectedAlgos();
+    if (!ids.length) {
+        setStatus('Välj minst en algoritm', true);
+        results.classList.add('display-none');
+        return;
+    }
+    lastBuffer = buffer;
+    setStatus(statusText);
+    renderHashes(await hashBuffer(buffer, ids), ids);
 }
 
 document.querySelectorAll('.tab').forEach((tab) => {
@@ -154,6 +252,7 @@ fileInput.addEventListener('change', () => {
 document.getElementById('hash-button').addEventListener('click', async () => {
     try {
         let buffer;
+        let statusText;
         if (mode === 'text') {
             const text = textInput.value;
             if (!text) {
@@ -161,16 +260,16 @@ document.getElementById('hash-button').addEventListener('click', async () => {
                 return;
             }
             buffer = new TextEncoder().encode(text);
-            setStatus(`${text.length} tecken`);
+            statusText = `${text.length} tecken`;
         } else {
             if (!selectedFile) {
                 setStatus('Välj en fil först', true);
                 return;
             }
             buffer = await selectedFile.arrayBuffer();
-            setStatus(`${selectedFile.name} (${selectedFile.size} bytes)`);
+            statusText = `${selectedFile.name} (${selectedFile.size} bytes)`;
         }
-        renderHashes(await hashBuffer(buffer));
+        await computeFromBuffer(buffer, statusText);
     } catch (err) {
         setStatus('Kunde inte beräkna hash', true);
         console.error(err);
@@ -181,22 +280,26 @@ document.getElementById('clear-button').addEventListener('click', () => {
     textInput.value = '';
     fileInput.value = '';
     selectedFile = null;
+    lastBuffer = null;
     fileLabel.textContent = 'Välj en fil eller dra hit';
     results.classList.add('display-none');
+    results.innerHTML = '';
     setStatus('Ingen data laddad');
 });
 
-document.querySelectorAll('.copy-btn').forEach((btn) => {
-    btn.addEventListener('click', async () => {
-        const value = document.getElementById(btn.dataset.target).textContent;
+document.querySelectorAll('input[name="algo"]').forEach((input) => {
+    input.addEventListener('change', async () => {
+        persistAlgos();
+        if (!lastBuffer) return;
         try {
-            await navigator.clipboard.writeText(value);
-            showToast();
-        } catch (e) {
-            setStatus('Kunde inte kopiera', true);
+            await computeFromBuffer(lastBuffer, statusEl.textContent);
+        } catch (err) {
+            setStatus('Kunde inte beräkna hash', true);
         }
     });
 });
+
+restoreAlgos();
 
 window.addEventListener('message', function (event) {
     if (event.source !== window.parent) return;
