@@ -149,10 +149,13 @@ function renderParams() {
 
     paramsEl.innerHTML = html;
     paramsEl.querySelectorAll('input').forEach((input) => {
-        input.addEventListener('input', () => {
+        const refresh = () => {
             sqlDirty = false;
             generateSql();
-        });
+        };
+        input.addEventListener('input', refresh);
+        input.addEventListener('change', refresh);
+        input.addEventListener('blur', refresh);
     });
 }
 
