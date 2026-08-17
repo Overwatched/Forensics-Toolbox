@@ -1,7 +1,7 @@
 {
   "name": "forensics-toolbox",
   "productName": "Forensics Toolbox",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Lokal verktygslåda för IT-forensik. Encoding, hash, tidskonvertering, CyberChef m.m. Körs helt offline.",
   "author": "Overwatched",
   "license": "UNLICENSED",
