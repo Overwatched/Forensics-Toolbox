@@ -83,8 +83,8 @@ scripts/              # sync-version, ensure-electron, finalize-artifacts
 
 ## Versionering
 
-- Visa version i hubben: `Version 0.3` i `Toolbox.html`
-- `sync-version` sätter `package.json` till `0.3.0` (semver för electron-builder)
+- Visa version i hubben: `Version 0.4` i `Toolbox.html`
+- `sync-version` sätter `package.json` till `0.4.0` (semver för electron-builder)
 - Höj versionen i `Toolbox.html` innan release/push om du vill ha ny GitHub Release-tagg
 - `npm run pack-html` skapar `release/ForensicsToolbox-X.Y-html.zip` (Toolbox.html utan exe)
 
