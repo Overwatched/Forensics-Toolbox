@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="sv">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Queries</title>
+    <script>
+        (function () {
+            try {
+                var params = new URLSearchParams(location.search);
+                var fromParent = params.get('theme');
+                var saved = localStorage.getItem('theme');
+                var theme = (fromParent === 'light' || fromParent === 'dark') ? fromParent
+                    : (saved === 'light' || saved === 'dark') ? saved : 'dark';
+                document.documentElement.setAttribute('data-theme', theme);
+                if (fromParent === 'light' || fromParent === 'dark') {
+                    localStorage.setItem('theme', fromParent);
+                }
+            } catch (e) {
+                document.documentElement.setAttribute('data-theme', 'dark');
+            }
+        })();
+    </script>
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+    <div id="container">
+        <header class="page-header">
+            <h1>Queries</h1>
+            <p>Välj databas. Översikten visar vad varje källa innehåller.</p>
+        </header>
+
+        <div id="load-error" class="banner error display-none"></div>
+
+        <div class="step-label">1. Databas</div>
+        <select id="db-select" disabled>
+            <option value="">Välj databas…</option>
+        </select>
+        <div id="db-overview" class="db-overview"></div>
+
+        <div id="workspace" class="display-none">
+            <div id="meta-box" class="banner display-none"></div>
+
+            <section class="help flow" id="flow-box"></section>
+
+            <div class="step-label">2. Query</div>
+            <div id="recommended-box" class="recommended-box"></div>
+            <button type="button" class="advanced-toggle" id="show-queries-btn">Visa enskilda queries</button>
+            <div id="query-panel" class="display-none">
+                <select id="query-select"></select>
+            </div>
+
+            <div id="params" class="params"></div>
+
+            <div class="button-row">
+                <button id="copy-button" type="button" disabled>Kopiera SQL</button>
+                <button id="edit-button" class="secondary" type="button">Redigera SQL</button>
+            </div>
+
+            <div class="sql-legend">
+                <span><mark class="sql-user">gult</mark> = värde du skrev in</span>
+                <span><mark class="sql-default">grått</mark> = tomt / standard</span>
+            </div>
+
+            <pre id="sql-view" class="sql-view" hidden></pre>
+            <textarea id="sql-out" class="display-none" spellcheck="false" placeholder="SQL visas här…"></textarea>
+        </div>
+    </div>
+
+    <div id="toast" class="toast">Kopierat</div>
+    <script src="../../src/load-local-json.js"></script>
+    <script src="../../queries/ios/photos-sqlite/catalog.js"></script>
+    <script src="../../queries/android/catalog.js"></script>
+    <script src="../../queries/app-usage/catalog.js"></script>
+    <script src="script.js"></script>
+</body>
+
+</html>

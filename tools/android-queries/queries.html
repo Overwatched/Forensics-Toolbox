@@ -1,81 +1,17 @@
 <!DOCTYPE html>
 <html lang="sv">
-
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Android Queries</title>
     <script>
         (function () {
-            try {
-                var params = new URLSearchParams(location.search);
-                var fromParent = params.get('theme');
-                var saved = localStorage.getItem('theme');
-                var theme = (fromParent === 'light' || fromParent === 'dark') ? fromParent
-                    : (saved === 'light' || saved === 'dark') ? saved : 'dark';
-                document.documentElement.setAttribute('data-theme', theme);
-                if (fromParent === 'light' || fromParent === 'dark') {
-                    localStorage.setItem('theme', fromParent);
-                }
-            } catch (e) {
-                document.documentElement.setAttribute('data-theme', 'dark');
-            }
+            var params = new URLSearchParams(location.search);
+            params.set('db', 'android-mediastore');
+            location.replace('../db-queries/queries.html?' + params.toString());
         })();
     </script>
-    <link rel="stylesheet" href="style.css">
 </head>
-
 <body>
-    <div id="container">
-        <header class="page-header">
-            <h1>Android Queries</h1>
-            <p>MediaStore — läs in databasen, ange filnamn, kopiera SQL.</p>
-        </header>
-
-        <section class="help flow">
-            <h2>Kort flöde</h2>
-            <ol>
-                <li>Läs in <code>external.db</code> (MediaStore) + <code>-wal</code> + <code>-shm</code></li>
-                <li>Standardquery för MediaStore</li>
-                <li>Ange filnamn</li>
-                <li>Kopiera SQL och kör i DB Browser</li>
-            </ol>
-        </section>
-
-        <div id="load-error" class="banner error display-none"></div>
-        <div id="meta-box" class="banner display-none"></div>
-
-        <div class="step-label">1. Standardquery för MediaStore</div>
-        <div id="recommended-box" class="recommended-box">
-            <div class="q-title"><span class="badge">Rekommenderas</span><span>Sök filnamn i files</span></div>
-            <div class="q-sub">Kolumnnamnen är desamma som i databasen.</div>
-        </div>
-        <button type="button" class="advanced-toggle" id="show-queries-btn">Visa enskilda queries</button>
-
-        <div id="query-panel" class="display-none">
-            <label class="field-label" for="category-select">Kategori</label>
-            <select id="category-select" disabled></select>
-
-            <label class="field-label" for="query-select">Query</label>
-            <select id="query-select" disabled></select>
-
-            <div id="path-hints" class="notes display-none"></div>
-        </div>
-
-        <div id="params" class="params"></div>
-
-        <div class="button-row">
-            <button id="copy-button" type="button" disabled>Kopiera SQL</button>
-        </div>
-
-        <label class="field-label" for="sql-out">SQL (kan redigeras — t.ex. egna kolumnnamn)</label>
-        <textarea id="sql-out" spellcheck="false" placeholder="SQL visas här…"></textarea>
-    </div>
-
-    <div id="toast" class="toast">Kopierat</div>
-    <script src="../../src/load-local-json.js"></script>
-    <script src="../../queries/android/catalog.js"></script>
-    <script src="script.js"></script>
+    <p>Flyttad till <a href="../db-queries/queries.html?db=android-mediastore">Queries</a>.</p>
 </body>
-
 </html>
