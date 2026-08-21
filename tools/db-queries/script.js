@@ -11,7 +11,7 @@ const editButton = document.getElementById('edit-button');
 const showQueriesBtn = document.getElementById('show-queries-btn');
 const queryPanel = document.getElementById('query-panel');
 const recommendedBox = document.getElementById('recommended-box');
-const workspace = document.getElementById('workspace');
+const dbOverview = document.getElementById('db-overview');
 const toast = document.getElementById('toast');
 
 const COCOA_EPOCH = 978307200;
@@ -252,6 +252,7 @@ function renderMeta() {
         ? db.dbPathHints.map((p) => '<code>' + escapeHtml(p) + '</code>').join('<br>')
         : '<code>' + escapeHtml(db.dbPathHint || '') + '</code>';
     metaBox.innerHTML =
+        (db.blurb ? escapeHtml(db.blurb) + '<br>' : '') +
         '<strong>Databas:</strong> ' + extra +
         (source ? '<br><strong>Källa:</strong> <a href="' + escapeHtml(source) + '" target="_blank" rel="noopener noreferrer">' +
             escapeHtml(source.replace(/^https:\/\/github.com\//, '')) + '</a>' : '') +
@@ -387,6 +388,7 @@ function generateSql() {
 function onDbChange() {
     const db = currentDb();
     workspace.classList.toggle('display-none', !db);
+    if (dbOverview) dbOverview.classList.toggle('display-none', !!db);
     showQueries = false;
     sqlDirty = false;
     setEditMode(false);
@@ -436,7 +438,11 @@ function buildDatabases(photos, android, appUsage) {
         out.push({
             id: 'photos-' + band.id,
             os: 'iOS',
+            family: 'photos',
+            familyTitle: 'Photos.sqlite',
+            versionLabel: band.label,
             label: 'Photos.sqlite (' + band.label + ')',
+            blurb: 'Fotobiblioteket: filnamn, skapad/ändrad, vilken app som tog eller redigerade bilden.',
             dbPathHint: photos.dbPathHint,
             source: photos.source,
             note: photos.timeNote,
@@ -450,11 +456,25 @@ function buildDatabases(photos, android, appUsage) {
         });
     });
 
+    const APP_USAGE_BLURB = {
+        knowledgec: 'App i användning och i förgrund, plus skärm tänd och låst/olåst. Kolla om en app var aktiv vid en tidpunkt.',
+        interactionc: 'Interaktioner med personer (samtal, meddelanden, Siri-förslag) och vilken app som användes.',
+        wellbeing: 'App i förgrund (ACTIVITY_RESUMED) med tidsstämpel. Digital Wellbeing / UsageEvents.',
+    };
+    const ANDROID_BLURB = {
+        mediastore: 'Bilder och video på delad lagring: sökväg, MIME, date_taken, ägar-app (owner_package_name).',
+        camera: 'Media under DCIM/Camera och filer ägda av kameraappar. Komplement till MediaStore.',
+        usage: 'UsageStats är oftast XML, inte SQL. Här finns mallar och ALEAPP-tips.',
+    };
+
     (appUsage.databases || []).forEach((db) => {
         out.push({
             id: db.id,
             os: /android|wellbeing/i.test(db.label) ? 'Android' : 'iOS',
+            family: db.id,
+            familyTitle: db.label.replace(/^iOS — /, '').replace(/^Android — /, ''),
             label: db.label.replace(/^iOS — /, '').replace(/^Android — /, ''),
+            blurb: APP_USAGE_BLURB[db.id] || '',
             dbPathHint: db.dbPathHint,
             source: db.source,
             note: appUsage.sourceNote,
@@ -490,7 +510,10 @@ function buildDatabases(photos, android, appUsage) {
         out.push({
             id: 'android-' + cat.id,
             os: 'Android',
+            family: 'android-' + cat.id,
+            familyTitle: cat.label + (cat.id === 'mediastore' ? ' (external.db)' : ''),
             label: cat.label + (cat.id === 'mediastore' ? ' (external.db)' : ''),
+            blurb: ANDROID_BLURB[cat.id] || '',
             dbPathHint: (cat.dbPathHints && cat.dbPathHints[0]) || '',
             dbPathHints: cat.dbPathHints,
             source: android.source,
@@ -535,6 +558,83 @@ function fillDbSelect() {
     dbSelect.disabled = false;
 }
 
+function overviewFamilies() {
+    const families = [];
+    const byKey = {};
+    databases.forEach((d) => {
+        const key = d.family || d.id;
+        if (!byKey[key]) {
+            byKey[key] = {
+                os: d.os,
+                title: d.familyTitle || d.label,
+                blurb: d.blurb || '',
+                items: [],
+            };
+            families.push(byKey[key]);
+        }
+        byKey[key].items.push(d);
+    });
+    return families;
+}
+
+function selectDb(id) {
+    if (!id || !databases.some((d) => d.id === id)) return;
+    dbSelect.value = id;
+    sqlDirty = false;
+    onDbChange();
+}
+
+function renderOverview() {
+    if (!dbOverview) return;
+    const families = overviewFamilies();
+    const groups = { iOS: [], Android: [] };
+    families.forEach((f) => {
+        (groups[f.os] || (groups[f.os] = [])).push(f);
+    });
+
+    let html = '';
+    Object.keys(groups).forEach((os) => {
+        if (!groups[os].length) return;
+        html += '<div class="db-os">' + escapeHtml(os) + '</div><div class="db-grid">';
+        groups[os].forEach((f) => {
+            const multi = f.items.length > 1;
+            const defaultId = f.items[f.items.length - 1].id;
+            html += '<div class="db-card" role="button" tabindex="0" data-db="' + escapeHtml(defaultId) + '">';
+            html += '<div class="db-card-title"><span>' + escapeHtml(f.title) + '</span>' +
+                '<span class="db-card-os">' + escapeHtml(os) + '</span></div>';
+            html += '<div class="db-card-blurb">' + escapeHtml(f.blurb) + '</div>';
+            if (multi) {
+                html += '<div class="db-card-versions">';
+                f.items.forEach((item) => {
+                    html += '<button type="button" class="db-chip" data-db="' + escapeHtml(item.id) + '">' +
+                        escapeHtml(item.versionLabel || item.label) + '</button>';
+                });
+                html += '</div>';
+            }
+            html += '</div>';
+        });
+        html += '</div>';
+    });
+    dbOverview.innerHTML = html;
+
+    dbOverview.querySelectorAll('.db-chip').forEach((chip) => {
+        chip.addEventListener('click', (e) => {
+            e.stopPropagation();
+            selectDb(chip.getAttribute('data-db'));
+        });
+    });
+    dbOverview.querySelectorAll('.db-card').forEach((card) => {
+        const pick = () => selectDb(card.getAttribute('data-db'));
+        card.addEventListener('click', pick);
+        card.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                pick();
+            }
+        });
+    });
+}
+
 function applyDeepLink() {
     const params = new URLSearchParams(location.search);
     let id = params.get('db') || '';
@@ -554,6 +654,7 @@ async function init() {
         ]);
         databases = buildDatabases(photos, android, appUsage);
         fillDbSelect();
+        renderOverview();
         applyDeepLink();
     } catch (err) {
         loadError.textContent = 'Kunde inte ladda query-katalogerna';
