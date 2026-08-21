@@ -23,8 +23,20 @@ function initToolNav() {
     const placeholder = document.getElementById('content-placeholder');
     if (!frame || !placeholder) return;
 
+    const toolAliases = {
+        'tools/photos-sqlite-queries/queries.html': 'tools/db-queries/queries.html?db=photos-ios17-plus',
+        'tools/android-queries/queries.html': 'tools/db-queries/queries.html?db=android-mediastore',
+        'tools/app-usage-queries/queries.html': 'tools/db-queries/queries.html?db=knowledgec',
+    };
+
     function openTool(src) {
-        const item = document.querySelector(`.nav-item[data-type="frame"][data-src="${src}"]`);
+        const pathOnly = String(src || '').split('?')[0];
+        if (toolAliases[pathOnly] && String(src).indexOf('db=') === -1) {
+            src = toolAliases[pathOnly];
+        }
+        const path = String(src).split('?')[0];
+        const item = document.querySelector(`.nav-item[data-type="frame"][data-src="${src}"]`)
+            || document.querySelector(`.nav-item[data-type="frame"][data-src="${path}"]`);
         if (!item) return false;
 
         document.querySelectorAll('.nav-item.active').forEach((el) => el.classList.remove('active'));

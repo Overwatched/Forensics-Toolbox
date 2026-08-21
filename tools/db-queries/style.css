@@ -1,0 +1,261 @@
+:root {
+    --bg: #1e1e23;
+    --surface: #28282d;
+    --surface-hover: #323238;
+    --border: #3a3a40;
+    --border-hover: #4a4a52;
+    --text: #e8e8ed;
+    --text-muted: #98989f;
+    --accent: #0a84ff;
+    --accent-hover: #3395ff;
+    --accent-soft: rgba(10, 132, 255, 0.14);
+    --warn-soft: rgba(255, 159, 10, 0.12);
+    --error: #ff453a;
+    --ok: #30d158;
+    --sql-kw: #ff7b72;
+    --sql-user-bg: rgba(255, 214, 10, 0.38);
+    --sql-default-bg: rgba(152, 152, 159, 0.22);
+}
+
+[data-theme="light"] {
+    --bg: #f2f2f7;
+    --surface: #ffffff;
+    --surface-hover: #e8e8ed;
+    --border: #d2d2d7;
+    --border-hover: #b6b6bd;
+    --text: #1d1d1f;
+    --text-muted: #6e6e73;
+    --accent: #007aff;
+    --accent-hover: #0066d6;
+    --accent-soft: rgba(0, 122, 255, 0.12);
+    --warn-soft: rgba(255, 149, 0, 0.12);
+    --error: #ff3b30;
+    --ok: #248a3d;
+    --sql-kw: #c41a16;
+    --sql-user-bg: rgba(255, 204, 0, 0.45);
+    --sql-default-bg: rgba(142, 142, 147, 0.22);
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    display: flex;
+    justify-content: center;
+    padding: 24px 28px 72px;
+}
+
+#container {
+    width: 100%;
+    max-width: 1280px;
+    display: flex;
+    flex-direction: column;
+}
+
+.page-header { text-align: left; margin-bottom: 18px; }
+.page-header h1 { font-size: 26px; }
+.page-header p {
+    margin-top: 8px;
+    color: var(--text-muted);
+    font-size: 14px;
+    line-height: 1.45;
+}
+
+.step-label, .field-label {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-muted);
+    margin-bottom: 8px;
+}
+
+.step-label { margin-top: 4px; }
+
+.time-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+}
+@media (max-width: 720px) {
+    .time-row { grid-template-columns: 1fr; }
+}
+.time-row .param-block { margin-bottom: 0; }
+
+.time-preview {
+    font-size: 12px;
+    color: var(--text-muted);
+    margin: -6px 0 14px;
+    min-height: 1.2em;
+}
+
+select, input[type="text"], textarea, .sql-view {
+    width: 100%;
+    padding: 12px 14px;
+    margin-bottom: 14px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    outline: none;
+    color: var(--text);
+    font-size: 14px;
+}
+
+select {
+    cursor: pointer;
+    appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath fill='%98989f' d='M1 1l5 5 5-5'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 14px center;
+    padding-right: 36px;
+}
+
+textarea, .sql-view {
+    min-height: 380px;
+    resize: vertical;
+    font-family: ui-monospace, SFMono-Regular, Consolas, Monaco, monospace;
+    font-size: 13.5px;
+    line-height: 1.55;
+}
+
+.sql-view {
+    white-space: pre-wrap;
+    word-break: break-word;
+    overflow: auto;
+    margin-bottom: 14px;
+}
+
+.sql-kw { color: var(--sql-kw); font-weight: 650; }
+
+mark.sql-user,
+mark.sql-default {
+    color: inherit;
+    border-radius: 4px;
+    padding: 0 3px;
+    font-weight: 700;
+}
+mark.sql-user { background: var(--sql-user-bg); }
+mark.sql-default {
+    background: var(--sql-default-bg);
+    color: var(--text-muted);
+    font-weight: 600;
+}
+
+.sql-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 16px;
+    font-size: 12px;
+    color: var(--text-muted);
+    margin: 0 0 10px;
+}
+.sql-legend mark { font-family: ui-monospace, Consolas, Monaco, monospace; }
+
+.badge {
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: #fff;
+    background: var(--ok);
+    border-radius: 999px;
+    padding: 2px 8px;
+}
+
+.banner, .notes, .help, .recommended-box {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 12px 14px;
+    margin-bottom: 14px;
+    font-size: 13px;
+    color: var(--text-muted);
+    line-height: 1.45;
+}
+
+.banner a { color: var(--accent); text-decoration: none; }
+.banner a:hover { text-decoration: underline; }
+.banner.error { color: var(--error); }
+.help h2, .recommended-box .q-title { color: var(--text); }
+.help ol { margin: 8px 0 0 18px; }
+.help.flow { margin-bottom: 18px; }
+.help h2 { font-size: 14px; margin-bottom: 4px; }
+.recommended-box .q-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 14px;
+    font-weight: 700;
+}
+.recommended-box .q-sub {
+    margin-top: 4px;
+    font-size: 12px;
+    color: var(--text-muted);
+}
+.help code, .banner code {
+    font-family: Consolas, Monaco, monospace;
+    font-size: 12px;
+}
+
+.button-row {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 14px;
+    flex-wrap: wrap;
+}
+
+button {
+    flex: 1;
+    min-width: 120px;
+    padding: 12px;
+    border: none;
+    border-radius: 10px;
+    cursor: pointer;
+    font-weight: 600;
+    background: var(--accent);
+    color: #fff;
+}
+
+button:hover { background: var(--accent-hover); }
+button:disabled { opacity: 0.45; cursor: not-allowed; }
+
+button.secondary {
+    background: var(--surface);
+    color: var(--text);
+    border: 1px solid var(--border);
+}
+
+button.secondary:hover:not(:disabled) { border-color: var(--border-hover); }
+
+.params .param-block { margin-bottom: 4px; }
+.display-none { display: none !important; }
+
+.toast {
+    visibility: hidden;
+    position: fixed;
+    bottom: 30px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: var(--surface-hover);
+    border: 1px solid var(--border-hover);
+    padding: 14px 18px;
+    border-radius: 8px;
+    z-index: 20;
+}
+.toast.show { visibility: visible; }
+
+.advanced-toggle {
+    margin: 4px 0 10px;
+    background: transparent;
+    color: var(--text-muted);
+    border: none;
+    padding: 6px 0;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    flex: none;
+    width: auto;
+    text-align: left;
+}
+.advanced-toggle:hover { color: var(--accent); background: transparent; }

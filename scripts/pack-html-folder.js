@@ -77,7 +77,7 @@ const readme = [
     '      python -m http.server 8080',
     '    och gå till http://127.0.0.1:8080/Toolbox.html',
     '',
-    'JSON-sidor (Verktyg & releaser, iOS/Android Queries) har JS-fallback',
+    'JSON-sidor (Verktyg & releaser, Queries) har JS-fallback',
     'så de fungerar även när fetch() av .json blockeras.',
     '',
 ].join('\n');
