@@ -293,18 +293,17 @@ button.secondary:hover:not(:disabled) { border-color: var(--border-hover); }
     gap: 6px;
     margin-top: 10px;
 }
-.db-chip {
+button.db-chip {
+    flex: none;
+    min-width: 0;
+    width: auto;
+    padding: 4px 10px;
     border: 1px solid var(--border);
     background: var(--bg);
     color: var(--text);
     border-radius: 999px;
-    padding: 4px 10px;
     font-size: 12px;
     font-weight: 600;
-    cursor: pointer;
-    flex: none;
-    min-width: 0;
-    width: auto;
 }
 .db-chip:hover { border-color: var(--accent); background: var(--accent-soft); }
 
