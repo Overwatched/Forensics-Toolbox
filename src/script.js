@@ -19,15 +19,57 @@ window.addEventListener('offline', updateNetStatus);
 updateNetStatus();
 
 function initToolNav() {
-    const frame = document.getElementById('tool-frame');
+    const host = document.getElementById('tool-host');
     const placeholder = document.getElementById('content-placeholder');
-    if (!frame || !placeholder) return;
+    if (!host || !placeholder) return;
 
     const toolAliases = {
         'tools/photos-sqlite-queries/queries.html': 'tools/db-queries/queries.html?db=photos-ios17-plus',
         'tools/android-queries/queries.html': 'tools/db-queries/queries.html?db=android-mediastore',
         'tools/app-usage-queries/queries.html': 'tools/db-queries/queries.html?db=knowledgec',
     };
+
+    const frames = new Map();
+
+    function currentTheme() {
+        return document.documentElement.getAttribute('data-theme') || 'dark';
+    }
+
+    function postToFrame(frame, payload) {
+        if (!frame || !frame.contentWindow) return;
+        try {
+            frame.contentWindow.postMessage(payload, '*');
+        } catch (e) {
+            /* iframe inte redo */
+        }
+    }
+
+    function broadcastTheme(theme) {
+        const payload = { source: 'forensics-toolbox', type: 'theme', theme: theme };
+        frames.forEach((frame) => postToFrame(frame, payload));
+    }
+
+    function showFrame(frame) {
+        host.querySelectorAll('.tool-frame').forEach((el) => {
+            el.classList.toggle('is-active', el === frame);
+        });
+    }
+
+    function createFrame(path, src, title) {
+        const frame = document.createElement('iframe');
+        frame.className = 'tool-frame';
+        frame.title = title || 'Verktyg';
+        frame.setAttribute('data-tool', path);
+        const theme = currentTheme();
+        const separator = src.indexOf('?') === -1 ? '?' : '&';
+        frame.src = src + separator + 'theme=' + theme;
+        frame.addEventListener('load', () => {
+            postToFrame(frame, { source: 'forensics-toolbox', type: 'theme', theme: currentTheme() });
+        });
+        host.appendChild(frame);
+        frames.set(path, frame);
+        return frame;
+    }
 
     function openTool(src) {
         const pathOnly = String(src || '').split('?')[0];
@@ -42,11 +84,25 @@ function initToolNav() {
         document.querySelectorAll('.nav-item.active').forEach((el) => el.classList.remove('active'));
         item.classList.add('active');
 
-        const theme = document.documentElement.getAttribute('data-theme') || 'dark';
-        const separator = src.indexOf('?') === -1 ? '?' : '&';
-        frame.src = src + separator + 'theme=' + theme;
-        frame.style.display = 'block';
+        const title = item.querySelector('.nav-item-title');
+        const extra = new URLSearchParams(String(src).split('?')[1] || '');
+        extra.delete('theme');
+        const extraQs = extra.toString();
+        const loadSrc = extraQs ? path + '?' + extraQs : path;
+
+        let frame = frames.get(path);
+        if (!frame) {
+            frame = createFrame(path, loadSrc, title ? title.textContent.trim() : 'Verktyg');
+        } else {
+            const db = extra.get('db');
+            if (db) {
+                postToFrame(frame, { source: 'forensics-toolbox', type: 'select-db', db: db });
+            }
+        }
+
         placeholder.style.display = 'none';
+        host.hidden = false;
+        showFrame(frame);
         return true;
     }
 
@@ -60,9 +116,11 @@ function initToolNav() {
         const data = event.data;
         if (!data || (data.source !== 'forensics-toolbox' && data.source !== 'verktygslada')) return;
         if (data.type !== 'open-tool' || typeof data.src !== 'string') return;
-        // Allowlist: only paths that already exist as sidebar tools.
         openTool(data.src);
     });
+
+    window.__toolboxBroadcastTheme = broadcastTheme;
+    window.__toolboxOpenTool = openTool;
 }
 
 initToolNav();
@@ -82,7 +140,6 @@ initSidebarToggle();
 function initThemeToggle() {
     const THEME_KEY = 'theme';
     const toggle = document.getElementById('theme-toggle');
-    const frame = document.getElementById('tool-frame');
     if (!toggle) return;
 
     function getStoredTheme() {
@@ -103,12 +160,8 @@ function initThemeToggle() {
     }
 
     function broadcastTheme(value) {
-        if (frame && frame.contentWindow) {
-            try {
-                frame.contentWindow.postMessage({ source: 'forensics-toolbox', type: 'theme', theme: value }, '*');
-            } catch (e) {
-                /* verktyget kunde inte nås (t.ex. fortfarande under laddning) — ignorera */
-            }
+        if (typeof window.__toolboxBroadcastTheme === 'function') {
+            window.__toolboxBroadcastTheme(value);
         }
     }
 
@@ -127,11 +180,6 @@ function initThemeToggle() {
         broadcastTheme(theme);
     });
 
-    // Om ett verktyg laddas om (t.ex. via klick i sidofältet) — se till att det får
-    // rätt tema direkt, som ett komplement till ?theme= i src-URL:en.
-    if (frame) {
-        frame.addEventListener('load', () => broadcastTheme(theme));
-    }
 }
 
 initThemeToggle();

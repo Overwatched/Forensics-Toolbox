@@ -365,11 +365,32 @@ body {
     background: var(--bg);
 }
 
+.tool-host {
+    width: 100%;
+    height: 100%;
+    position: relative;
+}
+
+.tool-host[hidden] {
+    display: none !important;
+}
+
 .tool-frame {
+    position: absolute;
+    inset: 0;
     width: 100%;
     height: 100%;
     border: none;
-    display: block;
+    background: var(--bg);
+    visibility: hidden;
+    pointer-events: none;
+    z-index: 0;
+}
+
+.tool-frame.is-active {
+    visibility: visible;
+    pointer-events: auto;
+    z-index: 1;
 }
 
 .content-placeholder {
