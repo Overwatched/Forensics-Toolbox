@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Text formatter</title>
+    <title>Magic Text</title>
     <script>
         (function () {
             try {
@@ -28,20 +28,21 @@
 <body>
     <div id="container">
         <header class="page-header">
-            <h1>Text formatter</h1>
-            <p>Magic gissar format. JSON och protobuf om du redan vet. Testdata visar indata → utdata.</p>
+            <h1>Magic Text</h1>
+            <p>Klistra in vad som helst. Magic gissar formatet — JSON, protobuf och plist om du redan vet.</p>
         </header>
 
         <div class="tabs" role="tablist">
             <button type="button" class="tab active" data-format="magic">Magic</button>
             <button type="button" class="tab" data-format="json">JSON</button>
             <button type="button" class="tab" data-format="protobuf">Protobuf</button>
+            <button type="button" class="tab" data-format="plist">Plist</button>
         </div>
 
         <section id="panel-magic" class="format-panel">
-            <p class="hint">Klistra in vad som helst. Avbocka format du inte vill se, eller lämna alla ikryssade.</p>
+            <p class="hint">Avbocka format du inte vill se, eller lämna alla ikryssade. Testdata visar indata → utdata.</p>
             <div id="magic-formats" class="chips"></div>
-            <textarea id="magic-input" spellcheck="false" placeholder="JSON, hex-blob, Base64, JWT, URL-kodad text…"></textarea>
+            <textarea id="magic-input" spellcheck="false" placeholder="JSON, hex-blob, Base64, JWT, plist, URL-kodad text…"></textarea>
             <div class="button-row sample-row">
                 <select id="magic-sample"></select>
                 <button id="magic-fill-button" type="button">Fyll med testdata</button>
@@ -91,9 +92,29 @@
                 <button id="pb-copy-json-button" class="secondary" type="button">Kopiera JSON</button>
             </div>
         </section>
+
+        <section id="panel-plist" class="format-panel display-none">
+            <p class="hint">XML-plist eller binär <code>bplist00</code> → läsbar JSON. Fungerar med inklistring och fil.</p>
+            <textarea id="plist-input" spellcheck="false" placeholder="Klistra in XML-plist här…"></textarea>
+            <label class="file-drop" for="plist-file">
+                <span id="plist-file-label">Eller välj .plist / bplist</span>
+                <input id="plist-file" type="file">
+            </label>
+            <div class="button-row">
+                <button id="plist-parse-button" type="button">Visa</button>
+                <button id="plist-fill-button" class="secondary" type="button">Fyll med testdata</button>
+                <button id="plist-clear-button" class="secondary" type="button">Rensa</button>
+            </div>
+            <div id="plist-status" class="status">Ingen plist laddad</div>
+            <pre id="plist-output">Resultat visas här</pre>
+            <div class="button-row">
+                <button id="plist-copy-button" type="button">Kopiera JSON</button>
+            </div>
+        </section>
     </div>
 
     <div id="toast" class="toast"></div>
+    <script src="../plist-viewer/plist.js"></script>
     <script src="protobuf.js"></script>
     <script src="magic.js"></script>
     <script src="script.js"></script>

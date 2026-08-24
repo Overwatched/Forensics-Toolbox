@@ -6,6 +6,11 @@ const pbOutput = document.getElementById('pb-output');
 const pbStatus = document.getElementById('pb-status');
 const pbFile = document.getElementById('pb-file');
 const pbFileLabel = document.getElementById('pb-file-label');
+const plistInput = document.getElementById('plist-input');
+const plistOutput = document.getElementById('plist-output');
+const plistStatus = document.getElementById('plist-status');
+const plistFile = document.getElementById('plist-file');
+const plistFileLabel = document.getElementById('plist-file-label');
 const magicInput = document.getElementById('magic-input');
 const magicStatus = document.getElementById('magic-status');
 const magicResults = document.getElementById('magic-results');
@@ -13,9 +18,12 @@ const magicSample = document.getElementById('magic-sample');
 const magicFormats = document.getElementById('magic-formats');
 const toast = document.getElementById('toast');
 
+const FORMATS = ['magic', 'json', 'protobuf', 'plist'];
+
 let format = 'magic';
 let pbFileBytes = null;
 let lastPbJson = '';
+let plistFileBytes = null;
 
 function showToast(text) {
     toast.textContent = text;
@@ -29,14 +37,14 @@ function setStatus(el, text, kind) {
 }
 
 function selectFormat(next) {
-    if (next !== 'json' && next !== 'protobuf' && next !== 'magic') return;
+    if (FORMATS.indexOf(next) === -1) return;
     format = next;
     document.querySelectorAll('.tab').forEach((tab) => {
         tab.classList.toggle('active', tab.dataset.format === format);
     });
-    document.getElementById('panel-json').classList.toggle('display-none', format !== 'json');
-    document.getElementById('panel-protobuf').classList.toggle('display-none', format !== 'protobuf');
-    document.getElementById('panel-magic').classList.toggle('display-none', format !== 'magic');
+    FORMATS.forEach((id) => {
+        document.getElementById('panel-' + id).classList.toggle('display-none', format !== id);
+    });
 }
 
 function selectedMagicIds() {
@@ -72,17 +80,26 @@ function renderHits(hits) {
             }
         });
         row.appendChild(copyBtn);
-        if (hit.open === 'json' || hit.open === 'protobuf') {
+        if (hit.open === 'json' || hit.open === 'protobuf' || hit.open === 'plist') {
             const openBtn = document.createElement('button');
             openBtn.type = 'button';
             openBtn.className = 'secondary';
-            openBtn.textContent = hit.open === 'json' ? 'Öppna i JSON' : 'Öppna i protobuf';
+            const labels = { json: 'Öppna i JSON', protobuf: 'Öppna i protobuf', plist: 'Öppna i plist' };
+            openBtn.textContent = labels[hit.open];
             openBtn.addEventListener('click', () => {
                 if (hit.open === 'json') {
                     jsonInput.value = hit.text;
                     jsonOutput.textContent = hit.text;
                     setStatus(jsonStatus, 'Från Magic', 'ok');
                     selectFormat('json');
+                } else if (hit.open === 'plist') {
+                    plistInput.value = magicInput.value;
+                    plistFileBytes = null;
+                    plistFile.value = '';
+                    plistFileLabel.textContent = 'Eller välj .plist / bplist';
+                    plistOutput.textContent = hit.text;
+                    setStatus(plistStatus, 'Från Magic', 'ok');
+                    selectFormat('plist');
                 } else {
                     pbInput.value = magicInput.value;
                     pbOutput.textContent = hit.text;
@@ -286,10 +303,66 @@ jsonInput.addEventListener('keydown', (e) => {
     }
 });
 
+document.getElementById('plist-parse-button').addEventListener('click', () => {
+    try {
+        const value = plistFileBytes && plistFileBytes.length
+            ? parsePlist(plistFileBytes)
+            : parsePlist(plistInput.value);
+        plistOutput.textContent = JSON.stringify(value, null, 2);
+        const keyed = typeof isKeyedArchiver === 'function' && isKeyedArchiver(value)
+            ? ' NSKeyedArchiver — titta i $objects.'
+            : '';
+        setStatus(plistStatus, 'Plist läst.' + keyed, 'ok');
+    } catch (err) {
+        plistOutput.textContent = err.message || String(err);
+        setStatus(plistStatus, 'Kunde inte läsa plist', 'err');
+    }
+});
+
+plistFile.addEventListener('change', async () => {
+    const file = plistFile.files && plistFile.files[0];
+    if (!file) {
+        plistFileBytes = null;
+        plistFileLabel.textContent = 'Eller välj .plist / bplist';
+        return;
+    }
+    plistFileLabel.textContent = file.name + ' (' + file.size + ' byte)';
+    plistFileBytes = new Uint8Array(await file.arrayBuffer());
+});
+
+document.getElementById('plist-fill-button').addEventListener('click', () => {
+    const sample = TextMagic.SAMPLES.find((s) => s.id === 'plist');
+    plistInput.value = sample.input;
+    plistFileBytes = null;
+    plistFile.value = '';
+    plistFileLabel.textContent = 'Eller välj .plist / bplist';
+    document.getElementById('plist-parse-button').click();
+    setStatus(plistStatus, 'Testdata: ' + sample.note, 'ok');
+});
+
+document.getElementById('plist-clear-button').addEventListener('click', () => {
+    plistInput.value = '';
+    plistFile.value = '';
+    plistFileBytes = null;
+    plistFileLabel.textContent = 'Eller välj .plist / bplist';
+    plistOutput.textContent = 'Resultat visas här';
+    setStatus(plistStatus, 'Ingen plist laddad');
+});
+
+document.getElementById('plist-copy-button').addEventListener('click', async () => {
+    try {
+        await navigator.clipboard.writeText(plistOutput.textContent);
+        showToast('JSON kopierad');
+    } catch (e) {
+        showToast('Kunde inte kopiera');
+    }
+});
+
 document.addEventListener('keydown', (e) => {
     if (e.ctrlKey && e.key === 'Enter') {
         if (format === 'json') document.getElementById('format-button').click();
         else if (format === 'protobuf') document.getElementById('pb-decode-button').click();
+        else if (format === 'plist') document.getElementById('plist-parse-button').click();
         else runMagic();
     }
 });
@@ -309,5 +382,5 @@ window.addEventListener('message', (event) => {
 (function initFromQuery() {
     var params = new URLSearchParams(location.search);
     var requested = params.get('format');
-    if (requested === 'json' || requested === 'protobuf' || requested === 'magic') selectFormat(requested);
+    if (FORMATS.indexOf(requested) !== -1) selectFormat(requested);
 })();

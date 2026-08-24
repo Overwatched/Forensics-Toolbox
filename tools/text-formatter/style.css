@@ -59,14 +59,16 @@ body {
 }
 
 .tab {
-    flex: 1;
-    padding: 10px;
+    flex: 1 1 0;
+    min-width: 0;
+    padding: 10px 6px;
     border-radius: 10px;
     border: 1px solid var(--border);
     background: var(--surface);
     color: var(--text);
     cursor: pointer;
     font-weight: 600;
+    font-size: 13px;
 }
 
 .tab.active {

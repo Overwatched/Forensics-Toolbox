@@ -1,6 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 require('./protobuf.js');
+require('../plist-viewer/plist.js');
 const magic = require('./magic.js');
 
 async function ids(text, enabled) {
@@ -51,4 +52,20 @@ test('gzip hex wraps JSON', async () => {
 test('checkbox limits detectors', async () => {
     const hits = await magic.runMagic('{"a":1}', ['protobuf']);
     assert.equal(hits.length, 0);
+});
+
+test('empty checkbox list runs nothing', async () => {
+    const hits = await magic.runMagic('{"a":1}', []);
+    assert.equal(hits.length, 0);
+});
+
+test('XML plist', async (t) => {
+    if (typeof DOMParser === 'undefined') {
+        t.skip('DOMParser saknas i Node');
+        return;
+    }
+    const sample = magic.SAMPLES.find((s) => s.id === 'plist').input;
+    const hits = await magic.runMagic(sample);
+    assert.ok(hits.some((h) => h.id === 'plist' && h.text.includes('"Name": "Kim"')));
+    assert.ok(!hits.some((h) => h.id === 'xml'));
 });

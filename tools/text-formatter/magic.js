@@ -9,6 +9,7 @@
         { id: 'url', label: 'URL-kodad' },
         { id: 'jwt', label: 'JWT' },
         { id: 'xml', label: 'XML' },
+        { id: 'plist', label: 'Plist' },
         { id: 'gzip', label: 'gzip/zlib' },
         { id: 'time', label: 'Unix-tid' },
     ];
@@ -55,6 +56,12 @@
             label: 'XML',
             input: '<note><to>Kim</to><msg>hej</msg></note>',
             note: 'XML pretty-print',
+        },
+        {
+            id: 'plist',
+            label: 'Plist (XML)',
+            input: '<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n<plist version="1.0"><dict><key>Name</key><string>Kim</string><key>Enabled</key><true/></dict></plist>',
+            note: 'XML-plist → JSON. Binär bplist00 går också',
         },
         {
             id: 'hex',
@@ -182,9 +189,48 @@
         var t = String(text || '').trim();
         if (t.charAt(0) !== '<' || t.indexOf('>') === -1) return null;
         if (/^<!DOCTYPE html/i.test(t) || /^<html/i.test(t)) return null;
+        if (/<plist\b/i.test(t)) return null;
         var pretty = prettyXml(t);
-        var why = /<plist\b/i.test(t) ? 'XML-plist. Plist-visaren ger nycklad JSON.' : 'XML-struktur.';
-        return hit('xml', /<plist\b/i.test(t) ? 88 : 78, why, pretty);
+        return hit('xml', 78, 'XML-struktur.', pretty);
+    }
+
+    function looksLikeBplistBytes(bytes) {
+        return bytes && bytes.length >= 8 &&
+            bytes[0] === 0x62 && bytes[1] === 0x70 && bytes[2] === 0x6c &&
+            bytes[3] === 0x69 && bytes[4] === 0x73 && bytes[5] === 0x74;
+    }
+
+    function detectPlist(text) {
+        var parse = root.parsePlist;
+        if (typeof parse !== 'function') return null;
+        var t = String(text || '').trim();
+        var xmlPlist = /<plist\b/i.test(t);
+        var asciiBin = t.slice(0, 6) === 'bplist';
+        var bytes = null;
+        if (!xmlPlist && !asciiBin) {
+            var pb = root.ProtobufViewer;
+            if (pb && typeof pb.extractHex === 'function') {
+                var hex = pb.extractHex(t);
+                if (hex && hex.length >= 16) {
+                    bytes = new Uint8Array(hex.length / 2);
+                    for (var i = 0; i < bytes.length; i++) bytes[i] = parseInt(hex.substr(i * 2, 2), 16);
+                    if (!looksLikeBplistBytes(bytes)) bytes = null;
+                }
+            }
+        }
+        if (!xmlPlist && !asciiBin && !bytes) return null;
+        try {
+            var value = bytes ? parse(bytes) : parse(t);
+            var keyed = root.isKeyedArchiver && root.isKeyedArchiver(value)
+                ? ' NSKeyedArchiver — titta i $objects.'
+                : '';
+            var why = (asciiBin || bytes)
+                ? 'Binär bplist00 → JSON.' + keyed
+                : 'XML-plist → JSON.' + keyed;
+            return hit('plist', 91, why, prettyJson(value), { open: 'plist' });
+        } catch (e) {
+            return null;
+        }
     }
 
     function detectUrl(text) {
@@ -326,7 +372,7 @@
     }
 
     function enabledSet(ids) {
-        if (!ids || !ids.length) {
+        if (ids == null) {
             var all = {};
             FORMATS.forEach(function (f) { all[f.id] = true; });
             return all;
@@ -348,6 +394,7 @@
 
         maybe('json', detectJson);
         maybe('jwt', detectJwt);
+        maybe('plist', detectPlist);
         maybe('xml', detectXml);
         maybe('url', detectUrl);
         maybe('time', detectTime);
@@ -377,6 +424,7 @@
         detectJson: detectJson,
         detectJwt: detectJwt,
         detectXml: detectXml,
+        detectPlist: detectPlist,
         detectUrl: detectUrl,
         detectTime: detectTime,
         detectBase64: detectBase64,
