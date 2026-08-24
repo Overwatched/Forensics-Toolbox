@@ -28,6 +28,7 @@ function initToolNav() {
         'tools/android-queries/queries.html': 'tools/db-queries/queries.html?db=android-mediastore',
         'tools/app-usage-queries/queries.html': 'tools/db-queries/queries.html?db=knowledgec',
         'tools/JSON-formatter/JSON.html': 'tools/text-formatter/formatter.html?format=json',
+        'tools/plist-viewer/plist.html': 'tools/text-formatter/formatter.html?format=plist',
     };
 
     const frames = new Map();
@@ -251,9 +252,18 @@ function initExternalLinkConfirm() {
 
     let pendingHref = null;
 
-    function openModal(link) {
-        pendingHref = link.href;
-        const title = link.querySelector('.nav-item-title')?.textContent.trim() || 'webbplatsen';
+    function isSafeHttpUrl(href) {
+        try {
+            const url = new URL(href);
+            return url.protocol === 'http:' || url.protocol === 'https:';
+        } catch (e) {
+            return false;
+        }
+    }
+
+    function openModal(href, title) {
+        if (!isSafeHttpUrl(href)) return;
+        pendingHref = href;
         text.textContent = `Vill du lämna Forensics Toolbox och öppna "${title}" i ny flik?`;
         modal.classList.remove('display-none');
     }
@@ -266,8 +276,16 @@ function initExternalLinkConfirm() {
     document.querySelectorAll('.nav-item--link').forEach((link) => {
         link.addEventListener('click', (event) => {
             event.preventDefault();
-            openModal(link);
+            const title = link.querySelector('.nav-item-title')?.textContent.trim() || 'webbplatsen';
+            openModal(link.href, title);
         });
+    });
+
+    window.addEventListener('message', (event) => {
+        const data = event.data;
+        if (!data || (data.source !== 'forensics-toolbox' && data.source !== 'verktygslada')) return;
+        if (data.type !== 'open-external' || typeof data.href !== 'string') return;
+        openModal(data.href, data.title || 'webbplatsen');
     });
 
     cancelButton.addEventListener('click', closeModal);

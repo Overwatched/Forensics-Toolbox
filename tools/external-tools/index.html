@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="sv">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Externa verktyg</title>
+    <script>
+        (function () {
+            try {
+                var params = new URLSearchParams(location.search);
+                var fromParent = params.get('theme');
+                var saved = localStorage.getItem('theme');
+                var theme = (fromParent === 'light' || fromParent === 'dark') ? fromParent
+                    : (saved === 'light' || saved === 'dark') ? saved : 'dark';
+                document.documentElement.setAttribute('data-theme', theme);
+                if (fromParent === 'light' || fromParent === 'dark') {
+                    localStorage.setItem('theme', fromParent);
+                }
+            } catch (e) {
+                document.documentElement.setAttribute('data-theme', 'dark');
+            }
+        })();
+    </script>
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+    <div id="container">
+        <header class="page-header">
+            <h1>Externa verktyg</h1>
+            <p>Länkar ut ur appen. Sök, klicka på ett klot — du får bekräfta innan sidan öppnas.</p>
+        </header>
+
+        <label class="search-wrap">
+            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <circle cx="11" cy="11" r="6.5" stroke="currentColor" stroke-width="1.8" />
+                <path d="M16 16L20.5 20.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
+            </svg>
+            <input id="tool-search" type="search" placeholder="Sök verktyg…" autocomplete="off" spellcheck="false">
+        </label>
+
+        <div id="tool-catalog"></div>
+        <p id="empty-state" class="empty display-none">Inget verktyg matchade sökningen.</p>
+    </div>
+
+    <script src="catalog.js"></script>
+    <script src="script.js"></script>
+</body>
+
+</html>

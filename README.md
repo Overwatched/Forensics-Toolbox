@@ -10,11 +10,11 @@ Forkad och omarbetad från [AdrianNeshad/CryptoToolbox](https://github.com/Adria
 |---------|-------------|
 | Time Converter | Unix, Apple Cocoa/NSDate, WebKit/Chrome, FILETIME, ISO — full matris + tolkningsjämförelse |
 | Hash Calculator | MD5 / SHA-1 / SHA-256 (fler algoritmer valbara) |
-| Text formatter | Magic (gissar format), JSON och protobuf från SQLite-blobbar |
-| Plist-visare | XML och binär plist → JSON |
+| Magic Text | Gissar format (JSON, protobuf, plist, JWT, …) + egna flikar när du redan vet |
 | QR Code Decoder | Avkoda QR från bild |
 | CyberChef | Offline encoding / decoding / crypto |
 | Queries | iOS/Android — Photos.sqlite, knowledgeC, MediaStore, tidsspann |
+| Externa verktyg | Sökbar katalog med runda länkar (iLEAPP, Autopsy, start.me, …) |
 | Playbook: Bildfil härkomst | Kort checklista: EXIF, kamera, app, position |
 | Vanliga artifacts | Referens för Windows / browser / Linux |
 | Verktyg & releaser | Kuraterad lista (iLEAPP, ALEAPP, Passware 2026 v3, …) |
