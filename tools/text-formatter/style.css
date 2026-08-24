@@ -42,7 +42,7 @@ body {
 
 #container {
     width: 100%;
-    max-width: 640px;
+    max-width: 720px;
     display: flex;
     flex-direction: column;
 }
@@ -173,3 +173,74 @@ button.secondary:hover { border-color: var(--border-hover); }
 }
 
 .toast.show { visibility: visible; }
+
+.chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 14px;
+}
+
+.chips label {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 10px;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    background: var(--surface);
+    font-size: 13px;
+    cursor: pointer;
+}
+
+.sample-row select {
+    flex: 1;
+    padding: 11px 12px;
+    border-radius: 10px;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--text);
+}
+
+#magic-results {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.hit {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 14px;
+}
+
+.hit-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 10px;
+    margin-bottom: 6px;
+}
+
+.hit-head strong { font-size: 15px; }
+
+.hit-score {
+    font-size: 12px;
+    color: var(--success);
+}
+
+.hit-why {
+    color: var(--text-muted);
+    font-size: 13px;
+    margin-bottom: 10px;
+}
+
+.hit pre {
+    min-height: 0;
+    margin-bottom: 10px;
+    max-height: 240px;
+}
+
+.hit .button-row { margin-bottom: 0; }
+

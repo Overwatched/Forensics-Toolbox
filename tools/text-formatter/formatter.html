@@ -29,15 +29,32 @@
     <div id="container">
         <header class="page-header">
             <h1>Text formatter</h1>
-            <p>JSON och protobuf. Protobuf läser wire-format utan .proto — typiskt SQLite-blobbar.</p>
+            <p>Magic gissar format. JSON och protobuf om du redan vet. Testdata visar indata → utdata.</p>
         </header>
 
         <div class="tabs" role="tablist">
-            <button type="button" class="tab active" data-format="json">JSON</button>
+            <button type="button" class="tab active" data-format="magic">Magic</button>
+            <button type="button" class="tab" data-format="json">JSON</button>
             <button type="button" class="tab" data-format="protobuf">Protobuf</button>
         </div>
 
-        <section id="panel-json" class="format-panel">
+        <section id="panel-magic" class="format-panel">
+            <p class="hint">Klistra in vad som helst. Avbocka format du inte vill se, eller lämna alla ikryssade.</p>
+            <div id="magic-formats" class="chips"></div>
+            <textarea id="magic-input" spellcheck="false" placeholder="JSON, hex-blob, Base64, JWT, URL-kodad text…"></textarea>
+            <div class="button-row sample-row">
+                <select id="magic-sample"></select>
+                <button id="magic-fill-button" type="button">Fyll med testdata</button>
+            </div>
+            <div class="button-row">
+                <button id="magic-run-button" type="button">Avkoda</button>
+                <button id="magic-clear-button" class="secondary" type="button">Rensa</button>
+            </div>
+            <div id="magic-status" class="status">Ingen indata</div>
+            <div id="magic-results"></div>
+        </section>
+
+        <section id="panel-json" class="format-panel display-none">
             <textarea id="json-input" spellcheck="false" placeholder="Klistra in JSON här…"></textarea>
             <div class="button-row">
                 <button id="format-button" type="button">Formattera</button>
@@ -45,6 +62,7 @@
             </div>
             <div class="button-row">
                 <button id="validate-button" class="secondary" type="button">Validera</button>
+                <button id="json-fill-button" class="secondary" type="button">Fyll med testdata</button>
                 <button id="json-clear-button" class="secondary" type="button">Rensa</button>
             </div>
             <div id="json-status" class="status">Ingen JSON laddad</div>
@@ -63,6 +81,7 @@
             </label>
             <div class="button-row">
                 <button id="pb-decode-button" type="button">Avkoda</button>
+                <button id="pb-fill-button" class="secondary" type="button">Fyll med testdata</button>
                 <button id="pb-clear-button" class="secondary" type="button">Rensa</button>
             </div>
             <div id="pb-status" class="status">Ingen protobuf laddad</div>
@@ -76,6 +95,7 @@
 
     <div id="toast" class="toast"></div>
     <script src="protobuf.js"></script>
+    <script src="magic.js"></script>
     <script src="script.js"></script>
 </body>
 
