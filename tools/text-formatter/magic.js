@@ -81,12 +81,19 @@
             input: '1714521600',
             note: '10 siffror → UTC-tid. Full matris finns i Time Converter',
         },
+        {
+            id: 'protobuf-aes',
+            label: 'Protobuf (AES-GCM)',
+            input: '070707070707070707070707234cfb2da82dcace95cbc742662844ec0aefed',
+            key: '00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff',
+            note: 'AES-256-GCM, 12 byte IV först. Nyckeln fylls i fältet — sparas inte',
+        },
     ];
 
     SAMPLES.unshift({
         id: 'all',
         label: 'Alla format',
-        input: SAMPLES.filter(function (s) { return s.id !== 'sqlite'; })
+        input: SAMPLES.filter(function (s) { return s.id !== 'sqlite' && s.id !== 'protobuf-aes'; })
             .map(function (s) { return s.input; })
             .join('\n\n'),
         note: 'Ett stycke per format, tom rad emellan',
@@ -170,6 +177,7 @@
             why: why,
             text: text,
             open: extra.open || null,
+            json: extra.json || null,
         };
     }
 
@@ -311,17 +319,136 @@
         return hit('hex', innerJson ? 86 : utf ? 70 : 56, why, body, { open: innerJson ? 'json' : null });
     }
 
+    function protobufHit(result, why, extraScore) {
+        var score = Math.min(90, 55 + result.fields.length * 8) + (extraScore || 0);
+        if (score > 96) score = 96;
+        return hit('protobuf', score, why, result.text + '\n\n' + prettyJson(result.json), { open: 'protobuf', json: prettyJson(result.json) });
+    }
+
     function detectProtobuf(text) {
         var pb = root.ProtobufViewer;
         if (!pb) return null;
         try {
             var result = pb.parseInputText(text);
             if (!result || !result.fields || !result.fields.length) return null;
-            var score = Math.min(90, 55 + result.fields.length * 8);
-            return hit('protobuf', score, 'Protobuf wire-format (' + result.inputKind + ', ' + result.bytes + ' B).', result.text + '\n\n' + prettyJson(result.json), { open: 'protobuf' });
+            return protobufHit(result, 'Protobuf wire-format (' + result.inputKind + ', ' + result.bytes + ' B).');
         } catch (e) {
             return null;
         }
+    }
+
+    function getSubtle() {
+        if (root.crypto && root.crypto.subtle) return root.crypto.subtle;
+        try { return require('crypto').webcrypto.subtle; } catch (e) { return null; }
+    }
+
+    function parseKeyBytes(text) {
+        var t = String(text || '').trim();
+        if (!t) return null;
+        var compact = t.replace(/\s+/g, '');
+        function sized(bytes) {
+            if (bytes && (bytes.length === 16 || bytes.length === 24 || bytes.length === 32)) return bytes;
+            return null;
+        }
+        if (/^[0-9a-fA-F]+$/.test(compact) && compact.length % 2 === 0) {
+            var hexBytes = new Uint8Array(compact.length / 2);
+            for (var i = 0; i < hexBytes.length; i++) hexBytes[i] = parseInt(compact.substr(i * 2, 2), 16);
+            var hexKey = sized(hexBytes);
+            if (hexKey) return hexKey;
+        }
+        try {
+            var bin = atob(compact.replace(/-/g, '+').replace(/_/g, '/'));
+            var out = new Uint8Array(bin.length);
+            for (var j = 0; j < bin.length; j++) out[j] = bin.charCodeAt(j);
+            return sized(out);
+        } catch (e) {
+            return null;
+        }
+    }
+
+    function protobufFromPlain(bytes) {
+        var pb = root.ProtobufViewer;
+        if (!pb || !bytes || !bytes.length) return null;
+        try {
+            var decoded = pb.decodeBytes(bytes);
+            if (decoded && decoded.fields && decoded.fields.length) return decoded;
+        } catch (e) { /* nästa: gzip */ }
+        return null;
+    }
+
+    function plaintextToProtobufHit(pt, mode, ivLen) {
+        var decoded = protobufFromPlain(pt);
+        if (decoded) {
+            return protobufHit(
+                decoded,
+                mode + ' (IV ' + ivLen + ' B först) → protobuf (' + decoded.bytes + ' B).',
+                6
+            );
+        }
+        if (!pt || pt.length < 4) return Promise.resolve(null);
+        var isGzip = pt[0] === 0x1f && pt[1] === 0x8b;
+        var isZlib = pt[0] === 0x78 && (pt[1] === 0x01 || pt[1] === 0x9c || pt[1] === 0xda);
+        if (!isGzip && !isZlib) return Promise.resolve(null);
+        return inflate(pt, isGzip ? 'gzip' : 'deflate').then(function (out) {
+            var inner = protobufFromPlain(out);
+            if (!inner) return null;
+            return protobufHit(
+                inner,
+                mode + ' (IV ' + ivLen + ' B) → ' + (isGzip ? 'gzip' : 'zlib') + ' → protobuf (' + inner.bytes + ' B).',
+                6
+            );
+        }).catch(function () { return null; });
+    }
+
+    function unwrapAesThenProtobuf(bytes, keyBytes) {
+        var subtle = getSubtle();
+        if (!subtle || !bytes || !keyBytes || bytes.length < 28) return Promise.resolve(null);
+        var attempts = [
+            { mode: 'AES-GCM', iv: 12 },
+            { mode: 'AES-GCM', iv: 16 },
+            { mode: 'AES-CBC', iv: 16 },
+        ];
+        var chain = Promise.resolve(null);
+        attempts.forEach(function (a) {
+            chain = chain.then(function (found) {
+                if (found) return found;
+                var minRest = a.mode === 'AES-GCM' ? 17 : 16;
+                if (bytes.length < a.iv + minRest) return null;
+                var iv = bytes.subarray(0, a.iv);
+                var rest = bytes.subarray(a.iv);
+                var algo = a.mode === 'AES-GCM'
+                    ? { name: 'AES-GCM', iv: iv, tagLength: 128 }
+                    : { name: 'AES-CBC', iv: iv };
+                return subtle.importKey('raw', keyBytes, { name: a.mode }, false, ['decrypt'])
+                    .then(function (cryptoKey) { return subtle.decrypt(algo, cryptoKey, rest); })
+                    .then(function (ptBuf) { return plaintextToProtobufHit(new Uint8Array(ptBuf), a.mode, a.iv); })
+                    .catch(function () { return null; });
+            });
+        });
+        return chain;
+    }
+
+    function detectProtobufFlexible(text, keyText, fileBytes) {
+        if (!fileBytes) {
+            var raw = detectProtobuf(text);
+            if (raw) return Promise.resolve(raw);
+        } else {
+            var fromFile = protobufFromPlain(fileBytes);
+            if (fromFile) {
+                return Promise.resolve(protobufHit(fromFile, 'Protobuf wire-format (fil, ' + fromFile.bytes + ' B).'));
+            }
+        }
+        var key = parseKeyBytes(keyText);
+        if (!key) return Promise.resolve(null);
+        var list = fileBytes ? [fileBytes] : candidateBytes(text);
+        var chain = Promise.resolve(null);
+        list.forEach(function (bytes) {
+            chain = chain.then(function (found) {
+                if (found) return found;
+                return unwrapAesThenProtobuf(bytes, key);
+            });
+        });
+        return chain;
     }
 
     function candidateBytes(text) {
@@ -405,7 +532,7 @@
         return lines.length > 1 ? lines : [trimmed];
     }
 
-    function runMagicOne(text, ids) {
+    function runMagicOne(text, ids, keyText) {
         var enabled = enabledSet(ids);
         var forced = ids && ids.length && ids.length < FORMATS.length;
         var tasks = [];
@@ -423,7 +550,7 @@
         maybe('time', detectTime);
         maybe('base64', detectBase64);
         maybe('hex', detectHex);
-        maybe('protobuf', detectProtobuf);
+        maybe('protobuf', function () { return detectProtobufFlexible(text, keyText); });
         maybe('gzip', detectGzip);
 
         return Promise.all(tasks).then(function (rows) {
@@ -440,15 +567,15 @@
         });
     }
 
-    function runMagic(text, ids) {
+    function runMagic(text, ids, keyText) {
         var chunks = splitChunks(text);
         if (!chunks.length) return Promise.resolve([]);
-        if (chunks.length === 1) return runMagicOne(chunks[0], ids);
+        if (chunks.length === 1) return runMagicOne(chunks[0], ids, keyText);
 
         var chain = Promise.resolve([]);
         chunks.forEach(function (chunk, i) {
             chain = chain.then(function (all) {
-                return runMagicOne(chunk, ids).then(function (hits) {
+                return runMagicOne(chunk, ids, keyText).then(function (hits) {
                     hits.forEach(function (h) {
                         h.chunk = i + 1;
                         h.why = 'Stycke ' + (i + 1) + ': ' + h.why;
@@ -474,6 +601,8 @@
         detectBase64: detectBase64,
         detectHex: detectHex,
         detectProtobuf: detectProtobuf,
+        parseKeyBytes: parseKeyBytes,
+        detectProtobufFlexible: detectProtobufFlexible,
     };
 
     root.TextMagic = api;

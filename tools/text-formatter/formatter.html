@@ -40,9 +40,13 @@
         </div>
 
         <section id="panel-magic" class="format-panel">
-            <p class="hint">Avbocka format du inte vill se. Fyll med testdata kan lägga in alla format på en gång. Flera stycken (tom rad emellan, eller en rad i taget) avkodas var för sig.</p>
+            <p class="hint">Avbocka format du inte vill se. Fyll med testdata kan lägga in alla format på en gång. Flera stycken (tom rad emellan, eller en rad i taget) avkodas var för sig. Valfri nyckel (hex/Base64, 16/24/32 byte) används bara om blobben inte är rå protobuf — AES-GCM/CBC med IV först. Nyckeln sparas inte.</p>
             <div id="magic-formats" class="chips"></div>
             <textarea id="magic-input" spellcheck="false" placeholder="JSON, hex-blob, Base64, JWT, plist, URL-kodad text…"></textarea>
+            <label class="key-row">
+                <span>Nyckel (valfri)</span>
+                <input id="magic-key" type="password" autocomplete="off" spellcheck="false" placeholder="Hex eller Base64 — t.ex. från Keystore om den är exportabel">
+            </label>
             <div class="button-row sample-row">
                 <select id="magic-sample"></select>
                 <button id="magic-fill-button" type="button">Fyll med testdata</button>
@@ -74,8 +78,12 @@
         </section>
 
         <section id="panel-protobuf" class="format-panel display-none">
-            <p class="hint">Klistra in hex, Base64, SQLite <code>X'…'</code> eller en rå blob. Ingen schemafil behövs — fält visas som nummer.</p>
+            <p class="hint">Klistra in hex, Base64, SQLite <code>X'…'</code> eller en rå blob. Ingen schemafil behövs — fält visas som nummer. Valfri nyckel: AES-GCM/CBC (IV först) om blobben är krypterad.</p>
             <textarea id="pb-input" spellcheck="false" placeholder="08 96 01   eller   X'089601'   eller Base64"></textarea>
+            <label class="key-row">
+                <span>Nyckel (valfri)</span>
+                <input id="pb-key" type="password" autocomplete="off" spellcheck="false" placeholder="Hex eller Base64, 16/24/32 byte">
+            </label>
             <label class="file-drop" for="pb-file">
                 <span id="pb-file-label">Eller välj en blob-fil</span>
                 <input id="pb-file" type="file">

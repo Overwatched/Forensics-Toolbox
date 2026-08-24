@@ -16,6 +16,8 @@ const magicStatus = document.getElementById('magic-status');
 const magicResults = document.getElementById('magic-results');
 const magicSample = document.getElementById('magic-sample');
 const magicFormats = document.getElementById('magic-formats');
+const magicKey = document.getElementById('magic-key');
+const pbKey = document.getElementById('pb-key');
 const toast = document.getElementById('toast');
 
 const FORMATS = ['magic', 'json', 'protobuf', 'plist'];
@@ -102,8 +104,9 @@ function renderHits(hits) {
                     selectFormat('plist');
                 } else {
                     pbInput.value = magicInput.value;
+                    pbKey.value = magicKey.value;
                     pbOutput.textContent = hit.text;
-                    lastPbJson = hit.text;
+                    lastPbJson = hit.json || '';
                     setStatus(pbStatus, 'Från Magic', 'ok');
                     selectFormat('protobuf');
                 }
@@ -121,7 +124,7 @@ async function runMagic() {
         setStatus(magicStatus, 'Ingen indata');
         return;
     }
-    const hits = await TextMagic.runMagic(text, selectedMagicIds());
+    const hits = await TextMagic.runMagic(text, selectedMagicIds(), magicKey.value);
     renderHits(hits);
     setStatus(magicStatus, hits.length ? hits.length + ' tolkning' + (hits.length === 1 ? '' : 'ar') : 'Ingen träff', hits.length ? 'ok' : 'err');
 }
@@ -130,6 +133,7 @@ function fillSample(sample) {
     if (!sample) return;
     magicInput.value = sample.input;
     magicSample.value = sample.id;
+    magicKey.value = sample.key || '';
     setStatus(magicStatus, 'Testdata: ' + sample.label + ' — ' + sample.note);
     runMagic();
 }
@@ -161,6 +165,7 @@ document.getElementById('magic-run-button').addEventListener('click', () => runM
 document.getElementById('magic-clear-button').addEventListener('click', () => {
     magicInput.value = '';
     magicSample.value = '';
+    magicKey.value = '';
     magicResults.innerHTML = '';
     setStatus(magicStatus, 'Ingen indata');
 });
@@ -239,15 +244,24 @@ pbFile.addEventListener('change', async () => {
     pbFileLabel.textContent = file.name + ' (' + file.size + ' byte)';
 });
 
-document.getElementById('pb-decode-button').addEventListener('click', () => {
+document.getElementById('pb-decode-button').addEventListener('click', async () => {
     try {
-        const result = pbFileBytes && pbFileBytes.length
-            ? Object.assign(ProtobufViewer.decodeBytes(pbFileBytes), { inputKind: 'fil' })
-            : ProtobufViewer.parseInputText(pbInput.value);
-        lastPbJson = JSON.stringify(result.json, null, 2);
-        var extra = result.lengthPrefixed ? ' Längdprefix hoppades över.' : '';
-        pbOutput.textContent = result.text + '\n\n--- JSON ---\n' + lastPbJson;
-        setStatus(pbStatus, 'Protobuf (' + result.inputKind + ', ' + result.bytes + ' B).' + extra, 'ok');
+        const keyText = pbKey.value;
+        const hit = await TextMagic.detectProtobufFlexible(pbInput.value, keyText, pbFileBytes);
+        if (!hit) {
+            lastPbJson = '';
+            const keyOk = TextMagic.parseKeyBytes(keyText);
+            pbOutput.textContent = keyText.trim()
+                ? (keyOk
+                    ? 'Nyckeln gav inte giltig protobuf (AES-GCM/CBC med IV först).'
+                    : 'Nyckeln måste vara 16, 24 eller 32 byte som hex eller Base64.')
+                : 'Kunde inte avkoda protobuf.';
+            setStatus(pbStatus, 'Kunde inte avkoda protobuf', 'err');
+            return;
+        }
+        lastPbJson = hit.json || '';
+        pbOutput.textContent = hit.text;
+        setStatus(pbStatus, hit.why, 'ok');
     } catch (e) {
         lastPbJson = '';
         pbOutput.textContent = e.message || String(e);
@@ -256,8 +270,11 @@ document.getElementById('pb-decode-button').addEventListener('click', () => {
 });
 
 document.getElementById('pb-fill-button').addEventListener('click', () => {
-    const sample = TextMagic.SAMPLES.find((s) => s.id === 'sqlite') || TextMagic.SAMPLES.find((s) => s.id === 'protobuf');
+    const sample = TextMagic.SAMPLES.find((s) => s.id === 'protobuf-aes')
+        || TextMagic.SAMPLES.find((s) => s.id === 'sqlite')
+        || TextMagic.SAMPLES.find((s) => s.id === 'protobuf');
     pbInput.value = sample.input;
+    pbKey.value = sample.key || '';
     pbFileBytes = null;
     pbFile.value = '';
     pbFileLabel.textContent = 'Eller välj en blob-fil';
@@ -267,6 +284,7 @@ document.getElementById('pb-fill-button').addEventListener('click', () => {
 
 document.getElementById('pb-clear-button').addEventListener('click', () => {
     pbInput.value = '';
+    pbKey.value = '';
     pbFile.value = '';
     pbFileBytes = null;
     lastPbJson = '';

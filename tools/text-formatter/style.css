@@ -204,6 +204,25 @@ button.secondary:hover { border-color: var(--border-hover); }
     color: var(--text);
 }
 
+.key-row {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-bottom: 14px;
+    font-size: 13px;
+    color: var(--text-muted);
+}
+
+.key-row input {
+    padding: 11px 12px;
+    border-radius: 10px;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--text);
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 13px;
+}
+
 #magic-results {
     display: flex;
     flex-direction: column;

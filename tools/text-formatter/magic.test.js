@@ -121,3 +121,38 @@ test('mixed plist gzip jwt with blank lines', async () => {
     assert.ok(hits.some((h) => h.id === 'jwt' && h.text.includes('"name": "Kim"')));
 });
 
+test('parseKeyBytes accepts 16/32 byte hex and rejects junk', () => {
+    assert.equal(magic.parseKeyBytes('00'.repeat(16)).length, 16);
+    assert.equal(magic.parseKeyBytes('00'.repeat(32)).length, 32);
+    assert.equal(magic.parseKeyBytes('not-a-key'), null);
+    assert.equal(magic.parseKeyBytes('00'.repeat(15)), null);
+});
+
+test('AES-GCM protobuf sample needs the key', async () => {
+    const sample = magic.SAMPLES.find((s) => s.id === 'protobuf-aes');
+    const without = await magic.runMagic(sample.input);
+    assert.ok(!without.some((h) => h.id === 'protobuf'));
+    const withKey = await magic.runMagic(sample.input, null, sample.key);
+    assert.ok(withKey.some((h) => h.id === 'protobuf' && h.text.includes('150')));
+    assert.match(withKey.find((h) => h.id === 'protobuf').why, /AES-GCM/);
+});
+
+test('AES-CBC IV16 then protobuf', async () => {
+    const key = '00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff';
+    const blob = '0909090909090909090909090909090987ffbdf489d8ecb9fa73f5375a410270';
+    const hits = await magic.runMagic(blob, ['protobuf'], key);
+    assert.ok(hits.some((h) => h.id === 'protobuf' && h.why.includes('AES-CBC') && h.text.includes('150')));
+});
+
+test('wrong AES key does not invent protobuf', async () => {
+    const sample = magic.SAMPLES.find((s) => s.id === 'protobuf-aes');
+    const hits = await magic.runMagic(sample.input, ['protobuf'], 'ff'.repeat(32));
+    assert.equal(hits.length, 0);
+});
+
+test('raw protobuf still works when a key is also provided', async () => {
+    const hits = await magic.runMagic('08 96 01', null, '00'.repeat(32));
+    assert.ok(hits.some((h) => h.id === 'protobuf' && h.text.includes('150')));
+    assert.ok(!hits.find((h) => h.id === 'protobuf').why.includes('AES'));
+});
+
