@@ -165,7 +165,7 @@ document.getElementById('magic-clear-button').addEventListener('click', () => {
     setStatus(magicStatus, 'Ingen indata');
 });
 document.getElementById('magic-fill-button').addEventListener('click', () => {
-    const id = magicSample.value || 'json';
+    const id = magicSample.value || 'all';
     const sample = TextMagic.SAMPLES.find((s) => s.id === id) || TextMagic.SAMPLES[0];
     fillSample(sample);
 });

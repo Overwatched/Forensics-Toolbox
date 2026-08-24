@@ -83,6 +83,15 @@
         },
     ];
 
+    SAMPLES.unshift({
+        id: 'all',
+        label: 'Alla format',
+        input: SAMPLES.filter(function (s) { return s.id !== 'sqlite'; })
+            .map(function (s) { return s.input; })
+            .join('\n\n'),
+        note: 'Ett stycke per format, tom rad emellan',
+    });
+
     function latin1Bytes(text) {
         var out = new Uint8Array(text.length);
         for (var i = 0; i < text.length; i++) out[i] = text.charCodeAt(i) & 0xff;
@@ -382,7 +391,21 @@
         return set;
     }
 
-    function runMagic(text, ids) {
+    function splitChunks(text) {
+        var raw = String(text || '').replace(/^\uFEFF/, '');
+        if (!raw.trim()) return [];
+        var blank = raw.split(/\n[ \t]*\n/).map(function (s) { return s.trim(); }).filter(Boolean);
+        if (blank.length > 1) return blank;
+        var trimmed = raw.trim();
+        var first = trimmed.charAt(0);
+        if (first === '{' || first === '[' || first === '<' || trimmed.slice(0, 6) === 'bplist') {
+            return [trimmed];
+        }
+        var lines = trimmed.split(/\n/).map(function (s) { return s.trim(); }).filter(Boolean);
+        return lines.length > 1 ? lines : [trimmed];
+    }
+
+    function runMagicOne(text, ids) {
         var enabled = enabledSet(ids);
         var forced = ids && ids.length && ids.length < FORMATS.length;
         var tasks = [];
@@ -417,9 +440,30 @@
         });
     }
 
+    function runMagic(text, ids) {
+        var chunks = splitChunks(text);
+        if (!chunks.length) return Promise.resolve([]);
+        if (chunks.length === 1) return runMagicOne(chunks[0], ids);
+
+        var chain = Promise.resolve([]);
+        chunks.forEach(function (chunk, i) {
+            chain = chain.then(function (all) {
+                return runMagicOne(chunk, ids).then(function (hits) {
+                    hits.forEach(function (h) {
+                        h.chunk = i + 1;
+                        h.why = 'Stycke ' + (i + 1) + ': ' + h.why;
+                    });
+                    return all.concat(hits);
+                });
+            });
+        });
+        return chain;
+    }
+
     var api = {
         FORMATS: FORMATS,
         SAMPLES: SAMPLES,
+        splitChunks: splitChunks,
         runMagic: runMagic,
         detectJson: detectJson,
         detectJwt: detectJwt,

@@ -69,3 +69,55 @@ test('XML plist', async (t) => {
     assert.ok(hits.some((h) => h.id === 'plist' && h.text.includes('"Name": "Kim"')));
     assert.ok(!hits.some((h) => h.id === 'xml'));
 });
+
+test('pretty JSON is not split into lines', () => {
+    const pretty = '{\n  "user": "anna"\n}';
+    assert.deepEqual(magic.splitChunks(pretty), [pretty]);
+});
+
+test('blank-line chunks decode separately', async () => {
+    const mixed = '{"user":"anna"}\n\n1714521600';
+    const chunks = magic.splitChunks(mixed);
+    assert.deepEqual(chunks, ['{"user":"anna"}', '1714521600']);
+    const hits = await magic.runMagic(mixed);
+    assert.ok(hits.some((h) => h.id === 'json' && h.chunk === 1));
+    assert.ok(hits.some((h) => h.id === 'time' && h.chunk === 2));
+});
+
+test('one-liner mix jwt and unix time', async () => {
+    const jwt = magic.SAMPLES.find((s) => s.id === 'jwt').input;
+    const mixed = jwt + '\n1714521600';
+    const hits = await magic.runMagic(mixed);
+    assert.ok(hits.some((h) => h.id === 'jwt' && h.text.includes('"name": "Kim"')));
+    assert.ok(hits.some((h) => h.id === 'time'));
+});
+
+test('all testdata sample has several chunks', () => {
+    const all = magic.SAMPLES.find((s) => s.id === 'all');
+    assert.ok(all);
+    assert.ok(magic.splitChunks(all.input).length >= 6);
+});
+
+test('all testdata decodes several formats at once', async () => {
+    const all = magic.SAMPLES.find((s) => s.id === 'all');
+    const hits = await magic.runMagic(all.input);
+    const found = new Set(hits.map((h) => h.id));
+    for (const id of ['json', 'jwt', 'gzip', 'time', 'protobuf', 'url', 'hex']) {
+        assert.ok(found.has(id), 'saknar ' + id + ' i ' + [...found].join(','));
+    }
+    assert.ok(hits.some((h) => h.id === 'jwt' && h.text.includes('"name": "Kim"')));
+    assert.ok(hits.some((h) => h.id === 'gzip' && h.text.includes('"zip": true')));
+    assert.ok(hits.filter((h) => h.chunk).length >= 6);
+});
+
+test('mixed plist gzip jwt with blank lines', async () => {
+    const plist = magic.SAMPLES.find((s) => s.id === 'plist').input;
+    const gzip = magic.SAMPLES.find((s) => s.id === 'gzip').input;
+    const jwt = magic.SAMPLES.find((s) => s.id === 'jwt').input;
+    const mixed = [plist, gzip, jwt].join('\n\n');
+    assert.equal(magic.splitChunks(mixed).length, 3);
+    const hits = await magic.runMagic(mixed);
+    assert.ok(hits.some((h) => h.id === 'gzip' && h.text.includes('"zip": true')));
+    assert.ok(hits.some((h) => h.id === 'jwt' && h.text.includes('"name": "Kim"')));
+});
+
