@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="sv">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Text formatter</title>
+    <script>
+        (function () {
+            try {
+                var params = new URLSearchParams(location.search);
+                var fromParent = params.get('theme');
+                var saved = localStorage.getItem('theme');
+                var theme = (fromParent === 'light' || fromParent === 'dark') ? fromParent
+                    : (saved === 'light' || saved === 'dark') ? saved : 'dark';
+                document.documentElement.setAttribute('data-theme', theme);
+                if (fromParent === 'light' || fromParent === 'dark') {
+                    localStorage.setItem('theme', fromParent);
+                }
+            } catch (e) {
+                document.documentElement.setAttribute('data-theme', 'dark');
+            }
+        })();
+    </script>
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+    <div id="container">
+        <header class="page-header">
+            <h1>Text formatter</h1>
+            <p>JSON och protobuf. Protobuf läser wire-format utan .proto — typiskt SQLite-blobbar.</p>
+        </header>
+
+        <div class="tabs" role="tablist">
+            <button type="button" class="tab active" data-format="json">JSON</button>
+            <button type="button" class="tab" data-format="protobuf">Protobuf</button>
+        </div>
+
+        <section id="panel-json" class="format-panel">
+            <textarea id="json-input" spellcheck="false" placeholder="Klistra in JSON här…"></textarea>
+            <div class="button-row">
+                <button id="format-button" type="button">Formattera</button>
+                <button id="minify-button" type="button">Minifiera</button>
+            </div>
+            <div class="button-row">
+                <button id="validate-button" class="secondary" type="button">Validera</button>
+                <button id="json-clear-button" class="secondary" type="button">Rensa</button>
+            </div>
+            <div id="json-status" class="status">Ingen JSON laddad</div>
+            <pre id="json-output">Resultat visas här</pre>
+            <div class="button-row">
+                <button id="json-copy-button" type="button">Kopiera JSON</button>
+            </div>
+        </section>
+
+        <section id="panel-protobuf" class="format-panel display-none">
+            <p class="hint">Klistra in hex, Base64, SQLite <code>X'…'</code> eller en rå blob. Ingen schemafil behövs — fält visas som nummer.</p>
+            <textarea id="pb-input" spellcheck="false" placeholder="08 96 01   eller   X'089601'   eller Base64"></textarea>
+            <label class="file-drop" for="pb-file">
+                <span id="pb-file-label">Eller välj en blob-fil</span>
+                <input id="pb-file" type="file">
+            </label>
+            <div class="button-row">
+                <button id="pb-decode-button" type="button">Avkoda</button>
+                <button id="pb-clear-button" class="secondary" type="button">Rensa</button>
+            </div>
+            <div id="pb-status" class="status">Ingen protobuf laddad</div>
+            <pre id="pb-output">Resultat visas här</pre>
+            <div class="button-row">
+                <button id="pb-copy-text-button" type="button">Kopiera text</button>
+                <button id="pb-copy-json-button" class="secondary" type="button">Kopiera JSON</button>
+            </div>
+        </section>
+    </div>
+
+    <div id="toast" class="toast"></div>
+    <script src="protobuf.js"></script>
+    <script src="script.js"></script>
+</body>
+
+</html>

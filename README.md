@@ -10,7 +10,7 @@ Forkad och omarbetad från [AdrianNeshad/CryptoToolbox](https://github.com/Adria
 |---------|-------------|
 | Time Converter | Unix, Apple Cocoa/NSDate, WebKit/Chrome, FILETIME, ISO — full matris + tolkningsjämförelse |
 | Hash Calculator | MD5 / SHA-1 / SHA-256 (fler algoritmer valbara) |
-| JSON Formatter | Pretty-print / minify / validera |
+| Text formatter | JSON (pretty-print / minify) och protobuf (schemalös avkodning av SQLite-blobbar) |
 | Plist-visare | XML och binär plist → JSON |
 | QR Code Decoder | Avkoda QR från bild |
 | CyberChef | Offline encoding / decoding / crypto |
