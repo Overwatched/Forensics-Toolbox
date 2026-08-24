@@ -31,7 +31,7 @@
                 <div class="sidebar-header-text">
                     <h1>Forensics Toolbox</h1>
                     <div class="version-row">
-                        <p>Version 0.6</p>
+                        <p>Version 0.7</p>
                         <div id="net-status" class="net-status">
                             <span id="net-status-text"></span>
                         </div>
@@ -69,6 +69,34 @@
                 <div class="nav-group">
                     <div class="nav-group-title">Lokala verktyg</div>
 
+                    <button class="nav-item" data-type="frame" data-src="tools/CyberChef/index.html">
+                        <span class="nav-item-icon nav-item-icon--local">
+                            <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                <path d="M9 8L4 12.5L9 17M15 8L20 12.5L15 17"
+                                    stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
+                            </svg>
+                        </span>
+                        <span class="nav-item-text">
+                            <span class="nav-item-title">CyberChef</span>
+                            <span class="nav-item-desc">v11.3.0 — encoding, decoding, crypto &amp; compression</span>
+                        </span>
+                    </button>
+
+                    <button class="nav-item" data-type="frame" data-src="tools/external-tools/index.html">
+                        <span class="nav-item-icon nav-item-icon--link">
+                            <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                <circle cx="8" cy="8" r="2.4" stroke="currentColor" stroke-width="1.6" />
+                                <circle cx="16" cy="8" r="2.4" stroke="currentColor" stroke-width="1.6" />
+                                <circle cx="8" cy="16" r="2.4" stroke="currentColor" stroke-width="1.6" />
+                                <circle cx="16" cy="16" r="2.4" stroke="currentColor" stroke-width="1.6" />
+                            </svg>
+                        </span>
+                        <span class="nav-item-text">
+                            <span class="nav-item-title">Externa verktyg</span>
+                            <span class="nav-item-desc">iLEAPP, Autopsy, ExifTool, start.me — sökbart</span>
+                        </span>
+                    </button>
+
                     <button class="nav-item" data-type="frame" data-src="tools/hash-calculator/hash.html">
                         <span class="nav-item-icon nav-item-icon--local">
                             <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -84,37 +112,7 @@
                         </span>
                     </button>
 
-                    <button class="nav-item" data-type="frame" data-src="tools/time-converter/time.html">
-                        <span class="nav-item-icon nav-item-icon--local">
-                            <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                                <circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="1.6" />
-                                <path d="M12 7V12L15.5 14.5" stroke="currentColor" stroke-width="1.6"
-                                    stroke-linecap="round" stroke-linejoin="round" />
-                            </svg>
-                        </span>
-                        <span class="nav-item-text">
-                            <span class="nav-item-title">Time Converter</span>
-                            <span class="nav-item-desc">Unix, Apple NSDate, WebKit, FILETIME — alla format</span>
-                        </span>
-                    </button>
-
-                    <button class="nav-item" data-type="frame" data-src="tools/db-queries/queries.html">
-                        <span class="nav-item-icon nav-item-icon--local">
-                            <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                                <ellipse cx="12" cy="6" rx="7" ry="3" stroke="currentColor" stroke-width="1.6" />
-                                <path d="M5 6V12C5 13.66 8.13 15 12 15C15.87 15 19 13.66 19 12V6" stroke="currentColor"
-                                    stroke-width="1.6" />
-                                <path d="M5 12V18C5 19.66 8.13 21 12 21C15.87 21 19 19.66 19 18V12" stroke="currentColor"
-                                    stroke-width="1.6" />
-                            </svg>
-                        </span>
-                        <span class="nav-item-text">
-                            <span class="nav-item-title">Queries</span>
-                            <span class="nav-item-desc">iOS / Android — Photos.sqlite, knowledgeC, MediaStore …</span>
-                        </span>
-                    </button>
-
-                    <button class="nav-item" data-type="frame" data-src="tools/JSON-formatter/JSON.html">
+                    <button class="nav-item" data-type="frame" data-src="tools/text-formatter/formatter.html">
                         <span class="nav-item-icon nav-item-icon--local">
                             <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
                                 <path d="M8 4C6 4 6 6 6 8C6 10 4 10 4 12C4 14 6 14 6 16C6 18 6 20 8 20"
@@ -124,21 +122,8 @@
                             </svg>
                         </span>
                         <span class="nav-item-text">
-                            <span class="nav-item-title">JSON Formatter</span>
-                            <span class="nav-item-desc">Compact JSON till Pretty Print</span>
-                        </span>
-                    </button>
-
-                    <button class="nav-item" data-type="frame" data-src="tools/plist-viewer/plist.html">
-                        <span class="nav-item-icon nav-item-icon--local">
-                            <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                                <path d="M7 3H14L19 8V21H7V3Z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" />
-                                <path d="M14 3V8H19M9 13H15M9 17H13" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" />
-                            </svg>
-                        </span>
-                        <span class="nav-item-text">
-                            <span class="nav-item-title">Plist-visare</span>
-                            <span class="nav-item-desc">XML och binär plist → JSON</span>
+                            <span class="nav-item-title">Magic Text</span>
+                            <span class="nav-item-desc">Gissar format — JSON, protobuf, plist, JWT</span>
                         </span>
                     </button>
 
@@ -158,16 +143,33 @@
                         </span>
                     </button>
 
-                    <button class="nav-item" data-type="frame" data-src="tools/CyberChef/index.html">
+                    <button class="nav-item" data-type="frame" data-src="tools/db-queries/queries.html">
                         <span class="nav-item-icon nav-item-icon--local">
                             <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                                <path d="M9 8L4 12.5L9 17M15 8L20 12.5L15 17"
-                                    stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
+                                <ellipse cx="12" cy="6" rx="7" ry="3" stroke="currentColor" stroke-width="1.6" />
+                                <path d="M5 6V12C5 13.66 8.13 15 12 15C15.87 15 19 13.66 19 12V6" stroke="currentColor"
+                                    stroke-width="1.6" />
+                                <path d="M5 12V18C5 19.66 8.13 21 12 21C15.87 21 19 19.66 19 18V12" stroke="currentColor"
+                                    stroke-width="1.6" />
                             </svg>
                         </span>
                         <span class="nav-item-text">
-                            <span class="nav-item-title">CyberChef</span>
-                            <span class="nav-item-desc">v11.3.0 — encoding, decoding, crypto &amp; compression</span>
+                            <span class="nav-item-title">Queries</span>
+                            <span class="nav-item-desc">iOS / Android — Photos.sqlite, knowledgeC, MediaStore …</span>
+                        </span>
+                    </button>
+
+                    <button class="nav-item" data-type="frame" data-src="tools/time-converter/time.html">
+                        <span class="nav-item-icon nav-item-icon--local">
+                            <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                <circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="1.6" />
+                                <path d="M12 7V12L15.5 14.5" stroke="currentColor" stroke-width="1.6"
+                                    stroke-linecap="round" stroke-linejoin="round" />
+                            </svg>
+                        </span>
+                        <span class="nav-item-text">
+                            <span class="nav-item-title">Time Converter</span>
+                            <span class="nav-item-desc">Unix, Apple NSDate, WebKit, FILETIME — alla format</span>
                         </span>
                     </button>
 
@@ -223,177 +225,6 @@
                             <span class="nav-item-desc">iLEAPP, ALEAPP, Passware 2026 v3, m.fl.</span>
                         </span>
                     </button>
-
-                </div>
-
-                <div class="nav-group">
-                    <div class="nav-group-title">Externa forensikverktyg</div>
-
-                    <a class="nav-item nav-item--link" href="https://github.com/abrignoni/iLEAPP" target="_blank"
-                        rel="noopener noreferrer">
-                        <span class="nav-item-icon nav-item-icon--link">
-                            <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                                <path d="M14 5H19V10" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"
-                                    stroke-linejoin="round" />
-                                <path d="M10 14L19 5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"
-                                    stroke-linejoin="round" />
-                                <path d="M19 14V18C19 19.1046 18.1046 20 17 20H6C4.89543 20 4 19.1046 4 18V7C4 5.89543 4.89543 5 6 5H10"
-                                    stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
-                            </svg>
-                        </span>
-                        <span class="nav-item-text">
-                            <span class="nav-item-title">iLEAPP</span>
-                            <span class="nav-item-desc">iOS artifact parsing (Abrignoni)</span>
-                        </span>
-                    </a>
-
-                    <a class="nav-item nav-item--link" href="https://github.com/abrignoni/ALEAPP" target="_blank"
-                        rel="noopener noreferrer">
-                        <span class="nav-item-icon nav-item-icon--link">
-                            <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                                <path d="M14 5H19V10" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"
-                                    stroke-linejoin="round" />
-                                <path d="M10 14L19 5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"
-                                    stroke-linejoin="round" />
-                                <path d="M19 14V18C19 19.1046 18.1046 20 17 20H6C4.89543 20 4 19.1046 4 18V7C4 5.89543 4.89543 5 6 5H10"
-                                    stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
-                            </svg>
-                        </span>
-                        <span class="nav-item-text">
-                            <span class="nav-item-title">ALEAPP</span>
-                            <span class="nav-item-desc">Android artifact parsing (Abrignoni)</span>
-                        </span>
-                    </a>
-
-                    <a class="nav-item nav-item--link" href="https://exiftool.org/" target="_blank"
-                        rel="noopener noreferrer">
-                        <span class="nav-item-icon nav-item-icon--link">
-                            <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                                <path d="M14 5H19V10" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"
-                                    stroke-linejoin="round" />
-                                <path d="M10 14L19 5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"
-                                    stroke-linejoin="round" />
-                                <path d="M19 14V18C19 19.1046 18.1046 20 17 20H6C4.89543 20 4 19.1046 4 18V7C4 5.89543 4.89543 5 6 5H10"
-                                    stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
-                            </svg>
-                        </span>
-                        <span class="nav-item-text">
-                            <span class="nav-item-title">ExifTool</span>
-                            <span class="nav-item-desc">Metadata i bilder och andra filer</span>
-                        </span>
-                    </a>
-
-                    <a class="nav-item nav-item--link" href="https://sqlitebrowser.org/" target="_blank"
-                        rel="noopener noreferrer">
-                        <span class="nav-item-icon nav-item-icon--link">
-                            <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                                <path d="M14 5H19V10" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"
-                                    stroke-linejoin="round" />
-                                <path d="M10 14L19 5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"
-                                    stroke-linejoin="round" />
-                                <path d="M19 14V18C19 19.1046 18.1046 20 17 20H6C4.89543 20 4 19.1046 4 18V7C4 5.89543 4.89543 5 6 5H10"
-                                    stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
-                            </svg>
-                        </span>
-                        <span class="nav-item-text">
-                            <span class="nav-item-title">DB Browser for SQLite</span>
-                            <span class="nav-item-desc">Öppna och query:a SQLite-databaser</span>
-                        </span>
-                    </a>
-
-                    <a class="nav-item nav-item--link" href="https://www.autopsy.com/" target="_blank"
-                        rel="noopener noreferrer">
-                        <span class="nav-item-icon nav-item-icon--link">
-                            <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                                <path d="M14 5H19V10" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"
-                                    stroke-linejoin="round" />
-                                <path d="M10 14L19 5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"
-                                    stroke-linejoin="round" />
-                                <path d="M19 14V18C19 19.1046 18.1046 20 17 20H6C4.89543 20 4 19.1046 4 18V7C4 5.89543 4.89543 5 6 5H10"
-                                    stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
-                            </svg>
-                        </span>
-                        <span class="nav-item-text">
-                            <span class="nav-item-title">Autopsy</span>
-                            <span class="nav-item-desc">Disk-/image-forensik</span>
-                        </span>
-                    </a>
-
-                    <a class="nav-item nav-item--link" href="https://www.passware.com/kit-forensic/" target="_blank"
-                        rel="noopener noreferrer">
-                        <span class="nav-item-icon nav-item-icon--link">
-                            <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                                <path d="M14 5H19V10" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"
-                                    stroke-linejoin="round" />
-                                <path d="M10 14L19 5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"
-                                    stroke-linejoin="round" />
-                                <path d="M19 14V18C19 19.1046 18.1046 20 17 20H6C4.89543 20 4 19.1046 4 18V7C4 5.89543 4.89543 5 6 5H10"
-                                    stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
-                            </svg>
-                        </span>
-                        <span class="nav-item-text">
-                            <span class="nav-item-title">Passware Kit Forensic</span>
-                            <span class="nav-item-desc">Senaste noterade: 2026 v3</span>
-                        </span>
-                    </a>
-
-                </div>
-
-                <div class="nav-group">
-                    <div class="nav-group-title">Samlingslänkar</div>
-
-                    <a class="nav-item nav-item--link" href="https://start.me/p/q6mw4Q/forensics" target="_blank"
-                        rel="noopener noreferrer">
-                        <span class="nav-item-icon nav-item-icon--link">
-                            <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                                <path d="M14 5H19V10" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"
-                                    stroke-linejoin="round" />
-                                <path d="M10 14L19 5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"
-                                    stroke-linejoin="round" />
-                                <path d="M19 14V18C19 19.1046 18.1046 20 17 20H6C4.89543 20 4 19.1046 4 18V7C4 5.89543 4.89543 5 6 5H10"
-                                    stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
-                            </svg>
-                        </span>
-                        <span class="nav-item-text">
-                            <span class="nav-item-title">Forensics start.me</span>
-                            <span class="nav-item-desc">Samlingsida med forensikresurser</span>
-                        </span>
-                    </a>
-
-                    <a class="nav-item nav-item--link" href="https://www.sans.org/tools/" target="_blank"
-                        rel="noopener noreferrer">
-                        <span class="nav-item-icon nav-item-icon--link">
-                            <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                                <path d="M14 5H19V10" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"
-                                    stroke-linejoin="round" />
-                                <path d="M10 14L19 5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"
-                                    stroke-linejoin="round" />
-                                <path d="M19 14V18C19 19.1046 18.1046 20 17 20H6C4.89543 20 4 19.1046 4 18V7C4 5.89543 4.89543 5 6 5H10"
-                                    stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
-                            </svg>
-                        </span>
-                        <span class="nav-item-text">
-                            <span class="nav-item-title">SANS Tools</span>
-                            <span class="nav-item-desc">Forensik- och DFIR-resurser</span>
-                        </span>
-                    </a>
-
-                    <a class="nav-item nav-item--link" href="https://start.me/p/L1rEYQ/osint4all" target="_blank" rel="noopener noreferrer">
-                        <span class="nav-item-icon nav-item-icon--link">
-                            <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                                <path d="M14 5H19V10" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"
-                                    stroke-linejoin="round" />
-                                <path d="M10 14L19 5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"
-                                    stroke-linejoin="round" />
-                                <path d="M19 14V18C19 19.1046 18.1046 20 17 20H6C4.89543 20 4 19.1046 4 18V7C4 5.89543 4.89543 5 6 5H10"
-                                    stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
-                            </svg>
-                        </span>
-                        <span class="nav-item-text">
-                            <span class="nav-item-title">OSINT4ALL</span>
-                            <span class="nav-item-desc">Kollektion av OSINT-verktyg</span>
-                        </span>
-                    </a>
 
                 </div>
 

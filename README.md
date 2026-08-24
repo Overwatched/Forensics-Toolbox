@@ -4,17 +4,17 @@ Lokal verktygslåda för **IT-forensik**. Körs helt offline som Electron-app (l
 
 Forkad och omarbetad från [AdrianNeshad/CryptoToolbox](https://github.com/AdrianNeshad/CryptoToolbox) (Verktygslådan).
 
-## Verktyg (v0.6)
+## Verktyg (v0.7)
 
 | Verktyg | Beskrivning |
 |---------|-------------|
 | Time Converter | Unix, Apple Cocoa/NSDate, WebKit/Chrome, FILETIME, ISO — full matris + tolkningsjämförelse |
 | Hash Calculator | MD5 / SHA-1 / SHA-256 (fler algoritmer valbara) |
-| JSON Formatter | Pretty-print / minify / validera |
-| Plist-visare | XML och binär plist → JSON |
+| Magic Text | Gissar format (JSON, protobuf, plist, JWT, …) + egna flikar när du redan vet |
 | QR Code Decoder | Avkoda QR från bild |
 | CyberChef | Offline encoding / decoding / crypto |
 | Queries | iOS/Android — Photos.sqlite, knowledgeC, MediaStore, tidsspann |
+| Externa verktyg | Sökbar katalog med runda länkar (iLEAPP, Autopsy, start.me, …) |
 | Playbook: Bildfil härkomst | Kort checklista: EXIF, kamera, app, position |
 | Vanliga artifacts | Referens för Windows / browser / Linux |
 | Verktyg & releaser | Kuraterad lista (iLEAPP, ALEAPP, Passware 2026 v3, …) |
@@ -47,7 +47,7 @@ Paketerad Linux-build (AppImage + uppackad mapp):
 
 ```bash
 npm run dist:linux
-# AppImage: release/ForensicsToolbox-0.6.AppImage
+# AppImage: release/ForensicsToolbox-0.7.AppImage
 # Uppackad:  release/linux-unpacked/  → kör ./forensics-toolbox
 ```
 
@@ -80,8 +80,8 @@ npm run dist:mac      # osignerat DMG + ZIP
 
 Release-filer (GitHub Releases):
 
-- `ForensicsToolbox-0.6.exe` — portabel Windows
-- `ForensicsToolbox-0.6-html.zip` — packa upp och öppna `Toolbox.html` (ingen .exe)
+- `ForensicsToolbox-0.7.exe` — portabel Windows
+- `ForensicsToolbox-0.7-html.zip` — packa upp och öppna `Toolbox.html` (ingen .exe)
 
 | Mål | Kommando | Output |
 |-----|----------|--------|
