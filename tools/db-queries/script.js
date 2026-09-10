@@ -12,6 +12,7 @@ const showQueriesBtn = document.getElementById('show-queries-btn');
 const queryPanel = document.getElementById('query-panel');
 const recommendedBox = document.getElementById('recommended-box');
 const dbOverview = document.getElementById('db-overview');
+const workspace = document.getElementById('workspace');
 const toast = document.getElementById('toast');
 
 const COCOA_EPOCH = 978307200;
@@ -80,6 +81,28 @@ function unixFromUserTime(value) {
     const ms = new Date(s).getTime();
     if (Number.isNaN(ms)) return null;
     return Math.floor(ms / 1000);
+}
+
+function looksLikeEpoch(raw) {
+    const t = String(raw || '').trim();
+    return /^\d{10}$/.test(t) || /^\d{13}$/.test(t);
+}
+
+// Inmatade datum tolkas av `new Date()` i maskinens lokala tidszon. Det måste framgå,
+// annars blir tidsspannet fel mot en databas som lagrar UTC.
+function zoneNote(unixSeconds) {
+    let zone = '';
+    try {
+        zone = Intl.DateTimeFormat().resolvedOptions().timeZone || '';
+    } catch (e) {
+        zone = '';
+    }
+    const pad2 = (n) => String(n).padStart(2, '0');
+    const offsetMin = -new Date((unixSeconds || 0) * 1000).getTimezoneOffset();
+    const sign = offsetMin < 0 ? '-' : '+';
+    const abs = Math.abs(offsetMin);
+    const offset = `UTC${sign}${pad2(Math.floor(abs / 60))}:${pad2(abs % 60)}`;
+    return zone ? `${zone}, ${offset}` : offset;
 }
 
 function splitTerms(raw) {
@@ -359,12 +382,22 @@ function updateTimePreview() {
     if (startRaw && startUnix == null) bad.push('Från');
     if (endRaw && endUnix == null) bad.push('Till');
     if (bad.length) {
-        el.textContent = 'Ogiltigt datum i ' + bad.join(' och ') + '. Använd ÅÅÅÅ-MM-DD TT:MM.';
+        el.textContent = 'Ogiltigt datum i ' + bad.join(' och ')
+            + '. Använd ÅÅÅÅ-MM-DD TT:MM, eller klistra in unixtid (10 eller 13 siffror).';
         return;
     }
-    el.textContent = 'Unix ' + (startUnix == null ? 0 : startUnix) + '–' + (endUnix == null ? MAX_UNIX : endUnix) +
-        ' · Cocoa ' + ((startUnix == null ? 0 : startUnix) - COCOA_EPOCH) + '–' +
-        ((endUnix == null ? MAX_UNIX : endUnix) - COCOA_EPOCH) + '.';
+
+    const from = startUnix == null ? 0 : startUnix;
+    const to = endUnix == null ? MAX_UNIX : endUnix;
+    let text = 'Unix ' + from + '–' + to
+        + ' · Cocoa ' + (from - COCOA_EPOCH) + '–' + (to - COCOA_EPOCH) + '.';
+
+    const typedDate = (startRaw && !looksLikeEpoch(startRaw)) || (endRaw && !looksLikeEpoch(endRaw));
+    if (typedDate) {
+        text += ' Datum tolkas i din lokala tidszon (' + zoneNote(startUnix == null ? endUnix : startUnix)
+            + ') — klistra in unixtid direkt om databasen lagrar UTC.';
+    }
+    el.textContent = text;
 }
 
 function setEditMode(on) {

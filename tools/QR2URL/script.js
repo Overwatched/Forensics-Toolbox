@@ -4,6 +4,8 @@ document.addEventListener("DOMContentLoaded", () => {
     const fileInput = document.getElementById("file-input");
     const qrcodeResultDiv = document.getElementById("qrcode-result");
     const previewImage = document.getElementById("preview-image");
+    const copyButton = document.getElementById("copy-button");
+    const toast = document.getElementById("toast");
 
     ["dragenter", "dragover", "dragleave", "drop"].forEach((eventName) => {
         document.body.addEventListener(eventName, preventDefaults, false);
@@ -69,20 +71,18 @@ document.addEventListener("DOMContentLoaded", () => {
     function handleFiles(files) {
         if (files.length > 0) {
             const file = files[0];
-            if (
-                file.type.startsWith("image/png") ||
-                file.type.startsWith("image/jpeg") ||
-                file.type.startsWith("image/webp")
-            ) {
+            // Alla bildtyper släpps igenom; klarar inte webbläsaren formatet fångas det
+            // av img.onerror nedan. Tidigare avvisades BMP och GIF i onödan.
+            if (file.type.startsWith("image/")) {
                 decodeImage(file);
             } else {
-                displayResult("Please upload or paste a PNG, JPG or WEBP image.", true);
+                displayResult("Ladda upp eller klistra in en bildfil.", true);
             }
         }
     }
 
     function decodeImage(imageFile) {
-        displayResult("Decoding QR Code...", false);
+        displayResult("Avkodar QR-kod…", false, true);
 
         const reader = new FileReader();
 
@@ -108,21 +108,21 @@ document.addEventListener("DOMContentLoaded", () => {
 
                 decodeQrCodeFromImageData(imageData, canvas.width, canvas.height)
                     .then((decodedText) => {
-                        displayResult(decodedText || "No QR code found.", !decodedText);
+                        displayResult(decodedText || "Ingen QR-kod hittades.", !decodedText);
                     })
                     .catch((error) => {
-                        displayResult("Error decoding QR code.", true);
+                        displayResult("Kunde inte avkoda QR-koden.", true);
                         console.error("QR Code decoding error:", error);
                     });
             };
             img.onerror = function () {
-                displayResult("Error loading image.", true);
+                displayResult("Kunde inte läsa in bilden — formatet stöds kanske inte.", true);
             };
             img.src = event.target.result;
         };
 
         reader.onerror = function () {
-            displayResult("Error reading file.", true);
+            displayResult("Kunde inte läsa filen.", true);
         };
 
         reader.readAsDataURL(imageFile);
@@ -143,7 +143,11 @@ document.addEventListener("DOMContentLoaded", () => {
         });
     }
 
-    function displayResult(text, isError) {
+    // Den avkodade nyttolasten hålls separat. Kopiering läste tidigare hela rutans
+    // innerText, vilket innebar att status- och felmeddelanden kunde kopieras i stället.
+    let decodedPayload = null;
+
+    function displayResult(text, isError, isPending) {
         qrcodeResultDiv.innerHTML = ""; // Clear previous result
         const p = document.createElement("p");
         p.textContent = text;
@@ -151,24 +155,30 @@ document.addEventListener("DOMContentLoaded", () => {
             p.classList.add("error");
         }
         qrcodeResultDiv.appendChild(p);
+        decodedPayload = (isError || isPending) ? null : text;
+        copyButton.disabled = !decodedPayload;
     }
 
-    const copyButton = document.getElementById("copy-button");
-    const toast = document.getElementById("toast");
+    copyButton.disabled = true;
 
-    copyButton.addEventListener("click", () => {
-        const qrCodeText = qrcodeResultDiv.innerText;
-        if (qrCodeText) {
-            navigator.clipboard
-                .writeText(qrCodeText)
-                .then(() => {
-                    showToast("Copied to clipboard!");
-                })
-                .catch((err) => {
-                    console.error("Failed to copy text: ", err);
-                });
+    function copyPayload(onSuccess) {
+        if (!decodedPayload) {
+            showToast("Inget avkodat att kopiera");
+            return;
         }
-    });
+        navigator.clipboard
+            .writeText(decodedPayload)
+            .then(() => {
+                if (onSuccess) onSuccess();
+                showToast("Kopierat till urklipp");
+            })
+            .catch((err) => {
+                console.error("Failed to copy text: ", err);
+                showToast("Kunde inte kopiera");
+            });
+    }
+
+    copyButton.addEventListener("click", () => copyPayload());
 
     function showToast(message) {
         toast.textContent = message;
@@ -179,18 +189,8 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     qrcodeResultDiv.addEventListener("dblclick", () => {
-        const qrCodeText = qrcodeResultDiv.innerText.trim();
-        if (!qrCodeText) return;
-
-        navigator.clipboard
-            .writeText(qrCodeText)
-            .then(() => {
-                flashGreen();
-                showToast("Copied to clipboard!");
-            })
-            .catch((err) => {
-                console.error("Failed to copy text: ", err);
-            });
+        if (!decodedPayload) return;
+        copyPayload(flashGreen);
     });
 
     function flashGreen() {

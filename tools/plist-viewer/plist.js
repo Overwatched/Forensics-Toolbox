@@ -13,6 +13,14 @@
         return String.fromCharCode.apply(null, units);
     }
 
+    // Heltal utanför Numbers säkra intervall behålls som exakt decimalsträng i stället
+    // för att avrundas. ID:n och tidsstämplar i nanosekunder hamnar ofta där.
+    function exactInt(big) {
+        return (big >= -9007199254740991n && big <= 9007199254740991n)
+            ? Number(big)
+            : big.toString();
+    }
+
     function readUInt(view, offset, size) {
         if (size === 1) return view.getUint8(offset);
         if (size === 2) return view.getUint16(offset);
@@ -74,10 +82,15 @@
                 const size = 1 << extra;
                 if (size <= 4) {
                     value = readUInt(view, pos, size);
+                } else if (size === 8) {
+                    // Åttabytes-heltal i bplist är signerade, till skillnad från de mindre.
+                    value = exactInt(view.getBigInt64(pos));
+                } else if (size === 16) {
+                    const hi = view.getBigUint64(pos);
+                    const lo = view.getBigUint64(pos + 8);
+                    value = exactInt(BigInt.asIntN(128, (hi << 64n) | lo));
                 } else {
-                    const hi = view.getUint32(pos);
-                    const lo = view.getUint32(pos + 4);
-                    value = hi * 0x100000000 + lo;
+                    throw new Error('Okänd heltalsstorlek i bplist: ' + size);
                 }
             } else if (type === 0x2) {
                 const size = 1 << extra;
@@ -146,7 +159,10 @@
         const tag = node.tagName;
         if (tag === 'true') return true;
         if (tag === 'false') return false;
-        if (tag === 'integer') return parseInt(xmlText(node), 10);
+        if (tag === 'integer') {
+            const text = xmlText(node).trim();
+            return /^[+-]?\d+$/.test(text) ? exactInt(BigInt(text)) : parseInt(text, 10);
+        }
         if (tag === 'real') return parseFloat(xmlText(node));
         if (tag === 'string') return xmlText(node);
         if (tag === 'date') return xmlText(node);

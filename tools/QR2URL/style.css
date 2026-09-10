@@ -217,12 +217,17 @@ body {
     transition: background 0.18s ease, transform 0.18s ease;
 }
 
+#copy-button:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+}
+
 #copy-button svg {
     width: 16px;
     height: 16px;
 }
 
-#copy-button:hover {
+#copy-button:hover:not(:disabled) {
     background: var(--accent-hover);
 }
 

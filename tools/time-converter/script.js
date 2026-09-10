@@ -8,6 +8,7 @@ const guessEl = document.getElementById('guess');
 const matrixEl = document.getElementById('matrix');
 const matrixRows = document.getElementById('matrix-rows');
 const interpretationsEl = document.getElementById('interpretations');
+const interpretationsHint = document.getElementById('interpretations-hint');
 const interpretationRows = document.getElementById('interpretation-rows');
 const toast = document.getElementById('toast');
 
@@ -34,6 +35,23 @@ function showToast() {
 
 function pad(n) {
     return String(n).padStart(2, '0');
+}
+
+// Vilken zon "Lokal" faktiskt betyder. Utan den här uppgiften går två utredare på
+// olika maskiner inte att jämföra, och offseten skiljer sig dessutom med sommartid,
+// så den räknas per tidpunkt och inte en gång för alla.
+function localZoneMeta(date) {
+    let zone = '';
+    try {
+        zone = Intl.DateTimeFormat().resolvedOptions().timeZone || '';
+    } catch (e) {
+        zone = '';
+    }
+    const offsetMin = -date.getTimezoneOffset();
+    const sign = offsetMin < 0 ? '-' : '+';
+    const abs = Math.abs(offsetMin);
+    const offset = `UTC${sign}${pad(Math.floor(abs / 60))}:${pad(abs % 60)}`;
+    return zone ? `${zone} · ${offset}` : offset;
 }
 
 function formatLocal(date) {
@@ -163,10 +181,22 @@ function dateFromFormat(format, raw) {
     }
 }
 
+// Nedre gränsen är FAT-epoken, som är så tidigt en filtid rimligen kan ligga; tidigare
+// låg gränsen på 1990 och uteslöt äldre media. Övre gränsen följer med klockan så att
+// den inte fryser vid 2038, men aldrig lägre än 2038 — annars skulle intervallet
+// krympa jämfört med tidigare.
+const PLAUSIBLE_MIN_YEAR = 1980;
+const PLAUSIBLE_MAX_FLOOR_YEAR = 2038;
+const PLAUSIBLE_MAX_SLACK_YEARS = 5;
+
+function plausibleMaxYear() {
+    return Math.max(PLAUSIBLE_MAX_FLOOR_YEAR, new Date().getUTCFullYear() + PLAUSIBLE_MAX_SLACK_YEARS);
+}
+
 function isPlausibleDate(date) {
     if (!date || Number.isNaN(date.getTime())) return false;
     const y = date.getUTCFullYear();
-    return y >= 1990 && y <= 2038;
+    return y >= PLAUSIBLE_MIN_YEAR && y <= plausibleMaxYear();
 }
 
 function rowHtml(label, value, meta, plausible) {
@@ -194,7 +224,7 @@ function renderMatrix(date) {
     const f = toFormats(date);
     matrixRows.innerHTML = [
         rowHtml('UTC', f.utc),
-        rowHtml('Lokal', f.local),
+        rowHtml('Lokal', f.local, localZoneMeta(date)),
         rowHtml('ISO 8601', f.iso),
         rowHtml('Unix (s)', f['unix-s']),
         rowHtml('Unix (ms)', f['unix-ms']),
@@ -232,6 +262,12 @@ function renderInterpretations(raw) {
         const tag = plausible ? ' — rimligt intervall' : '';
         return rowHtml(FORMAT_LABELS[fmt] + tag, value, meta, plausible);
     }).join('');
+
+    if (interpretationsHint) {
+        interpretationsHint.textContent = 'När du inte vet formatet: se vilket som ger en rimlig tid och '
+            + `matchar övriga artefakter. "Rimligt intervall" betyder ${PLAUSIBLE_MIN_YEAR}–`
+            + `${plausibleMaxYear()}.`;
+    }
 
     interpretationsEl.classList.remove('display-none');
 }
