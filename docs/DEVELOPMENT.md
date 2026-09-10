@@ -81,10 +81,19 @@ scripts/              # sync-version, ensure-electron, finalize-artifacts
 2. Lägg till knapp i `Toolbox.html`: `data-type="frame"` och `data-src="tools/<namn>/..."`
 3. Lyssna på tema via `postMessage` med `source: 'forensics-toolbox'`
 
+## Tester
+
+- `npm test` kör alla `tools/**/*.test.js` med Nodes inbyggda testkörare (inga beroenden)
+- CI kör samma kommando i ett eget jobb **innan** bygget, så en trasig avkodning
+  eller hashimplementation aldrig når en release
+- `tools/hash-calculator/hashing.test.js` jämför de rena JS-implementationerna mot
+  Nodes `crypto` för längder runt varje blockgräns, och verifierar att resultatet
+  är oberoende av hur indata delas upp i bitar
+
 ## Versionering
 
-- Visa version i hubben: `Version 0.9` i `Toolbox.html`
-- `sync-version` sätter `package.json` till `0.9.0` (semver för electron-builder)
+- Visa version i hubben: `Version 1.0` i `Toolbox.html`
+- `sync-version` sätter `package.json` till `1.0.0` (semver för electron-builder)
 - Höj versionen i `Toolbox.html` innan release/push om du vill ha ny GitHub Release-tagg
 - `npm run pack-html` skapar `release/ForensicsToolbox-X.Y-html.zip` (Toolbox.html utan exe)
 

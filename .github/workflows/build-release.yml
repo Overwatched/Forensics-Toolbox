@@ -26,8 +26,24 @@ jobs:
         id: version
         run: node scripts/sync-version.js
 
+  # Kör före bygget så att en trasig hash- eller avkodningslogik aldrig når en release.
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      # --ignore-scripts hoppar över postinstall, som annars laddar ner Electron
+      # i onödan; testerna använder bara Nodes inbyggda moduler.
+      - name: Installera beroenden
+        run: npm ci --ignore-scripts
+      - name: Kör enhetstester
+        run: npm test
+
   build:
-    needs: version
+    needs: [version, test]
     strategy:
       fail-fast: false
       matrix:

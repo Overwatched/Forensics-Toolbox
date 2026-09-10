@@ -5,7 +5,7 @@
 // underhållas på två ställen.
 //
 // Körs automatiskt som en del av `npm run dist` / `npm run dist:portable` /
-// `npm run dist:installer`, och av CI-workflowen (.github/workflows/build-windows-app.yml).
+// `npm run dist:installer`, och av CI-workflowen (.github/workflows/build-release.yml).
 // Kan även köras manuellt: `node scripts/sync-version.js`
 
 const fs = require('node:fs');

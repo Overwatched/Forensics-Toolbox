@@ -29,7 +29,8 @@
     <div id="container">
         <header class="page-header">
             <h1>Hash Calculator</h1>
-            <p>Beräkna hash lokalt — MD5, SHA-1 och SHA-256 är förvalda</p>
+            <p>Beräkna hash lokalt — MD5, SHA-1 och SHA-256 är förvalda.
+                Stora filer läses i bitar och kan jämföras mot en känd hash.</p>
         </header>
 
         <fieldset class="algo-picker">
@@ -52,23 +53,37 @@
         </div>
 
         <div id="file-panel" class="panel display-none">
-            <label class="file-drop" for="file-input">
+            <label class="file-drop" for="file-input" id="file-drop">
                 <span id="file-label">Välj en fil eller dra hit</span>
                 <input id="file-input" type="file">
             </label>
         </div>
 
+        <label class="verify-row">
+            <span>Jämför med känd hash (valfritt)</span>
+            <input id="expected-input" type="text" autocomplete="off" spellcheck="false"
+                placeholder="Klistra in förväntad hash — algoritmen känns igen på längden">
+        </label>
+
         <div class="button-row">
             <button id="hash-button" type="button">Beräkna</button>
+            <button id="cancel-button" class="secondary display-none" type="button">Avbryt</button>
             <button id="clear-button" class="secondary" type="button">Rensa</button>
         </div>
 
+        <div id="progress" class="progress display-none">
+            <div id="progress-bar" class="progress-bar"></div>
+        </div>
+
         <div id="status">Ingen data laddad</div>
+
+        <div id="verdict" class="verdict display-none"></div>
 
         <div id="results" class="results display-none"></div>
     </div>
 
     <div id="toast" class="toast">Kopierat</div>
+    <script src="hashing.js"></script>
     <script src="script.js"></script>
 </body>
 

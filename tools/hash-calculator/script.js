@@ -1,8 +1,17 @@
+const hashing = window.ToolboxHashing;
+
 const textInput = document.getElementById('text-input');
 const fileInput = document.getElementById('file-input');
+const fileDrop = document.getElementById('file-drop');
 const fileLabel = document.getElementById('file-label');
+const expectedInput = document.getElementById('expected-input');
 const statusEl = document.getElementById('status');
 const results = document.getElementById('results');
+const verdict = document.getElementById('verdict');
+const progress = document.getElementById('progress');
+const progressBar = document.getElementById('progress-bar');
+const hashButton = document.getElementById('hash-button');
+const cancelButton = document.getElementById('cancel-button');
 const toast = document.getElementById('toast');
 
 const ALGO_STORAGE_KEY = 'hash-calculator-algos';
@@ -17,9 +26,17 @@ const ALGORITHMS = [
     { id: 'crc32', label: 'CRC-32' },
 ];
 
+const FILE_PLACEHOLDER = 'Välj en fil eller dra hit';
+
 let mode = 'text';
 let selectedFile = null;
-let lastBuffer = null;
+// Källan sparas som Blob så att omräkning vid algoritmbyte inte kräver att hela
+// filen ligger kvar i minnet — en File är bara en referens till disken.
+let lastSource = null;
+let lastLabel = '';
+let lastHashes = null;
+let running = false;
+let cancelRequested = false;
 
 function setStatus(msg, isError) {
     statusEl.textContent = msg;
@@ -29,6 +46,18 @@ function setStatus(msg, isError) {
 function showToast() {
     toast.classList.add('show');
     setTimeout(() => toast.classList.remove('show'), 1400);
+}
+
+function formatBytes(n) {
+    if (n < 1024) return `${n} byte`;
+    const units = ['kB', 'MB', 'GB', 'TB'];
+    let value = n / 1024;
+    let i = 0;
+    while (value >= 1024 && i < units.length - 1) {
+        value /= 1024;
+        i++;
+    }
+    return `${value.toFixed(value < 10 ? 1 : 0)} ${units[i]}`;
 }
 
 function selectedAlgos() {
@@ -61,241 +90,243 @@ function restoreAlgos() {
     });
 }
 
-async function digest(algo, buffer) {
-    const hash = await crypto.subtle.digest(algo, buffer);
-    return [...new Uint8Array(hash)].map((b) => b.toString(16).padStart(2, '0')).join('');
-}
-
-function md5(buffer) {
-    function cmn(q, a, b, x, s, t) {
-        a = (a + q + x + t) | 0;
-        return (((a << s) | (a >>> (32 - s))) + b) | 0;
-    }
-    function ff(a, b, c, d, x, s, t) { return cmn((b & c) | (~b & d), a, b, x, s, t); }
-    function gg(a, b, c, d, x, s, t) { return cmn((b & d) | (c & ~d), a, b, x, s, t); }
-    function hh(a, b, c, d, x, s, t) { return cmn(b ^ c ^ d, a, b, x, s, t); }
-    function ii(a, b, c, d, x, s, t) { return cmn(c ^ (b | ~d), a, b, x, s, t); }
-
-    const bytes = new Uint8Array(buffer);
-    const len = bytes.length;
-    const nBlocks = (((len + 8) >>> 6) + 1) * 16;
-    const words = new Array(nBlocks).fill(0);
-    for (let i = 0; i < len; i++) words[i >> 2] |= bytes[i] << ((i % 4) * 8);
-    words[len >> 2] |= 0x80 << ((len % 4) * 8);
-    words[nBlocks - 2] = len * 8;
-
-    let a = 1732584193, b = -271733879, c = -1732584194, d = 271733878;
-    for (let i = 0; i < nBlocks; i += 16) {
-        const oa = a, ob = b, oc = c, od = d;
-        a = ff(a, b, c, d, words[i], 7, -680876936);
-        d = ff(d, a, b, c, words[i + 1], 12, -389564586);
-        c = ff(c, d, a, b, words[i + 2], 17, 606105819);
-        b = ff(b, c, d, a, words[i + 3], 22, -1044525330);
-        a = ff(a, b, c, d, words[i + 4], 7, -176418897);
-        d = ff(d, a, b, c, words[i + 5], 12, 1200080426);
-        c = ff(c, d, a, b, words[i + 6], 17, -1473231341);
-        b = ff(b, c, d, a, words[i + 7], 22, -45705983);
-        a = ff(a, b, c, d, words[i + 8], 7, 1770035416);
-        d = ff(d, a, b, c, words[i + 9], 12, -1958414417);
-        c = ff(c, d, a, b, words[i + 10], 17, -42063);
-        b = ff(b, c, d, a, words[i + 11], 22, -1990404162);
-        a = ff(a, b, c, d, words[i + 12], 7, 1804603682);
-        d = ff(d, a, b, c, words[i + 13], 12, -40341101);
-        c = ff(c, d, a, b, words[i + 14], 17, -1502002290);
-        b = ff(b, c, d, a, words[i + 15], 22, 1236535329);
-        a = gg(a, b, c, d, words[i + 1], 5, -165796510);
-        d = gg(d, a, b, c, words[i + 6], 9, -1069501632);
-        c = gg(c, d, a, b, words[i + 11], 14, 643717713);
-        b = gg(b, c, d, a, words[i], 20, -373897302);
-        a = gg(a, b, c, d, words[i + 5], 5, -701558691);
-        d = gg(d, a, b, c, words[i + 10], 9, 38016083);
-        c = gg(c, d, a, b, words[i + 15], 14, -660478335);
-        b = gg(b, c, d, a, words[i + 4], 20, -405537848);
-        a = gg(a, b, c, d, words[i + 9], 5, 568446438);
-        d = gg(d, a, b, c, words[i + 14], 9, -1019803690);
-        c = gg(c, d, a, b, words[i + 3], 14, -187363961);
-        b = gg(b, c, d, a, words[i + 8], 20, 1163531501);
-        a = gg(a, b, c, d, words[i + 13], 5, -1444681467);
-        d = gg(d, a, b, c, words[i + 2], 9, -51403784);
-        c = gg(c, d, a, b, words[i + 7], 14, 1735328473);
-        b = gg(b, c, d, a, words[i + 12], 20, -1926607734);
-        a = hh(a, b, c, d, words[i + 5], 4, -378558);
-        d = hh(d, a, b, c, words[i + 8], 11, -2022574463);
-        c = hh(c, d, a, b, words[i + 11], 16, 1839030562);
-        b = hh(b, c, d, a, words[i + 14], 23, -35309556);
-        a = hh(a, b, c, d, words[i + 1], 4, -1530992060);
-        d = hh(d, a, b, c, words[i + 4], 11, 1272893353);
-        c = hh(c, d, a, b, words[i + 7], 16, -155497632);
-        b = hh(b, c, d, a, words[i + 10], 23, -1094730640);
-        a = hh(a, b, c, d, words[i + 13], 4, 681279174);
-        d = hh(d, a, b, c, words[i], 11, -358537222);
-        c = hh(c, d, a, b, words[i + 3], 16, -722521979);
-        b = hh(b, c, d, a, words[i + 6], 23, 76029189);
-        a = hh(a, b, c, d, words[i + 9], 4, -640364487);
-        d = hh(d, a, b, c, words[i + 12], 11, -421815835);
-        c = hh(c, d, a, b, words[i + 15], 16, 530742520);
-        b = hh(b, c, d, a, words[i + 2], 23, -995338651);
-        a = ii(a, b, c, d, words[i], 6, -198630844);
-        d = ii(d, a, b, c, words[i + 7], 10, 1126891415);
-        c = ii(c, d, a, b, words[i + 14], 15, -1416354905);
-        b = ii(b, c, d, a, words[i + 5], 21, -57434055);
-        a = ii(a, b, c, d, words[i + 12], 6, 1700485571);
-        d = ii(d, a, b, c, words[i + 3], 10, -1894986606);
-        c = ii(c, d, a, b, words[i + 10], 15, -1051523);
-        b = ii(b, c, d, a, words[i + 1], 21, -2054922799);
-        a = ii(a, b, c, d, words[i + 8], 6, 1873313359);
-        d = ii(d, a, b, c, words[i + 15], 10, -30611744);
-        c = ii(c, d, a, b, words[i + 6], 15, -1560198380);
-        b = ii(b, c, d, a, words[i + 13], 21, 1309151649);
-        a = ii(a, b, c, d, words[i + 4], 6, -145523070);
-        d = ii(d, a, b, c, words[i + 11], 10, -1120210379);
-        c = ii(c, d, a, b, words[i + 2], 15, 718787259);
-        b = ii(b, c, d, a, words[i + 9], 21, -343485551);
-        a = (a + oa) | 0; b = (b + ob) | 0; c = (c + oc) | 0; d = (d + od) | 0;
-    }
-
-    function hex(n) {
-        let s = '';
-        for (let i = 0; i < 4; i++) s += ((n >> (i * 8)) & 0xff).toString(16).padStart(2, '0');
-        return s;
-    }
-    return hex(a) + hex(b) + hex(c) + hex(d);
-}
-
-const CRC32_TABLE = (function () {
-    const table = new Uint32Array(256);
-    for (let i = 0; i < 256; i++) {
-        let c = i;
-        for (let k = 0; k < 8; k++) c = (c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1);
-        table[i] = c >>> 0;
-    }
-    return table;
-})();
-
-function crc32(buffer) {
-    const bytes = new Uint8Array(buffer);
-    let crc = 0xFFFFFFFF;
-    for (let i = 0; i < bytes.length; i++) {
-        crc = CRC32_TABLE[(crc ^ bytes[i]) & 0xFF] ^ (crc >>> 8);
-    }
-    return ((crc ^ 0xFFFFFFFF) >>> 0).toString(16).padStart(8, '0');
-}
-
-async function hashBuffer(buffer, ids) {
-    const out = {};
-    const jobs = [];
-    for (const id of ids) {
-        if (id === 'md5') out.md5 = md5(buffer);
-        else if (id === 'crc32') out.crc32 = crc32(buffer);
-        else if (id === 'sha1') jobs.push(digest('SHA-1', buffer).then((v) => { out.sha1 = v; }));
-        else if (id === 'sha256') jobs.push(digest('SHA-256', buffer).then((v) => { out.sha256 = v; }));
-        else if (id === 'sha384') jobs.push(digest('SHA-384', buffer).then((v) => { out.sha384 = v; }));
-        else if (id === 'sha512') jobs.push(digest('SHA-512', buffer).then((v) => { out.sha512 = v; }));
-    }
-    await Promise.all(jobs);
-    return out;
-}
-
 function renderHashes(hashes, ids) {
-    results.innerHTML = ids.map((id) => {
+    results.innerHTML = '';
+    ids.forEach((id) => {
         const algo = ALGORITHMS.find((a) => a.id === id);
-        const value = hashes[id] || '';
-        return `
-          <div class="result-row">
-            <span class="algo">${algo.label}</span>
-            <code id="${id}-out">${value}</code>
-            <button type="button" class="copy-btn" data-target="${id}-out">Kopiera</button>
-          </div>`;
-    }).join('');
-    results.classList.remove('display-none');
+        const row = document.createElement('div');
+        row.className = 'result-row';
+        row.dataset.algo = id;
 
-    results.querySelectorAll('.copy-btn').forEach((btn) => {
-        btn.addEventListener('click', async () => {
-            const value = document.getElementById(btn.dataset.target).textContent;
+        const name = document.createElement('span');
+        name.className = 'algo';
+        name.textContent = algo.label;
+
+        const value = document.createElement('code');
+        value.textContent = hashes[id] || '';
+
+        const copy = document.createElement('button');
+        copy.type = 'button';
+        copy.className = 'copy-btn';
+        copy.textContent = 'Kopiera';
+        copy.addEventListener('click', async () => {
             try {
-                await navigator.clipboard.writeText(value);
+                await navigator.clipboard.writeText(value.textContent);
                 showToast();
             } catch (e) {
                 setStatus('Kunde inte kopiera', true);
             }
         });
+
+        row.append(name, value, copy);
+        results.appendChild(row);
     });
+    results.classList.remove('display-none');
 }
 
-async function computeFromBuffer(buffer, statusText) {
+// Jämför en inklistrad känd hash mot det som räknats fram. Algoritmen avgörs av
+// hex-längden, så användaren behöver inte tala om vilken det är.
+function applyVerdict() {
+    results.querySelectorAll('.result-row').forEach((row) => {
+        row.classList.remove('is-match', 'is-mismatch');
+    });
+
+    const expected = hashing.normalizeExpected(expectedInput.value);
+    if (!expected || !lastHashes) {
+        verdict.classList.add('display-none');
+        verdict.textContent = '';
+        return;
+    }
+
+    function show(text, kind) {
+        verdict.textContent = text;
+        verdict.classList.remove('display-none', 'is-match', 'is-mismatch');
+        if (kind) verdict.classList.add(kind);
+    }
+
+    const candidates = hashing.matchAlgosByLength(expected);
+    if (!candidates.length) {
+        show(`Hex-längden (${expected.length} tecken) motsvarar ingen av algoritmerna.`, null);
+        return;
+    }
+
+    const computed = candidates.filter((id) => lastHashes[id]);
+    if (!computed.length) {
+        const labels = candidates
+            .map((id) => ALGORITHMS.find((a) => a.id === id).label)
+            .join('/');
+        show(`Ser ut som ${labels} — kryssa i den algoritmen för att kunna jämföra.`, null);
+        return;
+    }
+
+    const match = computed.find((id) => lastHashes[id] === expected);
+    const target = match || computed[0];
+    const label = ALGORITHMS.find((a) => a.id === target).label;
+    const row = results.querySelector(`.result-row[data-algo="${target}"]`);
+
+    if (match) {
+        show(`Stämmer — ${label} är identisk med den kända hashen.`, 'is-match');
+        if (row) row.classList.add('is-match');
+    } else {
+        show(`Stämmer inte — ${label} skiljer sig från den kända hashen.`, 'is-mismatch');
+        if (row) row.classList.add('is-mismatch');
+    }
+}
+
+function setRunning(value, streaming) {
+    running = value;
+    hashButton.disabled = value;
+    hashButton.textContent = value ? 'Beräknar…' : 'Beräkna';
+    cancelButton.classList.toggle('display-none', !(value && streaming));
+    progress.classList.toggle('display-none', !(value && streaming));
+    if (!value) progressBar.style.width = '0';
+}
+
+async function compute(source, statusText) {
     const ids = selectedAlgos();
     if (!ids.length) {
         setStatus('Välj minst en algoritm', true);
         results.classList.add('display-none');
+        verdict.classList.add('display-none');
         return;
     }
-    lastBuffer = buffer;
-    setStatus(statusText);
-    renderHashes(await hashBuffer(buffer, ids), ids);
-}
 
-document.querySelectorAll('.tab').forEach((tab) => {
-    tab.addEventListener('click', () => {
-        mode = tab.dataset.mode;
-        document.querySelectorAll('.tab').forEach((t) => t.classList.remove('active'));
-        tab.classList.add('active');
-        document.getElementById('text-panel').classList.toggle('display-none', mode !== 'text');
-        document.getElementById('file-panel').classList.toggle('display-none', mode !== 'file');
-    });
-});
+    const streaming = source.size > hashing.ONESHOT_LIMIT;
+    cancelRequested = false;
+    setRunning(true, streaming);
+    setStatus(streaming ? `${statusText} — läser i bitar…` : statusText);
 
-fileInput.addEventListener('change', () => {
-    selectedFile = fileInput.files[0] || null;
-    fileLabel.textContent = selectedFile ? selectedFile.name : 'Välj en fil eller dra hit';
-});
-
-document.getElementById('hash-button').addEventListener('click', async () => {
     try {
-        let buffer;
-        let statusText;
-        if (mode === 'text') {
-            const text = textInput.value;
-            if (!text) {
-                setStatus('Klistra in text först', true);
-                return;
-            }
-            buffer = new TextEncoder().encode(text);
-            statusText = `${text.length} tecken`;
-        } else {
-            if (!selectedFile) {
-                setStatus('Välj en fil först', true);
-                return;
-            }
-            buffer = await selectedFile.arrayBuffer();
-            statusText = `${selectedFile.name} (${selectedFile.size} bytes)`;
+        const hashes = await hashing.hashBlob(
+            source,
+            ids,
+            (done, total) => {
+                if (!streaming || !total) return;
+                progressBar.style.width = `${(done / total) * 100}%`;
+                setStatus(`${statusText} — ${Math.floor((done / total) * 100)} %`);
+            },
+            () => cancelRequested,
+        );
+
+        if (hashes === null) {
+            setStatus('Avbruten', true);
+            return;
         }
-        await computeFromBuffer(buffer, statusText);
+
+        lastSource = source;
+        lastLabel = statusText;
+        lastHashes = hashes;
+        setStatus(statusText);
+        renderHashes(hashes, ids);
+        applyVerdict();
     } catch (err) {
         setStatus('Kunde inte beräkna hash', true);
         console.error(err);
+    } finally {
+        setRunning(false, streaming);
+    }
+}
+
+function acceptFile(file) {
+    if (!file) return;
+    selectedFile = file;
+    fileLabel.textContent = `${file.name} (${formatBytes(file.size)})`;
+}
+
+function switchMode(next) {
+    mode = next;
+    document.querySelectorAll('.tab').forEach((t) => {
+        t.classList.toggle('active', t.dataset.mode === next);
+    });
+    document.getElementById('text-panel').classList.toggle('display-none', next !== 'text');
+    document.getElementById('file-panel').classList.toggle('display-none', next !== 'file');
+}
+
+document.querySelectorAll('.tab').forEach((tab) => {
+    tab.addEventListener('click', () => switchMode(tab.dataset.mode));
+});
+
+fileInput.addEventListener('change', () => {
+    acceptFile(fileInput.files[0] || null);
+});
+
+// Släppta filer togs tidigare inte emot trots att rutan bjöd in till det.
+['dragenter', 'dragover'].forEach((type) => {
+    fileDrop.addEventListener(type, (event) => {
+        event.preventDefault();
+        fileDrop.classList.add('is-dragover');
+    });
+});
+
+['dragleave', 'dragend'].forEach((type) => {
+    fileDrop.addEventListener(type, () => fileDrop.classList.remove('is-dragover'));
+});
+
+fileDrop.addEventListener('drop', (event) => {
+    event.preventDefault();
+    fileDrop.classList.remove('is-dragover');
+    const file = event.dataTransfer && event.dataTransfer.files[0];
+    if (file) {
+        switchMode('file');
+        acceptFile(file);
     }
 });
 
+// Utan det här öppnar Chromium filen istället för att appen får den.
+['dragover', 'drop'].forEach((type) => {
+    document.addEventListener(type, (event) => {
+        if (!fileDrop.contains(event.target)) event.preventDefault();
+    });
+});
+
+hashButton.addEventListener('click', async () => {
+    if (running) return;
+    if (mode === 'text') {
+        const text = textInput.value;
+        if (!text) {
+            setStatus('Klistra in text först', true);
+            return;
+        }
+        const bytes = new TextEncoder().encode(text);
+        await compute(new Blob([bytes]), `${text.length} tecken`);
+    } else {
+        if (!selectedFile) {
+            setStatus('Välj en fil först', true);
+            return;
+        }
+        await compute(selectedFile, `${selectedFile.name} (${formatBytes(selectedFile.size)})`);
+    }
+});
+
+cancelButton.addEventListener('click', () => {
+    cancelRequested = true;
+});
+
 document.getElementById('clear-button').addEventListener('click', () => {
+    cancelRequested = true;
     textInput.value = '';
     fileInput.value = '';
+    expectedInput.value = '';
     selectedFile = null;
-    lastBuffer = null;
-    fileLabel.textContent = 'Välj en fil eller dra hit';
+    lastSource = null;
+    lastLabel = '';
+    lastHashes = null;
+    fileLabel.textContent = FILE_PLACEHOLDER;
     results.classList.add('display-none');
     results.innerHTML = '';
+    verdict.classList.add('display-none');
+    verdict.textContent = '';
     setStatus('Ingen data laddad');
 });
+
+expectedInput.addEventListener('input', applyVerdict);
 
 document.querySelectorAll('input[name="algo"]').forEach((input) => {
     input.addEventListener('change', async () => {
         persistAlgos();
-        if (!lastBuffer) return;
-        try {
-            await computeFromBuffer(lastBuffer, statusEl.textContent);
-        } catch (err) {
-            setStatus('Kunde inte beräkna hash', true);
-        }
+        if (!lastSource || running) return;
+        // Statusraden kan innehålla progresstext, därför sparas beskrivningen separat.
+        await compute(lastSource, lastLabel);
     });
 });
 

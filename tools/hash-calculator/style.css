@@ -9,6 +9,7 @@
     --accent: #0a84ff;
     --accent-hover: #3395ff;
     --error: #ff453a;
+    --ok: #30d158;
 }
 
 [data-theme="light"] {
@@ -22,6 +23,7 @@
     --accent: #007aff;
     --accent-hover: #0066d6;
     --error: #ff3b30;
+    --ok: #1c8c3c;
 }
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -138,7 +140,73 @@ textarea {
 }
 
 .file-drop:hover { border-color: var(--accent); color: var(--text); }
+.file-drop.is-dragover {
+    border-color: var(--accent);
+    border-style: solid;
+    background: var(--surface-hover);
+    color: var(--text);
+}
 .file-drop input { display: none; }
+
+.verify-row {
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-bottom: 14px;
+}
+
+.verify-row span {
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--text-muted);
+}
+
+.verify-row input {
+    width: 100%;
+    padding: 12px 14px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    outline: none;
+    color: var(--text);
+    font-family: Consolas, Monaco, monospace;
+    font-size: 13px;
+}
+
+.verify-row input:focus { border-color: var(--accent); }
+
+.progress {
+    width: 100%;
+    height: 6px;
+    margin-bottom: 14px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    overflow: hidden;
+}
+
+.progress-bar {
+    height: 100%;
+    width: 0;
+    background: var(--accent);
+    transition: width 120ms linear;
+}
+
+.verdict {
+    width: 100%;
+    margin-bottom: 14px;
+    padding: 12px 14px;
+    border-radius: 10px;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    font-size: 14px;
+    font-weight: 600;
+    text-align: center;
+}
+
+.verdict.is-match { border-color: var(--ok); color: var(--ok); }
+.verdict.is-mismatch { border-color: var(--error); color: var(--error); }
 
 .button-row {
     width: 100%;
@@ -192,6 +260,8 @@ button.secondary:hover { border-color: var(--border-hover); }
 }
 
 .result-row:last-child { border-bottom: none; }
+.result-row.is-match code { color: var(--ok); }
+.result-row.is-mismatch code { color: var(--error); }
 .algo { font-size: 12px; font-weight: 700; color: var(--text-muted); }
 code {
     font-family: Consolas, Monaco, monospace;
