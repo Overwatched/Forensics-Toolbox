@@ -9,7 +9,7 @@
   "main": "electron/main.js",
   "scripts": {
     "start": "env -u ELECTRON_RUN_AS_NODE electron .",
-    "test": "node --test \"tools/**/*.test.js\"",
+    "test": "node scripts/run-tests.js",
     "postinstall": "node scripts/ensure-electron.js",
     "sync-version": "node scripts/sync-version.js",
     "pack-html": "node scripts/pack-html-folder.js",

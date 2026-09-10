@@ -83,7 +83,10 @@ scripts/              # sync-version, ensure-electron, finalize-artifacts
 
 ## Tester
 
-- `npm test` kör alla `tools/**/*.test.js` med Nodes inbyggda testkörare (inga beroenden)
+- `npm test` letar upp alla `tools/**/*.test.js` via `scripts/run-tests.js` och kör dem
+  med Nodes inbyggda testkörare (inga beroenden). Filerna skickas som explicita
+  argument, eftersom `node --test` tolkar glob-mönster och kataloger olika i olika
+  Node-versioner
 - CI kör samma kommando i ett eget jobb **innan** bygget, så en trasig avkodning
   eller hashimplementation aldrig når en release
 - `tools/hash-calculator/hashing.test.js` jämför de rena JS-implementationerna mot
