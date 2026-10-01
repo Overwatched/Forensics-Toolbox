@@ -87,8 +87,8 @@ npm run dist:mac      # osignerat DMG + ZIP
 ## Lägga till ett verktyg
 
 1. Skapa `tools/<namn>/` med HTML/JS/CSS
-2. Lägg till en knapp i `Toolbox.html` med `data-type="frame"` och `data-src="tools/<namn>/..."`
-3. Lyssna på tema via `postMessage` (`source: 'forensics-toolbox'`)
+2. Ladda det delade skalet först i `<head>`: `<script src="../_shared/toolkit.js"></script>` (före verktygets `style.css`). Det sköter temahanteringen — du behöver inte duplicera någon tema-kod i verktyget.
+3. Lägg till en knapp i `Toolbox.html` med `data-type="frame"` och `data-src="tools/<namn>/..."`
 
 ## Attribution
 
