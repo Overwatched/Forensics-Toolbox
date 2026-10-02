@@ -70,6 +70,7 @@ Versionen läses från texten `Version X.Y` i `Toolbox.html`.
 Toolbox.html          # Hub / sidopanel
 electron/main.js      # Electron-shell
 src/                  # Delad UI (tema, navigation)
+tools/_shared/        # Delat verktygs-skal (toolkit.js: temahantering)
 tools/<namn>/         # Ett verktyg per mapp (HTML/JS/CSS)
 documentation/        # Referens / guider i iframe
 scripts/              # sync-version, ensure-electron, finalize-artifacts
@@ -78,8 +79,8 @@ scripts/              # sync-version, ensure-electron, finalize-artifacts
 ### Lägga till ett verktyg
 
 1. Skapa `tools/<namn>/` med HTML (+ ev. JS/CSS)
-2. Lägg till knapp i `Toolbox.html`: `data-type="frame"` och `data-src="tools/<namn>/..."`
-3. Lyssna på tema via `postMessage` med `source: 'forensics-toolbox'`
+2. Ladda det delade skalet i `<head>` före verktygets `style.css`: `<script src="../_shared/toolkit.js"></script>`. Det sätter temat (från förälderns `?theme=`/`postMessage`) innan sidan målas — duplicera inte tema-koden per verktyg. Lyssnar verktyget på andra meddelanden (t.ex. `select-db`) behåller det sin egen lyssnare för just dem.
+3. Lägg till knapp i `Toolbox.html`: `data-type="frame"` och `data-src="tools/<namn>/..."`
 
 ## Tester
 
