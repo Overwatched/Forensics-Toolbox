@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="sv">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>iOS Keychain</title>
+    <script src="../_shared/toolkit.js"></script>
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+
+    <div id="container">
+
+        <header class="page-header">
+            <h1>iOS Keychain</h1>
+            <p>Öppna en lokal <strong>krypterad</strong> iPhone-/iPad-backup och bläddra bland nyckelringens
+                poster &mdash; konton, lösenord, tokens och certifikat. Allt dekrypteras lokalt i det här
+                fönstret; inget laddas upp eller sparas.</p>
+        </header>
+
+        <div class="panel-row">
+
+            <!-- Steg 1: backup-mapp -->
+            <div class="panel">
+                <div class="panel-head">
+                    <span class="step-num">1</span>
+                    <span class="panel-title">Välj backup-mapp</span>
+                </div>
+                <p class="hint">Mappen som direkt innehåller <code>Manifest.plist</code> och
+                    <code>Manifest.db</code>. På macOS ligger de i
+                    <code>~/Library/Application Support/MobileSync/Backup/&lt;UDID&gt;/</code>, på Windows i
+                    <code>%APPDATA%\Apple\MobileSync\Backup\&lt;UDID&gt;\</code>.</p>
+                <div class="file-row">
+                    <button type="button" class="secondary" id="folder-btn">Välj mapp…</button>
+                    <span class="file-name" id="folder-name">Ingen mapp vald</span>
+                </div>
+                <input type="file" id="folder-input" webkitdirectory directory multiple hidden>
+                <div class="device-info display-none" id="device-info"></div>
+            </div>
+
+            <!-- Steg 2: lösenord -->
+            <div class="panel">
+                <div class="panel-head">
+                    <span class="step-num">2</span>
+                    <span class="panel-title">Backup-lösenord</span>
+                </div>
+                <p class="hint">Lösenordet som sattes när <em>Kryptera lokal backup</em> aktiverades. Krävs &mdash;
+                    iOS lagrar bara nyckelringen i krypterade backuper.</p>
+                <div class="file-row">
+                    <input type="password" id="pw-input" class="text-input" spellcheck="false"
+                        autocomplete="off" placeholder="Backup-lösenord">
+                    <button type="button" class="secondary" id="pw-toggle" title="Visa / dölj">Visa</button>
+                </div>
+            </div>
+
+        </div><!-- /panel-row -->
+
+        <!-- Förlopp -->
+        <div class="progress-wrap display-none" id="progress-wrap">
+            <div class="progress-track">
+                <div class="progress-bar" id="progress-bar"></div>
+            </div>
+            <div class="progress-status" id="progress-status"></div>
+        </div>
+
+        <!-- Utdata -->
+        <div class="output-wrap">
+            <div class="output-head">
+                <span>Nyckelring</span>
+                <div class="output-head-actions">
+                    <button id="run-btn">Öppna nyckelring</button>
+                    <button id="export-btn" class="secondary display-none">Exportera JSON</button>
+                    <button type="button" class="clear-btn" id="clear-btn">Rensa</button>
+                </div>
+            </div>
+
+            <div class="result-panel display-none" id="result-panel">
+                <div class="result-title" id="result-title"></div>
+                <div class="result-body" id="result-body"></div>
+            </div>
+
+            <!-- Verktygsrad för postlistan -->
+            <div class="kc-toolbar display-none" id="kc-toolbar">
+                <input type="search" id="kc-search" class="text-input kc-search" spellcheck="false"
+                    autocomplete="off" placeholder="Sök konto, tjänst, server…">
+                <div class="kc-tabs" id="kc-tabs"></div>
+            </div>
+
+            <div class="kc-list" id="kc-list"></div>
+
+            <pre id="output">Väntar på körning…</pre>
+        </div>
+
+        <div id="toast" class="toast"></div>
+
+    </div>
+
+    <!-- Lokal krypto + parsrar (ren JS, inga nätverksanrop) -->
+    <script src="lib/aes.js"></script>
+    <script src="lib/bplist.js"></script>
+    <script src="lib/nskeyed.js"></script>
+    <script src="lib/keybag.js"></script>
+    <script src="lib/asn1.js"></script>
+    <script src="lib/backup.js"></script>
+    <!-- Vendorad sql.js (SQLite i WebAssembly, binären inlinead så inget fetch under file://) -->
+    <script src="vendor/sqljs/sql-wasm-binary.js"></script>
+    <script src="vendor/sqljs/sql-wasm.js"></script>
+    <script src="script.js"></script>
+
+</body>
+
+</html>

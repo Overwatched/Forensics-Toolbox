@@ -46,6 +46,7 @@
       "queries/**/*",
       "package.json",
       "!**/*.md",
+      "!tools/ios-keychain/sample-backup/**/*",
       "!**/*.test.js"
     ],
     "linux": {
