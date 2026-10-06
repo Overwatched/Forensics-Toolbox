@@ -170,11 +170,9 @@ jobs:
           body: |
             Automatiskt byggd från commit `${{ github.sha }}`.
 
-            ## Nytt i 1.3
-            - **Filjämförelse** — två textfiler eller inklistrad text, rad för rad. Binärt innehåll och filer över 5 MB jämförs med SHA-256.
-            - **Okänd app** och **Krypto / plånbok** — bedömningsflöden. Seed, BIP39 och plånboksfiler länkas till Crypto Toolbox.
-            - **CyberChef 11.5.0** — följer fortfarande verktygslådans ljusa och mörka läge.
-            - **Externa verktyg** — Crypto Toolbox och Volatility 3 tillagda. Sidan Verktyg & releaser är borttagen.
+            ## Nytt i 1.4
+            - **Electron 44.5.1** — skalet är uppdaterat från Electron 33. Chromium är 152. Tema, verktyg och CyberChef är oförändrade i funktion.
+            - **electron-builder 26.17.0** — paketeringen följer med, så den tidigare kritiska `tar`-träffen i byggkedjan är borta.
 
             ## Windows
             - **ForensicsToolbox-${{ needs.version.outputs.version }}.exe** — portabel

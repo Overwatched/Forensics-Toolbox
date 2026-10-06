@@ -27,13 +27,27 @@ function resolveBinary() {
   return path.join(distDir, platformPath());
 }
 
+function isCompleteInstall(binary) {
+  if (!fs.existsSync(binary)) return false;
+  if (process.platform !== 'darwin') return true;
+  const framework = path.join(
+    distDir,
+    'Electron.app',
+    'Contents',
+    'Frameworks',
+    'Electron Framework.framework',
+    'Electron Framework',
+  );
+  return fs.existsSync(framework);
+}
+
 function writePathTxt() {
   fs.writeFileSync(path.join(electronDir, 'path.txt'), platformPath());
 }
 
 const binary = resolveBinary();
 
-if (fs.existsSync(binary)) {
+if (isCompleteInstall(binary)) {
   try {
     writePathTxt();
   } catch (e) {
