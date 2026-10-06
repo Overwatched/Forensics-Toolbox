@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="sv">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Filjämförelse</title>
+    <script src="../_shared/toolkit.js"></script>
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+    <div id="container">
+        <header class="page-header">
+            <h1>Filjämförelse</h1>
+            <p>Jämför två textfiler eller inklistrade texter, rad för rad.
+                Binära filer jämförs bara med SHA-256.</p>
+        </header>
+
+        <div class="sides">
+            <section class="side" data-side="a">
+                <h2>Sida A</h2>
+                <label class="file-drop" for="file-a">
+                    <span class="file-label">Välj en fil eller dra hit</span>
+                    <input id="file-a" type="file">
+                </label>
+                <textarea id="text-a" spellcheck="false" placeholder="eller klistra in text"></textarea>
+                <button type="button" class="secondary clear-side" data-side="a">Rensa A</button>
+            </section>
+            <section class="side" data-side="b">
+                <h2>Sida B</h2>
+                <label class="file-drop" for="file-b">
+                    <span class="file-label">Välj en fil eller dra hit</span>
+                    <input id="file-b" type="file">
+                </label>
+                <textarea id="text-b" spellcheck="false" placeholder="eller klistra in text"></textarea>
+                <button type="button" class="secondary clear-side" data-side="b">Rensa B</button>
+            </section>
+        </div>
+
+        <div class="options">
+            <label><input id="only-changes" type="checkbox"> Bara ändringar</label>
+            <label><input id="ignore-blank" type="checkbox"> Ignorera tomma rader</label>
+            <div class="view-toggle" role="group" aria-label="Vy">
+                <button type="button" id="view-side" class="secondary active">Sida vid sida</button>
+                <button type="button" id="view-unified" class="secondary">En kolumn</button>
+            </div>
+        </div>
+
+        <div id="summary" class="summary display-none"></div>
+        <p id="note" class="note display-none"></p>
+        <div id="diff" class="diff display-none"></div>
+    </div>
+
+    <script src="vendor/diff.js"></script>
+    <script src="../hash-calculator/hashing.js"></script>
+    <script src="compare.js"></script>
+    <script src="script.js"></script>
+</body>
+
+</html>

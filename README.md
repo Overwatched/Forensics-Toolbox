@@ -4,20 +4,23 @@ Lokal verktygslåda för **IT-forensik**. Körs helt offline som Electron-app (l
 
 Forkad och omarbetad från [AdrianNeshad/CryptoToolbox](https://github.com/AdrianNeshad/CryptoToolbox) (Verktygslådan).
 
-## Verktyg (v1.1)
+## Verktyg (v1.3)
 
 | Verktyg | Beskrivning |
 |---------|-------------|
 | Time Converter | Unix, Apple Cocoa/NSDate, WebKit/Chrome, FILETIME, ISO — full matris + tolkningsjämförelse |
+| iOS Keychain | Krypterad iPhone-/iPad-backup — konton, lösenord, tokens och certifikat |
 | Hash Calculator | MD5 / SHA-1 / SHA-256 (fler algoritmer valbara), drag-and-drop, stora filer läses i bitar, jämför mot känd hash |
+| Filjämförelse | Två textfiler eller inklistrade texter, rad för rad. Binärt innehåll jämförs med SHA-256 |
 | Magic Text | Gissar format (JSON, protobuf, plist, JWT, …) + egna flikar när du redan vet |
 | QR Code Decoder | Avkoda QR från bild |
 | CyberChef | Offline encoding / decoding / crypto |
 | Queries | iOS/Android — Photos.sqlite, knowledgeC, MediaStore, tidsspann |
-| Externa verktyg | Sökbar katalog med runda länkar (iLEAPP, Autopsy, start.me, …) |
+| Externa verktyg | Sökbar katalog med runda länkar (iLEAPP, Crypto Toolbox, Autopsy, …) |
 | Playbook: Bildfil härkomst | Kort checklista: EXIF, kamera, app, position |
+| Playbook: Okänd app | Paket/bundle, behörigheter, privat lagring, residual |
+| Playbook: Krypto / plånbok | Var på enheten det ligger — seed och plånboksfiler i Crypto Toolbox |
 | Vanliga artifacts | Referens för Windows / browser / Linux |
-| Verktyg & releaser | Kuraterad lista (iLEAPP, ALEAPP, Passware 2026 v3, …) |
 
 ## Dokumentation
 
@@ -41,13 +44,13 @@ npm install
 npm start          # Electron-fönster (rekommenderas för test)
 ```
 
-Öppna inte `Toolbox.html` direkt i webbläsaren om sidan ser ostylad ut — vissa webbläsare blockerar lokala filer via `file://`. Appen är tänkt att köras via Electron (`npm start` eller en nedladdad release). JSON-sidor (t.ex. Verktyg & releaser) har en `.js`-fallback så de fungerar även när `fetch()` av `.json` blockeras.
+Öppna inte `Toolbox.html` direkt i webbläsaren om sidan ser ostylad ut — vissa webbläsare blockerar lokala filer via `file://`. Appen är tänkt att köras via Electron (`npm start` eller en nedladdad release). Query-katalogerna har en `.js`-fallback så de fungerar även när `fetch()` av `.json` blockeras.
 
 Paketerad Linux-build (AppImage + uppackad mapp):
 
 ```bash
 npm run dist:linux
-# AppImage: release/ForensicsToolbox-1.1.AppImage
+# AppImage: release/ForensicsToolbox-1.3.AppImage
 # Uppackad:  release/linux-unpacked/  → kör ./forensics-toolbox
 ```
 
@@ -80,8 +83,8 @@ npm run dist:mac      # osignerat DMG + ZIP
 
 Release-filer (GitHub Releases):
 
-- `ForensicsToolbox-1.1.exe` — portabel Windows
-- `ForensicsToolbox-1.1-html.zip` — packa upp och öppna `Toolbox.html` (ingen .exe)
+- `ForensicsToolbox-1.3.exe` — portabel Windows
+- `ForensicsToolbox-1.3-html.zip` — packa upp och öppna `Toolbox.html` (ingen .exe)
 
 | Mål | Kommando | Output |
 |-----|----------|--------|

@@ -26,6 +26,15 @@
             color: '#ff453a',
         },
         {
+            id: 'cryptotoolbox',
+            name: 'Crypto Toolbox',
+            desc: 'Seed, BIP39 och plånboksfiler — kryptoarbetet ligger här',
+            url: 'https://github.com/AdrianNeshad/CryptoToolbox',
+            group: 'forensik',
+            initials: 'CT',
+            color: '#5e5ce6',
+        },
+        {
             id: 'dbbrowser',
             name: 'DB Browser for SQLite',
             desc: 'Öppna och query:a SQLite-databaser',
@@ -55,11 +64,20 @@
         {
             id: 'passware',
             name: 'Passware Kit Forensic',
-            desc: 'Senaste noterade: 2026 v3',
+            desc: 'Lösenordsåterställning och dekryptering',
             url: 'https://www.passware.com/kit-forensic/',
             group: 'forensik',
             initials: 'PW',
             color: '#bf5af2',
+        },
+        {
+            id: 'volatility3',
+            name: 'Volatility 3',
+            desc: 'Minnesforensik (RAM-analyser)',
+            url: 'https://github.com/volatilityfoundation/volatility3',
+            group: 'forensik',
+            initials: 'V3',
+            color: '#ff375f',
         },
         {
             id: 'startme',

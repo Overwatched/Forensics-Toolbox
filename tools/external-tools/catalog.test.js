@@ -8,6 +8,13 @@ test('catalog is alphabetical within forensik group', () => {
     assert.deepEqual(names, sorted);
 });
 
+test('search finds Crypto Toolbox by krypto', () => {
+    const hits = catalog.filterTools('krypto');
+    assert.ok(hits.some((h) => h.id === 'cryptotoolbox'));
+    const tool = catalog.TOOLS.find((t) => t.id === 'cryptotoolbox');
+    assert.equal(tool.url, 'https://github.com/AdrianNeshad/CryptoToolbox');
+});
+
 test('search finds iLEAPP by name', () => {
     const hits = catalog.filterTools('ileapp');
     assert.equal(hits.length, 1);

@@ -16,6 +16,12 @@
  */
 
 /**
+ * @author MP Gowtham [gowthamrockerzzz@gmail.com]
+ * @copyright Crown Copyright 2026
+ * @license Apache-2.0
+ */
+
+/**
  * @author Matt C [me@mitt.dev]
  * @copyright Crown Copyright 2019
  * @license Apache-2.0
@@ -145,6 +151,21 @@
  * @copyright Crown Copyright 2018
  * @license Apache-2.0
  *
+ */
+
+/**
+ * XPRESS (MS-XCA) decompression.
+ *
+ * @author MP Gowtham [gowthamrockerzzz@gmail.com]
+ * @copyright Crown Copyright 2026
+ * @license Apache-2.0
+ *
+ * Implements the two XPRESS variants from:
+ * https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-xca/
+ * (2.1 XPRESS Algorithm Details, 2.2 LZ77+Huffman Algorithm Details)
+ *
+ * Cross-validated against the reference decoder in The Sleuth Kit
+ * (tsk/fs/xpress.c) and go-ntfs (parser/xpress.go).
  */
 
 /** @license zlib.js 2012 - imaya [ https://github.com/imaya/zlib.js ] The MIT License */

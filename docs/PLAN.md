@@ -47,24 +47,9 @@ Ersätter/utökar nuvarande Epoch Converter.
 
 ILEAPP, ALEAPP, Autopsy, Volatility 3, DB Browser for SQLite, ExifTool, m.fl. — namn + en mening om när man använder dem + bekräftelsedialog.
 
-### B2. Vendor / verktygs-releases (synlighet)
+### B2. Vendor / verktygs-releases
 
-Sektion eller badge-rad, t.ex.:
-
-```text
-Senast noterade releaser
-  Passware …… 2026 R3   (uppdaterad 2026-08-01)
-  ILEAPP ……… v1.x.x
-  ALEAPP ……… v1.x.x
-```
-
-**Hur det underhålls (MVP):**
-
-- Kuraterad JSON/YAML i repot, t.ex. `data/tool-releases.json`  
-- Fält: `name`, `latest`, `url`, `notes`, `checkedAt`  
-- **Ingen automatisk scraping i appen** (behåller offline-garanti; uppdateras manuellt eller via separat underhållsskript senare)
-
-Kommersiella verktyg (Passware, etc.): endast publikt synlig release-info + länk till leverantör — ingen redistribution.
+Versionslistan är borttagen. Den blev inaktuell så fort ett verktyg släpptes, och appen ska inte fråga internet efter senaste version. Länkarna ligger i **Externa verktyg** (`tools/external-tools/`), utan versionsnummer. CyberChef-versionen i sidomenyn är den som följer med i appen.
 
 ---
 
@@ -100,8 +85,6 @@ queries/
   ios/photos-sqlite/   # metadata + sql per versionsband
   ios/knowledgec/
   android/             # adapted from ALEAPP etc., with source refs
-data/
-  tool-releases.json   # Passware, ILEAPP, ALEAPP, …
 ```
 
 Varje mall: `id`, `title`, `os`, `versionRange`, `dbPathHint`, `sql`, `notes`, `caveats`, `source` (URL/projekt).
@@ -126,13 +109,13 @@ Samma ton: korta steg, paths, länkar till queries när de finns. Inga mål/begr
 
 | Flöde | När | Kärnsteg (utkast) |
 |-------|-----|-------------------|
-| **Okänd app** | Sideload, APK/IPA, “vad gör den här appen?” | Identitet (paket/bundle, signerare, version) → behörigheter → privat lagring + WAL → nätverk/konton → residual (KnowledgeC/usagestats, notiser, foton appen skapat) |
-| **Krypto / plånbok** | Misstanke om krypto, seed, exchange | App/plånbok på enheten → seed/QR/address i foton, anteckningar, clipboard → webbläsarhistorik/exchange → hash/CyberChef på strängar → kedja mot block explorer (OSINT-länk, inte inbäddat) |
+| **Okänd app** | Sideload, APK/IPA, “vad gör den här appen?” — **byggt** (`documentation/playbook-unknown-app.html`) | Identitet (paket/bundle, signerare, version) → behörigheter → privat lagring + WAL → nätverk/konton → residual (KnowledgeC/usagestats, notiser, foton appen skapat) |
+| **Krypto / plånbok** | Misstanke om krypto, seed, exchange — **byggt** (`documentation/playbook-crypto-wallet.html`) | App/plånbok på enheten → seed/QR/address i foton, anteckningar → webbläsarhistorik/exchange → hash/CyberChef på strängar → Crypto Toolbox för seed/BIP39/plånboksfiler, block explorer som OSINT-länk |
 | **Position vid tid T** | Utvidgning av steg 4 i bildflödet | EXIF/DB-GPS → Significant Locations / GMS → cell/Wi-Fi → Maps-appar → jämför oberoende källor mot samma tidsfönster |
 | **Chattbilaga vid tid T** | Mottagen vs skickad vs tagen | Tråd/meddelande-DB → bifogad filhash mot fotobibliotek → app aktiv (steg 3) → molnbackup |
 | **Raderat material** | Saknad bild/fil | Trash/hidden-flaggor → WAL/SHM → unallocated/carve → moln/andra enheter |
 
-**Först ut efter bildflödet:** Okänd app, därefter krypto. Position-vid-T kan återanvända steg 4. Chatt och radering väntar tills query-täckning finns.
+**Okänd app och Krypto / plånbok är byggda.** Seed, BIP39 och plånboksfiler hör hemma i [Crypto Toolbox](https://github.com/AdrianNeshad/CryptoToolbox), inte här. Position-vid-T kan återanvända steg 4 i bildflödet. Chatt och radering väntar tills query-täckning finns.
 
 ---
 
@@ -140,7 +123,7 @@ Samma ton: korta steg, paths, länkar till queries när de finns. Inga mål/begr
 
 1. ~~docs/DEVELOPMENT.md~~ + denna plan  
 2. ~~Universal Time Converter~~ (`tools/time-converter/`)  
-3. ~~Hub: externa länkar + `tool-releases.json`-vy~~ (`data/tool-releases.json`, `documentation/tools-releases.html`)  
+3. ~~Hub: externa länkar + `tool-releases.json`-vy~~ (versionsvyn togs senare bort; länkarna finns i `tools/external-tools/`)  
 4. ~~Photos.sqlite query-UI + mallar iOS 10→latest~~ (`tools/photos-sqlite-queries/`, `queries/ios/photos-sqlite/`)  
 5. ~~Android-queries (MediaStore / kamera / usage + ALEAPP-tips)~~ (`tools/android-queries/`, `queries/android/`)  
 6. ~~Statisk playbook-sida~~ (`documentation/playbook-image-origin.html`)  
@@ -150,7 +133,7 @@ Samma ton: korta steg, paths, länkar till queries när de finns. Inga mål/begr
 
 - Interaktiv wizard med state  
 - Inbyggd EXIF-parser  
-- Auto-uppdatering av vendor-releases från nätet  
+- Versionsbevakning av externa verktyg (medvetet borttagen; ingen nätkontroll)  
 - “Fri” SQL-generering utan mall  
 
 ### Principer

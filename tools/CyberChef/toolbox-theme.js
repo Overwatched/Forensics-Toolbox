@@ -66,6 +66,12 @@
         paint(chefTheme(readToolboxTheme()));
     });
 
+    // CyberChef läser ?theme= när den startat klart och skriver över klassnamnet.
+    // statechange skickas efter den skrivningen, så vi lägger på verktygslådans tema igen.
+    window.addEventListener('statechange', function () {
+        applyChefTheme(readToolboxTheme());
+    });
+
     window.addEventListener('message', function (event) {
         if (event.source !== window.parent) return;
         var data = event.data;

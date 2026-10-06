@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html lang="sv">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Krypto / plånbok</title>
+    <script>
+        (function () {
+            try {
+                var params = new URLSearchParams(location.search);
+                var fromParent = params.get('theme');
+                var saved = localStorage.getItem('theme');
+                var theme = (fromParent === 'light' || fromParent === 'dark') ? fromParent
+                    : (saved === 'light' || saved === 'dark') ? saved : 'dark';
+                document.documentElement.setAttribute('data-theme', theme);
+                if (fromParent === 'light' || fromParent === 'dark') {
+                    localStorage.setItem('theme', fromParent);
+                }
+            } catch (e) {
+                document.documentElement.setAttribute('data-theme', 'dark');
+            }
+        })();
+    </script>
+    <style>
+        :root {
+            --bg: #1e1e23;
+            --surface: #28282d;
+            --border: #3a3a40;
+            --text: #e8e8ed;
+            --text-muted: #98989f;
+            --accent: #0a84ff;
+            --step: #0a84ff;
+        }
+        [data-theme="light"] {
+            --bg: #f2f2f7;
+            --surface: #ffffff;
+            --border: #d2d2d7;
+            --text: #1d1d1f;
+            --text-muted: #6e6e73;
+            --accent: #007aff;
+            --step: #007aff;
+        }
+        * { box-sizing: border-box; }
+        body {
+            margin: 0;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            padding: 32px 24px 72px;
+            line-height: 1.45;
+        }
+        .wrap { max-width: 820px; margin: 0 auto; }
+        h1 { font-size: 24px; margin: 0 0 18px; font-weight: 650; }
+        a { color: var(--accent); text-decoration: none; }
+        a:hover { text-decoration: underline; }
+        .step {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 14px 16px 12px;
+            margin-bottom: 10px;
+        }
+        .step-head {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 8px;
+        }
+        .step-num {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 26px;
+            height: 26px;
+            flex-shrink: 0;
+            border-radius: 50%;
+            background: var(--step);
+            color: #fff;
+            font-size: 13px;
+            font-weight: 700;
+        }
+        .step h2 {
+            font-size: 15px;
+            margin: 0;
+            font-weight: 650;
+        }
+        .cols {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px 20px;
+        }
+        @media (max-width: 640px) {
+            .cols { grid-template-columns: 1fr; }
+        }
+        h3 {
+            margin: 4px 0 4px;
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            color: var(--text-muted);
+            font-weight: 650;
+        }
+        ul { margin: 0 0 0 18px; padding: 0; font-size: 14px; }
+        li { margin-bottom: 3px; }
+        code {
+            font-family: Consolas, Monaco, monospace;
+            font-size: 12px;
+            word-break: break-all;
+        }
+        .shared { margin: 0 0 8px; font-size: 14px; }
+        .shared ul { margin-top: 4px; }
+        .tools {
+            margin-top: 8px;
+            font-size: 13px;
+            color: var(--text-muted);
+        }
+    </style>
+</head>
+
+<body>
+    <div class="wrap">
+        <h1>Krypto / plånbok</h1>
+
+        <section class="step" id="step-1">
+            <div class="step-head">
+                <span class="step-num">1</span>
+                <h2>App eller plånbok på enheten</h2>
+            </div>
+            <div class="cols">
+                <div>
+                    <h3>iOS</h3>
+                    <ul>
+                        <li>Bundle-ID och version i <code>Info.plist</code></li>
+                        <li>Backup-domän <code>AppDomain-&lt;bundle&gt;</code></li>
+                        <li>Keychain-poster knutna till samma bundle</li>
+                    </ul>
+                </div>
+                <div>
+                    <h3>Android</h3>
+                    <ul>
+                        <li><code>/data/user/0/&lt;paket&gt;/</code> — databases, shared_prefs, files</li>
+                        <li><code>*.db</code> tillsammans med <code>-wal</code> och <code>-shm</code></li>
+                        <li><code>/data/system/packages.xml</code> — installer</li>
+                    </ul>
+                </div>
+            </div>
+            <p class="tools">
+                <a href="playbook-unknown-app.html" data-tool="documentation/playbook-unknown-app.html">Okänd app</a>
+                ·
+                <a href="../tools/ios-keychain/keychain.html" data-tool="tools/ios-keychain/keychain.html">iOS Keychain</a>
+            </p>
+        </section>
+
+        <section class="step" id="step-2">
+            <div class="step-head">
+                <span class="step-num">2</span>
+                <h2>Seed, QR och adress</h2>
+            </div>
+            <p class="shared">Notera var det ligger. Seed-fraser, BIP39 och plånboksfiler tolkas i Crypto Toolbox.</p>
+            <div class="cols">
+                <div>
+                    <h3>iOS</h3>
+                    <ul>
+                        <li>Foton och skärmdumpar — QR eller handskriven seed</li>
+                        <li>Anteckningar</li>
+                        <li>Filer i appens Documents / Library</li>
+                    </ul>
+                </div>
+                <div>
+                    <h3>Android</h3>
+                    <ul>
+                        <li>DCIM, Screenshots, Downloads</li>
+                        <li><code>files/</code> och <code>shared_prefs/</code> under paketets datakatalog</li>
+                        <li>QR i galleriet — <code>owner_package_name</code></li>
+                    </ul>
+                </div>
+            </div>
+            <p class="tools">
+                <a href="../tools/QR2URL/QR2URL.html" data-tool="tools/QR2URL/QR2URL.html">QR Code Decoder</a>
+                ·
+                <a href="../tools/db-queries/queries.html?db=photos-ios17-plus" data-tool="tools/db-queries/queries.html?db=photos-ios17-plus">Photos.sqlite</a>
+                ·
+                <a href="https://github.com/AdrianNeshad/CryptoToolbox" target="_blank" rel="noopener noreferrer">Crypto Toolbox</a>
+            </p>
+        </section>
+
+        <section class="step" id="step-3">
+            <div class="step-head">
+                <span class="step-num">3</span>
+                <h2>Webbläsare och exchange</h2>
+            </div>
+            <div class="cols">
+                <div>
+                    <h3>iOS</h3>
+                    <ul>
+                        <li>Safari: <code>/private/var/mobile/Library/Safari/History.db</code></li>
+                        <li>Chrome och andra webbläsare som egna appar</li>
+                        <li>Exchange-app: samma spår som steg 1</li>
+                    </ul>
+                    <p class="tools"><a href="../tools/db-queries/queries.html?db=knowledgec" data-tool="tools/db-queries/queries.html?db=knowledgec">Queries</a></p>
+                </div>
+                <div>
+                    <h3>Android</h3>
+                    <ul>
+                        <li>Chrome: <code>/data/data/com.android.chrome/app_chrome/Default/History</code></li>
+                        <li>Andra webbläsare under eget paket</li>
+                        <li>Exchange-app: privat lagring + WAL</li>
+                    </ul>
+                    <p class="tools"><a href="../tools/db-queries/queries.html?db=wellbeing" data-tool="tools/db-queries/queries.html?db=wellbeing">Queries</a></p>
+                </div>
+            </div>
+        </section>
+
+        <section class="step" id="step-4">
+            <div class="step-head">
+                <span class="step-num">4</span>
+                <h2>Strängar: hash och avkodning</h2>
+            </div>
+            <p class="shared">Hash och avkodning görs här. Ser strängen ut som en adress, nyckel eller seed går tolkningen vidare till Crypto Toolbox.</p>
+            <ul>
+                <li>Hash av plånboksfil eller skärmdump</li>
+                <li>Avkoda det som är kodat (base64, hex, JSON, JWT)</li>
+                <li>Jämför mot en känd hash om en finns</li>
+            </ul>
+            <p class="tools">
+                <a href="../tools/hash-calculator/hash.html" data-tool="tools/hash-calculator/hash.html">Hash Calculator</a>
+                ·
+                <a href="../tools/CyberChef/index.html" data-tool="tools/CyberChef/index.html">CyberChef</a>
+                ·
+                <a href="../tools/text-formatter/formatter.html" data-tool="tools/text-formatter/formatter.html">Magic Text</a>
+                ·
+                <a href="https://github.com/AdrianNeshad/CryptoToolbox" target="_blank" rel="noopener noreferrer">Crypto Toolbox</a>
+            </p>
+        </section>
+
+        <section class="step" id="step-5">
+            <div class="step-head">
+                <span class="step-num">5</span>
+                <h2>Block explorer</h2>
+            </div>
+            <p class="shared">Jämför adressen i en publik block explorer. Den körs inte i den här appen.</p>
+            <ul>
+                <li>Samma adress i mer än en källa på enheten</li>
+                <li>Tidpunkt mot appaktivitet och webbläsarhistorik</li>
+            </ul>
+            <p class="tools">
+                <a href="https://mempool.space/" target="_blank" rel="noopener noreferrer">mempool.space</a>
+                ·
+                <a href="https://etherscan.io/" target="_blank" rel="noopener noreferrer">Etherscan</a>
+                ·
+                <a href="../tools/external-tools/index.html" data-tool="tools/external-tools/index.html">Externa verktyg</a>
+            </p>
+        </section>
+    </div>
+
+    <script>
+        window.addEventListener('message', function (event) {
+            if (event.source !== window.parent) return;
+            var data = event.data;
+            if (data && (data.source === 'forensics-toolbox' || data.source === 'verktygslada') &&
+                data.type === 'theme' && (data.theme === 'light' || data.theme === 'dark')) {
+                document.documentElement.setAttribute('data-theme', data.theme);
+                try { localStorage.setItem('theme', data.theme); } catch (e) {}
+            }
+        });
+
+        document.querySelectorAll('[data-tool]').forEach(function (link) {
+            link.addEventListener('click', function (event) {
+                if (!window.parent || window.parent === window) return;
+                event.preventDefault();
+                window.parent.postMessage({
+                    source: 'forensics-toolbox',
+                    type: 'open-tool',
+                    src: link.getAttribute('data-tool')
+                }, '*');
+            });
+        });
+    </script>
+</body>
+
+</html>
