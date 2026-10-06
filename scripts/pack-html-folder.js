@@ -30,7 +30,6 @@ const INCLUDE = [
     'src',
     'tools',
     'documentation',
-    'data',
     'queries',
 ];
 
