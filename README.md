@@ -4,10 +4,11 @@ Lokal verktygslåda för **IT-forensik**. Körs helt offline som Electron-app (l
 
 Forkad och omarbetad från [AdrianNeshad/CryptoToolbox](https://github.com/AdrianNeshad/CryptoToolbox) (Verktygslådan).
 
-## Verktyg (v1.4)
+## Verktyg (v1.5)
 
 | Verktyg | Beskrivning |
 |---------|-------------|
+| App-ID | Sök appnamn — Android-paket och iOS bundle-id, med butikslänk |
 | Time Converter | Unix, Apple Cocoa/NSDate, WebKit/Chrome, FILETIME, ISO — full matris + tolkningsjämförelse |
 | iOS Keychain | Krypterad iPhone-/iPad-backup — konton, lösenord, tokens och certifikat |
 | Hash Calculator | MD5 / SHA-1 / SHA-256 (fler algoritmer valbara), drag-and-drop, stora filer läses i bitar, jämför mot känd hash |
@@ -50,7 +51,7 @@ Paketerad Linux-build (AppImage + uppackad mapp):
 
 ```bash
 npm run dist:linux
-# AppImage: release/ForensicsToolbox-1.4.AppImage
+# AppImage: release/ForensicsToolbox-1.5.AppImage
 # Uppackad:  release/linux-unpacked/  → kör ./forensics-toolbox
 ```
 
@@ -83,8 +84,8 @@ npm run dist:mac      # osignerat DMG + ZIP
 
 Release-filer (GitHub Releases):
 
-- `ForensicsToolbox-1.4.exe` — portabel Windows
-- `ForensicsToolbox-1.4-html.zip` — packa upp och öppna `Toolbox.html` (ingen .exe)
+- `ForensicsToolbox-1.5.exe` — portabel Windows
+- `ForensicsToolbox-1.5-html.zip` — packa upp och öppna `Toolbox.html` (ingen .exe)
 
 | Mål | Kommando | Output |
 |-----|----------|--------|

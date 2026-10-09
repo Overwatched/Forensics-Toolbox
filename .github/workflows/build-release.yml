@@ -170,9 +170,9 @@ jobs:
           body: |
             Automatiskt byggd från commit `${{ github.sha }}`.
 
-            ## Nytt i 1.4
-            - **Electron 44.5.1** — skalet är uppdaterat från Electron 33. Chromium är 152. Tema, verktyg och CyberChef är oförändrade i funktion.
-            - **electron-builder 26.17.0** — paketeringen följer med, så den tidigare kritiska `tar`-träffen i byggkedjan är borta.
+            ## Nytt i 1.5
+            - **App-ID** — sök ett appnamn och få Android-paket och iOS bundle-id, med länk till Play Store eller App Store. Filtrera på typ (chatt, krypto, Sverige med flera) och exportera de appar som visas som CSV, med skilda kolumner för iOS och Android.
+            - Katalogen är offline. iOS-id är lästa ur iTunes lookup. Saknas en plattform lämnas fältet tomt.
 
             ## Windows
             - **ForensicsToolbox-${{ needs.version.outputs.version }}.exe** — portabel
