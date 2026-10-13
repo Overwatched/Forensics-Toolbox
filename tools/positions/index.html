@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="sv">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Positioner</title>
+    <script src="../_shared/toolkit.js"></script>
+    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="../_shared/map/map.css">
+</head>
+<body>
+    <div id="container">
+        <header class="page-header">
+            <h1>Positioner</h1>
+            <p>Karta och rutt från GPX, KML, CSV, GeoJSON, Google-tidslinje och bilder. Allt läses lokalt.</p>
+        </header>
+        <section class="import-bar">
+            <button type="button" id="pick" class="primary-btn">Lägg till källa</button>
+            <input type="file" id="file" multiple hidden>
+            <textarea id="paste" rows="2" placeholder="Eller klistra in: 59.3293, 18.0686 2024-06-01 14:00"></textarea>
+            <button type="button" id="paste-add" class="secondary-btn">Lägg till</button>
+        </section>
+        <section id="columns" class="columns display-none"></section>
+        <p id="status" class="status"></p>
+        <div class="workspace">
+            <aside class="layers">
+                <div class="layer-head">
+                    <strong>Källor</strong>
+                    <div class="time-range">
+                        <input type="datetime-local" id="time-from" aria-label="Från">
+                        <input type="datetime-local" id="time-to" aria-label="Till">
+                    </div>
+                </div>
+                <div id="layer-list"></div>
+                <div id="manual" class="manual display-none">
+                    <p id="manual-where"></p>
+                    <input id="manual-name" type="text" placeholder="Etikett">
+                    <input id="manual-time" type="datetime-local" aria-label="Tid">
+                    <button type="button" id="manual-add" class="secondary-btn">Lägg till punkt</button>
+                </div>
+                <div class="exports">
+                    <button type="button" data-export="kml" class="secondary-btn">KML</button>
+                    <button type="button" data-export="gpx" class="secondary-btn">GPX</button>
+                    <button type="button" data-export="geojson" class="secondary-btn">GeoJSON</button>
+                    <button type="button" data-export="csv" class="secondary-btn">CSV</button>
+                </div>
+            </aside>
+            <div id="map-host"></div>
+        </div>
+    </div>
+    <script src="../_shared/map/map-core.js"></script>
+    <script src="../_shared/map/import-core.js"></script>
+    <script src="../_shared/map/map-view.js"></script>
+    <script src="script.js"></script>
+</body>
+</html>

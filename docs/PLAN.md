@@ -132,6 +132,7 @@ Samma ton: korta steg, paths, länkar till queries när de finns. Inga mål/begr
 9. ~~App-ID: omvänd uppslagning + system-, kamera-, moln- och valvappar~~  
 10. ~~Photos.sqlite: rätt schema per version + frågor om app, kamera, position, skärmdumpar, redigeringar, Delat med dig, personer, album~~  
 11. ~~Karta i EXIF-visaren: offline världen + Sverige zoom 14, valfri onlinekarta (OpenFreeMap), rutt, tidsfilter, KML/GeoJSON~~  
+12. ~~EXIF & karta i full yta, filnamnsmönster, ta bort ur listan, verktyget Positioner, rutt med turer och fart~~ (`docs/PLAN-karta.md`)  
 
 ### Medvetet senare
 

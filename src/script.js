@@ -66,6 +66,7 @@ function initToolNav() {
         const separator = src.indexOf('?') === -1 ? '?' : '&';
         frame.src = src + separator + 'theme=' + theme;
         frame.addEventListener('load', () => {
+            frame.dataset.ready = '1';
             postToFrame(frame, { source: 'forensics-toolbox', type: 'theme', theme: currentTheme() });
         });
         host.appendChild(frame);
@@ -121,6 +122,14 @@ function initToolNav() {
     window.addEventListener('message', (event) => {
         const data = event.data;
         if (!data || (data.source !== 'forensics-toolbox' && data.source !== 'verktygslada')) return;
+        if (data.type === 'positions' && Array.isArray(data.points)) {
+            openTool('tools/positions/index.html');
+            const frame = frames.get('tools/positions/index.html');
+            const send = () => postToFrame(frame, { source: 'forensics-toolbox', type: 'positions', points: data.points });
+            if (frame && frame.dataset.ready) send();
+            else if (frame) frame.addEventListener('load', send, { once: true });
+            return;
+        }
         if (data.type !== 'open-tool' || typeof data.src !== 'string') return;
         openTool(data.src);
     });

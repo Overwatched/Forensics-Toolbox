@@ -1,0 +1,112 @@
+/* Gemensam kartvy. Laddas före maplibre-gl.css, så .map-wrap-prefixen vinner över bibliotekets popup. */
+
+.map-wrap {
+    position: relative;
+    height: max(420px, calc(100vh - 340px));
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    overflow: hidden;
+    background: var(--surface);
+}
+
+/* MapLibre sätter position: relative på behållaren, så höjden måste vara explicit. */
+.map { width: 100%; height: 100%; }
+
+.map-panel {
+    position: absolute;
+    top: 10px;
+    left: 10px;
+    max-width: min(380px, calc(100% - 80px));
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 10px 12px;
+    font-size: 12px;
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.18);
+    z-index: 2;
+}
+
+.map-status { color: var(--text-muted); line-height: 1.45; }
+.map-status.offline::before { content: "● "; color: var(--ok); }
+.map-status.online::before { content: "● "; color: var(--warn); }
+.map-status.missing { color: var(--warn); }
+.map-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; margin-top: 8px; }
+.toggle { display: inline-flex; align-items: center; gap: 6px; font-weight: 650; cursor: pointer; }
+.toggle input { accent-color: var(--accent); }
+.map-note { color: var(--text-muted); margin-top: 6px; line-height: 1.45; }
+.map-note:empty { display: none; }
+.map-fallback { margin-top: 8px; display: flex; flex-direction: column; gap: 8px; align-items: flex-start; color: var(--text-muted); line-height: 1.45; }
+
+.consent {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: min(440px, calc(100% - 40px));
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 18px 20px;
+    font-size: 13px;
+    line-height: 1.5;
+    box-shadow: 0 20px 50px rgba(0, 0, 0, 0.35);
+    z-index: 3;
+}
+
+.consent h3 { font-size: 15px; margin-bottom: 8px; }
+.consent p + p { margin-top: 6px; }
+.consent-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
+
+.map-wrap .maplibregl-popup-content {
+    background: var(--surface);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 12px 14px;
+    font-family: inherit;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+}
+
+.map-wrap .maplibregl-popup-close-button { color: var(--text-muted); font-size: 18px; padding: 0 6px; }
+.map-wrap .maplibregl-popup-anchor-bottom .maplibregl-popup-tip { border-top-color: var(--surface); }
+.map-wrap .maplibregl-popup-anchor-top .maplibregl-popup-tip { border-bottom-color: var(--surface); }
+.map-wrap .maplibregl-popup-anchor-left .maplibregl-popup-tip { border-right-color: var(--surface); }
+.map-wrap .maplibregl-popup-anchor-right .maplibregl-popup-tip { border-left-color: var(--surface); }
+
+.map-popup { font-size: 12px; min-width: 200px; }
+.map-thumb { display: block; width: 100%; max-height: 170px; object-fit: cover; border-radius: 8px; margin-bottom: 8px; background: var(--bg); }
+.map-popup-name { font-weight: 650; font-size: 13px; word-break: break-all; padding-right: 14px; }
+.map-popup-dir { color: var(--text-muted); word-break: break-all; margin-top: 2px; }
+.map-popup dl { display: grid; grid-template-columns: max-content 1fr; gap: 3px 10px; margin-top: 8px; }
+.map-popup dt { color: var(--text-muted); }
+.map-popup-actions { display: flex; gap: 6px; margin-top: 10px; }
+.map-popup-list { display: flex; flex-direction: column; max-height: 220px; overflow-y: auto; margin-top: 8px; }
+
+.map-popup-item {
+    display: flex;
+    justify-content: space-between;
+    gap: 10px;
+    border: none;
+    border-top: 1px solid var(--border);
+    background: transparent;
+    color: var(--text);
+    font: inherit;
+    text-align: left;
+    padding: 6px 2px;
+    cursor: pointer;
+}
+
+.map-popup-item:hover { color: var(--accent); }
+.map-popup-item span:first-child { word-break: break-all; }
+.map-popup-item .muted { white-space: nowrap; }
+
+.map-steps { margin-top: 6px; }
+.map-step-list { max-height: 180px; overflow: auto; }
+.map-step-list summary { cursor: pointer; font-weight: 650; }
+.map-time {
+    position: absolute; left: 10px; right: 54px; bottom: 10px; z-index: 2;
+    display: flex; align-items: center; gap: 8px;
+    background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 6px 10px;
+}
+.map-time input[type="range"] { flex: 1; }
+.map-time-label { font-size: 11px; color: var(--text-muted); white-space: nowrap; }

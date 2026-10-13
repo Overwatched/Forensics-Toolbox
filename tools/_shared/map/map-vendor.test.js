@@ -9,9 +9,9 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 
 const VENDOR = path.join(__dirname, 'vendor', 'maps');
-const ROOT = path.join(__dirname, '..', '..');
+const ROOT = path.join(__dirname, '..', '..', '..');
 const versions = require('./vendor/maps/VERSIONS.json');
-const maps = require('../../electron/map-protocol.js');
+const maps = require('../../../electron/map-protocol.js');
 
 function sha256(file) {
     return crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');

@@ -1,4 +1,4 @@
-// Kartvyn i EXIF-visaren. MapLibre och kartresurserna laddas först när kartan öppnas.
+// Gemensam kartvy. MapLibre och kartresurserna laddas först när kartan öppnas.
 //
 // Offline (standard): kartfilerna i appens maps/-mapp via ftmaps://, eller .pmtiles-filer
 // som användaren väljer (HTML-versionen). Typsnitt och ikoner är inbäddade, så inget
@@ -8,8 +8,11 @@
 (function (root) {
     'use strict';
 
-    var VENDOR_CSS = 'vendor/maps/maplibre-gl.css';
-    var VENDOR_JS = ['vendor/maps/maplibre.js', 'vendor/maps/map-assets.js'];
+    // Sökvägar relativt den här filen, så att både EXIF-verktyget och Positioner kan använda den.
+    var SCRIPT_BASE = document.currentScript ? new URL('./', document.currentScript.src) : null;
+    function vendorUrl(rel) { return SCRIPT_BASE ? new URL(rel, SCRIPT_BASE).href : rel; }
+    var VENDOR_CSS = vendorUrl('vendor/maps/maplibre-gl.css');
+    var VENDOR_JS = [vendorUrl('vendor/maps/maplibre.js'), vendorUrl('vendor/maps/map-assets.js')];
     var MAP_DATA = 'ftmaps://data/';
     var ONLINE = {
         name: 'OpenFreeMap',
@@ -25,8 +28,6 @@
     var protocolsReady = false;
     var archives = [];
     var manifest = null;
-
-    function $(id) { return document.getElementById(id); }
 
     function make(tag, className, text) {
         var node = document.createElement(tag);
@@ -193,23 +194,79 @@
         return 'other';
     }
 
-    function create(opts) {
-        var el = {
-            wrap: $('map-view'),
-            map: $('map'),
-            status: $('map-status'),
-            route: $('route-toggle'),
-            online: $('online-toggle'),
-            fit: $('map-fit'),
-            routeNote: $('route-note'),
-            note: $('map-note'),
-            fallback: $('map-fallback'),
-            pick: $('map-pick'),
-            input: $('map-input'),
-            consent: $('online-consent'),
-            consentOk: $('online-ok'),
-            consentCancel: $('online-cancel'),
+    function labeledToggle(text) {
+        var label = make('label', 'toggle');
+        var input = make('input');
+        input.type = 'checkbox';
+        label.append(input, document.createTextNode(' ' + text));
+        return { label: label, input: input };
+    }
+
+    // Panelen byggs här så att varje verktyg bara behöver en tom behållare.
+    function buildShell(host, opts) {
+        host.classList.add('map-wrap');
+        host.textContent = '';
+        var mapEl = make('div', 'map');
+        var status = make('p', 'map-status');
+        var route = labeledToggle('Rutt i tidsordning');
+        if (opts.routeOn) route.input.checked = true;
+        var perDevice = labeledToggle('Per enhet');
+        var online = labeledToggle('Onlinekarta');
+        var fit = make('button', 'link-btn', 'Visa alla');
+        fit.type = 'button';
+        var controls = make('div', 'map-controls');
+        controls.append(route.label, perDevice.label, online.label, fit);
+        var routeNote = make('p', 'map-note');
+        var note = make('p', 'map-note');
+        var fallback = make('div', 'map-fallback display-none');
+        fallback.append(make('p', '', 'Offlinekartan följer med skrivbordsappen. Här kan du välja kartfilerna (world.pmtiles, sweden.pmtiles) själv.'));
+        var pick = make('button', 'secondary-btn', 'Välj kartfiler…');
+        pick.type = 'button';
+        var input = make('input');
+        input.type = 'file';
+        input.accept = '.pmtiles';
+        input.multiple = true;
+        input.hidden = true;
+        fallback.append(pick, input);
+        var steps = make('div', 'map-steps');
+        var timeBar = make('div', 'map-time display-none');
+        var timeInput = make('input');
+        timeInput.type = 'range';
+        timeInput.min = '0';
+        timeInput.max = '0';
+        timeInput.value = '0';
+        var play = make('button', 'link-btn', 'Spela');
+        play.type = 'button';
+        var timeLabel = make('span', 'map-time-label', '');
+        timeBar.append(play, timeInput, timeLabel);
+        var panel = make('div', 'map-panel');
+        panel.append(status, controls, routeNote, note, steps, fallback);
+
+        var consent = make('div', 'consent display-none');
+        consent.setAttribute('role', 'dialog');
+        consent.append(make('h3', '', 'Slå på onlinekarta?'));
+        consent.append(make('p', '', 'Kartrutor hämtas från OpenFreeMap (tiles.openfreemap.org). Tjänsten ser din IP-adress och vilka kartrutor som visas, alltså ungefär vilket område du tittar på.'));
+        consent.append(make('p', '', 'Inga filer, bilder eller metadata skickas. Punkterna ritas lokalt.'));
+        consent.append(make('p', 'muted', 'Gäller tills verktyget laddas om.'));
+        var actions = make('div', 'consent-actions');
+        var consentCancel = make('button', 'secondary-btn', 'Avbryt');
+        var consentOk = make('button', 'primary-btn', 'Slå på');
+        consentCancel.type = 'button';
+        consentOk.type = 'button';
+        actions.append(consentCancel, consentOk);
+        consent.append(actions);
+        host.append(mapEl, panel, timeBar, consent);
+        return {
+            wrap: host, map: mapEl, status: status, route: route.input, perDevice: perDevice.input, online: online.input, fit: fit,
+            routeNote: routeNote, note: note, steps: steps, timeBar: timeBar, timeInput: timeInput, play: play, timeLabel: timeLabel,
+            fallback: fallback, pick: pick, input: input,
+            consent: consent, consentOk: consentOk, consentCancel: consentCancel,
         };
+    }
+
+    function create(opts) {
+        if (!opts || !opts.host) throw new Error('Kartan behöver en behållare');
+        var el = buildShell(opts.host, opts);
         var map = null;
         var ready = null;
         var online = false;
@@ -250,18 +307,50 @@
                         type: 'Feature',
                         id: p.id,
                         geometry: { type: 'Point', coordinates: [p.lon, p.lat] },
-                        properties: { id: p.id, kind: kind(p.mime), step: steps[p.id] || 0 },
+                        properties: { id: p.id, kind: kind(p.mime), step: steps[p.id] || 0, color: p.color || '' },
                     };
                 }),
             };
         }
 
+        var TRIP_COLORS = ['#ff9f0a', '#64d2ff', '#30d158', '#bf5af2', '#ff375f', '#ffd60a'];
+
+        function shownRoutes() {
+            if (!el.route.checked) return [];
+            if (el.perDevice.checked && root.MapCore.routesBy) {
+                return root.MapCore.routesBy(points, 'device')
+                    .map(function (g) { return g.route; });
+            }
+            return routeInfo ? [routeInfo] : [];
+        }
+
         function routeGeojson() {
-            var coords = el.route.checked && routeInfo ? routeInfo.steps.map(function (s) { return [s.point.lon, s.point.lat]; }) : [];
-            return {
-                type: 'FeatureCollection',
-                features: coords.length > 1 ? [{ type: 'Feature', geometry: { type: 'LineString', coordinates: coords }, properties: {} }] : [],
-            };
+            var features = [];
+            shownRoutes().forEach(function (r, group) {
+                (r.trips || []).forEach(function (trip) {
+                    var color = trip.color || TRIP_COLORS[(trip.index - 1 + group) % TRIP_COLORS.length];
+                    var coords = trip.steps.map(function (s) { return [s.point.lon, s.point.lat]; });
+                    if (coords.length > 5000 && root.MapCore.simplify) coords = root.MapCore.simplify(coords, 0.0002);
+                    if (coords.length > 1) {
+                        features.push({
+                            type: 'Feature',
+                            geometry: { type: 'LineString', coordinates: coords },
+                            properties: { color: color, implausible: 0 },
+                        });
+                    }
+                    for (var i = 1; i < trip.steps.length; i++) {
+                        var b = trip.steps[i];
+                        if (!b.fromPrev || !b.fromPrev.implausible) continue;
+                        var a = trip.steps[i - 1];
+                        features.push({
+                            type: 'Feature',
+                            geometry: { type: 'LineString', coordinates: [[a.point.lon, a.point.lat], [b.point.lon, b.point.lat]] },
+                            properties: { color: '#ff453a', implausible: 1 },
+                        });
+                    }
+                });
+            });
+            return { type: 'FeatureCollection', features: features };
         }
 
         function addDataLayers() {
@@ -273,7 +362,14 @@
             map.addLayer({
                 id: 'route-line', type: 'line', source: 'route',
                 layout: { 'line-join': 'round', 'line-cap': 'round' },
-                paint: { 'line-color': '#ff9f0a', 'line-width': 3, 'line-opacity': 0.9 },
+                paint: { 'line-color': ['get', 'color'], 'line-width': 3, 'line-opacity': 0.9 },
+                filter: ['==', ['get', 'implausible'], 0],
+            });
+            map.addLayer({
+                id: 'route-bad', type: 'line', source: 'route',
+                filter: ['==', ['get', 'implausible'], 1],
+                layout: { 'line-join': 'round', 'line-cap': 'round' },
+                paint: { 'line-color': '#ff453a', 'line-width': 3, 'line-dasharray': [2, 2] },
             });
             map.addLayer({
                 id: 'route-arrows', type: 'symbol', source: 'route',
@@ -300,7 +396,8 @@
             map.addLayer({
                 id: 'points', type: 'circle', source: 'files', filter: ['!', ['has', 'point_count']],
                 paint: {
-                    'circle-color': ['match', ['get', 'kind'], 'image', COLORS.image, 'video', COLORS.video, COLORS.other],
+                    'circle-color': ['case', ['!=', ['get', 'color'], ''], ['get', 'color'],
+                        ['match', ['get', 'kind'], 'image', COLORS.image, 'video', COLORS.video, COLORS.other]],
                     'circle-radius': ['case', ['boolean', ['feature-state', 'selected'], false], 10, 7],
                     'circle-stroke-color': ['case', ['boolean', ['feature-state', 'selected'], false], '#ff9f0a', '#ffffff'],
                     'circle-stroke-width': ['case', ['boolean', ['feature-state', 'selected'], false], 3, 2],
@@ -377,7 +474,12 @@
             row('Enhet', p.device);
             row('Position', p.lat + ', ' + p.lon);
             var step = routeInfo && routeInfo.steps.filter(function (s) { return s.point.id === p.id; })[0];
-            if (step) row('Rutt', 'Punkt ' + step.index + ' av ' + routeInfo.steps.length + (step.assumed ? ' (tidszon antagen)' : ''));
+            if (step) {
+                var routeText = 'Punkt ' + step.index + ' av ' + routeInfo.steps.length + (step.assumed ? ' (tidszon antagen)' : '');
+                if (step.trip && routeInfo.trips && routeInfo.trips.length > 1) routeText += ' · tur ' + step.trip;
+                row('Rutt', routeText);
+                if (step.fromPrev && root.MapCore.legText) row('Steg', root.MapCore.legText(step.fromPrev));
+            }
             box.append(dl);
             var actions = make('div', 'map-popup-actions');
             var more = make('button', 'link-btn', 'Visa metadata');
@@ -387,6 +489,15 @@
             copy.type = 'button';
             copy.addEventListener('click', function () { opts.copy(p.lat + ', ' + p.lon); });
             actions.append(more, copy);
+            if (opts.onRemove) {
+                var remove = make('button', 'link-btn', 'Ta bort ur listan');
+                remove.type = 'button';
+                remove.addEventListener('click', function () {
+                    closePopup();
+                    opts.onRemove(p.id);
+                });
+                actions.append(remove);
+            }
             box.append(actions);
             return box;
         }
@@ -439,6 +550,10 @@
         }
 
         function bindEvents() {
+            map.on('contextmenu', function (e) {
+                e.preventDefault();
+                if (opts.onContext) opts.onContext({ lat: e.lngLat.lat, lon: e.lngLat.lng });
+            });
             map.on('click', 'clusters', function (e) {
                 var f = e.features[0];
                 var src = map.getSource('files');
@@ -534,15 +649,86 @@
             routeInfo = info;
             byId = {};
             list.forEach(function (p) { byId[p.id] = p; });
-            el.routeNote.textContent = el.route.checked && info && info.steps.length > 1 ? root.MapCore.routeNote(info) : '';
+            el.routeNote.textContent = el.route.checked && info && info.steps.length > 1
+                ? [root.MapCore.routeNote(info), root.MapCore.routeSummary ? root.MapCore.routeSummary(info) : ''].filter(Boolean).join(' ')
+                : '';
+            renderSteps();
+            setupTime();
             el.note.textContent = notes || '';
             if (popup && selectedId !== null && !byId[selectedId]) closePopup();
             refreshData();
         }
 
+        function renderSteps() {
+            el.steps.textContent = '';
+            if (!el.route.checked || !routeInfo || routeInfo.steps.length < 2) return;
+            var details = make('details', 'map-step-list');
+            details.append(make('summary', '', 'Steg (' + routeInfo.steps.length + ')'));
+            routeInfo.steps.forEach(function (s) {
+                var b = make('button', 'map-popup-item');
+                b.type = 'button';
+                var when = s.point.taken ? s.point.taken.text : '';
+                b.append(make('span', '', s.index + '. ' + s.point.name), make('span', 'muted', when.slice(11, 16)));
+                b.addEventListener('click', function () { openPoint(s.point); });
+                details.append(b);
+            });
+            el.steps.append(details);
+        }
+
+        var playTimer = null;
+        function setupTime() {
+            if (playTimer) { clearInterval(playTimer); playTimer = null; el.play.textContent = 'Spela'; }
+            var on = el.route.checked && routeInfo && routeInfo.steps.length > 1;
+            el.timeBar.classList.toggle('display-none', !on);
+            if (!on) return;
+            el.timeInput.min = String(routeInfo.steps[0].at);
+            el.timeInput.max = String(routeInfo.steps[routeInfo.steps.length - 1].at);
+            el.timeInput.value = el.timeInput.max;
+            el.timeLabel.textContent = '';
+        }
+
+        function showTime(t) {
+            if (!routeInfo || !root.MapCore.positionAt) return;
+            var pos = root.MapCore.positionAt(routeInfo, t);
+            if (!pos) return;
+            var when = new Date(t);
+            var label = when.toLocaleString('sv-SE');
+            if (pos.interpolated) label += ' · interpolerad, inte uppmätt';
+            else if (pos.before) label += ' · ' + pos.before.point.name;
+            el.timeLabel.textContent = label;
+            if (!map || !map.getSource('files')) return;
+            var data = geojson();
+            data.features.push({
+                type: 'Feature', id: -1,
+                geometry: { type: 'Point', coordinates: [pos.lon, pos.lat] },
+                properties: { id: -1, kind: 'other', step: 0, color: '#ff453a' },
+            });
+            map.getSource('files').setData(data);
+        }
+
         el.route.addEventListener('change', function () {
-            el.routeNote.textContent = el.route.checked && routeInfo && routeInfo.steps.length > 1 ? root.MapCore.routeNote(routeInfo) : '';
+            el.routeNote.textContent = el.route.checked && routeInfo && routeInfo.steps.length > 1
+                ? [root.MapCore.routeNote(routeInfo), root.MapCore.routeSummary ? root.MapCore.routeSummary(routeInfo) : ''].filter(Boolean).join(' ')
+                : '';
+            renderSteps();
+            setupTime();
             refreshData();
+        });
+        el.perDevice.addEventListener('change', refreshData);
+        el.timeInput.addEventListener('input', function () { showTime(Number(el.timeInput.value)); });
+        el.play.addEventListener('click', function () {
+            if (playTimer) { clearInterval(playTimer); playTimer = null; el.play.textContent = 'Spela'; return; }
+            var start = Number(el.timeInput.min);
+            var end = Number(el.timeInput.max);
+            var t = Number(el.timeInput.value);
+            if (t >= end) t = start;
+            el.play.textContent = 'Stopp';
+            playTimer = setInterval(function () {
+                t += (end - start) / 40;
+                if (t >= end) { t = end; clearInterval(playTimer); playTimer = null; el.play.textContent = 'Spela'; }
+                el.timeInput.value = String(t);
+                showTime(t);
+            }, 200);
         });
         el.fit.addEventListener('click', fit);
         el.online.addEventListener('change', function () {
@@ -593,9 +779,11 @@
                     openPoint(p);
                 });
             },
+            resize: function () { if (map) map.resize(); },
             onlineHost: ONLINE.host,
         };
     }
 
-    root.ExifMap = { create: create };
+    root.ToolboxMap = { create: create };
+    root.ExifMap = root.ToolboxMap;
 })(window);

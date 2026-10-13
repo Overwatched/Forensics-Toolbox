@@ -4,15 +4,16 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>EXIF-visare</title>
+    <title>EXIF &amp; karta</title>
     <script src="../_shared/toolkit.js"></script>
     <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="../_shared/map/map.css">
 </head>
 
 <body>
     <div id="container">
         <header class="page-header">
-            <h1>EXIF-visare</h1>
+            <h1>EXIF &amp; karta</h1>
             <p>Metadata för alla filer i en mapp: bilder, video, ljud, PDF och Office. ExifTool körs lokalt i
                 WebAssembly. Filerna läses bara, och verktyget kan inte skriva metadata.</p>
         </header>
@@ -68,42 +69,16 @@
                         <button type="button" data-export="geojson">GeoJSON<span>positioner och rutt, QGIS</span></button>
                     </div>
                 </details>
+                <button type="button" id="to-positions" class="secondary-btn">Till Positioner</button>
                 <button type="button" id="clear" class="secondary-btn">Rensa</button>
             </div>
-            <div id="map-view" class="map-wrap display-none">
-                <div id="map" class="map"></div>
-                <div class="map-panel">
-                    <p id="map-status" class="map-status"></p>
-                    <div class="map-controls">
-                        <label class="toggle"><input type="checkbox" id="route-toggle"> Rutt i tidsordning</label>
-                        <label class="toggle"><input type="checkbox" id="online-toggle"> Onlinekarta</label>
-                        <button type="button" id="map-fit" class="link-btn">Visa alla</button>
-                    </div>
-                    <p id="route-note" class="map-note"></p>
-                    <p id="map-note" class="map-note"></p>
-                    <div id="map-fallback" class="map-fallback display-none">
-                        <p>Offlinekartan följer med skrivbordsappen. Här kan du välja kartfilerna
-                            (<code>world.pmtiles</code>, <code>sweden.pmtiles</code>) själv.</p>
-                        <button type="button" id="map-pick" class="secondary-btn">Välj kartfiler…</button>
-                        <input type="file" id="map-input" accept=".pmtiles" multiple hidden>
-                    </div>
-                </div>
-                <div id="online-consent" class="consent display-none" role="dialog" aria-labelledby="consent-title">
-                    <h3 id="consent-title">Slå på onlinekarta?</h3>
-                    <p>Kartrutor hämtas från OpenFreeMap (tiles.openfreemap.org). Tjänsten ser din IP-adress och
-                        vilka kartrutor som visas, alltså ungefär vilket område du tittar på.</p>
-                    <p>Inga filer, bilder eller metadata skickas. Punkterna ritas lokalt.</p>
-                    <p class="muted">Gäller tills verktyget laddas om.</p>
-                    <div class="consent-actions">
-                        <button type="button" id="online-cancel" class="secondary-btn">Avbryt</button>
-                        <button type="button" id="online-ok" class="primary-btn">Slå på</button>
-                    </div>
-                </div>
-            </div>
+            <div id="map-view" class="display-none"></div>
+            <div id="selection-bar" class="selection-bar display-none"></div>
             <div id="table-view" class="table-wrap">
                 <table class="files">
                     <thead>
                         <tr>
+                            <th class="cell-check"><input type="checkbox" id="select-all" aria-label="Markera alla synliga"></th>
                             <th data-sort="path">Fil</th>
                             <th data-sort="type">Typ</th>
                             <th data-sort="taken">Tid</th>
@@ -111,6 +86,7 @@
                             <th data-sort="software">Programvara</th>
                             <th data-sort="position">Position</th>
                             <th>Flaggor</th>
+                            <th class="cell-remove"></th>
                         </tr>
                     </thead>
                     <tbody id="rows"></tbody>
@@ -144,8 +120,8 @@
     <div id="toast" class="toast">Kopierat</div>
     <script src="../app-ids/catalog.js"></script>
     <script src="exif-core.js"></script>
-    <script src="map-core.js"></script>
-    <script src="map-view.js"></script>
+    <script src="../_shared/map/map-core.js"></script>
+    <script src="../_shared/map/map-view.js"></script>
     <script src="vendor/exiftool/exiftool-worker.js"></script>
     <script src="vendor/exiftool/zeroperl-wasm.js"></script>
     <script src="script.js"></script>

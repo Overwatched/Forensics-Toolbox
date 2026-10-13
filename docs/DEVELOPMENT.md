@@ -115,7 +115,12 @@ workern från `scripts/exiftool/worker-entry.mjs` med esbuild och lägger in
 `exif-vendor.test.js` kontrollerar wasm-filens SHA-256 och läser en riktig bild med
 workern. Byt version genom att ändra `PACKAGES` i skriptet och köra det igen.
 
-### Kartor i EXIF-visaren
+### Kartor i EXIF & karta
+
+Kartan delas av EXIF & karta och Positioner. Koden ligger i `tools/_shared/map/`
+(`map-core.js`, `map-view.js`, `import-core.js`, `vendor/maps/`). `ToolboxMap.create({ host })`
+bygger panelen själv. Positioner läser GPX, KML, CSV, GeoJSON, Google-tidslinje och
+inklistrade koordinater. EXIF & karta kan skicka synliga positioner dit via hubben.
 
 Kartvyn (`map-view.js`, logik i `map-core.js`) använder MapLibre GL och Protomaps
 vektorkartor i PMTiles-format.

@@ -11,7 +11,7 @@
         { id: 'stripped', label: 'Ingen kamerametadata' },
         { id: 'screenshot', label: 'Skärmdumpar' },
         { id: 'edited', label: 'Tecken på redigering' },
-        { id: 'app', label: 'App i filnamn' },
+        { id: 'app', label: 'Filnamnsmönster' },
         { id: 'warning', label: 'Fel och varningar' },
     ];
 
@@ -36,6 +36,9 @@
     var toastTimer = null;
 
     var rows = [];
+    var removed = new Set();
+    var selectedIds = new Set();
+    var lastRemoved = [];
     var seen = {};
     var queue = [];
     var busy = null;
@@ -204,6 +207,7 @@
     function pump() {
         if (busy || !engine.ready) return;
         var row = queue.shift();
+        while (row && removed.has(row.id)) row = queue.shift();
         if (!row) return;
         busy = row;
         engine.worker.postMessage({ type: 'parse', id: row.id, file: row.file });
@@ -284,6 +288,9 @@
         query = '';
         timeFrom.value = '';
         timeTo.value = '';
+        removed = new Set();
+        selectedIds = new Set();
+        lastRemoved = [];
         results.classList.toggle('display-none', !rows.length);
         updateProgress();
         scheduleRender();
@@ -387,6 +394,8 @@
         var from = timeFrom.value;
         var to = timeTo.value;
         var list = rows.filter(function (r) {
+            if (filter === 'removed') return removed.has(r.id);
+            if (removed.has(r.id)) return false;
             if (filter !== 'all' && !hasFlag(r, filter)) return false;
             if ((from || to) && !ExifCore.inTimeRange(r.summary && r.summary.taken, from, to)) return false;
             if (!q) return true;
@@ -424,6 +433,7 @@
     function buildRow(row) {
         var tr = make('tr', row.status === 'queued' ? 'pending' : '');
         tr.dataset.id = row.id;
+        tr.append(checkCell(row));
         var file = make('td', 'cell-file');
         file.append(make('div', 'name', row.name));
         var dir = row.path.slice(0, Math.max(0, row.path.length - row.name.length)).replace(/\/$/, '');
@@ -434,6 +444,7 @@
             var wait = make('td', 'muted', row === busy ? 'Läser…' : 'Väntar…');
             wait.colSpan = 6;
             tr.append(wait);
+            tr.append(removeCell(row));
             return tr;
         }
 
@@ -448,13 +459,125 @@
         var flagsTd = make('td');
         flagsTd.append(flagChips(s.flags.filter(function (f) { return f.id !== 'gps'; })));
         tr.append(flagsTd);
+        tr.append(removeCell(row));
         return tr;
+    }
+
+    function checkCell(row) {
+        var td = make('td', 'cell-check');
+        if (filter === 'removed') return td;
+        var box = make('input');
+        box.type = 'checkbox';
+        box.checked = selectedIds.has(row.id);
+        box.setAttribute('aria-label', 'Markera ' + row.name);
+        box.addEventListener('click', function (e) { e.stopPropagation(); });
+        box.addEventListener('change', function () {
+            if (box.checked) selectedIds.add(row.id);
+            else selectedIds.delete(row.id);
+            updateSelection();
+        });
+        td.append(box);
+        return td;
+    }
+
+    function removeCell(row) {
+        var td = make('td', 'cell-remove');
+        var gone = removed.has(row.id);
+        var b = make('button', 'row-remove', gone ? '↩' : '×');
+        b.type = 'button';
+        b.title = gone ? 'Återställ' : 'Ta bort ur listan';
+        b.setAttribute('aria-label', b.title);
+        b.addEventListener('click', function (e) {
+            e.stopPropagation();
+            if (gone) restoreRows([row]);
+            else removeRows([row]);
+        });
+        td.append(b);
+        return td;
+    }
+
+    function removeRows(list) {
+        lastRemoved = list.map(function (r) { return { id: r.id, queued: r.status === 'queued' && r !== busy }; });
+        list.forEach(function (r) {
+            removed.add(r.id);
+            selectedIds.delete(r.id);
+            queue = queue.filter(function (q) { return q !== r; });
+        });
+        if (selected && removed.has(selected.id)) closeDetail();
+        render();
+        showRemovalToast(list.length);
+    }
+
+    function restoreRows(list) {
+        list.forEach(function (r) {
+            removed.delete(r.id);
+            if (r.status === 'queued' && r !== busy && queue.indexOf(r) < 0) queue.push(r);
+        });
+        if (!removed.size && filter === 'removed') filter = 'all';
+        pump();
+        render();
+    }
+
+    function undoRemove() {
+        var back = lastRemoved.map(function (item) {
+            return rows.filter(function (r) { return r.id === item.id; })[0];
+        }).filter(Boolean);
+        lastRemoved = [];
+        toast.classList.remove('show');
+        restoreRows(back);
+    }
+
+    function showRemovalToast(n) {
+        toast.textContent = '';
+        toast.append(document.createTextNode(
+            n + (n === 1 ? ' fil borttagen' : ' filer borttagna') + ' ur listan (filerna på disken påverkas inte) · '));
+        var undo = make('button', 'link-btn', 'Ångra');
+        undo.type = 'button';
+        undo.addEventListener('click', undoRemove);
+        toast.append(undo);
+        toast.classList.add('show');
+        clearTimeout(toastTimer);
+        toastTimer = setTimeout(function () { toast.classList.remove('show'); }, 6000);
+    }
+
+    function updateSelection() {
+        var bar = $('selection-bar');
+        var all = $('select-all');
+        var list = visibleRows();
+        if (filter === 'removed') {
+            all.checked = false;
+            bar.classList.toggle('display-none', !list.length);
+            bar.textContent = '';
+            if (list.length) {
+                bar.append(make('span', '', list.length + ' borttagna'));
+                var back = make('button', 'link-btn', 'Återställ alla');
+                back.type = 'button';
+                back.addEventListener('click', function () { restoreRows(list.slice()); });
+                bar.append(back);
+            }
+            return;
+        }
+        var marked = list.filter(function (r) { return selectedIds.has(r.id); });
+        all.checked = !!list.length && marked.length === list.length;
+        all.indeterminate = marked.length > 0 && marked.length < list.length;
+        bar.classList.toggle('display-none', !marked.length);
+        bar.textContent = '';
+        if (!marked.length) return;
+        bar.append(make('span', '', marked.length + ' markerade'));
+        var dropBtn = make('button', 'link-btn', 'Ta bort ur listan');
+        dropBtn.type = 'button';
+        dropBtn.addEventListener('click', function () { removeRows(marked); });
+        var clearBtn = make('button', 'link-btn', 'Avmarkera');
+        clearBtn.type = 'button';
+        clearBtn.addEventListener('click', function () { selectedIds.clear(); render(); });
+        bar.append(dropBtn, clearBtn);
     }
 
     function renderChips() {
         chipsEl.textContent = '';
+        var active = rows.filter(function (r) { return !removed.has(r.id); });
         FILTERS.forEach(function (f) {
-            var count = f.id === 'all' ? rows.length : rows.filter(function (r) { return hasFlag(r, f.id); }).length;
+            var count = f.id === 'all' ? active.length : active.filter(function (r) { return hasFlag(r, f.id); }).length;
             if (!count && f.id !== 'all' && filter !== f.id) return;
             var chip = make('button', 'filter-chip' + (filter === f.id ? ' active' : ''), f.label);
             chip.type = 'button';
@@ -465,6 +588,13 @@
             });
             chipsEl.append(chip);
         });
+        if (removed.size) {
+            var gone = make('button', 'filter-chip' + (filter === 'removed' ? ' active' : ''), 'Borttagna');
+            gone.type = 'button';
+            gone.append(make('b', '', removed.size.toLocaleString('sv-SE')));
+            gone.addEventListener('click', function () { filter = 'removed'; render(); });
+            chipsEl.append(gone);
+        }
     }
 
     function render() {
@@ -491,6 +621,7 @@
             empty.classList.add('display-none');
             updateMap(done, pts);
         }
+        updateSelection();
     }
 
     // --- Karta --------------------------------------------------------------------
@@ -511,7 +642,8 @@
 
     function ensureMap() {
         if (mapView) return mapView;
-        mapView = ExifMap.create({
+        mapView = ToolboxMap.create({
+            host: $('map-view'),
             onSelect: function (id) {
                 var row = rows.filter(function (r) { return r.id === id; })[0];
                 if (row) openDetail(row);
@@ -522,12 +654,20 @@
             },
             copy: copyText,
             openExternal: openExternal,
+            onRemove: function (id) {
+                var row = rows.filter(function (r) { return r.id === id; })[0];
+                if (row) removeRows([row]);
+            },
         });
         return mapView;
     }
 
     function setView(next) {
         view = next;
+        document.body.classList.toggle('map-mode', view === 'map');
+        drop.classList.toggle('compact', view === 'map');
+        $('pick-folder').textContent = view === 'map' ? 'Lägg till mapp' : 'Välj mapp';
+        $('pick-files').textContent = view === 'map' ? 'Lägg till filer' : 'Välj filer';
         document.querySelectorAll('.view-switch [data-view]').forEach(function (b) {
             var on = b.dataset.view === view;
             b.classList.toggle('active', on);
@@ -537,7 +677,9 @@
         $('map-view').classList.toggle('display-none', view !== 'map');
         if (view === 'map') ensureMap();
         render();
-        if (view === 'map') return mapView.show();
+        if (view === 'map') {
+            return mapView.show().then(function () { mapView.resize(); });
+        }
         return Promise.resolve();
     }
 
@@ -602,8 +744,12 @@
             pos.append(actions);
             summaryRow(dl, 'Position', pos, s.position.source);
         }
-        if (s.apps.length) {
-            summaryRow(dl, 'App i filnamn', s.apps.map(function (a) { return appNames[a] || a; }).join(', '), 'App-ID');
+        if (s.patterns && s.patterns.length) {
+            var box = make('span');
+            s.patterns.forEach(function (m) {
+                box.append(make('div', '', ExifCore.describePattern(m, appNames[m.app] || m.app)));
+            });
+            summaryRow(dl, 'Filnamnsmönster', box, 'App-ID');
         }
         s.flags.forEach(function (f) {
             if (f.id === 'ext' || f.id === 'gps' || f.id === 'app') return;
@@ -742,9 +888,17 @@
         render();
     });
 
+    $('to-positions').addEventListener('click', function () {
+        var pts = MapCore.points(visibleRows().filter(function (r) { return r.status === 'done'; }));
+        if (!pts.length) { showToast('Inga positioner att skicka'); return; }
+        window.parent.postMessage({ source: 'forensics-toolbox', type: 'positions', points: pts }, '*');
+        showToast(pts.length + ' positioner skickade till Positioner');
+    });
+
     document.querySelectorAll('.view-switch [data-view]').forEach(function (b) {
         b.addEventListener('click', function () { setView(b.dataset.view); });
     });
+    window.addEventListener('resize', function () { if (mapView) mapView.resize(); });
 
     document.querySelectorAll('.files th[data-sort]').forEach(function (th) {
         th.addEventListener('click', function () {
@@ -754,7 +908,16 @@
         });
     });
 
+    $('select-all').addEventListener('change', function () {
+        visibleRows().forEach(function (r) {
+            if ($('select-all').checked) selectedIds.add(r.id);
+            else selectedIds.delete(r.id);
+        });
+        render();
+    });
+
     tbody.addEventListener('click', function (e) {
+        if (e.target.closest('input, button')) return;
         var tr = e.target.closest('tr');
         if (!tr) return;
         var id = Number(tr.dataset.id);
@@ -766,6 +929,11 @@
     backdrop.addEventListener('click', closeDetail);
     document.addEventListener('keydown', function (e) {
         if (e.key === 'Escape' && selected) closeDetail();
+        var typing = /^(input|textarea)$/i.test(e.target.tagName) || e.target.isContentEditable;
+        if (!typing && (e.key === 'Delete' || e.key === 'Backspace') && view === 'table' && selectedIds.size) {
+            e.preventDefault();
+            removeRows(rows.filter(function (r) { return selectedIds.has(r.id); }));
+        }
     });
     tagSearch.addEventListener('input', renderGroups);
     $('copy-json').addEventListener('click', function () {

@@ -122,6 +122,24 @@ test('filnamnsmönster pekar på poster i App-ID', () => {
     assert.deepStrictEqual(core.filenameApps('IMG_1234.HEIC'), []);
 });
 
+test('filnamnsmönster jämförs med tillverkaren i metadata', () => {
+    const samsung = core.filenameMatches('20240601_142201.jpg', { 'IFD0:Make': 'samsung', 'IFD0:Model': 'SM-S918B' })[0];
+    assert.strictEqual(samsung.strength, 'svag');
+    assert.strictEqual(samsung.makerMatch, 'match');
+    assert.match(core.describePattern(samsung, 'Samsung Kamera'),
+        /Samsung Kamera — filnamnet följer mönstret ÅÅÅÅMMDD_TTMMSS \(används även av andra Android-kameror\)\. Uppgiften kommer från filnamnet, inte från metadata\. Stämmer med Make: samsung\./);
+
+    const renamed = core.filenameMatches('20240601_142201.jpg', { 'IFD0:Make': 'Apple', 'IFD0:Model': 'iPhone 15 Pro' })[0];
+    assert.strictEqual(renamed.makerMatch, 'mismatch');
+    assert.match(core.describePattern(renamed, 'Samsung Kamera'), /Stämmer inte med enheten i metadata/);
+
+    const noDevice = core.filenameMatches('20240601_142201.jpg', {})[0];
+    assert.strictEqual(noDevice.makerMatch, null);
+    const flag = core.summarize({}, 'PXL_20240101_120000123.jpg').flags.find((f) => f.id === 'app');
+    assert.strictEqual(flag.label, 'Filnamnsmönster');
+    assert.strictEqual(flag.patterns[0].strength, 'stark');
+});
+
 test('koordinater tolkas från grader, minuter och sekunder', () => {
     assert.strictEqual(core.parseCoord('59.3293'), 59.3293);
     assert.ok(Math.abs(core.parseCoord('33 deg 52\' 10.20" S') + 33.8695) < 1e-4);

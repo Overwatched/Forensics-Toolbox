@@ -48,18 +48,20 @@
 
     // Filnamn som appar sätter när de sparar eller exporterar. App-id:t pekar på
     // posten i App-ID-katalogen (tools/app-ids/catalog.js).
+    // hint visas för användaren. strength är hur säkert mönstret är: ren datumform
+    // används av flera Android-kameror. maker jämförs mot Make/Model när det finns.
     var FILENAME_PATTERNS = [
-        { re: /^(IMG|VID|AUD|PTT|STK|DOC)-\d{8}-WA\d{4}/i, app: 'whatsapp' },
-        { re: /^WhatsApp (Image|Video|Audio) \d{4}-\d{2}-\d{2}/i, app: 'whatsapp' },
-        { re: /^received_\d{9,}/i, app: 'messenger' },
-        { re: /^FB_IMG_\d{10,}/i, app: 'facebook' },
-        { re: /^Snapchat-\d{6,}/i, app: 'snapchat' },
-        { re: /^signal-\d{4}-\d{2}-\d{2}-\d{6}/i, app: 'signal' },
-        { re: /^photo_\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}/i, app: 'telegram' },
-        { re: /^PXL_\d{8}_\d{6,}/i, app: 'pixel-camera' },
-        { re: /^InShot_\d{8}_\d{6}/i, app: 'inshot' },
-        { re: /^lv_0_\d{14}/i, app: 'capcut' },
-        { re: /^\d{8}_\d{6}(\(\d+\))?\.(jpe?g|mp4|heic)$/i, app: 'samsung-camera' },
+        { re: /^(IMG|VID|AUD|PTT|STK|DOC)-\d{8}-WA\d{4}/i, app: 'whatsapp', hint: 'IMG-ÅÅÅÅMMDD-WA0000', strength: 'stark' },
+        { re: /^WhatsApp (Image|Video|Audio) \d{4}-\d{2}-\d{2}/i, app: 'whatsapp', hint: 'WhatsApp Image ÅÅÅÅ-MM-DD', strength: 'stark' },
+        { re: /^received_\d{9,}/i, app: 'messenger', hint: 'received_ och en lång sifferserie', strength: 'stark' },
+        { re: /^FB_IMG_\d{10,}/i, app: 'facebook', hint: 'FB_IMG_ och en lång sifferserie', strength: 'stark' },
+        { re: /^Snapchat-\d{6,}/i, app: 'snapchat', hint: 'Snapchat- och en sifferserie', strength: 'stark' },
+        { re: /^signal-\d{4}-\d{2}-\d{2}-\d{6}/i, app: 'signal', hint: 'signal-ÅÅÅÅ-MM-DD-TTMMSS', strength: 'stark' },
+        { re: /^photo_\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}/i, app: 'telegram', hint: 'photo_ÅÅÅÅ-MM-DD_TT-MM-SS', strength: 'stark' },
+        { re: /^PXL_\d{8}_\d{6,}/i, app: 'pixel-camera', hint: 'PXL_ÅÅÅÅMMDD_TTMMSS', strength: 'stark', maker: /google|pixel/i },
+        { re: /^InShot_\d{8}_\d{6}/i, app: 'inshot', hint: 'InShot_ÅÅÅÅMMDD_TTMMSS', strength: 'stark' },
+        { re: /^lv_0_\d{14}/i, app: 'capcut', hint: 'lv_0_ÅÅÅÅMMDDTTMMSS', strength: 'stark' },
+        { re: /^\d{8}_\d{6}(\(\d+\))?\.(jpe?g|mp4|heic)$/i, app: 'samsung-camera', hint: 'ÅÅÅÅMMDD_TTMMSS', strength: 'svag', maker: /samsung/i, note: 'används även av andra Android-kameror' },
     ];
 
     var ZIP_CONTAINERS = /^(docx|docm|dotx|xlsx|xlsm|pptx|pptm|odt|ods|odp|odg|epub|apk|aab|jar|ipa|xpi|kmz|pages|numbers|key|vsdx|3mf|cbz)$/i;
@@ -175,12 +177,41 @@
     }
 
     function filenameApps(name) {
+        var seen = {};
+        return filenameMatches(name, {}).filter(function (m) {
+            if (seen[m.app]) return false;
+            seen[m.app] = true;
+            return true;
+        }).map(function (m) { return m.app; });
+    }
+
+    // Jämför filnamnet med kända mönster och, när mönstret hör till en tillverkare,
+    // med Make/Model. makerMatch är 'match', 'mismatch' eller null.
+    function filenameMatches(name, tags) {
         var base = String(name || '').split(/[\\/]/).pop();
+        var make = first(tags || {}, MAKE_KEYS);
+        var model = first(tags || {}, MODEL_KEYS);
+        var deviceText = [make && make.value, model && model.value].filter(Boolean).join(' ');
         var out = [];
         FILENAME_PATTERNS.forEach(function (p) {
-            if (p.re.test(base) && out.indexOf(p.app) < 0) out.push(p.app);
+            if (!p.re.test(base) || out.some(function (m) { return m.app === p.app; })) return;
+            var makerMatch = null;
+            if (p.maker && deviceText) makerMatch = p.maker.test(deviceText) ? 'match' : 'mismatch';
+            out.push({
+                app: p.app, hint: p.hint, strength: p.strength, note: p.note || '',
+                makerMatch: makerMatch, make: make ? make.value : '',
+            });
         });
         return out;
+    }
+
+    function describePattern(match, appName) {
+        var text = (appName || match.app) + ' — filnamnet följer mönstret ' + match.hint;
+        if (match.note) text += ' (' + match.note + ')';
+        text += '. Uppgiften kommer från filnamnet, inte från metadata.';
+        if (match.makerMatch === 'match') text += ' Stämmer med Make: ' + match.make + '.';
+        if (match.makerMatch === 'mismatch') text += ' Stämmer inte med enheten i metadata.';
+        return text;
     }
 
     function editSigns(tags, software) {
@@ -230,8 +261,14 @@
         var edits = editSigns(tags, software);
         if (edits.length) flags.push({ id: 'edited', label: 'Tecken på redigering', reason: edits.join('. ') });
 
-        var apps = filenameApps(name);
-        if (apps.length) flags.push({ id: 'app', label: 'App i filnamn', reason: 'Filnamnet följer mönstret för ' + apps.join(', '), apps: apps });
+        var patterns = filenameMatches(name, tags);
+        var apps = patterns.map(function (m) { return m.app; });
+        if (patterns.length) {
+            flags.push({
+                id: 'app', label: 'Filnamnsmönster', apps: apps, patterns: patterns,
+                reason: patterns.map(function (m) { return describePattern(m, m.app); }).join(' '),
+            });
+        }
 
         var office = hasGroup(tags, ['Office:']);
         var warning = str(tags['ExifTool:Warning']);
@@ -252,6 +289,7 @@
             position: pos,
             flags: flags,
             apps: apps,
+            patterns: patterns,
         };
     }
 
@@ -454,6 +492,8 @@
         inTimeRange: inTimeRange,
         extensionMismatch: extensionMismatch,
         filenameApps: filenameApps,
+        filenameMatches: filenameMatches,
+        describePattern: describePattern,
         officeTags: officeTags,
         readZipEntries: readZipEntries,
         OFFICE_FILES: OFFICE_FILES,

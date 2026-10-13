@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert');
-const core = require('./exif-core.js');
+const core = require('../../exif-viewer/exif-core.js');
 const map = require('./map-core.js');
 
 function row(id, path, tags) {
@@ -113,4 +113,62 @@ test('toGeoJson: punkter med ordning och en rutt', () => {
     assert.strictEqual(line.geometry.type, 'LineString');
     assert.deepStrictEqual(line.geometry.coordinates[0], [18.0711, 59.3251]);
     assert.strictEqual(fc.metadata.tool, 'test');
+});
+
+function pt(id, lat, lon, sort, zone, device) {
+    return {
+        id: id, path: id + '.jpg', name: id + '.jpg', lat: lat, lon: lon, source: 'test', device: device || 'iPhone',
+        taken: { sort: sort, zone: zone || '+02:00', text: sort, kind: 'Tagen', source: 'test' }, mime: 'image/jpeg',
+    };
+}
+
+test('sträcka, fart och orimlig förflyttning', () => {
+    // Centralstationen till Slussen är ungefär 1,3 km.
+    const a = pt(1, 59.3303, 18.0586, '2024-06-01 14:00:00');
+    const b = pt(2, 59.3195, 18.0722, '2024-06-01 14:20:00');
+    const r = map.route([a, b]);
+    assert.ok(Math.abs(r.totalMeters - 1300) < 250, r.totalMeters);
+    assert.ok(r.steps[1].fromPrev.kmh < 20);
+    assert.strictEqual(r.implausible, 0);
+    assert.match(map.legText(r.steps[1].fromPrev), /Från föregående:/);
+
+    const jump = map.route([
+        pt(1, 59.33, 18.06, '2024-06-01 14:00:00'),
+        pt(2, 57.70, 11.97, '2024-06-01 14:10:00'),
+    ]);
+    assert.strictEqual(jump.implausible, 1);
+
+    const gpsHop = map.route([
+        pt(1, 59.33000, 18.06000, '2024-06-01 14:00:00'),
+        pt(2, 59.33080, 18.06000, '2024-06-01 14:00:05'),
+    ]);
+    assert.strictEqual(gpsHop.implausible, 0);
+});
+
+test('turer vid uppehåll, vistelse och en rutt per enhet', () => {
+    const walk = [
+        pt(1, 59.3303, 18.0586, '2024-06-01 14:00:00'),
+        pt(2, 59.3251, 18.0707, '2024-06-01 14:22:00'),
+        pt(3, 59.32512, 18.07068, '2024-06-01 14:31:00'),
+        pt(4, 59.3280, 18.0914, '2024-06-01 18:05:00'),
+        pt(5, 59.3157, 18.0339, '2024-06-02 09:32:00', '+02:00', 'Samsung'),
+    ];
+    const r = map.route(walk);
+    assert.strictEqual(r.trips.length, 3);
+    assert.ok(r.stays.length >= 1);
+    const groups = map.routesBy(walk, 'device');
+    assert.deepStrictEqual(groups.map((g) => g.name).sort(), ['Samsung', 'iPhone']);
+});
+
+test('position vid tid T är interpolerad mellan punkterna', () => {
+    const r = map.route([
+        pt(1, 59.0, 18.0, '2024-06-01 14:00:00'),
+        pt(2, 59.2, 18.2, '2024-06-01 15:00:00'),
+    ]);
+    const mid = map.positionAt(r, Date.UTC(2024, 5, 1, 12, 30));
+    assert.strictEqual(mid.interpolated, true);
+    assert.ok(Math.abs(mid.lat - 59.1) < 0.001);
+    const gpx = map.toGpx(r.steps.map((s) => s.point));
+    assert.strictEqual((gpx.match(/<trkseg>/g) || []).length, 1);
+    assert.match(gpx, /<trkpt lat="59" lon="18"/);
 });

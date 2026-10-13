@@ -9,7 +9,8 @@ Forkad och omarbetad från [AdrianNeshad/CryptoToolbox](https://github.com/Adria
 | Verktyg | Beskrivning |
 |---------|-------------|
 | App-ID | Sök appnamn — Android-paket och iOS bundle-id, med butikslänk. Omvänd uppslagning: klistra in id:n och få appnamn |
-| EXIF-visare | Metadata för en hel mapp med ExifTool (WebAssembly, offline). Tid med tidszon, enhet, programvara, GPS, flaggor (fel filändelse, redigering, skärmdump, app i filnamn), Office-egenskaper, CSV/JSON. Karta (offline: världen + Sverige på gatunivå; valfri onlinekarta) med klickbara punkter, rutt i tidsordning, tidsfilter och KML/GeoJSON-export. Läser bara |
+| EXIF & karta | Metadata för en hel mapp med ExifTool (WebAssembly, offline). Tid med tidszon, enhet, programvara, GPS, flaggor, filnamnsmönster. Karta med rutt, turer, tidsfilter och export. Läser bara |
+| Positioner | Karta och rutt från GPX, KML, CSV, GeoJSON, Google-tidslinje, inklistrade koordinater och positioner från EXIF & karta |
 | Time Converter | Unix, Apple Cocoa/NSDate, WebKit/Chrome, FILETIME, ISO — full matris + tolkningsjämförelse |
 | iOS Keychain | Krypterad iPhone-/iPad-backup — konton, lösenord, tokens och certifikat |
 | Hash Calculator | MD5 / SHA-1 / SHA-256 (fler algoritmer valbara), drag-and-drop, stora filer läses i bitar, jämför mot känd hash |

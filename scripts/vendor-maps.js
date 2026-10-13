@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Bygger tools/exif-viewer/vendor/maps/ från fastlåsta paket och en fastlåst commit.
+// Bygger tools/_shared/map/vendor/maps/ från fastlåsta paket och en fastlåst commit.
 //
 //   node scripts/vendor-maps.js
 //
@@ -28,7 +28,7 @@ const ASSETS_COMMIT = '028c18f713baecad011301ff7a69acc39bcc2ae7';
 const SPRITES = ['light', 'dark'];
 
 const ROOT = path.join(__dirname, '..');
-const OUT = path.join(ROOT, 'tools', 'exif-viewer', 'vendor', 'maps');
+const OUT = path.join(ROOT, 'tools', '_shared', 'map', 'vendor', 'maps');
 
 function sha256(buf) {
     return crypto.createHash('sha256').update(buf).digest('hex');
