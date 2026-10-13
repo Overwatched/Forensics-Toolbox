@@ -17,7 +17,27 @@
                 En sideload eller fork kan ha ett annat id.</p>
         </header>
 
-        <div class="toolbar">
+        <div class="mode-tabs" role="tablist">
+            <button type="button" class="mode-tab active" data-mode="search" role="tab">Sök app</button>
+            <button type="button" class="mode-tab" data-mode="reverse" role="tab">Omvänd uppslagning</button>
+        </div>
+
+        <section id="reverse-view" class="display-none">
+            <p class="hint">Klistra in bundle-id eller paketnamn, t.ex. en kolumn med <code>ZCREATORBUNDLEID</code> /
+                <code>ZIMPORTEDBYBUNDLEIDENTIFIER</code> ur Photos.sqlite eller <code>owner_package_name</code> ur
+                MediaStore. Filnamn, datum och annan text hoppas över.</p>
+            <textarea id="reverse-input" spellcheck="false" placeholder="com.apple.camera&#10;net.whatsapp.WhatsApp.ShareExtension&#10;com.sec.android.app.camera"></textarea>
+            <div class="reverse-bar">
+                <div id="reverse-summary" class="reverse-summary"></div>
+                <div class="reverse-actions">
+                    <button type="button" id="reverse-clear" class="secondary-btn">Rensa</button>
+                    <button type="button" id="reverse-export" disabled>Exportera CSV</button>
+                </div>
+            </div>
+            <div id="reverse-results"></div>
+        </section>
+
+        <div class="toolbar" id="search-toolbar">
             <label class="search-wrap">
                 <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
                     <circle cx="11" cy="11" r="6.5" stroke="currentColor" stroke-width="1.8" />
@@ -32,8 +52,10 @@
             <button type="button" id="export-csv">Exportera CSV</button>
         </div>
 
-        <div id="app-catalog"></div>
-        <p id="empty-state" class="empty display-none">Ingen app matchade sökningen.</p>
+        <div id="search-view">
+            <div id="app-catalog"></div>
+            <p id="empty-state" class="empty display-none">Ingen app matchade sökningen.</p>
+        </div>
     </div>
 
     <div id="toast" class="toast">Kopierat</div>

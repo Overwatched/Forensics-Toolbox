@@ -13,7 +13,11 @@
         { id: 'sverige', label: 'Sverige' },
         { id: 'webbläsare', label: 'Webbläsare' },
         { id: 'epost', label: 'E-post' },
+        { id: 'foto', label: 'Kamera & bild' },
+        { id: 'moln', label: 'Moln & delning' },
+        { id: 'valv', label: 'Valv & dolda filer' },
         { id: 'system', label: 'Förinstallerat iOS' },
+        { id: 'android-system', label: 'Förinstallerat Android' },
     ];
 
     function app(entry) {
@@ -23,6 +27,7 @@
             id: entry.id,
             name: entry.name,
             category: entry.category,
+            note: entry.note || '',
             aliases: entry.aliases || [],
             android: android,
             ios: ios,
@@ -248,6 +253,85 @@
         app({ id: 'freja', name: 'Freja eID', category: 'sverige', ios: { bundleId: 'com.verisec.Freja-eID', trackId: 1256552092 } }),
         app({ id: 'collector', name: 'Collector', category: 'sverige', ios: { bundleId: 'se.collector.creditcard', trackId: 1167398909 } }),
         app({ id: 'resurs', name: 'Resurs Bank', category: 'sverige', ios: { bundleId: 'com.resurs.rbapp', trackId: 1530346386 } }),
+
+        // Kamera & bild. iOS ur iTunes lookup, Android är Play-paketet.
+        app({ id: 'snapseed', name: 'Snapseed', category: 'foto', android: 'com.niksoftware.snapseed', ios: { bundleId: 'com.niksoftware.snapseedforipad', trackId: 439438619 } }),
+        app({ id: 'vsco', name: 'VSCO', category: 'foto', android: 'com.vsco.cam', ios: { bundleId: 'co.visualsupply.cam', trackId: 588013838 } }),
+        app({ id: 'lightroom', name: 'Adobe Lightroom', category: 'foto', aliases: ['lightroom mobile'], android: 'com.adobe.lrmobile', ios: { bundleId: 'com.adobe.lrmobilephone', trackId: 878783582 } }),
+        app({ id: 'picsart', name: 'Picsart', category: 'foto', android: 'com.picsart.studio', ios: { bundleId: 'com.picsart.studio', trackId: 587366035 } }),
+        app({ id: 'faceapp', name: 'FaceApp', category: 'foto', android: 'io.faceapp', ios: { bundleId: 'io.faceapp.ios', trackId: 1180884341 } }),
+        app({ id: 'capcut', name: 'CapCut', category: 'foto', android: 'com.lemon.lvoverseas', ios: { bundleId: 'com.lemon.lvoverseas', trackId: 1500855883 } }),
+        app({ id: 'facetune', name: 'Facetune', category: 'foto', android: 'com.lightricks.facetune.free', ios: { bundleId: 'com.lightricks.Facetune2', trackId: 1149994032 } }),
+        app({ id: 'snow', name: 'SNOW', category: 'foto', android: 'com.campmobile.snow', ios: { bundleId: 'com.campmobile.snow', trackId: 1022267439 } }),
+        app({ id: 'b612', name: 'B612', category: 'foto', android: 'com.linecorp.b612.android', ios: { bundleId: 'com.linecorp.b612', trackId: 904209370 } }),
+        app({ id: 'meitu', name: 'Meitu', category: 'foto', android: 'com.mt.mtxx.mtxx', ios: { bundleId: 'com.meitu.mtxx', trackId: 416048305 } }),
+        app({ id: 'photoroom', name: 'Photoroom', category: 'foto', android: 'com.photoroom.app', ios: { bundleId: 'com.dr1ven.eraser', trackId: 1455009060 } }),
+        app({ id: 'remini', name: 'Remini', category: 'foto', android: 'com.bigwinepot.nwdn.international', ios: { bundleId: 'com.bigwinepot.nwdn.international', trackId: 1470373330 } }),
+        app({ id: 'lensa', name: 'Lensa', category: 'foto', android: 'com.lensa.app', ios: { bundleId: 'com.prisma-ai.lensa-app', trackId: 1436732536 } }),
+        app({ id: 'inshot', name: 'InShot', category: 'foto', android: 'com.camerasideas.instashot', ios: { bundleId: 'com.camerasideas.InstaShot', trackId: 997362197 } }),
+        app({ id: 'youcam-perfect', name: 'YouCam Perfect', category: 'foto', android: 'com.cyberlink.youperfect', ios: { bundleId: 'com.cyberlink.youperfect', trackId: 768469908 } }),
+        app({ id: 'canva', name: 'Canva', category: 'foto', android: 'com.canva.editor', ios: { bundleId: 'com.canva.canvaeditor', trackId: 897446215 } }),
+        app({ id: 'halide', name: 'Halide', category: 'foto', ios: { bundleId: 'com.chromanoir.Zeit', trackId: 885697368 } }),
+        app({ id: 'procamera', name: 'ProCamera', category: 'foto', ios: { bundleId: 'com.cocologics.ProCamera', trackId: 694647259 } }),
+        app({ id: 'camera-plus', name: 'Camera+', category: 'foto', ios: { bundleId: 'com.latenitesoft.CameraPlus2', trackId: 1313580627 } }),
+        app({ id: 'imovie', name: 'iMovie', category: 'foto', ios: { bundleId: 'com.apple.iMovie', trackId: 377298193 } }),
+
+        app({ id: 'google-photos', name: 'Google Foto', category: 'moln', aliases: ['google photos'], android: 'com.google.android.apps.photos', ios: { bundleId: 'com.google.photos', trackId: 962194608 } }),
+        app({ id: 'google-drive', name: 'Google Drive', category: 'moln', android: 'com.google.android.apps.docs', ios: { bundleId: 'com.google.Drive', trackId: 507874739 } }),
+        app({ id: 'onedrive', name: 'OneDrive', category: 'moln', android: 'com.microsoft.skydrive', ios: { bundleId: 'com.microsoft.skydrive', trackId: 477537958 } }),
+        app({ id: 'dropbox', name: 'Dropbox', category: 'moln', android: 'com.dropbox.android', ios: { bundleId: 'com.getdropbox.Dropbox', trackId: 327630330 } }),
+        app({ id: 'box', name: 'Box', category: 'moln', android: 'com.box.android', ios: { bundleId: 'net.box.BoxNet', trackId: 290853822 } }),
+        app({ id: 'mega', name: 'MEGA', category: 'moln', android: 'mega.privacy.android.app', ios: { bundleId: 'mega.ios', trackId: 706857885 } }),
+        app({ id: 'pcloud', name: 'pCloud', category: 'moln', android: 'com.pcloud.pcloud', ios: { bundleId: 'com.pcloud.pcloud', trackId: 692002098 } }),
+        app({ id: 'proton-drive', name: 'Proton Drive', category: 'moln', android: 'me.proton.android.drive', ios: { bundleId: 'ch.protonmail.drive', trackId: 1509667851 } }),
+        app({ id: 'wetransfer', name: 'WeTransfer', category: 'moln', android: 'com.wetransfer.transfer', ios: { bundleId: 'com.wetransfer.transfer', trackId: 1569379048 } }),
+        app({ id: 'amazon-photos', name: 'Amazon Photos', category: 'moln', android: 'com.amazon.clouddrive.photos', ios: { bundleId: 'com.amazon.CloudDrivePhotos', trackId: 621574163 } }),
+        app({ id: 'send-anywhere', name: 'Send Anywhere', category: 'moln', android: 'com.estmob.android.sendanywhere', ios: { bundleId: 'com.estmob.paprika', trackId: 596642855 } }),
+
+        app({ id: 'keepsafe', name: 'Keepsafe', category: 'valv', android: 'com.kii.safe', ios: { bundleId: 'com.keepsafe.KeepSafe', trackId: 510873505 } }),
+        app({ id: 'private-photo-vault', name: 'Private Photo Vault', category: 'valv', android: 'com.enchantedcloud.photovault', ios: { bundleId: 'com.enchantedcloud.photovault', trackId: 417571834 } }),
+        app({ id: 'lockmypix', name: 'LockMyPix', category: 'valv', android: 'com.fourchars.lmpfree', ios: { bundleId: 'com.fourchars.lockmypix', trackId: 1491039513 } }),
+        app({ id: 'gallery-vault', name: 'Gallery Vault', category: 'valv', android: 'com.thinkyeah.galleryvault' }),
+        app({ id: 'vaulty', name: 'Vaulty', category: 'valv', android: 'com.theronrogers.vaultyfree' }),
+
+        // Förinstallerat iOS. Syns ofta som skapare/importör i Photos.sqlite.
+        app({ id: 'ios-camera', name: 'Kamera', category: 'system', aliases: ['camera'], note: 'Tagen med iPhones kamera', ios: { bundleId: 'com.apple.camera' } }),
+        app({ id: 'ios-photos', name: 'Bilder', category: 'system', aliases: ['photos', 'foton'], note: 'Bilder-appen (redigering, import)', ios: { bundleId: 'com.apple.mobileslideshow' } }),
+        app({ id: 'ios-screenshot', name: 'Skärmdump', category: 'system', aliases: ['screenshot'], note: 'Skärmdumpar', ios: { bundleId: 'com.apple.ScreenshotServicesService' } }),
+        app({ id: 'ios-airdrop', name: 'AirDrop', category: 'system', aliases: ['sharingd'], note: 'Mottaget via AirDrop', ios: { bundleId: 'com.apple.sharingd' } }),
+        app({ id: 'ios-files', name: 'Filer', category: 'system', aliases: ['files'], ios: { bundleId: 'com.apple.DocumentsApp' } }),
+        app({ id: 'ios-notes', name: 'Anteckningar', category: 'system', aliases: ['notes'], ios: { bundleId: 'com.apple.mobilenotes' } }),
+        app({ id: 'ios-settings', name: 'Inställningar', category: 'system', aliases: ['settings'], ios: { bundleId: 'com.apple.Preferences' } }),
+        app({ id: 'ios-phone', name: 'Telefon', category: 'system', aliases: ['phone'], ios: { bundleId: 'com.apple.mobilephone' } }),
+        app({ id: 'ios-contacts', name: 'Kontakter', category: 'system', aliases: ['contacts'], ios: { bundleId: 'com.apple.MobileAddressBook' } }),
+        app({ id: 'ios-calendar', name: 'Kalender', category: 'system', aliases: ['calendar'], ios: { bundleId: 'com.apple.mobilecal' } }),
+        app({ id: 'ios-maps', name: 'Kartor', category: 'system', aliases: ['maps', 'apple maps'], ios: { bundleId: 'com.apple.Maps' } }),
+        app({ id: 'ios-wallet', name: 'Plånbok', category: 'system', aliases: ['wallet', 'passbook'], ios: { bundleId: 'com.apple.Passbook' } }),
+        app({ id: 'ios-findmy', name: 'Hitta', category: 'system', aliases: ['find my'], ios: { bundleId: 'com.apple.findmy' } }),
+        app({ id: 'ios-health', name: 'Hälsa', category: 'system', aliases: ['health'], ios: { bundleId: 'com.apple.Health' } }),
+        app({ id: 'ios-shortcuts', name: 'Genvägar', category: 'system', aliases: ['shortcuts'], ios: { bundleId: 'com.apple.shortcuts' } }),
+        app({ id: 'ios-voicememos', name: 'Röstmemon', category: 'system', aliases: ['voice memos'], ios: { bundleId: 'com.apple.VoiceMemos' } }),
+        app({ id: 'ios-reminders', name: 'Påminnelser', category: 'system', aliases: ['reminders'], ios: { bundleId: 'com.apple.reminders' } }),
+        app({ id: 'ios-music', name: 'Musik', category: 'system', aliases: ['music', 'apple music'], ios: { bundleId: 'com.apple.Music' } }),
+        app({ id: 'ios-appstore', name: 'App Store', category: 'system', ios: { bundleId: 'com.apple.AppStore' } }),
+        app({ id: 'ios-freeform', name: 'Freeform', category: 'system', ios: { bundleId: 'com.apple.freeform' } }),
+
+        // Förinstallerat Android. Syns ofta som owner_package_name i MediaStore.
+        app({ id: 'pixel-camera', name: 'Pixel-kamera', category: 'android-system', aliases: ['google camera', 'gcam'], android: 'com.google.android.GoogleCamera' }),
+        app({ id: 'aosp-camera', name: 'Kamera (AOSP)', category: 'android-system', android: 'com.android.camera2' }),
+        app({ id: 'xiaomi-camera', name: 'Kamera (Xiaomi)', category: 'android-system', aliases: ['miui', 'hyperos'], note: 'Xiaomi (MIUI/HyperOS) och äldre AOSP', android: 'com.android.camera' }),
+        app({ id: 'samsung-camera', name: 'Samsung Kamera', category: 'android-system', android: 'com.sec.android.app.camera' }),
+        app({ id: 'huawei-camera', name: 'Huawei Kamera', category: 'android-system', android: 'com.huawei.camera' }),
+        app({ id: 'oplus-camera', name: 'Kamera (OnePlus/OPPO)', category: 'android-system', aliases: ['oneplus', 'oppo', 'realme'], android: 'com.oplus.camera' }),
+        app({ id: 'aosp-gallery', name: 'Galleri (AOSP)', category: 'android-system', android: 'com.android.gallery3d' }),
+        app({ id: 'samsung-gallery', name: 'Samsung Galleri', category: 'android-system', android: 'com.sec.android.gallery3d' }),
+        app({ id: 'xiaomi-gallery', name: 'Galleri (Xiaomi)', category: 'android-system', android: 'com.miui.gallery' }),
+        app({ id: 'android-systemui', name: 'Systemgränssnitt', category: 'android-system', aliases: ['screenshot', 'skärmdump'], note: 'Skärmdumpar på många enheter', android: 'com.android.systemui' }),
+        app({ id: 'samsung-screenshot', name: 'Samsung skärmdump', category: 'android-system', aliases: ['screenshot', 'skärmdump', 'smart capture'], note: 'Skärmdumpar på Samsung', android: 'com.samsung.android.app.smartcapture' }),
+        app({ id: 'play-services', name: 'Google Play-tjänster', category: 'android-system', aliases: ['gms', 'quick share', 'nearby share'], note: 'Bland annat Snabbdelning (Quick Share)', android: 'com.google.android.gms' }),
+        app({ id: 'files-by-google', name: 'Files by Google', category: 'android-system', android: 'com.google.android.apps.nbu.files' }),
+        app({ id: 'android-downloads', name: 'Nedladdningshanteraren', category: 'android-system', aliases: ['download manager'], android: 'com.android.providers.downloads' }),
+        app({ id: 'android-bluetooth', name: 'Bluetooth', category: 'android-system', note: 'Mottaget via Bluetooth', android: 'com.android.bluetooth' }),
     ];
 
     function normalize(text) {
@@ -258,7 +342,7 @@
         var q = normalize(query);
         if (!q) return true;
         var ios = entry.ios || {};
-        var hay = [entry.name, entry.category, entry.android, ios.bundleId, String(ios.trackId || '')]
+        var hay = [entry.name, entry.category, entry.note, entry.android, ios.bundleId, String(ios.trackId || '')]
             .concat(entry.aliases)
             .join(' ')
             .toLowerCase();
@@ -297,6 +381,94 @@
         return lines.join('\r\n') + '\r\n';
     }
 
+    var byId = null;
+
+    function idIndex() {
+        if (byId) return byId;
+        byId = {};
+        APPS.forEach(function (entry) {
+            if (entry.ios && entry.ios.bundleId) byId[entry.ios.bundleId.toLowerCase()] = { entry: entry, platform: 'ios' };
+            if (entry.android) {
+                var key = entry.android.toLowerCase();
+                // Samma id på båda plattformarna räknas som en träff.
+                if (byId[key] && byId[key].entry === entry) byId[key].platform = 'ios+android';
+                else if (!byId[key]) byId[key] = { entry: entry, platform: 'android' };
+            }
+        });
+        return byId;
+    }
+
+    // Filändelser som annars ser ut som paketnamn (IMG_0001.HEIC, Photos.sqlite …).
+    var FILE_EXT = /\.(jpe?g|heic|heif|png|gif|webp|tiff?|dng|raw|mov|mp4|m4v|avi|aae|db|sqlite|sqlitedb|wal|shm|plist|txt|json|xml|csv|html?|js|log|zip|pdf)$/i;
+    var ID_TOKEN = /^[A-Za-z][\w-]*(\.[\w-]+)+$/;
+
+    function extractIds(text) {
+        var counts = {};
+        var order = [];
+        String(text || '').split(/[\s,;|"'`()\[\]{}<>]+/).forEach(function (raw) {
+            var token = raw.replace(/^[.:]+|[.:]+$/g, '');
+            if (!ID_TOKEN.test(token) || FILE_EXT.test(token)) return;
+            var key = token.toLowerCase();
+            if (!counts[key]) {
+                counts[key] = { input: token, count: 0 };
+                order.push(key);
+            }
+            counts[key].count++;
+        });
+        return order.map(function (key) { return counts[key]; });
+    }
+
+    // Exakt träff först, annars närmaste kända id som prefix (t.ex. ShareExtension).
+    function resolveId(id) {
+        var index = idIndex();
+        var key = String(id || '').toLowerCase();
+        if (index[key]) return { entry: index[key].entry, platform: index[key].platform, match: 'exakt', base: key };
+        var parts = key.split('.');
+        for (var n = parts.length - 1; n >= 2; n--) {
+            var prefix = parts.slice(0, n).join('.');
+            if (index[prefix]) return { entry: index[prefix].entry, platform: index[prefix].platform, match: 'tillägg', base: prefix };
+        }
+        return { entry: null, platform: '', match: '', base: '' };
+    }
+
+    function lookupIds(text) {
+        return extractIds(text).map(function (row) {
+            var hit = resolveId(row.input);
+            return {
+                input: row.input,
+                count: row.count,
+                entry: hit.entry,
+                platform: hit.platform,
+                match: hit.match,
+                base: hit.base,
+            };
+        });
+    }
+
+    function platformLabel(platform) {
+        if (platform === 'ios') return 'iOS';
+        if (platform === 'android') return 'Android';
+        if (platform === 'ios+android') return 'iOS + Android';
+        return '';
+    }
+
+    function lookupToCsv(rows) {
+        var lines = ['indata,antal,namn,typ,plattform,traff,notering'];
+        rows.forEach(function (row) {
+            var entry = row.entry;
+            lines.push([
+                csvField(row.input),
+                csvField(row.count),
+                csvField(entry ? entry.name : ''),
+                csvField(entry ? groupLabel(entry.category) : ''),
+                csvField(platformLabel(row.platform)),
+                csvField(entry ? row.match : 'okänd'),
+                csvField(entry ? entry.note : ''),
+            ].join(','));
+        });
+        return lines.join('\r\n') + '\r\n';
+    }
+
     var api = {
         GROUPS: GROUPS,
         APPS: APPS,
@@ -304,6 +476,11 @@
         matches: matches,
         toCsv: toCsv,
         groupLabel: groupLabel,
+        extractIds: extractIds,
+        resolveId: resolveId,
+        lookupIds: lookupIds,
+        lookupToCsv: lookupToCsv,
+        platformLabel: platformLabel,
     };
 
     root.AppIds = api;

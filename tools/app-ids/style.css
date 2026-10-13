@@ -153,6 +153,126 @@ code {
 
 .actions { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
 
+.card .note { color: var(--text-muted); font-size: 13px; margin: -6px 0 10px; }
+
+.mode-tabs {
+    display: inline-flex;
+    gap: 4px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 3px;
+    margin-bottom: 18px;
+}
+
+.mode-tab {
+    border: none;
+    background: transparent;
+    color: var(--text-muted);
+    font: inherit;
+    font-size: 13px;
+    font-weight: 650;
+    padding: 7px 14px;
+    border-radius: 8px;
+    cursor: pointer;
+}
+
+.mode-tab:hover { color: var(--text); }
+.mode-tab.active { background: var(--surface-hover); color: var(--text); }
+
+.hint { color: var(--text-muted); font-size: 13px; margin-bottom: 10px; line-height: 1.5; }
+
+#reverse-input {
+    width: 100%;
+    min-height: 140px;
+    resize: vertical;
+    background: var(--surface);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 12px 14px;
+    font-family: Consolas, Monaco, monospace;
+    font-size: 13px;
+    line-height: 1.5;
+    outline: none;
+}
+
+#reverse-input:focus { border-color: var(--accent); }
+
+.reverse-bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    margin: 12px 0 14px;
+}
+
+.reverse-summary { display: flex; flex-wrap: wrap; gap: 6px; }
+.reverse-actions { display: flex; gap: 8px; }
+
+.chip {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: 4px 10px;
+    font-size: 12px;
+    color: var(--text-muted);
+}
+
+.chip b { color: var(--text); }
+.chip.warn b { color: #ff9f0a; }
+
+#reverse-export, .secondary-btn {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 8px 12px;
+    font: inherit;
+    font-size: 13px;
+    font-weight: 650;
+    cursor: pointer;
+}
+
+#reverse-export { color: var(--accent); }
+.secondary-btn { color: var(--text); }
+#reverse-export:hover, .secondary-btn:hover { background: var(--surface-hover); }
+#reverse-export:disabled, #export-csv:disabled { opacity: 0.45; cursor: default; }
+
+.reverse-table {
+    width: 100%;
+    border-collapse: collapse;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    overflow: hidden;
+    font-size: 13px;
+}
+
+.reverse-table th {
+    text-align: left;
+    font-size: 11px;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    padding: 9px 12px;
+    border-bottom: 1px solid var(--border);
+}
+
+.reverse-table td {
+    padding: 9px 12px;
+    border-bottom: 1px solid var(--border);
+    vertical-align: top;
+}
+
+.reverse-table tr:last-child td { border-bottom: none; }
+.reverse-table tr.unknown code { color: #ff9f0a; }
+.reverse-table .num { text-align: right; color: var(--text-muted); }
+.reverse-table .muted { color: var(--text-muted); }
+.reverse-table .app-name { font-weight: 650; }
+.reverse-table .sub { color: var(--text-muted); font-size: 12px; margin-top: 2px; }
+.reverse-table .row-actions .actions { margin-top: 0; justify-content: flex-end; }
+
 .empty { color: var(--text-muted); text-align: center; margin-top: 28px; }
 .display-none { display: none !important; }
 
