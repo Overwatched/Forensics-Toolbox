@@ -1,113 +1,42 @@
 # Forensics Toolbox
 
-Lokal verktygslåda för **IT-forensik**. Körs helt offline som Electron-app (ladda ner en release, eller `npm start` under utveckling).
+Verktyg för IT-forensik som körs på din egen dator. Inget nätverk behövs. Onlinekartan är valfri och skickar bara kartrutor, aldrig filer eller bilder.
 
-Forkad och omarbetad från [AdrianNeshad/CryptoToolbox](https://github.com/AdrianNeshad/CryptoToolbox) (Verktygslådan).
+![Karta med en rutt per enhet. Orange är Samsung, blå är iPhone.](docs/images/karta-tva-rutter.jpg)
 
-## Verktyg (v1.7)
+## Ladda ner
 
-| Verktyg | Beskrivning |
-|---------|-------------|
-| App-ID | Sök appnamn — Android-paket och iOS bundle-id, med butikslänk. Omvänd uppslagning: klistra in id:n och få appnamn |
-| EXIF & karta | Metadata för en hel mapp med ExifTool (WebAssembly, offline). Tid med tidszon, enhet, programvara, GPS, flaggor, filnamnsmönster. Karta med rutt, turer, tidsfilter och export. Läser bara |
-| Positioner | Karta och rutt från GPX, KML, CSV, GeoJSON, Google-tidslinje, inklistrade koordinater och positioner från EXIF & karta |
-| Time Converter | Unix, Apple Cocoa/NSDate, WebKit/Chrome, FILETIME, ISO — full matris + tolkningsjämförelse |
-| iOS Keychain | Krypterad iPhone-/iPad-backup — konton, lösenord, tokens och certifikat |
-| Hash Calculator | MD5 / SHA-1 / SHA-256 (fler algoritmer valbara), drag-and-drop, stora filer läses i bitar, jämför mot känd hash |
-| Filjämförelse | Två textfiler eller inklistrade texter, rad för rad. Binärt innehåll jämförs med SHA-256 |
-| Magic Text | Gissar format (JSON, protobuf, plist, JWT, …) + egna flikar när du redan vet |
-| QR Code Decoder | Avkoda QR från bild |
-| CyberChef | Offline encoding / decoding / crypto |
-| Queries | iOS/Android — Photos.sqlite (app, kamera, position, skärmdumpar, redigeringar, Delat med dig, personer, album), knowledgeC, MediaStore, tidsspann |
-| Externa verktyg | Sökbar katalog med runda länkar (iLEAPP, Crypto Toolbox, Autopsy, …) |
-| Playbook: Bildfil härkomst | Kort checklista: EXIF, kamera, app, position |
-| Playbook: Okänd app | Paket/bundle, behörigheter, privat lagring, residual |
-| Playbook: Krypto / plånbok | Var på enheten det ligger — seed och plånboksfiler i Crypto Toolbox |
-| Vanliga artifacts | Referens för Windows / browser / Linux |
+[Senaste versionen](https://github.com/Overwatched/Forensics-Toolbox/releases/latest) är ungefär 1,5 GB, eftersom en offlinekarta följer med: hela världen i översikt och Sverige på gatunivå.
 
-## Dokumentation
+| Fil | Så använder du den |
+|-----|--------------------|
+| Windows-installer | Vanlig installation |
+| `…-Portable.zip` | Packa upp och kör `Forensics Toolbox.exe` |
+| Linux `.AppImage` | Gör filen körbar och starta den |
+| macOS `.dmg` | Osignerad. Högerklicka och välj Öppna om datorn varnar |
+| `…-html.zip` | När körbara filer inte är tillåtna. Kartfilerna ingår inte |
 
-- [Utveckling & bygg](docs/DEVELOPMENT.md) – `npm start`, Linux/Windows-build, Electron-felsökning  
-- [Funktionsplan](docs/PLAN.md) – tidskonvertering, queries, bedömningsflöden (innan commit)
+## Verktyg
 
-## Kom igång
+- **EXIF & karta.** Metadata för en hel mapp, utan att filerna ändras. Positionerna ritas på en karta, med en rutt per enhet, tidsfilter och export till KML och GeoJSON.
+- **Positioner.** Samma karta för GPX, KML, CSV, GeoJSON och Google-tidslinje.
+- **App-ID.** Slå upp ett appnamn, eller klistra in ett paket-id och få namnet.
+- **Queries.** Färdiga frågor mot Photos.sqlite, knowledgeC och Android.
+- **Övrigt.** Tidskonvertering, nyckelring, hash, filjämförelse, Magic Text, QR, CyberChef, korta checklistor och länkar till externa verktyg.
 
-Node.js 20+ (inkl. npm). På den här maskinen (Bazzite) fungerar t.ex.:
+Knappen **Fyll med testdata** i EXIF & karta och Positioner lägger in en påhittad promenad i Stockholm, så att kartan går att prova direkt.
 
-```bash
-brew install node
-```
+## Köra från källkod
 
-## Köra / testa (Linux)
-
-Snabbast — ingen paketering:
+Kräver Node.js 20.
 
 ```bash
 npm install
-npm start          # Electron-fönster (rekommenderas för test)
+npm start
 ```
 
-Öppna inte `Toolbox.html` direkt i webbläsaren om sidan ser ostylad ut — vissa webbläsare blockerar lokala filer via `file://`. Appen är tänkt att köras via Electron (`npm start` eller en nedladdad release). Query-katalogerna har en `.js`-fallback så de fungerar även när `fetch()` av `.json` blockeras.
+Bygge, offlinekartan och hur ett verktyg läggs till beskrivs i [utvecklingsdokumentationen](docs/DEVELOPMENT.md).
 
-Paketerad Linux-build (AppImage + uppackad mapp):
+## Upphov
 
-```bash
-npm run dist:linux
-# AppImage: release/ForensicsToolbox-1.7.0.AppImage
-# Uppackad:  release/linux-unpacked/  → kör ./forensics-toolbox
-```
-
-Snabb “dir”-pack utan installer:
-
-```bash
-npm run pack:linux
-```
-
-## Bygga för Windows
-
-**Lokal Windows-maskin** (eller CI):
-
-```bash
-npm install
-npm run fetch-maps    # offlinekartor till maps/ (1,3 GB, en gång)
-npm run dist          # NSIS-installer + portabel zip → release/
-# eller
-npm run dist:portable
-npm run dist:installer
-```
-
-**macOS (lokalt):**
-
-```bash
-npm run dist:mac      # osignerat DMG + ZIP
-```
-
-**CI (rekommenderas):** GitHub Actions bygger **Windows + Linux + macOS** parallellt via matrix
-(`.github/workflows/build-release.yml`) vid push till `main`.
-
-Release-filer (GitHub Releases):
-
-- `ForensicsToolbox-1.7-Installer.exe` — Windows-installer
-- `ForensicsToolbox-1.7-Portable.zip` — portabel Windows (packa upp, kör `Forensics Toolbox.exe`)
-- `ForensicsToolbox-1.7.0.AppImage`, `ForensicsToolbox-1.7.0-x64.dmg` / `-arm64.dmg` — Linux och macOS
-- `ForensicsToolbox-1.7-html.zip` — packa upp och öppna `Toolbox.html` (ingen .exe, kartfilerna ingår inte)
-
-Appen och de paketerade filerna är runt 1,5 GB, eftersom offlinekartorna ingår.
-
-| Mål | Kommando | Output |
-|-----|----------|--------|
-| Testa nu (Linux) | `npm start` | Electron live |
-| Linux AppImage | `npm run dist:linux` | `release/*.AppImage` |
-| macOS | `npm run dist:mac` | `release/*.dmg` / `.zip` |
-| Windows | `npm run dist` (på Windows/CI) | `release/*.exe`, `release/*-Portable.zip` |
-## Lägga till ett verktyg
-
-1. Skapa `tools/<namn>/` med HTML/JS/CSS
-2. Ladda det delade skalet först i `<head>`: `<script src="../_shared/toolkit.js"></script>` (före verktygets `style.css`). Det sköter temahanteringen — duplicera ingen tema-kod i verktyget.
-3. Lägg till en knapp i `Toolbox.html` med `data-type="frame"` och `data-src="tools/<namn>/..."`
-
-## Attribution
-
-- App-shell och många UI-mönster: [CryptoToolbox](https://github.com/AdrianNeshad/CryptoToolbox) av Adrian Neshad
-- CyberChef: [GCHQ/CyberChef](https://github.com/gchq/CyberChef)
-- Kartor: © [OpenStreetMap](https://www.openstreetmap.org/copyright)-bidragsgivare (ODbL), [Protomaps](https://protomaps.com), [MapLibre GL](https://maplibre.org), onlinekarta från [OpenFreeMap](https://openfreemap.org). Licenser i `tools/exif-viewer/vendor/maps/LICENSES.txt`
+Bygger på [CryptoToolbox](https://github.com/AdrianNeshad/CryptoToolbox) av Adrian Neshad. CyberChef kommer från [GCHQ](https://github.com/gchq/CyberChef). Kartdata © [OpenStreetMap](https://www.openstreetmap.org/copyright)-bidragsgivare (ODbL), via [Protomaps](https://protomaps.com). Onlinekartan kommer från [OpenFreeMap](https://openfreemap.org).

@@ -327,27 +327,22 @@
         function routeGeojson() {
             var features = [];
             shownRoutes().forEach(function (r, group) {
-                (r.trips || []).forEach(function (trip) {
-                    var color = trip.color || TRIP_COLORS[(trip.index - 1 + group) % TRIP_COLORS.length];
-                    var coords = trip.steps.map(function (s) { return [s.point.lon, s.point.lat]; });
+                var drawn = root.MapCore.routeLines(r, TRIP_COLORS[group % TRIP_COLORS.length]);
+                drawn.lines.forEach(function (line) {
+                    var coords = line.coordinates;
                     if (coords.length > 5000 && root.MapCore.simplify) coords = root.MapCore.simplify(coords, 0.0002);
-                    if (coords.length > 1) {
-                        features.push({
-                            type: 'Feature',
-                            geometry: { type: 'LineString', coordinates: coords },
-                            properties: { color: color, implausible: 0 },
-                        });
-                    }
-                    for (var i = 1; i < trip.steps.length; i++) {
-                        var b = trip.steps[i];
-                        if (!b.fromPrev || !b.fromPrev.implausible) continue;
-                        var a = trip.steps[i - 1];
-                        features.push({
-                            type: 'Feature',
-                            geometry: { type: 'LineString', coordinates: [[a.point.lon, a.point.lat], [b.point.lon, b.point.lat]] },
-                            properties: { color: '#ff453a', implausible: 1 },
-                        });
-                    }
+                    features.push({
+                        type: 'Feature',
+                        geometry: { type: 'LineString', coordinates: coords },
+                        properties: { color: line.color, implausible: 0 },
+                    });
+                });
+                drawn.bad.forEach(function (coords) {
+                    features.push({
+                        type: 'Feature',
+                        geometry: { type: 'LineString', coordinates: coords },
+                        properties: { color: '#ff453a', implausible: 1 },
+                    });
                 });
             });
             return { type: 'FeatureCollection', features: features };

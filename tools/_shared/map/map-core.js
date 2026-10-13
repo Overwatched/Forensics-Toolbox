@@ -157,6 +157,44 @@
         return stays;
     }
 
+    // En heldragen linje per färg. Ett uppehåll får inte klippa linjen: då försvinner
+    // sträckan över vattnet och samma enhet ser ut som flera rutter.
+    function routeLines(r, color) {
+        var steps = (r && r.steps) || [];
+        var lines = [];
+        var bad = [];
+        if (steps.length < 2) return { lines: lines, bad: bad };
+        function tripOf(step) {
+            var found = null;
+            (r.trips || []).forEach(function (t) { if (t.index === step.trip) found = t; });
+            return found;
+        }
+        function colorOf(step) {
+            var trip = tripOf(step);
+            return (trip && trip.color) || color;
+        }
+        var run = [steps[0]];
+        var runColor = colorOf(steps[0]);
+        function flush() {
+            if (run.length > 1) {
+                lines.push({ color: runColor, coordinates: run.map(function (s) { return [s.point.lon, s.point.lat]; }) });
+                for (var i = 1; i < run.length; i++) {
+                    if (run[i].fromPrev && run[i].fromPrev.implausible) {
+                        bad.push([[run[i - 1].point.lon, run[i - 1].point.lat], [run[i].point.lon, run[i].point.lat]]);
+                    }
+                }
+            }
+            run = [];
+        }
+        for (var i = 1; i < steps.length; i++) {
+            var next = colorOf(steps[i]);
+            if (next !== runColor) { flush(); run = [steps[i]]; runColor = next; }
+            else run.push(steps[i]);
+        }
+        flush();
+        return { lines: lines, bad: bad };
+    }
+
     function routesBy(list, field) {
         var groups = {};
         var order = [];
@@ -389,6 +427,7 @@
         points: points,
         route: route,
         routesBy: routesBy,
+        routeLines: routeLines,
         routeNote: routeNote,
         routeSummary: routeSummary,
         legText: legText,

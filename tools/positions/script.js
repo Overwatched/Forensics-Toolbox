@@ -105,7 +105,7 @@
             p.color = layer.color;
             p.layer = layer.name;
             p.layerId = layer.id;
-            p.device = layer.name;
+            if (!p.device) p.device = layer.name;
             if (!p.id) p.id = nextId++;
         });
         return points;
@@ -205,6 +205,13 @@
     }
 
     $('pick').addEventListener('click', function () { $('file').click(); });
+    $('fill-sample').addEventListener('click', function () {
+        if (layers.some(function (l) { return l.name === 'Testdata · Stockholm'; })) {
+            setStatus('Testdata finns redan.');
+            return;
+        }
+        addChunked('Testdata · Stockholm', SampleData.positionPoints());
+    });
     $('file').addEventListener('change', function () {
         var files = Array.prototype.slice.call($('file').files || []);
         $('file').value = '';
@@ -248,7 +255,8 @@
     }
 
     document.querySelector('.exports').addEventListener('click', function (e) {
-        var kind = e.target.dataset && e.target.dataset.export;
+        var button = e.target.closest('button');
+        var kind = button && button.dataset.export;
         if (!kind) return;
         var points = visiblePoints();
         if (!points.length) { setStatus('Inget att exportera.'); return; }

@@ -26,6 +26,7 @@
             <div class="drop-actions">
                 <button type="button" id="pick-folder" class="primary-btn">Välj mapp</button>
                 <button type="button" id="pick-files" class="secondary-btn">Välj filer</button>
+                <button type="button" id="fill-sample" class="secondary-btn">Fyll med testdata</button>
             </div>
             <input type="file" id="folder-input" webkitdirectory multiple hidden>
             <input type="file" id="file-input" multiple hidden>
@@ -120,6 +121,8 @@
     <div id="toast" class="toast">Kopierat</div>
     <script src="../app-ids/catalog.js"></script>
     <script src="exif-core.js"></script>
+    <script src="../_shared/map/sample-jpegs.js"></script>
+    <script src="../_shared/map/sample-data.js"></script>
     <script src="../_shared/map/map-core.js"></script>
     <script src="../_shared/map/map-view.js"></script>
     <script src="vendor/exiftool/exiftool-worker.js"></script>

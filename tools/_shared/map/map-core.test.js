@@ -160,6 +160,31 @@ test('turer vid uppehåll, vistelse och en rutt per enhet', () => {
     assert.deepStrictEqual(groups.map((g) => g.name).sort(), ['Samsung', 'iPhone']);
 });
 
+test('en rutt är en linje även när ett uppehåll delar den i turer', () => {
+    const walk = [
+        pt(1, 59.3303, 18.0586, '2024-06-01 14:00:00'),
+        pt(2, 59.3195, 18.0722, '2024-06-01 14:46:00'),
+        pt(3, 59.3280, 18.0914, '2024-06-01 18:05:00'),
+        pt(4, 59.3157, 18.0339, '2024-06-02 09:32:00'),
+    ];
+    const r = map.route(walk);
+    assert.ok(r.trips.length > 1);
+    const drawn = map.routeLines(r, '#ff9f0a');
+    assert.strictEqual(drawn.lines.length, 1);
+    assert.strictEqual(drawn.lines[0].color, '#ff9f0a');
+    assert.deepStrictEqual(drawn.lines[0].coordinates[0], [18.0586, 59.3303]);
+    assert.deepStrictEqual(drawn.lines[0].coordinates[drawn.lines[0].coordinates.length - 1], [18.0339, 59.3157]);
+
+    const phone = map.route(walk.map(function (p) { return Object.assign({}, p, { device: 'iPhone' }); }));
+    const other = map.route([pt(5, 59.32512, 18.07068, '2024-06-01 14:22:00', '+02:00', 'Samsung')]);
+    phone.trips.forEach(function (t) { t.color = '#0a84ff'; });
+    other.trips.forEach(function (t) { t.color = '#ff9f0a'; });
+    const iphone = map.routeLines(phone, '#ff9f0a');
+    assert.strictEqual(iphone.lines.length, 1);
+    assert.strictEqual(iphone.lines[0].color, '#0a84ff');
+    assert.strictEqual(map.routeLines(other, '#ff9f0a').lines.length, 0);
+});
+
 test('position vid tid T är interpolerad mellan punkterna', () => {
     const r = map.route([
         pt(1, 59.0, 18.0, '2024-06-01 14:00:00'),

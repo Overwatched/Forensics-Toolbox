@@ -856,6 +856,13 @@
     // --- Händelser ----------------------------------------------------------------
 
     $('pick-folder').addEventListener('click', function () { folderInput.click(); });
+    $('fill-sample').addEventListener('click', function () {
+        var items = SampleData.exifFiles().map(function (f) {
+            var name = f.name.split('/').pop();
+            return { file: new File([f.bytes], name, { type: 'image/jpeg' }), path: f.name };
+        });
+        addFiles(items);
+    });
     $('pick-files').addEventListener('click', function () { fileInput.click(); });
     folderInput.addEventListener('change', function () { fromInput(folderInput); });
     fileInput.addEventListener('change', function () { fromInput(fileInput); });
