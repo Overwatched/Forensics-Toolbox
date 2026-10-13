@@ -25,6 +25,8 @@ const ALIASES = {
     photos: 'photos-ios17-plus',
     'photos-sqlite': 'photos-ios17-plus',
     ios: 'photos-ios17-plus',
+    'photos-ios10-12': 'photos-ios10-13',
+    'photos-ios13-14': 'photos-ios14',
     android: 'android-mediastore',
     mediastore: 'android-mediastore',
     'app-usage': 'knowledgec',
@@ -475,14 +477,14 @@ function buildDatabases(photos, android, appUsage) {
             familyTitle: 'Photos.sqlite',
             versionLabel: band.label,
             label: 'Photos.sqlite (' + band.label + ')',
-            blurb: 'Fotobiblioteket: filnamn, skapad/ändrad, vilken app som tog eller redigerade bilden.',
+            blurb: 'Fotobiblioteket: filnamn, tider, vilken app som skapade eller redigerade bilden, kamera, position och personer.',
             dbPathHint: photos.dbPathHint,
             source: photos.source,
-            note: photos.timeNote,
+            note: [band.notes, photos.timeNote].filter(Boolean).join(' '),
             flow: [
                 'Läs in <code>Photos.sqlite</code> + <code>-wal</code> + <code>-shm</code>',
-                'Standardquery för Photos.sqlite',
-                'Ange filnamn',
+                'Standardquery, eller visa enskilda queries',
+                'Ange filnamn, tidsspann eller app',
                 'Kopiera SQL och kör i DB Browser',
             ],
             queries: queries,
@@ -562,7 +564,7 @@ function buildDatabases(photos, android, appUsage) {
     });
 
     const order = [
-        'photos-ios10-12', 'photos-ios13-14', 'photos-ios15-16', 'photos-ios17-plus',
+        'photos-ios10-13', 'photos-ios14', 'photos-ios15-16', 'photos-ios17-plus',
         'knowledgec', 'interactionc',
         'android-mediastore', 'android-camera', 'wellbeing', 'android-usage',
     ];

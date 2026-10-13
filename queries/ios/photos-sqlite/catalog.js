@@ -10,7 +10,7 @@ window.PHOTOS_SQLITE_CATALOG = {
       "id": "full-story",
       "recommended": true,
       "label": "Standardquery för Photos.sqlite",
-      "subtitle": "Rekommenderad väg — tider, app-fält och lagring för valda filnamn",
+      "subtitle": "Rekommenderad väg — tider, app, kamera, position och lagring för valda filnamn",
       "params": [
         "filename"
       ],
@@ -19,7 +19,7 @@ window.PHOTOS_SQLITE_CATALOG = {
     {
       "id": "when-created",
       "label": "När skapades bildfilen?",
-      "subtitle": "ZDATECREATED, ZADDEDDATE, ZEXIFTIMESTAMPSTRING",
+      "subtitle": "ZDATECREATED, ZADDEDDATE, EXIF-tid och tidszon",
       "params": [
         "filename"
       ],
@@ -28,19 +28,138 @@ window.PHOTOS_SQLITE_CATALOG = {
     {
       "id": "which-app",
       "label": "Vilken app skapade bildfilen?",
-      "subtitle": "ZCREATORBUNDLEID, ZEDITORBUNDLEID",
+      "subtitle": "Appen som skapade eller importerade bilden, och appen som redigerade den",
       "params": [
         "filename"
       ],
       "group": "investigate"
     },
     {
-      "id": "when-modified",
-      "label": "När ändrades bildfilen senast?",
-      "subtitle": "ZMODIFICATIONDATE, ZEDITORBUNDLEID",
+      "id": "apps-summary",
+      "label": "Vilka appar har lagt till bilder?",
+      "subtitle": "Antal bilder per app. Klistra in bundle-id:na i App-ID → Omvänd uppslagning",
+      "params": [],
+      "group": "investigate"
+    },
+    {
+      "id": "list-by-app",
+      "label": "Lista bilder från en viss app",
+      "subtitle": "Filtrera på skapar- eller redigeringsappens bundle-id",
+      "params": [
+        "bundleId"
+      ],
+      "group": "investigate"
+    },
+    {
+      "id": "device",
+      "label": "Vilken kamera eller enhet tog bilden?",
+      "subtitle": "Märke, modell och objektiv från ZEXTENDEDATTRIBUTES",
       "params": [
         "filename"
       ],
+      "group": "investigate"
+    },
+    {
+      "id": "location",
+      "label": "Var togs bilden?",
+      "subtitle": "Latitud och longitud. -180 betyder att position saknas",
+      "params": [
+        "filename"
+      ],
+      "group": "investigate"
+    },
+    {
+      "id": "location-window",
+      "label": "Bilder med position i ett tidsspann",
+      "subtitle": "Alla bilder med GPS-position som skapades inom tidsspannet",
+      "params": [
+        "timeStart",
+        "timeEnd"
+      ],
+      "group": "investigate"
+    },
+    {
+      "id": "screenshots",
+      "label": "Skärmdumpar och skärminspelningar",
+      "subtitle": "ZKINDSUBTYPE 10 (skärmdump) och 103 (skärminspelning) inom tidsspannet",
+      "params": [
+        "timeStart",
+        "timeEnd"
+      ],
+      "group": "investigate",
+      "onlyBands": [
+        "ios14",
+        "ios15-16",
+        "ios17-plus"
+      ]
+    },
+    {
+      "id": "when-modified",
+      "label": "När ändrades bildfilen senast?",
+      "subtitle": "ZMODIFICATIONDATE och redigeringsapp",
+      "params": [
+        "filename"
+      ],
+      "group": "investigate"
+    },
+    {
+      "id": "edited",
+      "label": "Redigerade bilder",
+      "subtitle": "Bilder med en sparad redigering: när, i vilken app och med vilket format",
+      "params": [],
+      "group": "investigate"
+    },
+    {
+      "id": "shared-with-you",
+      "label": "Delat med dig (t.ex. Meddelanden)",
+      "subtitle": "Bilder som tagits emot via Delat med dig, med mottagande app",
+      "params": [],
+      "group": "investigate",
+      "onlyBands": [
+        "ios15-16",
+        "ios17-plus"
+      ]
+    },
+    {
+      "id": "hidden-trashed",
+      "label": "Dolda och raderade bilder",
+      "subtitle": "ZHIDDEN = 1 (album Dolda) eller ZTRASHEDSTATE = 1 (Nyligen raderade)",
+      "params": [],
+      "group": "investigate"
+    },
+    {
+      "id": "people",
+      "label": "Vilka personer finns på bilden?",
+      "subtitle": "Namngivna personer och ansikten som Bilder-appen har hittat",
+      "params": [
+        "filename"
+      ],
+      "group": "investigate",
+      "onlyBands": [
+        "ios14",
+        "ios15-16",
+        "ios17-plus"
+      ]
+    },
+    {
+      "id": "by-person",
+      "label": "Bilder där en viss person finns med",
+      "subtitle": "Sök på namnet som personen har fått i Bilder-appen",
+      "params": [
+        "person"
+      ],
+      "group": "investigate",
+      "onlyBands": [
+        "ios14",
+        "ios15-16",
+        "ios17-plus"
+      ]
+    },
+    {
+      "id": "albums",
+      "label": "Album i biblioteket",
+      "subtitle": "Namngivna album med antal och skapad-tid",
+      "params": [],
       "group": "investigate"
     },
     {
@@ -55,18 +174,9 @@ window.PHOTOS_SQLITE_CATALOG = {
     {
       "id": "cloud-hints",
       "label": "Molnrelaterade fält",
-      "subtitle": "ZCLOUDLOCALSTATE där kolumnen finns",
+      "subtitle": "iCloud-status för bilden och dess original",
       "params": [
         "filename"
-      ],
-      "group": "investigate"
-    },
-    {
-      "id": "list-by-app",
-      "label": "Lista bilder från en viss app",
-      "subtitle": "Filtrera på ZCREATORBUNDLEID / ZEDITORBUNDLEID",
-      "params": [
-        "bundleId"
       ],
       "group": "investigate"
     },
@@ -85,110 +195,195 @@ window.PHOTOS_SQLITE_CATALOG = {
       "group": "advanced"
     },
     {
+      "id": "album-join-tables",
+      "label": "Hitta tabellen som kopplar bilder till album",
+      "subtitle": "Numret i Z_nnASSETS skiljer mellan iOS-versioner. Kolumnerna visar hur tabellen ska kopplas",
+      "params": [],
+      "group": "advanced"
+    },
+    {
       "id": "full-story-alt-join",
       "label": "Standardquery med alternativ JOIN",
-      "subtitle": "ZADDITIONALASSETATTRIBUTES.ZGENERICASSET i stället för ZASSET",
+      "subtitle": "Kopplar via ZADDITIONALASSETATTRIBUTES.ZASSET om app-fälten blir tomma",
       "params": [
         "filename"
       ],
       "group": "advanced",
       "onlyBands": [
+        "ios14",
+        "ios15-16",
         "ios17-plus"
       ]
     }
   ],
-  "paramLabels": {
-    "filename": "Filnamn eller del av filnamn (komma-separerade om flera)",
-    "bundleId": "App / bundle-ID (t.ex. camera, whatsapp, com.apple.camera)"
-  },
   "bands": [
     {
-      "id": "ios10-12",
-      "label": "iOS 10–12",
+      "id": "ios10-13",
+      "label": "iOS 10–13",
       "versionMin": 10,
-      "versionMax": 12,
-      "notes": "",
+      "versionMax": 13,
+      "notes": "Bildtabellen heter ZGENERICASSET. Kolumnerna är kontrollerade mot iLEAPP för iOS 11–13; iOS 10 är inte kontrollerat.",
       "queries": [
         {
           "id": "full-story",
-          "sql": "SELECT\n  a.Z_PK,\n  a.ZDIRECTORY,\n  a.ZFILENAME,\n  aa.ZORIGINALFILENAME,\n  datetime(a.ZDATECREATED + 978307200, 'unixepoch', 'localtime') AS ZDATECREATED,\n  datetime(a.ZMODIFICATIONDATE + 978307200, 'unixepoch', 'localtime') AS ZMODIFICATIONDATE,\n  datetime(a.ZADDEDDATE + 978307200, 'unixepoch', 'localtime') AS ZADDEDDATE,\n  aa.ZEXIFTIMESTAMPSTRING,\n  aa.ZCREATORBUNDLEID,\n  aa.ZEDITORBUNDLEID\nFROM ZGENERICASSET a\nLEFT JOIN ZADDITIONALASSETATTRIBUTES aa ON aa.ZASSET = a.Z_PK\nWHERE a.ZFILENAME LIKE '%{{filename}}%'\n   OR IFNULL(aa.ZORIGINALFILENAME, '') LIKE '%{{filename}}%'\nORDER BY a.ZADDEDDATE DESC;"
+          "sql": "SELECT\n  a.Z_PK,\n  a.ZDIRECTORY,\n  a.ZFILENAME,\n  aa.ZORIGINALFILENAME,\n  datetime(a.ZDATECREATED + 978307200, 'unixepoch', 'localtime') AS ZDATECREATED,\n  datetime(a.ZMODIFICATIONDATE + 978307200, 'unixepoch', 'localtime') AS ZMODIFICATIONDATE,\n  datetime(a.ZADDEDDATE + 978307200, 'unixepoch', 'localtime') AS ZADDEDDATE,\n  aa.ZEXIFTIMESTAMPSTRING,\n  aa.ZTIMEZONENAME,\n  aa.ZCREATORBUNDLEID,\n  aa.ZEDITORBUNDLEID,\n  a.ZTRASHEDSTATE,\n  a.ZHIDDEN,\n  a.ZFAVORITE,\n  a.ZLATITUDE,\n  a.ZLONGITUDE,\n  ext.ZCAMERAMAKE,\n  ext.ZCAMERAMODEL\nFROM ZGENERICASSET a\nLEFT JOIN ZADDITIONALASSETATTRIBUTES aa ON aa.Z_PK = a.ZADDITIONALATTRIBUTES\nLEFT JOIN ZEXTENDEDATTRIBUTES ext ON ext.Z_PK = a.ZEXTENDEDATTRIBUTES\nWHERE a.ZFILENAME LIKE '%{{filename}}%'\n   OR IFNULL(aa.ZORIGINALFILENAME, '') LIKE '%{{filename}}%'\nORDER BY a.ZADDEDDATE DESC;"
         },
         {
           "id": "when-created",
-          "sql": "SELECT\n  a.ZDIRECTORY,\n  a.ZFILENAME,\n  datetime(a.ZDATECREATED + 978307200, 'unixepoch', 'localtime') AS ZDATECREATED,\n  datetime(a.ZADDEDDATE + 978307200, 'unixepoch', 'localtime') AS ZADDEDDATE,\n  aa.ZEXIFTIMESTAMPSTRING,\n  aa.ZCREATORBUNDLEID\nFROM ZGENERICASSET a\nLEFT JOIN ZADDITIONALASSETATTRIBUTES aa ON aa.ZASSET = a.Z_PK\nWHERE a.ZFILENAME LIKE '%{{filename}}%'\n   OR IFNULL(aa.ZORIGINALFILENAME, '') LIKE '%{{filename}}%'\nORDER BY a.ZDATECREATED DESC;"
+          "sql": "SELECT\n  a.ZFILENAME,\n  datetime(a.ZDATECREATED + 978307200, 'unixepoch', 'localtime') AS ZDATECREATED,\n  datetime(a.ZADDEDDATE + 978307200, 'unixepoch', 'localtime') AS ZADDEDDATE,\n  aa.ZEXIFTIMESTAMPSTRING,\n  aa.ZTIMEZONENAME,\n  aa.ZTIMEZONEOFFSET\nFROM ZGENERICASSET a\nLEFT JOIN ZADDITIONALASSETATTRIBUTES aa ON aa.Z_PK = a.ZADDITIONALATTRIBUTES\nWHERE a.ZFILENAME LIKE '%{{filename}}%'\n   OR IFNULL(aa.ZORIGINALFILENAME, '') LIKE '%{{filename}}%'\nORDER BY a.ZDATECREATED;"
         },
         {
           "id": "which-app",
-          "sql": "SELECT\n  a.ZDIRECTORY,\n  a.ZFILENAME,\n  aa.ZCREATORBUNDLEID,\n  aa.ZEDITORBUNDLEID,\n  datetime(a.ZDATECREATED + 978307200, 'unixepoch', 'localtime') AS ZDATECREATED,\n  datetime(a.ZADDEDDATE + 978307200, 'unixepoch', 'localtime') AS ZADDEDDATE\nFROM ZGENERICASSET a\nLEFT JOIN ZADDITIONALASSETATTRIBUTES aa ON aa.ZASSET = a.Z_PK\nWHERE a.ZFILENAME LIKE '%{{filename}}%'\n   OR IFNULL(aa.ZORIGINALFILENAME, '') LIKE '%{{filename}}%'\nORDER BY a.ZADDEDDATE DESC;"
+          "sql": "SELECT\n  a.ZDIRECTORY,\n  a.ZFILENAME,\n  aa.ZCREATORBUNDLEID,\n  aa.ZEDITORBUNDLEID,\n  a.ZSAVEDASSETTYPE\nFROM ZGENERICASSET a\nLEFT JOIN ZADDITIONALASSETATTRIBUTES aa ON aa.Z_PK = a.ZADDITIONALATTRIBUTES\nWHERE a.ZFILENAME LIKE '%{{filename}}%'\n   OR IFNULL(aa.ZORIGINALFILENAME, '') LIKE '%{{filename}}%'\nORDER BY a.ZADDEDDATE DESC;"
         },
         {
-          "id": "when-modified",
-          "sql": "SELECT\n  a.ZDIRECTORY,\n  a.ZFILENAME,\n  datetime(a.ZMODIFICATIONDATE + 978307200, 'unixepoch', 'localtime') AS ZMODIFICATIONDATE,\n  datetime(a.ZDATECREATED + 978307200, 'unixepoch', 'localtime') AS ZDATECREATED,\n  aa.ZEDITORBUNDLEID,\n  aa.ZCREATORBUNDLEID\nFROM ZGENERICASSET a\nLEFT JOIN ZADDITIONALASSETATTRIBUTES aa ON aa.ZASSET = a.Z_PK\nWHERE a.ZFILENAME LIKE '%{{filename}}%'\n   OR IFNULL(aa.ZORIGINALFILENAME, '') LIKE '%{{filename}}%'\nORDER BY a.ZMODIFICATIONDATE DESC;"
-        },
-        {
-          "id": "where-stored",
-          "sql": "SELECT\n  a.ZDIRECTORY,\n  a.ZFILENAME,\n  aa.ZORIGINALFILENAME,\n  datetime(a.ZADDEDDATE + 978307200, 'unixepoch', 'localtime') AS ZADDEDDATE\nFROM ZGENERICASSET a\nLEFT JOIN ZADDITIONALASSETATTRIBUTES aa ON aa.ZASSET = a.Z_PK\nWHERE a.ZFILENAME LIKE '%{{filename}}%'\n   OR IFNULL(aa.ZORIGINALFILENAME, '') LIKE '%{{filename}}%';"
-        },
-        {
-          "id": "cloud-hints",
-          "sql": "SELECT\n  a.ZDIRECTORY,\n  a.ZFILENAME,\n  aa.ZCREATORBUNDLEID\nFROM ZGENERICASSET a\nLEFT JOIN ZADDITIONALASSETATTRIBUTES aa ON aa.ZASSET = a.Z_PK\nWHERE a.ZFILENAME LIKE '%{{filename}}%'\n   OR IFNULL(aa.ZORIGINALFILENAME, '') LIKE '%{{filename}}%';"
+          "id": "apps-summary",
+          "sql": "SELECT\n  aa.ZCREATORBUNDLEID,\n  COUNT(*) AS antal,\n  datetime(MIN(a.ZADDEDDATE) + 978307200, 'unixepoch', 'localtime') AS forst_tillagd,\n  datetime(MAX(a.ZADDEDDATE) + 978307200, 'unixepoch', 'localtime') AS senast_tillagd\nFROM ZGENERICASSET a\nLEFT JOIN ZADDITIONALASSETATTRIBUTES aa ON aa.Z_PK = a.ZADDITIONALATTRIBUTES\nGROUP BY aa.ZCREATORBUNDLEID\nORDER BY antal DESC;"
         },
         {
           "id": "list-by-app",
-          "sql": "SELECT\n  a.ZDIRECTORY,\n  a.ZFILENAME,\n  aa.ZCREATORBUNDLEID,\n  aa.ZEDITORBUNDLEID,\n  datetime(a.ZDATECREATED + 978307200, 'unixepoch', 'localtime') AS ZDATECREATED,\n  datetime(a.ZADDEDDATE + 978307200, 'unixepoch', 'localtime') AS ZADDEDDATE\nFROM ZGENERICASSET a\nLEFT JOIN ZADDITIONALASSETATTRIBUTES aa ON aa.ZASSET = a.Z_PK\nWHERE IFNULL(aa.ZCREATORBUNDLEID, '') LIKE '%{{bundleId}}%'\n   OR IFNULL(aa.ZEDITORBUNDLEID, '') LIKE '%{{bundleId}}%'\nORDER BY a.ZADDEDDATE DESC;"
+          "sql": "SELECT\n  a.ZDIRECTORY,\n  a.ZFILENAME,\n  aa.ZCREATORBUNDLEID,\n  aa.ZEDITORBUNDLEID,\n  datetime(a.ZDATECREATED + 978307200, 'unixepoch', 'localtime') AS ZDATECREATED,\n  datetime(a.ZADDEDDATE + 978307200, 'unixepoch', 'localtime') AS ZADDEDDATE\nFROM ZGENERICASSET a\nLEFT JOIN ZADDITIONALASSETATTRIBUTES aa ON aa.Z_PK = a.ZADDITIONALATTRIBUTES\nWHERE IFNULL(aa.ZCREATORBUNDLEID, '') LIKE '%{{bundleId}}%'\n   OR IFNULL(aa.ZEDITORBUNDLEID, '') LIKE '%{{bundleId}}%'\nORDER BY a.ZADDEDDATE DESC;"
+        },
+        {
+          "id": "device",
+          "sql": "SELECT\n  a.ZFILENAME,\n  ext.ZCAMERAMAKE,\n  ext.ZCAMERAMODEL,\n  ext.ZLENSMODEL,\n  aa.ZCREATORBUNDLEID,\n  datetime(a.ZDATECREATED + 978307200, 'unixepoch', 'localtime') AS ZDATECREATED\nFROM ZGENERICASSET a\nLEFT JOIN ZADDITIONALASSETATTRIBUTES aa ON aa.Z_PK = a.ZADDITIONALATTRIBUTES\nLEFT JOIN ZEXTENDEDATTRIBUTES ext ON ext.Z_PK = a.ZEXTENDEDATTRIBUTES\nWHERE a.ZFILENAME LIKE '%{{filename}}%'\n   OR IFNULL(aa.ZORIGINALFILENAME, '') LIKE '%{{filename}}%'\nORDER BY a.ZDATECREATED;"
+        },
+        {
+          "id": "location",
+          "sql": "SELECT\n  a.ZFILENAME,\n  datetime(a.ZDATECREATED + 978307200, 'unixepoch', 'localtime') AS ZDATECREATED,\n  aa.ZTIMEZONENAME,\n  a.ZLATITUDE,\n  a.ZLONGITUDE,\n  ext.ZLATITUDE AS EXT_ZLATITUDE,\n  ext.ZLONGITUDE AS EXT_ZLONGITUDE\nFROM ZGENERICASSET a\nLEFT JOIN ZADDITIONALASSETATTRIBUTES aa ON aa.Z_PK = a.ZADDITIONALATTRIBUTES\nLEFT JOIN ZEXTENDEDATTRIBUTES ext ON ext.Z_PK = a.ZEXTENDEDATTRIBUTES\nWHERE a.ZFILENAME LIKE '%{{filename}}%'\n   OR IFNULL(aa.ZORIGINALFILENAME, '') LIKE '%{{filename}}%'\nORDER BY a.ZDATECREATED;"
+        },
+        {
+          "id": "location-window",
+          "sql": "SELECT\n  datetime(a.ZDATECREATED + 978307200, 'unixepoch', 'localtime') AS ZDATECREATED,\n  a.ZFILENAME,\n  a.ZLATITUDE,\n  a.ZLONGITUDE,\n  aa.ZTIMEZONENAME,\n  aa.ZCREATORBUNDLEID\nFROM ZGENERICASSET a\nLEFT JOIN ZADDITIONALASSETATTRIBUTES aa ON aa.Z_PK = a.ZADDITIONALATTRIBUTES\nWHERE a.ZLATITUDE IS NOT NULL\n  AND a.ZLATITUDE != -180\n  AND a.ZDATECREATED BETWEEN {{cocoaStart}} AND {{cocoaEnd}}\nORDER BY a.ZDATECREATED;"
+        },
+        {
+          "id": "when-modified",
+          "sql": "SELECT\n  a.ZFILENAME,\n  datetime(a.ZMODIFICATIONDATE + 978307200, 'unixepoch', 'localtime') AS ZMODIFICATIONDATE,\n  aa.ZEDITORBUNDLEID\nFROM ZGENERICASSET a\nLEFT JOIN ZADDITIONALASSETATTRIBUTES aa ON aa.Z_PK = a.ZADDITIONALATTRIBUTES\nWHERE a.ZFILENAME LIKE '%{{filename}}%'\n   OR IFNULL(aa.ZORIGINALFILENAME, '') LIKE '%{{filename}}%'\nORDER BY a.ZMODIFICATIONDATE DESC;"
+        },
+        {
+          "id": "edited",
+          "sql": "SELECT\n  datetime(u.ZADJUSTMENTTIMESTAMP + 978307200, 'unixepoch', 'localtime') AS ZADJUSTMENTTIMESTAMP,\n  a.ZFILENAME,\n  u.ZEDITORLOCALIZEDNAME,\n  u.ZADJUSTMENTFORMATIDENTIFIER,\n  aa.ZEDITORBUNDLEID,\n  aa.ZCREATORBUNDLEID\nFROM ZGENERICASSET a\nLEFT JOIN ZADDITIONALASSETATTRIBUTES aa ON aa.Z_PK = a.ZADDITIONALATTRIBUTES\nLEFT JOIN ZUNMANAGEDADJUSTMENT u ON u.Z_PK = aa.ZUNMANAGEDADJUSTMENT\nWHERE aa.ZUNMANAGEDADJUSTMENT > 0\nORDER BY u.ZADJUSTMENTTIMESTAMP DESC;"
+        },
+        {
+          "id": "hidden-trashed",
+          "sql": "SELECT\n  a.ZFILENAME,\n  a.ZHIDDEN,\n  a.ZTRASHEDSTATE,\n  datetime(a.ZTRASHEDDATE + 978307200, 'unixepoch', 'localtime') AS ZTRASHEDDATE,\n  datetime(a.ZDATECREATED + 978307200, 'unixepoch', 'localtime') AS ZDATECREATED,\n  aa.ZCREATORBUNDLEID\nFROM ZGENERICASSET a\nLEFT JOIN ZADDITIONALASSETATTRIBUTES aa ON aa.Z_PK = a.ZADDITIONALATTRIBUTES\nWHERE a.ZHIDDEN = 1\n   OR a.ZTRASHEDSTATE = 1\nORDER BY a.ZTRASHEDDATE DESC;"
+        },
+        {
+          "id": "albums",
+          "sql": "SELECT\n  g.Z_PK,\n  g.ZTITLE,\n  g.ZKIND,\n  g.ZCACHEDCOUNT,\n  datetime(g.ZCREATIONDATE + 978307200, 'unixepoch', 'localtime') AS ZCREATIONDATE,\n  g.ZTRASHEDSTATE\nFROM ZGENERICALBUM g\nWHERE g.ZTITLE IS NOT NULL\nORDER BY g.ZCREATIONDATE DESC;"
+        },
+        {
+          "id": "where-stored",
+          "sql": "SELECT\n  a.ZDIRECTORY,\n  a.ZFILENAME,\n  aa.ZORIGINALFILENAME,\n  cm.ZORIGINALFILENAME AS CLOUD_ZORIGINALFILENAME\nFROM ZGENERICASSET a\nLEFT JOIN ZADDITIONALASSETATTRIBUTES aa ON aa.Z_PK = a.ZADDITIONALATTRIBUTES\nLEFT JOIN ZCLOUDMASTER cm ON cm.Z_PK = a.ZMASTER\nWHERE a.ZFILENAME LIKE '%{{filename}}%'\n   OR IFNULL(aa.ZORIGINALFILENAME, '') LIKE '%{{filename}}%'\nORDER BY a.ZDIRECTORY, a.ZFILENAME;"
+        },
+        {
+          "id": "cloud-hints",
+          "sql": "SELECT\n  a.ZFILENAME,\n  a.ZSAVEDASSETTYPE,\n  cm.ZCLOUDLOCALSTATE AS CLOUD_ZCLOUDLOCALSTATE,\n  datetime(cm.ZIMPORTDATE + 978307200, 'unixepoch', 'localtime') AS CLOUD_ZIMPORTDATE\nFROM ZGENERICASSET a\nLEFT JOIN ZADDITIONALASSETATTRIBUTES aa ON aa.Z_PK = a.ZADDITIONALATTRIBUTES\nLEFT JOIN ZCLOUDMASTER cm ON cm.Z_PK = a.ZMASTER\nWHERE a.ZFILENAME LIKE '%{{filename}}%'\n   OR IFNULL(aa.ZORIGINALFILENAME, '') LIKE '%{{filename}}%'\nORDER BY a.ZFILENAME;"
         },
         {
           "id": "schema-probe",
-          "sql": "SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'Z%' ORDER BY name;"
+          "sql": "SELECT name, type\nFROM sqlite_master\nWHERE type = 'table'\n  AND name LIKE 'Z%'\nORDER BY name;"
         },
         {
           "id": "columns-asset",
           "sql": "PRAGMA table_info(ZGENERICASSET);\nPRAGMA table_info(ZADDITIONALASSETATTRIBUTES);"
+        },
+        {
+          "id": "album-join-tables",
+          "sql": "SELECT m.name AS tabell, group_concat(p.name, ', ') AS kolumner\nFROM sqlite_master m, pragma_table_info(m.name) p\nWHERE m.type = 'table'\n  AND m.name GLOB 'Z_[0-9]*ASSETS'\nGROUP BY m.name\nORDER BY m.name;"
         }
       ]
     },
     {
-      "id": "ios13-14",
-      "label": "iOS 13–14",
-      "versionMin": 13,
+      "id": "ios14",
+      "label": "iOS 14",
+      "versionMin": 14,
       "versionMax": 14,
-      "notes": "",
+      "notes": "Bildtabellen heter ZASSET från iOS 14.",
       "queries": [
         {
           "id": "full-story",
-          "sql": "SELECT\n  a.Z_PK,\n  a.ZDIRECTORY,\n  a.ZFILENAME,\n  aa.ZORIGINALFILENAME,\n  datetime(a.ZDATECREATED + 978307200, 'unixepoch', 'localtime') AS ZDATECREATED,\n  datetime(a.ZMODIFICATIONDATE + 978307200, 'unixepoch', 'localtime') AS ZMODIFICATIONDATE,\n  datetime(a.ZADDEDDATE + 978307200, 'unixepoch', 'localtime') AS ZADDEDDATE,\n  aa.ZEXIFTIMESTAMPSTRING,\n  aa.ZCREATORBUNDLEID,\n  aa.ZEDITORBUNDLEID,\n  a.ZKIND,\n  a.ZTRASHEDSTATE,\n  a.ZFAVORITE\nFROM ZGENERICASSET a\nLEFT JOIN ZADDITIONALASSETATTRIBUTES aa ON aa.ZASSET = a.Z_PK\nWHERE a.ZFILENAME LIKE '%{{filename}}%'\n   OR IFNULL(aa.ZORIGINALFILENAME, '') LIKE '%{{filename}}%'\nORDER BY a.ZADDEDDATE DESC;"
+          "sql": "SELECT\n  a.Z_PK,\n  a.ZDIRECTORY,\n  a.ZFILENAME,\n  aa.ZORIGINALFILENAME,\n  datetime(a.ZDATECREATED + 978307200, 'unixepoch', 'localtime') AS ZDATECREATED,\n  datetime(a.ZMODIFICATIONDATE + 978307200, 'unixepoch', 'localtime') AS ZMODIFICATIONDATE,\n  datetime(a.ZADDEDDATE + 978307200, 'unixepoch', 'localtime') AS ZADDEDDATE,\n  aa.ZEXIFTIMESTAMPSTRING,\n  aa.ZTIMEZONENAME,\n  aa.ZCREATORBUNDLEID,\n  aa.ZIMPORTEDBYDISPLAYNAME,\n  aa.ZEDITORBUNDLEID,\n  a.ZKIND,\n  a.ZKINDSUBTYPE,\n  a.ZTRASHEDSTATE,\n  a.ZHIDDEN,\n  a.ZFAVORITE,\n  a.ZUNIFORMTYPEIDENTIFIER,\n  a.ZLATITUDE,\n  a.ZLONGITUDE,\n  ext.ZCAMERAMAKE,\n  ext.ZCAMERAMODEL\nFROM ZASSET a\nLEFT JOIN ZADDITIONALASSETATTRIBUTES aa ON aa.Z_PK = a.ZADDITIONALATTRIBUTES\nLEFT JOIN ZEXTENDEDATTRIBUTES ext ON ext.Z_PK = a.ZEXTENDEDATTRIBUTES\nWHERE a.ZFILENAME LIKE '%{{filename}}%'\n   OR IFNULL(aa.ZORIGINALFILENAME, '') LIKE '%{{filename}}%'\nORDER BY a.ZADDEDDATE DESC;"
         },
         {
           "id": "when-created",
-          "sql": "SELECT\n  a.ZDIRECTORY,\n  a.ZFILENAME,\n  datetime(a.ZDATECREATED + 978307200, 'unixepoch', 'localtime') AS ZDATECREATED,\n  datetime(a.ZADDEDDATE + 978307200, 'unixepoch', 'localtime') AS ZADDEDDATE,\n  aa.ZEXIFTIMESTAMPSTRING,\n  aa.ZCREATORBUNDLEID\nFROM ZGENERICASSET a\nLEFT JOIN ZADDITIONALASSETATTRIBUTES aa ON aa.ZASSET = a.Z_PK\nWHERE a.ZFILENAME LIKE '%{{filename}}%'\n   OR IFNULL(aa.ZORIGINALFILENAME, '') LIKE '%{{filename}}%'\nORDER BY a.ZDATECREATED DESC;"
+          "sql": "SELECT\n  a.ZFILENAME,\n  datetime(a.ZDATECREATED + 978307200, 'unixepoch', 'localtime') AS ZDATECREATED,\n  datetime(a.ZADDEDDATE + 978307200, 'unixepoch', 'localtime') AS ZADDEDDATE,\n  aa.ZEXIFTIMESTAMPSTRING,\n  aa.ZTIMEZONENAME,\n  aa.ZTIMEZONEOFFSET\nFROM ZASSET a\nLEFT JOIN ZADDITIONALASSETATTRIBUTES aa ON aa.Z_PK = a.ZADDITIONALATTRIBUTES\nWHERE a.ZFILENAME LIKE '%{{filename}}%'\n   OR IFNULL(aa.ZORIGINALFILENAME, '') LIKE '%{{filename}}%'\nORDER BY a.ZDATECREATED;"
         },
         {
           "id": "which-app",
-          "sql": "SELECT\n  a.ZDIRECTORY,\n  a.ZFILENAME,\n  aa.ZCREATORBUNDLEID,\n  aa.ZEDITORBUNDLEID,\n  datetime(a.ZDATECREATED + 978307200, 'unixepoch', 'localtime') AS ZDATECREATED,\n  datetime(a.ZADDEDDATE + 978307200, 'unixepoch', 'localtime') AS ZADDEDDATE\nFROM ZGENERICASSET a\nLEFT JOIN ZADDITIONALASSETATTRIBUTES aa ON aa.ZASSET = a.Z_PK\nWHERE a.ZFILENAME LIKE '%{{filename}}%'\n   OR IFNULL(aa.ZORIGINALFILENAME, '') LIKE '%{{filename}}%'\nORDER BY a.ZADDEDDATE DESC;"
+          "sql": "SELECT\n  a.ZDIRECTORY,\n  a.ZFILENAME,\n  aa.ZCREATORBUNDLEID,\n  aa.ZIMPORTEDBYDISPLAYNAME,\n  aa.ZEDITORBUNDLEID,\n  a.ZSAVEDASSETTYPE\nFROM ZASSET a\nLEFT JOIN ZADDITIONALASSETATTRIBUTES aa ON aa.Z_PK = a.ZADDITIONALATTRIBUTES\nWHERE a.ZFILENAME LIKE '%{{filename}}%'\n   OR IFNULL(aa.ZORIGINALFILENAME, '') LIKE '%{{filename}}%'\nORDER BY a.ZADDEDDATE DESC;"
         },
         {
-          "id": "when-modified",
-          "sql": "SELECT\n  a.ZDIRECTORY,\n  a.ZFILENAME,\n  datetime(a.ZMODIFICATIONDATE + 978307200, 'unixepoch', 'localtime') AS ZMODIFICATIONDATE,\n  datetime(a.ZDATECREATED + 978307200, 'unixepoch', 'localtime') AS ZDATECREATED,\n  aa.ZEDITORBUNDLEID,\n  aa.ZCREATORBUNDLEID\nFROM ZGENERICASSET a\nLEFT JOIN ZADDITIONALASSETATTRIBUTES aa ON aa.ZASSET = a.Z_PK\nWHERE a.ZFILENAME LIKE '%{{filename}}%'\n   OR IFNULL(aa.ZORIGINALFILENAME, '') LIKE '%{{filename}}%'\nORDER BY a.ZMODIFICATIONDATE DESC;"
-        },
-        {
-          "id": "where-stored",
-          "sql": "SELECT\n  a.ZDIRECTORY,\n  a.ZFILENAME,\n  aa.ZORIGINALFILENAME,\n  datetime(a.ZADDEDDATE + 978307200, 'unixepoch', 'localtime') AS ZADDEDDATE\nFROM ZGENERICASSET a\nLEFT JOIN ZADDITIONALASSETATTRIBUTES aa ON aa.ZASSET = a.Z_PK\nWHERE a.ZFILENAME LIKE '%{{filename}}%'\n   OR IFNULL(aa.ZORIGINALFILENAME, '') LIKE '%{{filename}}%';"
-        },
-        {
-          "id": "cloud-hints",
-          "sql": "SELECT\n  a.ZDIRECTORY,\n  a.ZFILENAME,\n  aa.ZCREATORBUNDLEID,\n  a.ZCLOUDLOCALSTATE\nFROM ZGENERICASSET a\nLEFT JOIN ZADDITIONALASSETATTRIBUTES aa ON aa.ZASSET = a.Z_PK\nWHERE a.ZFILENAME LIKE '%{{filename}}%'\n   OR IFNULL(aa.ZORIGINALFILENAME, '') LIKE '%{{filename}}%';"
+          "id": "apps-summary",
+          "sql": "SELECT\n  aa.ZCREATORBUNDLEID,\n  MAX(aa.ZIMPORTEDBYDISPLAYNAME) AS ZIMPORTEDBYDISPLAYNAME,\n  COUNT(*) AS antal,\n  datetime(MIN(a.ZADDEDDATE) + 978307200, 'unixepoch', 'localtime') AS forst_tillagd,\n  datetime(MAX(a.ZADDEDDATE) + 978307200, 'unixepoch', 'localtime') AS senast_tillagd\nFROM ZASSET a\nLEFT JOIN ZADDITIONALASSETATTRIBUTES aa ON aa.Z_PK = a.ZADDITIONALATTRIBUTES\nGROUP BY aa.ZCREATORBUNDLEID\nORDER BY antal DESC;"
         },
         {
           "id": "list-by-app",
-          "sql": "SELECT\n  a.ZDIRECTORY,\n  a.ZFILENAME,\n  aa.ZCREATORBUNDLEID,\n  aa.ZEDITORBUNDLEID,\n  datetime(a.ZDATECREATED + 978307200, 'unixepoch', 'localtime') AS ZDATECREATED,\n  datetime(a.ZADDEDDATE + 978307200, 'unixepoch', 'localtime') AS ZADDEDDATE\nFROM ZGENERICASSET a\nLEFT JOIN ZADDITIONALASSETATTRIBUTES aa ON aa.ZASSET = a.Z_PK\nWHERE IFNULL(aa.ZCREATORBUNDLEID, '') LIKE '%{{bundleId}}%'\n   OR IFNULL(aa.ZEDITORBUNDLEID, '') LIKE '%{{bundleId}}%'\nORDER BY a.ZADDEDDATE DESC;"
+          "sql": "SELECT\n  a.ZDIRECTORY,\n  a.ZFILENAME,\n  aa.ZCREATORBUNDLEID,\n  aa.ZEDITORBUNDLEID,\n  datetime(a.ZDATECREATED + 978307200, 'unixepoch', 'localtime') AS ZDATECREATED,\n  datetime(a.ZADDEDDATE + 978307200, 'unixepoch', 'localtime') AS ZADDEDDATE\nFROM ZASSET a\nLEFT JOIN ZADDITIONALASSETATTRIBUTES aa ON aa.Z_PK = a.ZADDITIONALATTRIBUTES\nWHERE IFNULL(aa.ZCREATORBUNDLEID, '') LIKE '%{{bundleId}}%'\n   OR IFNULL(aa.ZEDITORBUNDLEID, '') LIKE '%{{bundleId}}%'\nORDER BY a.ZADDEDDATE DESC;"
+        },
+        {
+          "id": "device",
+          "sql": "SELECT\n  a.ZFILENAME,\n  ext.ZCAMERAMAKE,\n  ext.ZCAMERAMODEL,\n  ext.ZLENSMODEL,\n  aa.ZCREATORBUNDLEID,\n  datetime(a.ZDATECREATED + 978307200, 'unixepoch', 'localtime') AS ZDATECREATED\nFROM ZASSET a\nLEFT JOIN ZADDITIONALASSETATTRIBUTES aa ON aa.Z_PK = a.ZADDITIONALATTRIBUTES\nLEFT JOIN ZEXTENDEDATTRIBUTES ext ON ext.Z_PK = a.ZEXTENDEDATTRIBUTES\nWHERE a.ZFILENAME LIKE '%{{filename}}%'\n   OR IFNULL(aa.ZORIGINALFILENAME, '') LIKE '%{{filename}}%'\nORDER BY a.ZDATECREATED;"
+        },
+        {
+          "id": "location",
+          "sql": "SELECT\n  a.ZFILENAME,\n  datetime(a.ZDATECREATED + 978307200, 'unixepoch', 'localtime') AS ZDATECREATED,\n  aa.ZTIMEZONENAME,\n  a.ZLATITUDE,\n  a.ZLONGITUDE,\n  ext.ZLATITUDE AS EXT_ZLATITUDE,\n  ext.ZLONGITUDE AS EXT_ZLONGITUDE\nFROM ZASSET a\nLEFT JOIN ZADDITIONALASSETATTRIBUTES aa ON aa.Z_PK = a.ZADDITIONALATTRIBUTES\nLEFT JOIN ZEXTENDEDATTRIBUTES ext ON ext.Z_PK = a.ZEXTENDEDATTRIBUTES\nWHERE a.ZFILENAME LIKE '%{{filename}}%'\n   OR IFNULL(aa.ZORIGINALFILENAME, '') LIKE '%{{filename}}%'\nORDER BY a.ZDATECREATED;"
+        },
+        {
+          "id": "location-window",
+          "sql": "SELECT\n  datetime(a.ZDATECREATED + 978307200, 'unixepoch', 'localtime') AS ZDATECREATED,\n  a.ZFILENAME,\n  a.ZLATITUDE,\n  a.ZLONGITUDE,\n  aa.ZTIMEZONENAME,\n  aa.ZCREATORBUNDLEID\nFROM ZASSET a\nLEFT JOIN ZADDITIONALASSETATTRIBUTES aa ON aa.Z_PK = a.ZADDITIONALATTRIBUTES\nWHERE a.ZLATITUDE IS NOT NULL\n  AND a.ZLATITUDE != -180\n  AND a.ZDATECREATED BETWEEN {{cocoaStart}} AND {{cocoaEnd}}\nORDER BY a.ZDATECREATED;"
+        },
+        {
+          "id": "screenshots",
+          "sql": "SELECT\n  datetime(a.ZDATECREATED + 978307200, 'unixepoch', 'localtime') AS ZDATECREATED,\n  CASE a.ZKINDSUBTYPE WHEN 10 THEN 'Skärmdump' WHEN 103 THEN 'Skärminspelning' END AS typ,\n  a.ZDIRECTORY,\n  a.ZFILENAME,\n  aa.ZCREATORBUNDLEID\nFROM ZASSET a\nLEFT JOIN ZADDITIONALASSETATTRIBUTES aa ON aa.Z_PK = a.ZADDITIONALATTRIBUTES\nWHERE a.ZKINDSUBTYPE IN (10, 103)\n  AND a.ZDATECREATED BETWEEN {{cocoaStart}} AND {{cocoaEnd}}\nORDER BY a.ZDATECREATED;"
+        },
+        {
+          "id": "when-modified",
+          "sql": "SELECT\n  a.ZFILENAME,\n  datetime(a.ZMODIFICATIONDATE + 978307200, 'unixepoch', 'localtime') AS ZMODIFICATIONDATE,\n  aa.ZEDITORBUNDLEID\nFROM ZASSET a\nLEFT JOIN ZADDITIONALASSETATTRIBUTES aa ON aa.Z_PK = a.ZADDITIONALATTRIBUTES\nWHERE a.ZFILENAME LIKE '%{{filename}}%'\n   OR IFNULL(aa.ZORIGINALFILENAME, '') LIKE '%{{filename}}%'\nORDER BY a.ZMODIFICATIONDATE DESC;"
+        },
+        {
+          "id": "edited",
+          "sql": "SELECT\n  datetime(u.ZADJUSTMENTTIMESTAMP + 978307200, 'unixepoch', 'localtime') AS ZADJUSTMENTTIMESTAMP,\n  a.ZFILENAME,\n  u.ZEDITORLOCALIZEDNAME,\n  u.ZADJUSTMENTFORMATIDENTIFIER,\n  aa.ZEDITORBUNDLEID,\n  aa.ZCREATORBUNDLEID\nFROM ZASSET a\nLEFT JOIN ZADDITIONALASSETATTRIBUTES aa ON aa.Z_PK = a.ZADDITIONALATTRIBUTES\nLEFT JOIN ZUNMANAGEDADJUSTMENT u ON u.Z_PK = aa.ZUNMANAGEDADJUSTMENT\nWHERE aa.ZUNMANAGEDADJUSTMENT > 0\nORDER BY u.ZADJUSTMENTTIMESTAMP DESC;"
+        },
+        {
+          "id": "hidden-trashed",
+          "sql": "SELECT\n  a.ZFILENAME,\n  a.ZHIDDEN,\n  a.ZTRASHEDSTATE,\n  datetime(a.ZTRASHEDDATE + 978307200, 'unixepoch', 'localtime') AS ZTRASHEDDATE,\n  datetime(a.ZDATECREATED + 978307200, 'unixepoch', 'localtime') AS ZDATECREATED,\n  aa.ZCREATORBUNDLEID\nFROM ZASSET a\nLEFT JOIN ZADDITIONALASSETATTRIBUTES aa ON aa.Z_PK = a.ZADDITIONALATTRIBUTES\nWHERE a.ZHIDDEN = 1\n   OR a.ZTRASHEDSTATE = 1\nORDER BY a.ZTRASHEDDATE DESC;"
+        },
+        {
+          "id": "people",
+          "sql": "SELECT\n  a.ZFILENAME,\n  p.ZFULLNAME,\n  p.ZDISPLAYNAME,\n  f.ZMANUAL,\n  f.ZHIDDEN\nFROM ZASSET a\nLEFT JOIN ZADDITIONALASSETATTRIBUTES aa ON aa.Z_PK = a.ZADDITIONALATTRIBUTES\nINNER JOIN ZDETECTEDFACE f ON f.ZASSET = a.Z_PK\nLEFT JOIN ZPERSON p ON p.Z_PK = f.ZPERSON\nWHERE a.ZFILENAME LIKE '%{{filename}}%'\n   OR IFNULL(aa.ZORIGINALFILENAME, '') LIKE '%{{filename}}%'\nORDER BY a.ZFILENAME;"
+        },
+        {
+          "id": "by-person",
+          "sql": "SELECT\n  p.ZFULLNAME,\n  p.ZDISPLAYNAME,\n  datetime(a.ZDATECREATED + 978307200, 'unixepoch', 'localtime') AS ZDATECREATED,\n  a.ZDIRECTORY,\n  a.ZFILENAME\nFROM ZASSET a\nINNER JOIN ZDETECTEDFACE f ON f.ZASSET = a.Z_PK\nINNER JOIN ZPERSON p ON p.Z_PK = f.ZPERSON\nWHERE IFNULL(p.ZFULLNAME, '') LIKE '%{{person}}%'\n   OR IFNULL(p.ZDISPLAYNAME, '') LIKE '%{{person}}%'\nORDER BY a.ZDATECREATED;"
+        },
+        {
+          "id": "albums",
+          "sql": "SELECT\n  g.Z_PK,\n  g.ZTITLE,\n  g.ZKIND,\n  g.ZCACHEDCOUNT,\n  datetime(g.ZCREATIONDATE + 978307200, 'unixepoch', 'localtime') AS ZCREATIONDATE,\n  g.ZTRASHEDSTATE\nFROM ZGENERICALBUM g\nWHERE g.ZTITLE IS NOT NULL\nORDER BY g.ZCREATIONDATE DESC;"
+        },
+        {
+          "id": "where-stored",
+          "sql": "SELECT\n  a.ZDIRECTORY,\n  a.ZFILENAME,\n  aa.ZORIGINALFILENAME,\n  cm.ZORIGINALFILENAME AS CLOUD_ZORIGINALFILENAME\nFROM ZASSET a\nLEFT JOIN ZADDITIONALASSETATTRIBUTES aa ON aa.Z_PK = a.ZADDITIONALATTRIBUTES\nLEFT JOIN ZCLOUDMASTER cm ON cm.Z_PK = a.ZMASTER\nWHERE a.ZFILENAME LIKE '%{{filename}}%'\n   OR IFNULL(aa.ZORIGINALFILENAME, '') LIKE '%{{filename}}%'\nORDER BY a.ZDIRECTORY, a.ZFILENAME;"
+        },
+        {
+          "id": "cloud-hints",
+          "sql": "SELECT\n  a.ZFILENAME,\n  a.ZCLOUDLOCALSTATE,\n  a.ZCLOUDASSETGUID,\n  a.ZSAVEDASSETTYPE,\n  cm.ZCLOUDLOCALSTATE AS CLOUD_ZCLOUDLOCALSTATE,\n  datetime(cm.ZIMPORTDATE + 978307200, 'unixepoch', 'localtime') AS CLOUD_ZIMPORTDATE\nFROM ZASSET a\nLEFT JOIN ZADDITIONALASSETATTRIBUTES aa ON aa.Z_PK = a.ZADDITIONALATTRIBUTES\nLEFT JOIN ZCLOUDMASTER cm ON cm.Z_PK = a.ZMASTER\nWHERE a.ZFILENAME LIKE '%{{filename}}%'\n   OR IFNULL(aa.ZORIGINALFILENAME, '') LIKE '%{{filename}}%'\nORDER BY a.ZFILENAME;"
         },
         {
           "id": "schema-probe",
-          "sql": "SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'Z%' ORDER BY name;"
+          "sql": "SELECT name, type\nFROM sqlite_master\nWHERE type = 'table'\n  AND name LIKE 'Z%'\nORDER BY name;"
         },
         {
           "id": "columns-asset",
-          "sql": "PRAGMA table_info(ZGENERICASSET);\nPRAGMA table_info(ZADDITIONALASSETATTRIBUTES);"
+          "sql": "PRAGMA table_info(ZASSET);\nPRAGMA table_info(ZADDITIONALASSETATTRIBUTES);"
+        },
+        {
+          "id": "album-join-tables",
+          "sql": "SELECT m.name AS tabell, group_concat(p.name, ', ') AS kolumner\nFROM sqlite_master m, pragma_table_info(m.name) p\nWHERE m.type = 'table'\n  AND m.name GLOB 'Z_[0-9]*ASSETS'\nGROUP BY m.name\nORDER BY m.name;"
+        },
+        {
+          "id": "full-story-alt-join",
+          "sql": "SELECT\n  a.Z_PK,\n  a.ZDIRECTORY,\n  a.ZFILENAME,\n  aa.ZORIGINALFILENAME,\n  datetime(a.ZDATECREATED + 978307200, 'unixepoch', 'localtime') AS ZDATECREATED,\n  datetime(a.ZMODIFICATIONDATE + 978307200, 'unixepoch', 'localtime') AS ZMODIFICATIONDATE,\n  datetime(a.ZADDEDDATE + 978307200, 'unixepoch', 'localtime') AS ZADDEDDATE,\n  aa.ZEXIFTIMESTAMPSTRING,\n  aa.ZTIMEZONENAME,\n  aa.ZCREATORBUNDLEID,\n  aa.ZIMPORTEDBYDISPLAYNAME,\n  aa.ZEDITORBUNDLEID,\n  a.ZKIND,\n  a.ZKINDSUBTYPE,\n  a.ZTRASHEDSTATE,\n  a.ZHIDDEN,\n  a.ZFAVORITE,\n  a.ZUNIFORMTYPEIDENTIFIER,\n  a.ZLATITUDE,\n  a.ZLONGITUDE,\n  ext.ZCAMERAMAKE,\n  ext.ZCAMERAMODEL\nFROM ZASSET a\nLEFT JOIN ZADDITIONALASSETATTRIBUTES aa ON aa.ZASSET = a.Z_PK\nLEFT JOIN ZEXTENDEDATTRIBUTES ext ON ext.Z_PK = a.ZEXTENDEDATTRIBUTES\nWHERE a.ZFILENAME LIKE '%{{filename}}%'\n   OR IFNULL(aa.ZORIGINALFILENAME, '') LIKE '%{{filename}}%'\nORDER BY a.ZADDEDDATE DESC;"
         }
       ]
     },
@@ -197,94 +392,199 @@ window.PHOTOS_SQLITE_CATALOG = {
       "label": "iOS 15–16",
       "versionMin": 15,
       "versionMax": 16,
-      "notes": "",
+      "notes": "Skaparappen ligger i ZIMPORTEDBYBUNDLEIDENTIFIER från iOS 15 (hette ZCREATORBUNDLEID tidigare).",
       "queries": [
         {
           "id": "full-story",
-          "sql": "SELECT\n  a.Z_PK,\n  a.ZDIRECTORY,\n  a.ZFILENAME,\n  aa.ZORIGINALFILENAME,\n  datetime(a.ZDATECREATED + 978307200, 'unixepoch', 'localtime') AS ZDATECREATED,\n  datetime(a.ZMODIFICATIONDATE + 978307200, 'unixepoch', 'localtime') AS ZMODIFICATIONDATE,\n  datetime(a.ZADDEDDATE + 978307200, 'unixepoch', 'localtime') AS ZADDEDDATE,\n  aa.ZEXIFTIMESTAMPSTRING,\n  aa.ZCREATORBUNDLEID,\n  aa.ZEDITORBUNDLEID,\n  a.ZKIND,\n  a.ZTRASHEDSTATE,\n  a.ZFAVORITE,\n  a.ZHIDDEN,\n  a.ZUNIFORMTYPEIDENTIFIER,\n  aa.ZTIMEZONENAME\nFROM ZGENERICASSET a\nLEFT JOIN ZADDITIONALASSETATTRIBUTES aa ON aa.ZASSET = a.Z_PK\nWHERE a.ZFILENAME LIKE '%{{filename}}%'\n   OR IFNULL(aa.ZORIGINALFILENAME, '') LIKE '%{{filename}}%'\nORDER BY a.ZADDEDDATE DESC;"
+          "sql": "SELECT\n  a.Z_PK,\n  a.ZDIRECTORY,\n  a.ZFILENAME,\n  aa.ZORIGINALFILENAME,\n  datetime(a.ZDATECREATED + 978307200, 'unixepoch', 'localtime') AS ZDATECREATED,\n  datetime(a.ZMODIFICATIONDATE + 978307200, 'unixepoch', 'localtime') AS ZMODIFICATIONDATE,\n  datetime(a.ZADDEDDATE + 978307200, 'unixepoch', 'localtime') AS ZADDEDDATE,\n  aa.ZEXIFTIMESTAMPSTRING,\n  aa.ZTIMEZONENAME,\n  aa.ZIMPORTEDBYBUNDLEIDENTIFIER,\n  aa.ZIMPORTEDBYDISPLAYNAME,\n  aa.ZEDITORBUNDLEID,\n  a.ZKIND,\n  a.ZKINDSUBTYPE,\n  a.ZTRASHEDSTATE,\n  a.ZHIDDEN,\n  a.ZFAVORITE,\n  a.ZUNIFORMTYPEIDENTIFIER,\n  a.ZLATITUDE,\n  a.ZLONGITUDE,\n  ext.ZCAMERAMAKE,\n  ext.ZCAMERAMODEL\nFROM ZASSET a\nLEFT JOIN ZADDITIONALASSETATTRIBUTES aa ON aa.Z_PK = a.ZADDITIONALATTRIBUTES\nLEFT JOIN ZEXTENDEDATTRIBUTES ext ON ext.Z_PK = a.ZEXTENDEDATTRIBUTES\nWHERE a.ZFILENAME LIKE '%{{filename}}%'\n   OR IFNULL(aa.ZORIGINALFILENAME, '') LIKE '%{{filename}}%'\nORDER BY a.ZADDEDDATE DESC;"
         },
         {
           "id": "when-created",
-          "sql": "SELECT\n  a.ZDIRECTORY,\n  a.ZFILENAME,\n  datetime(a.ZDATECREATED + 978307200, 'unixepoch', 'localtime') AS ZDATECREATED,\n  datetime(a.ZADDEDDATE + 978307200, 'unixepoch', 'localtime') AS ZADDEDDATE,\n  aa.ZEXIFTIMESTAMPSTRING,\n  aa.ZCREATORBUNDLEID\nFROM ZGENERICASSET a\nLEFT JOIN ZADDITIONALASSETATTRIBUTES aa ON aa.ZASSET = a.Z_PK\nWHERE a.ZFILENAME LIKE '%{{filename}}%'\n   OR IFNULL(aa.ZORIGINALFILENAME, '') LIKE '%{{filename}}%'\nORDER BY a.ZDATECREATED DESC;"
+          "sql": "SELECT\n  a.ZFILENAME,\n  datetime(a.ZDATECREATED + 978307200, 'unixepoch', 'localtime') AS ZDATECREATED,\n  datetime(a.ZADDEDDATE + 978307200, 'unixepoch', 'localtime') AS ZADDEDDATE,\n  aa.ZEXIFTIMESTAMPSTRING,\n  aa.ZTIMEZONENAME,\n  aa.ZTIMEZONEOFFSET\nFROM ZASSET a\nLEFT JOIN ZADDITIONALASSETATTRIBUTES aa ON aa.Z_PK = a.ZADDITIONALATTRIBUTES\nWHERE a.ZFILENAME LIKE '%{{filename}}%'\n   OR IFNULL(aa.ZORIGINALFILENAME, '') LIKE '%{{filename}}%'\nORDER BY a.ZDATECREATED;"
         },
         {
           "id": "which-app",
-          "sql": "SELECT\n  a.ZDIRECTORY,\n  a.ZFILENAME,\n  aa.ZCREATORBUNDLEID,\n  aa.ZEDITORBUNDLEID,\n  datetime(a.ZDATECREATED + 978307200, 'unixepoch', 'localtime') AS ZDATECREATED,\n  datetime(a.ZADDEDDATE + 978307200, 'unixepoch', 'localtime') AS ZADDEDDATE\nFROM ZGENERICASSET a\nLEFT JOIN ZADDITIONALASSETATTRIBUTES aa ON aa.ZASSET = a.Z_PK\nWHERE a.ZFILENAME LIKE '%{{filename}}%'\n   OR IFNULL(aa.ZORIGINALFILENAME, '') LIKE '%{{filename}}%'\nORDER BY a.ZADDEDDATE DESC;"
+          "sql": "SELECT\n  a.ZDIRECTORY,\n  a.ZFILENAME,\n  aa.ZIMPORTEDBYBUNDLEIDENTIFIER,\n  aa.ZIMPORTEDBYDISPLAYNAME,\n  aa.ZEDITORBUNDLEID,\n  a.ZSAVEDASSETTYPE\nFROM ZASSET a\nLEFT JOIN ZADDITIONALASSETATTRIBUTES aa ON aa.Z_PK = a.ZADDITIONALATTRIBUTES\nWHERE a.ZFILENAME LIKE '%{{filename}}%'\n   OR IFNULL(aa.ZORIGINALFILENAME, '') LIKE '%{{filename}}%'\nORDER BY a.ZADDEDDATE DESC;"
         },
         {
-          "id": "when-modified",
-          "sql": "SELECT\n  a.ZDIRECTORY,\n  a.ZFILENAME,\n  datetime(a.ZMODIFICATIONDATE + 978307200, 'unixepoch', 'localtime') AS ZMODIFICATIONDATE,\n  datetime(a.ZDATECREATED + 978307200, 'unixepoch', 'localtime') AS ZDATECREATED,\n  aa.ZEDITORBUNDLEID,\n  aa.ZCREATORBUNDLEID\nFROM ZGENERICASSET a\nLEFT JOIN ZADDITIONALASSETATTRIBUTES aa ON aa.ZASSET = a.Z_PK\nWHERE a.ZFILENAME LIKE '%{{filename}}%'\n   OR IFNULL(aa.ZORIGINALFILENAME, '') LIKE '%{{filename}}%'\nORDER BY a.ZMODIFICATIONDATE DESC;"
-        },
-        {
-          "id": "where-stored",
-          "sql": "SELECT\n  a.ZDIRECTORY,\n  a.ZFILENAME,\n  aa.ZORIGINALFILENAME,\n  datetime(a.ZADDEDDATE + 978307200, 'unixepoch', 'localtime') AS ZADDEDDATE\nFROM ZGENERICASSET a\nLEFT JOIN ZADDITIONALASSETATTRIBUTES aa ON aa.ZASSET = a.Z_PK\nWHERE a.ZFILENAME LIKE '%{{filename}}%'\n   OR IFNULL(aa.ZORIGINALFILENAME, '') LIKE '%{{filename}}%';"
-        },
-        {
-          "id": "cloud-hints",
-          "sql": "SELECT\n  a.ZDIRECTORY,\n  a.ZFILENAME,\n  aa.ZCREATORBUNDLEID,\n  a.ZCLOUDLOCALSTATE\nFROM ZGENERICASSET a\nLEFT JOIN ZADDITIONALASSETATTRIBUTES aa ON aa.ZASSET = a.Z_PK\nWHERE a.ZFILENAME LIKE '%{{filename}}%'\n   OR IFNULL(aa.ZORIGINALFILENAME, '') LIKE '%{{filename}}%';"
+          "id": "apps-summary",
+          "sql": "SELECT\n  aa.ZIMPORTEDBYBUNDLEIDENTIFIER,\n  MAX(aa.ZIMPORTEDBYDISPLAYNAME) AS ZIMPORTEDBYDISPLAYNAME,\n  COUNT(*) AS antal,\n  datetime(MIN(a.ZADDEDDATE) + 978307200, 'unixepoch', 'localtime') AS forst_tillagd,\n  datetime(MAX(a.ZADDEDDATE) + 978307200, 'unixepoch', 'localtime') AS senast_tillagd\nFROM ZASSET a\nLEFT JOIN ZADDITIONALASSETATTRIBUTES aa ON aa.Z_PK = a.ZADDITIONALATTRIBUTES\nGROUP BY aa.ZIMPORTEDBYBUNDLEIDENTIFIER\nORDER BY antal DESC;"
         },
         {
           "id": "list-by-app",
-          "sql": "SELECT\n  a.ZDIRECTORY,\n  a.ZFILENAME,\n  aa.ZCREATORBUNDLEID,\n  aa.ZEDITORBUNDLEID,\n  datetime(a.ZDATECREATED + 978307200, 'unixepoch', 'localtime') AS ZDATECREATED,\n  datetime(a.ZADDEDDATE + 978307200, 'unixepoch', 'localtime') AS ZADDEDDATE\nFROM ZGENERICASSET a\nLEFT JOIN ZADDITIONALASSETATTRIBUTES aa ON aa.ZASSET = a.Z_PK\nWHERE IFNULL(aa.ZCREATORBUNDLEID, '') LIKE '%{{bundleId}}%'\n   OR IFNULL(aa.ZEDITORBUNDLEID, '') LIKE '%{{bundleId}}%'\nORDER BY a.ZADDEDDATE DESC;"
+          "sql": "SELECT\n  a.ZDIRECTORY,\n  a.ZFILENAME,\n  aa.ZIMPORTEDBYBUNDLEIDENTIFIER,\n  aa.ZEDITORBUNDLEID,\n  datetime(a.ZDATECREATED + 978307200, 'unixepoch', 'localtime') AS ZDATECREATED,\n  datetime(a.ZADDEDDATE + 978307200, 'unixepoch', 'localtime') AS ZADDEDDATE\nFROM ZASSET a\nLEFT JOIN ZADDITIONALASSETATTRIBUTES aa ON aa.Z_PK = a.ZADDITIONALATTRIBUTES\nWHERE IFNULL(aa.ZIMPORTEDBYBUNDLEIDENTIFIER, '') LIKE '%{{bundleId}}%'\n   OR IFNULL(aa.ZEDITORBUNDLEID, '') LIKE '%{{bundleId}}%'\nORDER BY a.ZADDEDDATE DESC;"
+        },
+        {
+          "id": "device",
+          "sql": "SELECT\n  a.ZFILENAME,\n  ext.ZCAMERAMAKE,\n  ext.ZCAMERAMODEL,\n  ext.ZLENSMODEL,\n  aa.ZIMPORTEDBYBUNDLEIDENTIFIER,\n  datetime(a.ZDATECREATED + 978307200, 'unixepoch', 'localtime') AS ZDATECREATED\nFROM ZASSET a\nLEFT JOIN ZADDITIONALASSETATTRIBUTES aa ON aa.Z_PK = a.ZADDITIONALATTRIBUTES\nLEFT JOIN ZEXTENDEDATTRIBUTES ext ON ext.Z_PK = a.ZEXTENDEDATTRIBUTES\nWHERE a.ZFILENAME LIKE '%{{filename}}%'\n   OR IFNULL(aa.ZORIGINALFILENAME, '') LIKE '%{{filename}}%'\nORDER BY a.ZDATECREATED;"
+        },
+        {
+          "id": "location",
+          "sql": "SELECT\n  a.ZFILENAME,\n  datetime(a.ZDATECREATED + 978307200, 'unixepoch', 'localtime') AS ZDATECREATED,\n  aa.ZTIMEZONENAME,\n  a.ZLATITUDE,\n  a.ZLONGITUDE,\n  ext.ZLATITUDE AS EXT_ZLATITUDE,\n  ext.ZLONGITUDE AS EXT_ZLONGITUDE\nFROM ZASSET a\nLEFT JOIN ZADDITIONALASSETATTRIBUTES aa ON aa.Z_PK = a.ZADDITIONALATTRIBUTES\nLEFT JOIN ZEXTENDEDATTRIBUTES ext ON ext.Z_PK = a.ZEXTENDEDATTRIBUTES\nWHERE a.ZFILENAME LIKE '%{{filename}}%'\n   OR IFNULL(aa.ZORIGINALFILENAME, '') LIKE '%{{filename}}%'\nORDER BY a.ZDATECREATED;"
+        },
+        {
+          "id": "location-window",
+          "sql": "SELECT\n  datetime(a.ZDATECREATED + 978307200, 'unixepoch', 'localtime') AS ZDATECREATED,\n  a.ZFILENAME,\n  a.ZLATITUDE,\n  a.ZLONGITUDE,\n  aa.ZTIMEZONENAME,\n  aa.ZIMPORTEDBYBUNDLEIDENTIFIER\nFROM ZASSET a\nLEFT JOIN ZADDITIONALASSETATTRIBUTES aa ON aa.Z_PK = a.ZADDITIONALATTRIBUTES\nWHERE a.ZLATITUDE IS NOT NULL\n  AND a.ZLATITUDE != -180\n  AND a.ZDATECREATED BETWEEN {{cocoaStart}} AND {{cocoaEnd}}\nORDER BY a.ZDATECREATED;"
+        },
+        {
+          "id": "screenshots",
+          "sql": "SELECT\n  datetime(a.ZDATECREATED + 978307200, 'unixepoch', 'localtime') AS ZDATECREATED,\n  CASE a.ZKINDSUBTYPE WHEN 10 THEN 'Skärmdump' WHEN 103 THEN 'Skärminspelning' END AS typ,\n  a.ZDIRECTORY,\n  a.ZFILENAME,\n  aa.ZIMPORTEDBYBUNDLEIDENTIFIER\nFROM ZASSET a\nLEFT JOIN ZADDITIONALASSETATTRIBUTES aa ON aa.Z_PK = a.ZADDITIONALATTRIBUTES\nWHERE a.ZKINDSUBTYPE IN (10, 103)\n  AND a.ZDATECREATED BETWEEN {{cocoaStart}} AND {{cocoaEnd}}\nORDER BY a.ZDATECREATED;"
+        },
+        {
+          "id": "when-modified",
+          "sql": "SELECT\n  a.ZFILENAME,\n  datetime(a.ZMODIFICATIONDATE + 978307200, 'unixepoch', 'localtime') AS ZMODIFICATIONDATE,\n  aa.ZEDITORBUNDLEID\nFROM ZASSET a\nLEFT JOIN ZADDITIONALASSETATTRIBUTES aa ON aa.Z_PK = a.ZADDITIONALATTRIBUTES\nWHERE a.ZFILENAME LIKE '%{{filename}}%'\n   OR IFNULL(aa.ZORIGINALFILENAME, '') LIKE '%{{filename}}%'\nORDER BY a.ZMODIFICATIONDATE DESC;"
+        },
+        {
+          "id": "edited",
+          "sql": "SELECT\n  datetime(u.ZADJUSTMENTTIMESTAMP + 978307200, 'unixepoch', 'localtime') AS ZADJUSTMENTTIMESTAMP,\n  a.ZFILENAME,\n  u.ZEDITORLOCALIZEDNAME,\n  u.ZADJUSTMENTFORMATIDENTIFIER,\n  aa.ZEDITORBUNDLEID,\n  aa.ZIMPORTEDBYBUNDLEIDENTIFIER\nFROM ZASSET a\nLEFT JOIN ZADDITIONALASSETATTRIBUTES aa ON aa.Z_PK = a.ZADDITIONALATTRIBUTES\nLEFT JOIN ZUNMANAGEDADJUSTMENT u ON u.Z_PK = aa.ZUNMANAGEDADJUSTMENT\nWHERE aa.ZUNMANAGEDADJUSTMENT > 0\nORDER BY u.ZADJUSTMENTTIMESTAMP DESC;"
+        },
+        {
+          "id": "shared-with-you",
+          "sql": "SELECT\n  datetime(a.ZADDEDDATE + 978307200, 'unixepoch', 'localtime') AS ZADDEDDATE,\n  datetime(a.ZDATECREATED + 978307200, 'unixepoch', 'localtime') AS ZDATECREATED,\n  a.ZFILENAME,\n  a.ZSYNDICATIONSTATE,\n  aa.ZSYNDICATIONIDENTIFIER,\n  aa.ZIMPORTEDBYBUNDLEIDENTIFIER,\n  aa.ZIMPORTEDBYDISPLAYNAME,\n  a.ZSAVEDASSETTYPE\nFROM ZASSET a\nLEFT JOIN ZADDITIONALASSETATTRIBUTES aa ON aa.Z_PK = a.ZADDITIONALATTRIBUTES\nWHERE aa.ZSYNDICATIONIDENTIFIER IS NOT NULL\nORDER BY a.ZADDEDDATE DESC;"
+        },
+        {
+          "id": "hidden-trashed",
+          "sql": "SELECT\n  a.ZFILENAME,\n  a.ZHIDDEN,\n  a.ZTRASHEDSTATE,\n  datetime(a.ZTRASHEDDATE + 978307200, 'unixepoch', 'localtime') AS ZTRASHEDDATE,\n  datetime(a.ZDATECREATED + 978307200, 'unixepoch', 'localtime') AS ZDATECREATED,\n  aa.ZIMPORTEDBYBUNDLEIDENTIFIER\nFROM ZASSET a\nLEFT JOIN ZADDITIONALASSETATTRIBUTES aa ON aa.Z_PK = a.ZADDITIONALATTRIBUTES\nWHERE a.ZHIDDEN = 1\n   OR a.ZTRASHEDSTATE = 1\nORDER BY a.ZTRASHEDDATE DESC;"
+        },
+        {
+          "id": "people",
+          "sql": "SELECT\n  a.ZFILENAME,\n  p.ZFULLNAME,\n  p.ZDISPLAYNAME,\n  f.ZMANUAL,\n  f.ZHIDDEN\nFROM ZASSET a\nLEFT JOIN ZADDITIONALASSETATTRIBUTES aa ON aa.Z_PK = a.ZADDITIONALATTRIBUTES\nINNER JOIN ZDETECTEDFACE f ON f.ZASSET = a.Z_PK\nLEFT JOIN ZPERSON p ON p.Z_PK = f.ZPERSON\nWHERE a.ZFILENAME LIKE '%{{filename}}%'\n   OR IFNULL(aa.ZORIGINALFILENAME, '') LIKE '%{{filename}}%'\nORDER BY a.ZFILENAME;"
+        },
+        {
+          "id": "by-person",
+          "sql": "SELECT\n  p.ZFULLNAME,\n  p.ZDISPLAYNAME,\n  datetime(a.ZDATECREATED + 978307200, 'unixepoch', 'localtime') AS ZDATECREATED,\n  a.ZDIRECTORY,\n  a.ZFILENAME\nFROM ZASSET a\nINNER JOIN ZDETECTEDFACE f ON f.ZASSET = a.Z_PK\nINNER JOIN ZPERSON p ON p.Z_PK = f.ZPERSON\nWHERE IFNULL(p.ZFULLNAME, '') LIKE '%{{person}}%'\n   OR IFNULL(p.ZDISPLAYNAME, '') LIKE '%{{person}}%'\nORDER BY a.ZDATECREATED;"
+        },
+        {
+          "id": "albums",
+          "sql": "SELECT\n  g.Z_PK,\n  g.ZTITLE,\n  g.ZKIND,\n  g.ZCACHEDCOUNT,\n  datetime(g.ZCREATIONDATE + 978307200, 'unixepoch', 'localtime') AS ZCREATIONDATE,\n  g.ZTRASHEDSTATE,\n  g.ZIMPORTEDBYBUNDLEIDENTIFIER\nFROM ZGENERICALBUM g\nWHERE g.ZTITLE IS NOT NULL\nORDER BY g.ZCREATIONDATE DESC;"
+        },
+        {
+          "id": "where-stored",
+          "sql": "SELECT\n  a.ZDIRECTORY,\n  a.ZFILENAME,\n  aa.ZORIGINALFILENAME,\n  cm.ZORIGINALFILENAME AS CLOUD_ZORIGINALFILENAME\nFROM ZASSET a\nLEFT JOIN ZADDITIONALASSETATTRIBUTES aa ON aa.Z_PK = a.ZADDITIONALATTRIBUTES\nLEFT JOIN ZCLOUDMASTER cm ON cm.Z_PK = a.ZMASTER\nWHERE a.ZFILENAME LIKE '%{{filename}}%'\n   OR IFNULL(aa.ZORIGINALFILENAME, '') LIKE '%{{filename}}%'\nORDER BY a.ZDIRECTORY, a.ZFILENAME;"
+        },
+        {
+          "id": "cloud-hints",
+          "sql": "SELECT\n  a.ZFILENAME,\n  a.ZCLOUDLOCALSTATE,\n  a.ZCLOUDASSETGUID,\n  a.ZSAVEDASSETTYPE,\n  cm.ZCLOUDLOCALSTATE AS CLOUD_ZCLOUDLOCALSTATE,\n  datetime(cm.ZIMPORTDATE + 978307200, 'unixepoch', 'localtime') AS CLOUD_ZIMPORTDATE\nFROM ZASSET a\nLEFT JOIN ZADDITIONALASSETATTRIBUTES aa ON aa.Z_PK = a.ZADDITIONALATTRIBUTES\nLEFT JOIN ZCLOUDMASTER cm ON cm.Z_PK = a.ZMASTER\nWHERE a.ZFILENAME LIKE '%{{filename}}%'\n   OR IFNULL(aa.ZORIGINALFILENAME, '') LIKE '%{{filename}}%'\nORDER BY a.ZFILENAME;"
         },
         {
           "id": "schema-probe",
-          "sql": "SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'Z%' ORDER BY name;"
+          "sql": "SELECT name, type\nFROM sqlite_master\nWHERE type = 'table'\n  AND name LIKE 'Z%'\nORDER BY name;"
         },
         {
           "id": "columns-asset",
-          "sql": "PRAGMA table_info(ZGENERICASSET);\nPRAGMA table_info(ZADDITIONALASSETATTRIBUTES);"
+          "sql": "PRAGMA table_info(ZASSET);\nPRAGMA table_info(ZADDITIONALASSETATTRIBUTES);"
+        },
+        {
+          "id": "album-join-tables",
+          "sql": "SELECT m.name AS tabell, group_concat(p.name, ', ') AS kolumner\nFROM sqlite_master m, pragma_table_info(m.name) p\nWHERE m.type = 'table'\n  AND m.name GLOB 'Z_[0-9]*ASSETS'\nGROUP BY m.name\nORDER BY m.name;"
+        },
+        {
+          "id": "full-story-alt-join",
+          "sql": "SELECT\n  a.Z_PK,\n  a.ZDIRECTORY,\n  a.ZFILENAME,\n  aa.ZORIGINALFILENAME,\n  datetime(a.ZDATECREATED + 978307200, 'unixepoch', 'localtime') AS ZDATECREATED,\n  datetime(a.ZMODIFICATIONDATE + 978307200, 'unixepoch', 'localtime') AS ZMODIFICATIONDATE,\n  datetime(a.ZADDEDDATE + 978307200, 'unixepoch', 'localtime') AS ZADDEDDATE,\n  aa.ZEXIFTIMESTAMPSTRING,\n  aa.ZTIMEZONENAME,\n  aa.ZIMPORTEDBYBUNDLEIDENTIFIER,\n  aa.ZIMPORTEDBYDISPLAYNAME,\n  aa.ZEDITORBUNDLEID,\n  a.ZKIND,\n  a.ZKINDSUBTYPE,\n  a.ZTRASHEDSTATE,\n  a.ZHIDDEN,\n  a.ZFAVORITE,\n  a.ZUNIFORMTYPEIDENTIFIER,\n  a.ZLATITUDE,\n  a.ZLONGITUDE,\n  ext.ZCAMERAMAKE,\n  ext.ZCAMERAMODEL\nFROM ZASSET a\nLEFT JOIN ZADDITIONALASSETATTRIBUTES aa ON aa.ZASSET = a.Z_PK\nLEFT JOIN ZEXTENDEDATTRIBUTES ext ON ext.Z_PK = a.ZEXTENDEDATTRIBUTES\nWHERE a.ZFILENAME LIKE '%{{filename}}%'\n   OR IFNULL(aa.ZORIGINALFILENAME, '') LIKE '%{{filename}}%'\nORDER BY a.ZADDEDDATE DESC;"
         }
       ]
     },
     {
       "id": "ios17-plus",
-      "label": "iOS 17 → latest",
+      "label": "iOS 17 och senare",
       "versionMin": 17,
       "versionMax": 99,
-      "notes": "",
+      "notes": "Kontrollerat mot iLEAPP för iOS 17, 18 och 26.",
       "queries": [
         {
           "id": "full-story",
-          "sql": "SELECT\n  a.Z_PK,\n  a.ZDIRECTORY,\n  a.ZFILENAME,\n  aa.ZORIGINALFILENAME,\n  datetime(a.ZDATECREATED + 978307200, 'unixepoch', 'localtime') AS ZDATECREATED,\n  datetime(a.ZMODIFICATIONDATE + 978307200, 'unixepoch', 'localtime') AS ZMODIFICATIONDATE,\n  datetime(a.ZADDEDDATE + 978307200, 'unixepoch', 'localtime') AS ZADDEDDATE,\n  aa.ZEXIFTIMESTAMPSTRING,\n  aa.ZCREATORBUNDLEID,\n  aa.ZEDITORBUNDLEID,\n  a.ZKIND,\n  a.ZTRASHEDSTATE,\n  a.ZFAVORITE,\n  a.ZHIDDEN,\n  a.ZUNIFORMTYPEIDENTIFIER,\n  aa.ZTIMEZONENAME\nFROM ZGENERICASSET a\nLEFT JOIN ZADDITIONALASSETATTRIBUTES aa ON aa.ZASSET = a.Z_PK\nWHERE a.ZFILENAME LIKE '%{{filename}}%'\n   OR IFNULL(aa.ZORIGINALFILENAME, '') LIKE '%{{filename}}%'\nORDER BY a.ZADDEDDATE DESC;"
+          "sql": "SELECT\n  a.Z_PK,\n  a.ZDIRECTORY,\n  a.ZFILENAME,\n  aa.ZORIGINALFILENAME,\n  datetime(a.ZDATECREATED + 978307200, 'unixepoch', 'localtime') AS ZDATECREATED,\n  datetime(a.ZMODIFICATIONDATE + 978307200, 'unixepoch', 'localtime') AS ZMODIFICATIONDATE,\n  datetime(a.ZADDEDDATE + 978307200, 'unixepoch', 'localtime') AS ZADDEDDATE,\n  aa.ZEXIFTIMESTAMPSTRING,\n  aa.ZTIMEZONENAME,\n  aa.ZIMPORTEDBYBUNDLEIDENTIFIER,\n  aa.ZIMPORTEDBYDISPLAYNAME,\n  aa.ZEDITORBUNDLEID,\n  a.ZKIND,\n  a.ZKINDSUBTYPE,\n  a.ZTRASHEDSTATE,\n  a.ZHIDDEN,\n  a.ZFAVORITE,\n  a.ZUNIFORMTYPEIDENTIFIER,\n  a.ZLATITUDE,\n  a.ZLONGITUDE,\n  ext.ZCAMERAMAKE,\n  ext.ZCAMERAMODEL\nFROM ZASSET a\nLEFT JOIN ZADDITIONALASSETATTRIBUTES aa ON aa.Z_PK = a.ZADDITIONALATTRIBUTES\nLEFT JOIN ZEXTENDEDATTRIBUTES ext ON ext.Z_PK = a.ZEXTENDEDATTRIBUTES\nWHERE a.ZFILENAME LIKE '%{{filename}}%'\n   OR IFNULL(aa.ZORIGINALFILENAME, '') LIKE '%{{filename}}%'\nORDER BY a.ZADDEDDATE DESC;"
         },
         {
           "id": "when-created",
-          "sql": "SELECT\n  a.ZDIRECTORY,\n  a.ZFILENAME,\n  datetime(a.ZDATECREATED + 978307200, 'unixepoch', 'localtime') AS ZDATECREATED,\n  datetime(a.ZADDEDDATE + 978307200, 'unixepoch', 'localtime') AS ZADDEDDATE,\n  aa.ZEXIFTIMESTAMPSTRING,\n  aa.ZCREATORBUNDLEID\nFROM ZGENERICASSET a\nLEFT JOIN ZADDITIONALASSETATTRIBUTES aa ON aa.ZASSET = a.Z_PK\nWHERE a.ZFILENAME LIKE '%{{filename}}%'\n   OR IFNULL(aa.ZORIGINALFILENAME, '') LIKE '%{{filename}}%'\nORDER BY a.ZDATECREATED DESC;"
+          "sql": "SELECT\n  a.ZFILENAME,\n  datetime(a.ZDATECREATED + 978307200, 'unixepoch', 'localtime') AS ZDATECREATED,\n  datetime(a.ZADDEDDATE + 978307200, 'unixepoch', 'localtime') AS ZADDEDDATE,\n  aa.ZEXIFTIMESTAMPSTRING,\n  aa.ZTIMEZONENAME,\n  aa.ZTIMEZONEOFFSET\nFROM ZASSET a\nLEFT JOIN ZADDITIONALASSETATTRIBUTES aa ON aa.Z_PK = a.ZADDITIONALATTRIBUTES\nWHERE a.ZFILENAME LIKE '%{{filename}}%'\n   OR IFNULL(aa.ZORIGINALFILENAME, '') LIKE '%{{filename}}%'\nORDER BY a.ZDATECREATED;"
         },
         {
           "id": "which-app",
-          "sql": "SELECT\n  a.ZDIRECTORY,\n  a.ZFILENAME,\n  aa.ZCREATORBUNDLEID,\n  aa.ZEDITORBUNDLEID,\n  datetime(a.ZDATECREATED + 978307200, 'unixepoch', 'localtime') AS ZDATECREATED,\n  datetime(a.ZADDEDDATE + 978307200, 'unixepoch', 'localtime') AS ZADDEDDATE\nFROM ZGENERICASSET a\nLEFT JOIN ZADDITIONALASSETATTRIBUTES aa ON aa.ZASSET = a.Z_PK\nWHERE a.ZFILENAME LIKE '%{{filename}}%'\n   OR IFNULL(aa.ZORIGINALFILENAME, '') LIKE '%{{filename}}%'\nORDER BY a.ZADDEDDATE DESC;"
+          "sql": "SELECT\n  a.ZDIRECTORY,\n  a.ZFILENAME,\n  aa.ZIMPORTEDBYBUNDLEIDENTIFIER,\n  aa.ZIMPORTEDBYDISPLAYNAME,\n  aa.ZEDITORBUNDLEID,\n  a.ZSAVEDASSETTYPE\nFROM ZASSET a\nLEFT JOIN ZADDITIONALASSETATTRIBUTES aa ON aa.Z_PK = a.ZADDITIONALATTRIBUTES\nWHERE a.ZFILENAME LIKE '%{{filename}}%'\n   OR IFNULL(aa.ZORIGINALFILENAME, '') LIKE '%{{filename}}%'\nORDER BY a.ZADDEDDATE DESC;"
         },
         {
-          "id": "when-modified",
-          "sql": "SELECT\n  a.ZDIRECTORY,\n  a.ZFILENAME,\n  datetime(a.ZMODIFICATIONDATE + 978307200, 'unixepoch', 'localtime') AS ZMODIFICATIONDATE,\n  datetime(a.ZDATECREATED + 978307200, 'unixepoch', 'localtime') AS ZDATECREATED,\n  aa.ZEDITORBUNDLEID,\n  aa.ZCREATORBUNDLEID\nFROM ZGENERICASSET a\nLEFT JOIN ZADDITIONALASSETATTRIBUTES aa ON aa.ZASSET = a.Z_PK\nWHERE a.ZFILENAME LIKE '%{{filename}}%'\n   OR IFNULL(aa.ZORIGINALFILENAME, '') LIKE '%{{filename}}%'\nORDER BY a.ZMODIFICATIONDATE DESC;"
-        },
-        {
-          "id": "where-stored",
-          "sql": "SELECT\n  a.ZDIRECTORY,\n  a.ZFILENAME,\n  aa.ZORIGINALFILENAME,\n  datetime(a.ZADDEDDATE + 978307200, 'unixepoch', 'localtime') AS ZADDEDDATE\nFROM ZGENERICASSET a\nLEFT JOIN ZADDITIONALASSETATTRIBUTES aa ON aa.ZASSET = a.Z_PK\nWHERE a.ZFILENAME LIKE '%{{filename}}%'\n   OR IFNULL(aa.ZORIGINALFILENAME, '') LIKE '%{{filename}}%';"
-        },
-        {
-          "id": "cloud-hints",
-          "sql": "SELECT\n  a.ZDIRECTORY,\n  a.ZFILENAME,\n  aa.ZCREATORBUNDLEID,\n  a.ZCLOUDLOCALSTATE\nFROM ZGENERICASSET a\nLEFT JOIN ZADDITIONALASSETATTRIBUTES aa ON aa.ZASSET = a.Z_PK\nWHERE a.ZFILENAME LIKE '%{{filename}}%'\n   OR IFNULL(aa.ZORIGINALFILENAME, '') LIKE '%{{filename}}%';"
+          "id": "apps-summary",
+          "sql": "SELECT\n  aa.ZIMPORTEDBYBUNDLEIDENTIFIER,\n  MAX(aa.ZIMPORTEDBYDISPLAYNAME) AS ZIMPORTEDBYDISPLAYNAME,\n  COUNT(*) AS antal,\n  datetime(MIN(a.ZADDEDDATE) + 978307200, 'unixepoch', 'localtime') AS forst_tillagd,\n  datetime(MAX(a.ZADDEDDATE) + 978307200, 'unixepoch', 'localtime') AS senast_tillagd\nFROM ZASSET a\nLEFT JOIN ZADDITIONALASSETATTRIBUTES aa ON aa.Z_PK = a.ZADDITIONALATTRIBUTES\nGROUP BY aa.ZIMPORTEDBYBUNDLEIDENTIFIER\nORDER BY antal DESC;"
         },
         {
           "id": "list-by-app",
-          "sql": "SELECT\n  a.ZDIRECTORY,\n  a.ZFILENAME,\n  aa.ZCREATORBUNDLEID,\n  aa.ZEDITORBUNDLEID,\n  datetime(a.ZDATECREATED + 978307200, 'unixepoch', 'localtime') AS ZDATECREATED,\n  datetime(a.ZADDEDDATE + 978307200, 'unixepoch', 'localtime') AS ZADDEDDATE\nFROM ZGENERICASSET a\nLEFT JOIN ZADDITIONALASSETATTRIBUTES aa ON aa.ZASSET = a.Z_PK\nWHERE IFNULL(aa.ZCREATORBUNDLEID, '') LIKE '%{{bundleId}}%'\n   OR IFNULL(aa.ZEDITORBUNDLEID, '') LIKE '%{{bundleId}}%'\nORDER BY a.ZADDEDDATE DESC;"
+          "sql": "SELECT\n  a.ZDIRECTORY,\n  a.ZFILENAME,\n  aa.ZIMPORTEDBYBUNDLEIDENTIFIER,\n  aa.ZEDITORBUNDLEID,\n  datetime(a.ZDATECREATED + 978307200, 'unixepoch', 'localtime') AS ZDATECREATED,\n  datetime(a.ZADDEDDATE + 978307200, 'unixepoch', 'localtime') AS ZADDEDDATE\nFROM ZASSET a\nLEFT JOIN ZADDITIONALASSETATTRIBUTES aa ON aa.Z_PK = a.ZADDITIONALATTRIBUTES\nWHERE IFNULL(aa.ZIMPORTEDBYBUNDLEIDENTIFIER, '') LIKE '%{{bundleId}}%'\n   OR IFNULL(aa.ZEDITORBUNDLEID, '') LIKE '%{{bundleId}}%'\nORDER BY a.ZADDEDDATE DESC;"
+        },
+        {
+          "id": "device",
+          "sql": "SELECT\n  a.ZFILENAME,\n  ext.ZCAMERAMAKE,\n  ext.ZCAMERAMODEL,\n  ext.ZLENSMODEL,\n  aa.ZIMPORTEDBYBUNDLEIDENTIFIER,\n  datetime(a.ZDATECREATED + 978307200, 'unixepoch', 'localtime') AS ZDATECREATED\nFROM ZASSET a\nLEFT JOIN ZADDITIONALASSETATTRIBUTES aa ON aa.Z_PK = a.ZADDITIONALATTRIBUTES\nLEFT JOIN ZEXTENDEDATTRIBUTES ext ON ext.Z_PK = a.ZEXTENDEDATTRIBUTES\nWHERE a.ZFILENAME LIKE '%{{filename}}%'\n   OR IFNULL(aa.ZORIGINALFILENAME, '') LIKE '%{{filename}}%'\nORDER BY a.ZDATECREATED;"
+        },
+        {
+          "id": "location",
+          "sql": "SELECT\n  a.ZFILENAME,\n  datetime(a.ZDATECREATED + 978307200, 'unixepoch', 'localtime') AS ZDATECREATED,\n  aa.ZTIMEZONENAME,\n  a.ZLATITUDE,\n  a.ZLONGITUDE,\n  ext.ZLATITUDE AS EXT_ZLATITUDE,\n  ext.ZLONGITUDE AS EXT_ZLONGITUDE\nFROM ZASSET a\nLEFT JOIN ZADDITIONALASSETATTRIBUTES aa ON aa.Z_PK = a.ZADDITIONALATTRIBUTES\nLEFT JOIN ZEXTENDEDATTRIBUTES ext ON ext.Z_PK = a.ZEXTENDEDATTRIBUTES\nWHERE a.ZFILENAME LIKE '%{{filename}}%'\n   OR IFNULL(aa.ZORIGINALFILENAME, '') LIKE '%{{filename}}%'\nORDER BY a.ZDATECREATED;"
+        },
+        {
+          "id": "location-window",
+          "sql": "SELECT\n  datetime(a.ZDATECREATED + 978307200, 'unixepoch', 'localtime') AS ZDATECREATED,\n  a.ZFILENAME,\n  a.ZLATITUDE,\n  a.ZLONGITUDE,\n  aa.ZTIMEZONENAME,\n  aa.ZIMPORTEDBYBUNDLEIDENTIFIER\nFROM ZASSET a\nLEFT JOIN ZADDITIONALASSETATTRIBUTES aa ON aa.Z_PK = a.ZADDITIONALATTRIBUTES\nWHERE a.ZLATITUDE IS NOT NULL\n  AND a.ZLATITUDE != -180\n  AND a.ZDATECREATED BETWEEN {{cocoaStart}} AND {{cocoaEnd}}\nORDER BY a.ZDATECREATED;"
+        },
+        {
+          "id": "screenshots",
+          "sql": "SELECT\n  datetime(a.ZDATECREATED + 978307200, 'unixepoch', 'localtime') AS ZDATECREATED,\n  CASE a.ZKINDSUBTYPE WHEN 10 THEN 'Skärmdump' WHEN 103 THEN 'Skärminspelning' END AS typ,\n  a.ZDIRECTORY,\n  a.ZFILENAME,\n  aa.ZIMPORTEDBYBUNDLEIDENTIFIER\nFROM ZASSET a\nLEFT JOIN ZADDITIONALASSETATTRIBUTES aa ON aa.Z_PK = a.ZADDITIONALATTRIBUTES\nWHERE a.ZKINDSUBTYPE IN (10, 103)\n  AND a.ZDATECREATED BETWEEN {{cocoaStart}} AND {{cocoaEnd}}\nORDER BY a.ZDATECREATED;"
+        },
+        {
+          "id": "when-modified",
+          "sql": "SELECT\n  a.ZFILENAME,\n  datetime(a.ZMODIFICATIONDATE + 978307200, 'unixepoch', 'localtime') AS ZMODIFICATIONDATE,\n  aa.ZEDITORBUNDLEID\nFROM ZASSET a\nLEFT JOIN ZADDITIONALASSETATTRIBUTES aa ON aa.Z_PK = a.ZADDITIONALATTRIBUTES\nWHERE a.ZFILENAME LIKE '%{{filename}}%'\n   OR IFNULL(aa.ZORIGINALFILENAME, '') LIKE '%{{filename}}%'\nORDER BY a.ZMODIFICATIONDATE DESC;"
+        },
+        {
+          "id": "edited",
+          "sql": "SELECT\n  datetime(u.ZADJUSTMENTTIMESTAMP + 978307200, 'unixepoch', 'localtime') AS ZADJUSTMENTTIMESTAMP,\n  a.ZFILENAME,\n  u.ZEDITORLOCALIZEDNAME,\n  u.ZADJUSTMENTFORMATIDENTIFIER,\n  aa.ZEDITORBUNDLEID,\n  aa.ZIMPORTEDBYBUNDLEIDENTIFIER\nFROM ZASSET a\nLEFT JOIN ZADDITIONALASSETATTRIBUTES aa ON aa.Z_PK = a.ZADDITIONALATTRIBUTES\nLEFT JOIN ZUNMANAGEDADJUSTMENT u ON u.Z_PK = aa.ZUNMANAGEDADJUSTMENT\nWHERE aa.ZUNMANAGEDADJUSTMENT > 0\nORDER BY u.ZADJUSTMENTTIMESTAMP DESC;"
+        },
+        {
+          "id": "shared-with-you",
+          "sql": "SELECT\n  datetime(a.ZADDEDDATE + 978307200, 'unixepoch', 'localtime') AS ZADDEDDATE,\n  datetime(a.ZDATECREATED + 978307200, 'unixepoch', 'localtime') AS ZDATECREATED,\n  a.ZFILENAME,\n  a.ZSYNDICATIONSTATE,\n  aa.ZSYNDICATIONIDENTIFIER,\n  aa.ZIMPORTEDBYBUNDLEIDENTIFIER,\n  aa.ZIMPORTEDBYDISPLAYNAME,\n  a.ZSAVEDASSETTYPE\nFROM ZASSET a\nLEFT JOIN ZADDITIONALASSETATTRIBUTES aa ON aa.Z_PK = a.ZADDITIONALATTRIBUTES\nWHERE aa.ZSYNDICATIONIDENTIFIER IS NOT NULL\nORDER BY a.ZADDEDDATE DESC;"
+        },
+        {
+          "id": "hidden-trashed",
+          "sql": "SELECT\n  a.ZFILENAME,\n  a.ZHIDDEN,\n  a.ZTRASHEDSTATE,\n  datetime(a.ZTRASHEDDATE + 978307200, 'unixepoch', 'localtime') AS ZTRASHEDDATE,\n  datetime(a.ZDATECREATED + 978307200, 'unixepoch', 'localtime') AS ZDATECREATED,\n  aa.ZIMPORTEDBYBUNDLEIDENTIFIER\nFROM ZASSET a\nLEFT JOIN ZADDITIONALASSETATTRIBUTES aa ON aa.Z_PK = a.ZADDITIONALATTRIBUTES\nWHERE a.ZHIDDEN = 1\n   OR a.ZTRASHEDSTATE = 1\nORDER BY a.ZTRASHEDDATE DESC;"
+        },
+        {
+          "id": "people",
+          "sql": "SELECT\n  a.ZFILENAME,\n  p.ZFULLNAME,\n  p.ZDISPLAYNAME,\n  f.ZMANUAL,\n  f.ZHIDDEN\nFROM ZASSET a\nLEFT JOIN ZADDITIONALASSETATTRIBUTES aa ON aa.Z_PK = a.ZADDITIONALATTRIBUTES\nINNER JOIN ZDETECTEDFACE f ON f.ZASSETFORFACE = a.Z_PK\nLEFT JOIN ZPERSON p ON p.Z_PK = f.ZPERSONFORFACE\nWHERE a.ZFILENAME LIKE '%{{filename}}%'\n   OR IFNULL(aa.ZORIGINALFILENAME, '') LIKE '%{{filename}}%'\nORDER BY a.ZFILENAME;"
+        },
+        {
+          "id": "by-person",
+          "sql": "SELECT\n  p.ZFULLNAME,\n  p.ZDISPLAYNAME,\n  datetime(a.ZDATECREATED + 978307200, 'unixepoch', 'localtime') AS ZDATECREATED,\n  a.ZDIRECTORY,\n  a.ZFILENAME\nFROM ZASSET a\nINNER JOIN ZDETECTEDFACE f ON f.ZASSETFORFACE = a.Z_PK\nINNER JOIN ZPERSON p ON p.Z_PK = f.ZPERSONFORFACE\nWHERE IFNULL(p.ZFULLNAME, '') LIKE '%{{person}}%'\n   OR IFNULL(p.ZDISPLAYNAME, '') LIKE '%{{person}}%'\nORDER BY a.ZDATECREATED;"
+        },
+        {
+          "id": "albums",
+          "sql": "SELECT\n  g.Z_PK,\n  g.ZTITLE,\n  g.ZKIND,\n  g.ZCACHEDCOUNT,\n  datetime(g.ZCREATIONDATE + 978307200, 'unixepoch', 'localtime') AS ZCREATIONDATE,\n  g.ZTRASHEDSTATE,\n  g.ZIMPORTEDBYBUNDLEIDENTIFIER\nFROM ZGENERICALBUM g\nWHERE g.ZTITLE IS NOT NULL\nORDER BY g.ZCREATIONDATE DESC;"
+        },
+        {
+          "id": "where-stored",
+          "sql": "SELECT\n  a.ZDIRECTORY,\n  a.ZFILENAME,\n  aa.ZORIGINALFILENAME,\n  cm.ZORIGINALFILENAME AS CLOUD_ZORIGINALFILENAME\nFROM ZASSET a\nLEFT JOIN ZADDITIONALASSETATTRIBUTES aa ON aa.Z_PK = a.ZADDITIONALATTRIBUTES\nLEFT JOIN ZCLOUDMASTER cm ON cm.Z_PK = a.ZMASTER\nWHERE a.ZFILENAME LIKE '%{{filename}}%'\n   OR IFNULL(aa.ZORIGINALFILENAME, '') LIKE '%{{filename}}%'\nORDER BY a.ZDIRECTORY, a.ZFILENAME;"
+        },
+        {
+          "id": "cloud-hints",
+          "sql": "SELECT\n  a.ZFILENAME,\n  a.ZCLOUDLOCALSTATE,\n  a.ZCLOUDASSETGUID,\n  a.ZSAVEDASSETTYPE,\n  cm.ZCLOUDLOCALSTATE AS CLOUD_ZCLOUDLOCALSTATE,\n  datetime(cm.ZIMPORTDATE + 978307200, 'unixepoch', 'localtime') AS CLOUD_ZIMPORTDATE\nFROM ZASSET a\nLEFT JOIN ZADDITIONALASSETATTRIBUTES aa ON aa.Z_PK = a.ZADDITIONALATTRIBUTES\nLEFT JOIN ZCLOUDMASTER cm ON cm.Z_PK = a.ZMASTER\nWHERE a.ZFILENAME LIKE '%{{filename}}%'\n   OR IFNULL(aa.ZORIGINALFILENAME, '') LIKE '%{{filename}}%'\nORDER BY a.ZFILENAME;"
         },
         {
           "id": "schema-probe",
-          "sql": "SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'Z%' ORDER BY name;"
+          "sql": "SELECT name, type\nFROM sqlite_master\nWHERE type = 'table'\n  AND name LIKE 'Z%'\nORDER BY name;"
         },
         {
           "id": "columns-asset",
-          "sql": "PRAGMA table_info(ZGENERICASSET);\nPRAGMA table_info(ZADDITIONALASSETATTRIBUTES);"
+          "sql": "PRAGMA table_info(ZASSET);\nPRAGMA table_info(ZADDITIONALASSETATTRIBUTES);"
+        },
+        {
+          "id": "album-join-tables",
+          "sql": "SELECT m.name AS tabell, group_concat(p.name, ', ') AS kolumner\nFROM sqlite_master m, pragma_table_info(m.name) p\nWHERE m.type = 'table'\n  AND m.name GLOB 'Z_[0-9]*ASSETS'\nGROUP BY m.name\nORDER BY m.name;"
         },
         {
           "id": "full-story-alt-join",
-          "sql": "SELECT\n  a.Z_PK,\n  a.ZDIRECTORY,\n  a.ZFILENAME,\n  aa.ZORIGINALFILENAME,\n  datetime(a.ZDATECREATED + 978307200, 'unixepoch', 'localtime') AS ZDATECREATED,\n  datetime(a.ZMODIFICATIONDATE + 978307200, 'unixepoch', 'localtime') AS ZMODIFICATIONDATE,\n  datetime(a.ZADDEDDATE + 978307200, 'unixepoch', 'localtime') AS ZADDEDDATE,\n  aa.ZEXIFTIMESTAMPSTRING,\n  aa.ZCREATORBUNDLEID,\n  aa.ZEDITORBUNDLEID,\n  a.ZKIND,\n  a.ZTRASHEDSTATE,\n  a.ZFAVORITE,\n  a.ZHIDDEN,\n  a.ZUNIFORMTYPEIDENTIFIER,\n  aa.ZTIMEZONENAME\nFROM ZGENERICASSET a\nLEFT JOIN ZADDITIONALASSETATTRIBUTES aa ON aa.ZGENERICASSET = a.Z_PK\nWHERE a.ZFILENAME LIKE '%{{filename}}%'\n   OR IFNULL(aa.ZORIGINALFILENAME, '') LIKE '%{{filename}}%'\nORDER BY a.ZADDEDDATE DESC;"
+          "sql": "SELECT\n  a.Z_PK,\n  a.ZDIRECTORY,\n  a.ZFILENAME,\n  aa.ZORIGINALFILENAME,\n  datetime(a.ZDATECREATED + 978307200, 'unixepoch', 'localtime') AS ZDATECREATED,\n  datetime(a.ZMODIFICATIONDATE + 978307200, 'unixepoch', 'localtime') AS ZMODIFICATIONDATE,\n  datetime(a.ZADDEDDATE + 978307200, 'unixepoch', 'localtime') AS ZADDEDDATE,\n  aa.ZEXIFTIMESTAMPSTRING,\n  aa.ZTIMEZONENAME,\n  aa.ZIMPORTEDBYBUNDLEIDENTIFIER,\n  aa.ZIMPORTEDBYDISPLAYNAME,\n  aa.ZEDITORBUNDLEID,\n  a.ZKIND,\n  a.ZKINDSUBTYPE,\n  a.ZTRASHEDSTATE,\n  a.ZHIDDEN,\n  a.ZFAVORITE,\n  a.ZUNIFORMTYPEIDENTIFIER,\n  a.ZLATITUDE,\n  a.ZLONGITUDE,\n  ext.ZCAMERAMAKE,\n  ext.ZCAMERAMODEL\nFROM ZASSET a\nLEFT JOIN ZADDITIONALASSETATTRIBUTES aa ON aa.ZASSET = a.Z_PK\nLEFT JOIN ZEXTENDEDATTRIBUTES ext ON ext.Z_PK = a.ZEXTENDEDATTRIBUTES\nWHERE a.ZFILENAME LIKE '%{{filename}}%'\n   OR IFNULL(aa.ZORIGINALFILENAME, '') LIKE '%{{filename}}%'\nORDER BY a.ZADDEDDATE DESC;"
         }
       ]
     }
-  ]
+  ],
+  "paramLabels": {
+    "filename": "Filnamn eller del av filnamn (komma-separerade om flera)",
+    "bundleId": "App / bundle-ID (t.ex. camera, whatsapp, com.apple.camera)",
+    "person": "Personens namn (som i Bilder-appen)"
+  }
 };

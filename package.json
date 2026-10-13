@@ -12,6 +12,7 @@
     "test": "node scripts/run-tests.js",
     "postinstall": "node scripts/ensure-electron.js",
     "sync-version": "node scripts/sync-version.js",
+    "sync-queries": "node scripts/sync-query-catalogs.js",
     "pack-html": "node scripts/pack-html-folder.js",
     "pack": "electron-builder --dir",
     "pack:linux": "npm run sync-version && electron-builder --linux --dir",
@@ -46,6 +47,7 @@
       "package.json",
       "!**/*.md",
       "!tools/ios-keychain/sample-backup/**/*",
+      "!tools/db-queries/fixtures/**/*",
       "!**/*.test.js"
     ],
     "linux": {
