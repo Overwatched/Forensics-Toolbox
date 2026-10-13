@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="sv">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EXIF-visare</title>
+    <script src="../_shared/toolkit.js"></script>
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+    <div id="container">
+        <header class="page-header">
+            <h1>EXIF-visare</h1>
+            <p>Metadata för alla filer i en mapp: bilder, video, ljud, PDF och Office. ExifTool körs lokalt i
+                WebAssembly. Filerna läses bara, och verktyget kan inte skriva metadata.</p>
+        </header>
+
+        <section id="drop" class="drop">
+            <div class="drop-text">
+                <strong>Släpp en mapp eller filer här</strong>
+                <span id="engine-status" class="engine-status">Startar ExifTool…</span>
+            </div>
+            <div class="drop-actions">
+                <button type="button" id="pick-folder" class="primary-btn">Välj mapp</button>
+                <button type="button" id="pick-files" class="secondary-btn">Välj filer</button>
+            </div>
+            <input type="file" id="folder-input" webkitdirectory multiple hidden>
+            <input type="file" id="file-input" multiple hidden>
+        </section>
+
+        <section id="progress" class="progress display-none">
+            <div class="progress-row">
+                <span id="progress-text"></span>
+                <button type="button" id="cancel" class="secondary-btn">Avbryt</button>
+            </div>
+            <div class="bar"><div id="bar-fill" class="bar-fill"></div></div>
+        </section>
+
+        <section id="results" class="display-none">
+            <div id="filter-chips" class="filter-chips"></div>
+            <div class="toolbar">
+                <label class="search-wrap">
+                    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                        <circle cx="11" cy="11" r="6.5" stroke="currentColor" stroke-width="1.8" />
+                        <path d="M16 16L20.5 20.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
+                    </svg>
+                    <input id="search" type="search" placeholder="Sök filnamn, enhet, programvara eller taggvärde…" autocomplete="off" spellcheck="false">
+                </label>
+                <button type="button" id="export-csv" class="secondary-btn">Exportera CSV</button>
+                <button type="button" id="export-json" class="secondary-btn">Exportera JSON</button>
+                <button type="button" id="clear" class="secondary-btn">Rensa</button>
+            </div>
+            <div class="table-wrap">
+                <table class="files">
+                    <thead>
+                        <tr>
+                            <th data-sort="path">Fil</th>
+                            <th data-sort="type">Typ</th>
+                            <th data-sort="taken">Tid</th>
+                            <th data-sort="device">Enhet</th>
+                            <th data-sort="software">Programvara</th>
+                            <th data-sort="position">Position</th>
+                            <th>Flaggor</th>
+                        </tr>
+                    </thead>
+                    <tbody id="rows"></tbody>
+                </table>
+            </div>
+            <p id="empty" class="empty display-none">Inga filer matchar filtret.</p>
+        </section>
+
+        <p class="footnote">Kontrollera viktiga fynd med ExifTool på en arbetsstation (<span id="engine-version">ExifTool</span>
+            används här). Filens ändringstid kommer från filsystemet och kan ha ändrats vid kopiering.
+            QuickTime-tider är UTC enligt standarden.</p>
+    </div>
+
+    <div id="backdrop" class="backdrop display-none"></div>
+    <aside id="detail" class="detail display-none" aria-label="Metadata för vald fil">
+        <div class="detail-head">
+            <div class="detail-title">
+                <h2 id="detail-name"></h2>
+                <p id="detail-path"></p>
+            </div>
+            <button type="button" id="detail-close" class="secondary-btn">Stäng</button>
+        </div>
+        <dl id="detail-summary" class="summary"></dl>
+        <div class="detail-tools">
+            <input id="tag-search" type="search" placeholder="Filtrera taggar…" autocomplete="off" spellcheck="false">
+            <button type="button" id="copy-json" class="secondary-btn">Kopiera JSON</button>
+        </div>
+        <div id="detail-groups"></div>
+    </aside>
+
+    <div id="toast" class="toast">Kopierat</div>
+    <script src="../app-ids/catalog.js"></script>
+    <script src="exif-core.js"></script>
+    <script src="vendor/exiftool/exiftool-worker.js"></script>
+    <script src="vendor/exiftool/zeroperl-wasm.js"></script>
+    <script src="script.js"></script>
+</body>
+
+</html>

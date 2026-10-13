@@ -63,7 +63,7 @@ Query-assistent:
 2. Välj mål: app/källa, tider, sök filnamn/UUID  
 3. Valfria parametrar → genererad SQL + copy + caveat  
 
-Mallar grupperas där schema är stabilt (t.ex. 10–12, 13–14, 15–16, 17–18+), med notis om avvikelser.
+Mallar grupperas efter schema: 10–13 (`ZGENERICASSET`), 14 (`ZASSET`), 15–16 och 17+ (`ZIMPORTEDBYBUNDLEIDENTIFIER`), med notis om avvikelser. Varje mall testas mot iLEAPP:s schema per version.
 
 ### C2. iOS kamera / app-användning
 
@@ -128,11 +128,13 @@ Samma ton: korta steg, paths, länkar till queries när de finns. Inga mål/begr
 5. ~~Android-queries (MediaStore / kamera / usage + ALEAPP-tips)~~ (`tools/android-queries/`, `queries/android/`)  
 6. ~~Statisk playbook-sida~~ (`documentation/playbook-image-origin.html`)  
 7. ~~Commit → push → multi-OS build via GH Actions~~ (Windows + Linux + macOS matrix)  
+8. ~~EXIF-visare med ExifTool i WebAssembly~~ (`tools/exif-viewer/`) — ingen egen EXIF-parser  
+9. ~~App-ID: omvänd uppslagning + system-, kamera-, moln- och valvappar~~  
+10. ~~Photos.sqlite: rätt schema per version + frågor om app, kamera, position, skärmdumpar, redigeringar, Delat med dig, personer, album~~  
 
 ### Medvetet senare
 
 - Interaktiv wizard med state  
-- Inbyggd EXIF-parser  
 - Versionsbevakning av externa verktyg (medvetet borttagen; ingen nätkontroll)  
 - “Fri” SQL-generering utan mall  
 

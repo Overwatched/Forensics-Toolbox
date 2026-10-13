@@ -47,7 +47,7 @@
       "package.json",
       "!**/*.md",
       "!tools/ios-keychain/sample-backup/**/*",
-      "!tools/db-queries/fixtures/**/*",
+      "!tools/**/fixtures/**/*",
       "!**/*.test.js"
     ],
     "linux": {

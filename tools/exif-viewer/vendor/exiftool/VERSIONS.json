@@ -1,0 +1,14 @@
+{
+  "packages": {
+    "@uswriting/exiftool": {
+      "version": "1.0.9",
+      "integrity": "sha512-tziE5oH/Wf4gJ/g/ZVGBxCjnoHz27SxXRZ4KoFa4c0qN/6uBfvBFEQ272dq7LxbzhXkvGqHdmDyNJe/WUZCV5A=="
+    },
+    "@6over3/zeroperl-ts": {
+      "version": "1.0.10",
+      "integrity": "sha512-d7fBgN1UaP9BR6kZMyNsjIrxPd0QLqqx29VSprhK66m1csm/7E/anr+rEfp3gJDSne5FfDpM6aKtDGHyXG/vYQ=="
+    }
+  },
+  "wasmSha256": "a6ae97f184fabc444b0b70d77c3d16475bfb3de16ebfb58ab8b2fbf98a53835e",
+  "wasmBytes": 25358252
+}

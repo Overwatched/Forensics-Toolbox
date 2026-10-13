@@ -73,8 +73,38 @@ src/                  # Delad UI (tema, navigation)
 tools/_shared/        # Delat verktygs-skal (toolkit.js: temahantering)
 tools/<namn>/         # Ett verktyg per mapp (HTML/JS/CSS)
 documentation/        # Referens / guider i iframe
-scripts/              # sync-version, ensure-electron, finalize-artifacts
+queries/              # SQL-mallar (catalog.json är källan, catalog.js genereras)
+scripts/              # sync-version, sync-queries, vendor-exiftool, ensure-electron, finalize-artifacts
 ```
+
+### Query-kataloger
+
+`queries/**/catalog.json` är källan. Queries-verktyget läser `catalog.js`, eftersom
+`fetch()` av JSON blockeras under `file://`. Kör `npm run sync-queries` efter varje
+ändring i en `catalog.json`; testet larmar om filerna skiljer sig.
+
+Photos.sqlite-mallarna är indelade i band efter schema: iOS 10–13 (`ZGENERICASSET`),
+iOS 14 (`ZASSET`), iOS 15–16 och iOS 17+ (skaparappen i `ZIMPORTEDBYBUNDLEIDENTIFIER`).
+`tools/db-queries/photos-catalog.test.js` kör varje mall mot de tabeller och kolumner
+som iLEAPP läser för iOS 11–13, 14, 15, 16, 17, 18 och 26
+(`tools/db-queries/fixtures/photos-schema.json`). Ny iOS-version i iLEAPP:
+
+```bash
+git clone --depth 1 https://github.com/abrignoni/iLEAPP /tmp/iLEAPP
+# lägg till REF-filen i scripts/photos-schema-from-ileapp.js
+node scripts/photos-schema-from-ileapp.js /tmp/iLEAPP/scripts/artifacts
+npm test
+```
+
+### ExifTool i EXIF-visaren
+
+`tools/exif-viewer/vendor/exiftool/` byggs av `node scripts/vendor-exiftool.js` från
+fastlåsta npm-paket (`@uswriting/exiftool`, `@6over3/zeroperl-ts`). Skriptet bygger
+workern från `scripts/exiftool/worker-entry.mjs` med esbuild och lägger in
+`zeroperl.wasm` gzippad som base64, så att inget hämtas under `file://`. Bara
+`parseMetadata` importeras; skrivfunktionen finns inte i bundlen.
+`exif-vendor.test.js` kontrollerar wasm-filens SHA-256 och läser en riktig bild med
+workern. Byt version genom att ändra `PACKAGES` i skriptet och köra det igen.
 
 ### Lägga till ett verktyg
 
@@ -93,6 +123,7 @@ scripts/              # sync-version, ensure-electron, finalize-artifacts
 - `tools/hash-calculator/hashing.test.js` jämför de rena JS-implementationerna mot
   Nodes `crypto` för längder runt varje blockgräns, och verifierar att resultatet
   är oberoende av hur indata delas upp i bitar
+- Testdata ligger i `tools/**/fixtures/` och tas inte med i bygget
 
 ## Versionering
 

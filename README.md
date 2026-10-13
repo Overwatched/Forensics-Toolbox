@@ -8,7 +8,8 @@ Forkad och omarbetad från [AdrianNeshad/CryptoToolbox](https://github.com/Adria
 
 | Verktyg | Beskrivning |
 |---------|-------------|
-| App-ID | Sök appnamn — Android-paket och iOS bundle-id, med butikslänk |
+| App-ID | Sök appnamn — Android-paket och iOS bundle-id, med butikslänk. Omvänd uppslagning: klistra in id:n och få appnamn |
+| EXIF-visare | Metadata för en hel mapp med ExifTool (WebAssembly, offline). Tid med tidszon, enhet, programvara, GPS, flaggor (fel filändelse, redigering, skärmdump, app i filnamn), Office-egenskaper, CSV/JSON. Läser bara |
 | Time Converter | Unix, Apple Cocoa/NSDate, WebKit/Chrome, FILETIME, ISO — full matris + tolkningsjämförelse |
 | iOS Keychain | Krypterad iPhone-/iPad-backup — konton, lösenord, tokens och certifikat |
 | Hash Calculator | MD5 / SHA-1 / SHA-256 (fler algoritmer valbara), drag-and-drop, stora filer läses i bitar, jämför mot känd hash |
@@ -16,7 +17,7 @@ Forkad och omarbetad från [AdrianNeshad/CryptoToolbox](https://github.com/Adria
 | Magic Text | Gissar format (JSON, protobuf, plist, JWT, …) + egna flikar när du redan vet |
 | QR Code Decoder | Avkoda QR från bild |
 | CyberChef | Offline encoding / decoding / crypto |
-| Queries | iOS/Android — Photos.sqlite, knowledgeC, MediaStore, tidsspann |
+| Queries | iOS/Android — Photos.sqlite (app, kamera, position, skärmdumpar, redigeringar, Delat med dig, personer, album), knowledgeC, MediaStore, tidsspann |
 | Externa verktyg | Sökbar katalog med runda länkar (iLEAPP, Crypto Toolbox, Autopsy, …) |
 | Playbook: Bildfil härkomst | Kort checklista: EXIF, kamera, app, position |
 | Playbook: Okänd app | Paket/bundle, behörigheter, privat lagring, residual |

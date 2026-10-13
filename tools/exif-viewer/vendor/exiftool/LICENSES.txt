@@ -1,0 +1,22 @@
+EXIF-visaren bäddar in följande programvara oförändrad. Filerna i den här mappen
+byggs av scripts/vendor-exiftool.js från fastlåsta npm-paket (se VERSIONS.json).
+
+@uswriting/exiftool 1.0.9
+  ExifTool som WebAssembly för webbläsare. Apache License 2.0.
+  https://github.com/6over3/exiftool
+  Licenstext: LICENSE-Apache-2.0.txt
+
+@6over3/zeroperl-ts 1.0.10 (zeroperl.wasm)
+  Perl 5 kompilerat till WebAssembly. Apache License 2.0.
+  https://github.com/6over3/zeroperl
+  Licenstext: LICENSE-Apache-2.0.txt
+
+ExifTool 13.42 av Phil Harvey (ingår i paketen ovan)
+  "This is free software; you can redistribute it and/or modify it under the same
+  terms as Perl itself."
+  https://exiftool.org
+
+Perl 5 (ingår i zeroperl.wasm)
+  Licensierat under Artistic License eller GNU General Public License, version 1
+  eller senare, enligt Perls README.
+  https://dev.perl.org/licenses/
