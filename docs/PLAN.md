@@ -111,7 +111,7 @@ Samma ton: korta steg, paths, länkar till queries när de finns. Inga mål/begr
 |-------|-----|-------------------|
 | **Okänd app** | Sideload, APK/IPA, “vad gör den här appen?” — **byggt** (`documentation/playbook-unknown-app.html`) | Identitet (paket/bundle, signerare, version) → behörigheter → privat lagring + WAL → nätverk/konton → residual (KnowledgeC/usagestats, notiser, foton appen skapat) |
 | **Krypto / plånbok** | Misstanke om krypto, seed, exchange — **byggt** (`documentation/playbook-crypto-wallet.html`) | App/plånbok på enheten → seed/QR/address i foton, anteckningar → webbläsarhistorik/exchange → hash/CyberChef på strängar → Crypto Toolbox för seed/BIP39/plånboksfiler, block explorer som OSINT-länk |
-| **Position vid tid T** | Utvidgning av steg 4 i bildflödet | EXIF/DB-GPS → Significant Locations / GMS → cell/Wi-Fi → Maps-appar → jämför oberoende källor mot samma tidsfönster |
+| **Position vid tid T** | Utvidgning av steg 4 i bildflödet — **EXIF-delen byggd** (karta, rutt, tidsfilter, KML i EXIF-visaren) | EXIF/DB-GPS → Significant Locations / GMS → cell/Wi-Fi → Maps-appar → jämför oberoende källor mot samma tidsfönster |
 | **Chattbilaga vid tid T** | Mottagen vs skickad vs tagen | Tråd/meddelande-DB → bifogad filhash mot fotobibliotek → app aktiv (steg 3) → molnbackup |
 | **Raderat material** | Saknad bild/fil | Trash/hidden-flaggor → WAL/SHM → unallocated/carve → moln/andra enheter |
 
@@ -131,6 +131,7 @@ Samma ton: korta steg, paths, länkar till queries när de finns. Inga mål/begr
 8. ~~EXIF-visare med ExifTool i WebAssembly~~ (`tools/exif-viewer/`) — ingen egen EXIF-parser  
 9. ~~App-ID: omvänd uppslagning + system-, kamera-, moln- och valvappar~~  
 10. ~~Photos.sqlite: rätt schema per version + frågor om app, kamera, position, skärmdumpar, redigeringar, Delat med dig, personer, album~~  
+11. ~~Karta i EXIF-visaren: offline världen + Sverige zoom 14, valfri onlinekarta (OpenFreeMap), rutt, tidsfilter, KML/GeoJSON~~  
 
 ### Medvetet senare
 

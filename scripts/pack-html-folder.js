@@ -80,6 +80,11 @@ const readme = [
     'Query-katalogerna har JS-fallback',
     'så de fungerar även när fetch() av .json blockeras.',
     '',
+    'Kartan i EXIF-visaren:',
+    '  Offlinekartorna (1,3 GB) ingår inte i den här mappen. Ladda ner world.pmtiles',
+    '  och sweden.pmtiles från releasen "kartdata-…" på GitHub och välj dem med',
+    '  "Välj kartfiler" i kartvyn. Det går också att slå på onlinekartan.',
+    '',
 ].join('\n');
 
 fs.writeFileSync(path.join(dest, 'LÄS MIG.txt'), readme, 'utf8');

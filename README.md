@@ -4,12 +4,12 @@ Lokal verktygslåda för **IT-forensik**. Körs helt offline som Electron-app (l
 
 Forkad och omarbetad från [AdrianNeshad/CryptoToolbox](https://github.com/AdrianNeshad/CryptoToolbox) (Verktygslådan).
 
-## Verktyg (v1.6)
+## Verktyg (v1.7)
 
 | Verktyg | Beskrivning |
 |---------|-------------|
 | App-ID | Sök appnamn — Android-paket och iOS bundle-id, med butikslänk. Omvänd uppslagning: klistra in id:n och få appnamn |
-| EXIF-visare | Metadata för en hel mapp med ExifTool (WebAssembly, offline). Tid med tidszon, enhet, programvara, GPS, flaggor (fel filändelse, redigering, skärmdump, app i filnamn), Office-egenskaper, CSV/JSON. Läser bara |
+| EXIF-visare | Metadata för en hel mapp med ExifTool (WebAssembly, offline). Tid med tidszon, enhet, programvara, GPS, flaggor (fel filändelse, redigering, skärmdump, app i filnamn), Office-egenskaper, CSV/JSON. Karta (offline: världen + Sverige på gatunivå; valfri onlinekarta) med klickbara punkter, rutt i tidsordning, tidsfilter och KML/GeoJSON-export. Läser bara |
 | Time Converter | Unix, Apple Cocoa/NSDate, WebKit/Chrome, FILETIME, ISO — full matris + tolkningsjämförelse |
 | iOS Keychain | Krypterad iPhone-/iPad-backup — konton, lösenord, tokens och certifikat |
 | Hash Calculator | MD5 / SHA-1 / SHA-256 (fler algoritmer valbara), drag-and-drop, stora filer läses i bitar, jämför mot känd hash |
@@ -52,7 +52,7 @@ Paketerad Linux-build (AppImage + uppackad mapp):
 
 ```bash
 npm run dist:linux
-# AppImage: release/ForensicsToolbox-1.6.AppImage
+# AppImage: release/ForensicsToolbox-1.7.0.AppImage
 # Uppackad:  release/linux-unpacked/  → kör ./forensics-toolbox
 ```
 
@@ -68,7 +68,8 @@ npm run pack:linux
 
 ```bash
 npm install
-npm run dist          # NSIS-installer + portable .exe → release/
+npm run fetch-maps    # offlinekartor till maps/ (1,3 GB, en gång)
+npm run dist          # NSIS-installer + portabel zip → release/
 # eller
 npm run dist:portable
 npm run dist:installer
@@ -85,15 +86,19 @@ npm run dist:mac      # osignerat DMG + ZIP
 
 Release-filer (GitHub Releases):
 
-- `ForensicsToolbox-1.6.exe` — portabel Windows
-- `ForensicsToolbox-1.6-html.zip` — packa upp och öppna `Toolbox.html` (ingen .exe)
+- `ForensicsToolbox-1.7-Installer.exe` — Windows-installer
+- `ForensicsToolbox-1.7-Portable.zip` — portabel Windows (packa upp, kör `Forensics Toolbox.exe`)
+- `ForensicsToolbox-1.7.0.AppImage`, `ForensicsToolbox-1.7.0-x64.dmg` / `-arm64.dmg` — Linux och macOS
+- `ForensicsToolbox-1.7-html.zip` — packa upp och öppna `Toolbox.html` (ingen .exe, kartfilerna ingår inte)
+
+Appen och de paketerade filerna är runt 1,5 GB, eftersom offlinekartorna ingår.
 
 | Mål | Kommando | Output |
 |-----|----------|--------|
 | Testa nu (Linux) | `npm start` | Electron live |
 | Linux AppImage | `npm run dist:linux` | `release/*.AppImage` |
 | macOS | `npm run dist:mac` | `release/*.dmg` / `.zip` |
-| Windows .exe | `npm run dist` (på Windows/CI) | `release/*.exe` |
+| Windows | `npm run dist` (på Windows/CI) | `release/*.exe`, `release/*-Portable.zip` |
 ## Lägga till ett verktyg
 
 1. Skapa `tools/<namn>/` med HTML/JS/CSS
@@ -104,3 +109,4 @@ Release-filer (GitHub Releases):
 
 - App-shell och många UI-mönster: [CryptoToolbox](https://github.com/AdrianNeshad/CryptoToolbox) av Adrian Neshad
 - CyberChef: [GCHQ/CyberChef](https://github.com/gchq/CyberChef)
+- Kartor: © [OpenStreetMap](https://www.openstreetmap.org/copyright)-bidragsgivare (ODbL), [Protomaps](https://protomaps.com), [MapLibre GL](https://maplibre.org), onlinekarta från [OpenFreeMap](https://openfreemap.org). Licenser i `tools/exif-viewer/vendor/maps/LICENSES.txt`

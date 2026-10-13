@@ -41,6 +41,10 @@
         <section id="results" class="display-none">
             <div id="filter-chips" class="filter-chips"></div>
             <div class="toolbar">
+                <div class="view-switch" role="tablist" aria-label="Visa som">
+                    <button type="button" role="tab" data-view="table" class="active" aria-selected="true">Tabell</button>
+                    <button type="button" role="tab" data-view="map" aria-selected="false">Karta <b id="map-count">0</b></button>
+                </div>
                 <label class="search-wrap">
                     <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
                         <circle cx="11" cy="11" r="6.5" stroke="currentColor" stroke-width="1.8" />
@@ -48,11 +52,55 @@
                     </svg>
                     <input id="search" type="search" placeholder="Sök filnamn, enhet, programvara eller taggvärde…" autocomplete="off" spellcheck="false">
                 </label>
-                <button type="button" id="export-csv" class="secondary-btn">Exportera CSV</button>
-                <button type="button" id="export-json" class="secondary-btn">Exportera JSON</button>
+                <div class="time-range" title="Jämför tiden som den står i filen, se tidszonen i kolumnen Tid">
+                    <span>Tid</span>
+                    <input type="datetime-local" id="time-from" aria-label="Från">
+                    <span class="muted">–</span>
+                    <input type="datetime-local" id="time-to" aria-label="Till">
+                    <button type="button" id="time-clear" class="icon-btn display-none" aria-label="Rensa tidsfilter">×</button>
+                </div>
+                <details id="export-menu" class="menu">
+                    <summary class="secondary-btn">Exportera</summary>
+                    <div class="menu-list">
+                        <button type="button" data-export="csv">CSV<span>sammanfattning per fil</span></button>
+                        <button type="button" data-export="json">JSON<span>med alla taggar</span></button>
+                        <button type="button" data-export="kml">KML<span>positioner och rutt, Google Earth</span></button>
+                        <button type="button" data-export="geojson">GeoJSON<span>positioner och rutt, QGIS</span></button>
+                    </div>
+                </details>
                 <button type="button" id="clear" class="secondary-btn">Rensa</button>
             </div>
-            <div class="table-wrap">
+            <div id="map-view" class="map-wrap display-none">
+                <div id="map" class="map"></div>
+                <div class="map-panel">
+                    <p id="map-status" class="map-status"></p>
+                    <div class="map-controls">
+                        <label class="toggle"><input type="checkbox" id="route-toggle"> Rutt i tidsordning</label>
+                        <label class="toggle"><input type="checkbox" id="online-toggle"> Onlinekarta</label>
+                        <button type="button" id="map-fit" class="link-btn">Visa alla</button>
+                    </div>
+                    <p id="route-note" class="map-note"></p>
+                    <p id="map-note" class="map-note"></p>
+                    <div id="map-fallback" class="map-fallback display-none">
+                        <p>Offlinekartan följer med skrivbordsappen. Här kan du välja kartfilerna
+                            (<code>world.pmtiles</code>, <code>sweden.pmtiles</code>) själv.</p>
+                        <button type="button" id="map-pick" class="secondary-btn">Välj kartfiler…</button>
+                        <input type="file" id="map-input" accept=".pmtiles" multiple hidden>
+                    </div>
+                </div>
+                <div id="online-consent" class="consent display-none" role="dialog" aria-labelledby="consent-title">
+                    <h3 id="consent-title">Slå på onlinekarta?</h3>
+                    <p>Kartrutor hämtas från OpenFreeMap (tiles.openfreemap.org). Tjänsten ser din IP-adress och
+                        vilka kartrutor som visas, alltså ungefär vilket område du tittar på.</p>
+                    <p>Inga filer, bilder eller metadata skickas. Punkterna ritas lokalt.</p>
+                    <p class="muted">Gäller tills verktyget laddas om.</p>
+                    <div class="consent-actions">
+                        <button type="button" id="online-cancel" class="secondary-btn">Avbryt</button>
+                        <button type="button" id="online-ok" class="primary-btn">Slå på</button>
+                    </div>
+                </div>
+            </div>
+            <div id="table-view" class="table-wrap">
                 <table class="files">
                     <thead>
                         <tr>
@@ -96,6 +144,8 @@
     <div id="toast" class="toast">Kopierat</div>
     <script src="../app-ids/catalog.js"></script>
     <script src="exif-core.js"></script>
+    <script src="map-core.js"></script>
+    <script src="map-view.js"></script>
     <script src="vendor/exiftool/exiftool-worker.js"></script>
     <script src="vendor/exiftool/zeroperl-wasm.js"></script>
     <script src="script.js"></script>

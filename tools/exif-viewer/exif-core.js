@@ -393,6 +393,21 @@
         });
     }
 
+    // Tidsfilter från <input type="datetime-local"> ("2024-06-01T14:30"). Jämför tiden som
+    // den står i filen, utan omräkning mellan zoner, precis som den visas i tabellen.
+    function inTimeRange(taken, from, to) {
+        if (!from && !to) return true;
+        var key = taken && /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}/.test(taken.sort || '') ? taken.sort.slice(0, 19) : '';
+        if (!key) return false;
+        function bound(v, end) {
+            var s = v.replace('T', ' ');
+            return s.length === 16 ? s + (end ? ':59' : ':00') : s.slice(0, 19);
+        }
+        if (from && key < bound(from, false)) return false;
+        if (to && key > bound(to, true)) return false;
+        return true;
+    }
+
     // --- Export --------------------------------------------------------------------
 
     function csvCell(value) {
@@ -436,6 +451,7 @@
         groupTags: groupTags,
         parseCoord: parseCoord,
         formatDate: formatDate,
+        inTimeRange: inTimeRange,
         extensionMismatch: extensionMismatch,
         filenameApps: filenameApps,
         officeTags: officeTags,

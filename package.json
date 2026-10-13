@@ -1,7 +1,7 @@
 {
   "name": "forensics-toolbox",
   "productName": "Forensics Toolbox",
-  "version": "1.6.0",
+  "version": "1.7.0",
   "description": "Lokal verktygslåda för IT-forensik. Encoding, hash, tidskonvertering, CyberChef m.m. Körs helt offline.",
   "author": "Overwatched",
   "license": "UNLICENSED",
@@ -21,7 +21,8 @@
     "dist": "npm run sync-version && electron-builder --win && node scripts/finalize-artifacts.js",
     "dist:win": "npm run dist",
     "dist:installer": "npm run sync-version && electron-builder --win nsis && node scripts/finalize-artifacts.js",
-    "dist:portable": "npm run sync-version && electron-builder --win portable && node scripts/finalize-artifacts.js"
+    "dist:portable": "npm run sync-version && electron-builder --win zip && node scripts/finalize-artifacts.js",
+    "fetch-maps": "node scripts/fetch-map-data.js"
   },
   "devDependencies": {
     "electron": "^44.5.1",
@@ -45,6 +46,8 @@
       "documentation/**/*",
       "queries/**/*",
       "package.json",
+      "maps/kartdata.json",
+      "maps/*.pmtiles",
       "!**/*.md",
       "!tools/ios-keychain/sample-backup/**/*",
       "!tools/**/fixtures/**/*",
@@ -94,14 +97,15 @@
           ]
         },
         {
-          "target": "portable",
+          "target": "zip",
           "arch": [
             "x64"
           ]
         }
       ],
       "icon": "build/icon.ico",
-      "signAndEditExecutable": false
+      "signAndEditExecutable": false,
+      "artifactName": "ForensicsToolbox-${version}-win-${arch}.${ext}"
     },
     "nsis": {
       "oneClick": false,
@@ -109,10 +113,8 @@
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "Forensics Toolbox"
-    },
-    "portable": {
-      "artifactName": "ForensicsToolbox-Portable-${version}.exe"
+      "shortcutName": "Forensics Toolbox",
+      "artifactName": "Forensics Toolbox Setup ${version}.${ext}"
     }
   },
   "allowScripts": {

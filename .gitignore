@@ -3,6 +3,10 @@ node_modules/
 release/
 dist/
 *.log
+
+# Offlinekartor (release-filer, se maps/kartdata.json)
+maps/*.pmtiles
+maps/*.part
 npm-debug.log*
 
 # OS

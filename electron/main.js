@@ -1,6 +1,7 @@
 const { app, BrowserWindow, shell, Menu, session, dialog } = require('electron');
 const path = require('node:path');
 const fs = require('node:fs');
+const maps = require('./map-protocol');
 
 // Sökväg till projektroten. I dev-läge (npm start) är detta repo-roten.
 // I ett paketerat bygge (electron-builder, asar: false) är strukturen identisk under
@@ -8,6 +9,10 @@ const fs = require('node:fs');
 const APP_ROOT = path.join(__dirname, '..');
 const TOOLBOX_HTML = path.join(APP_ROOT, 'Toolbox.html');
 const ICON_PATH = path.join(APP_ROOT, 'build', 'icon.ico');
+const MAPS_DIR = path.join(APP_ROOT, 'maps');
+
+maps.registerMapScheme();
+app.userAgentFallback = maps.genericUserAgent(app.userAgentFallback, [app.getName(), 'forensics-toolbox']);
 
 let mainWindow = null;
 
@@ -118,7 +123,7 @@ function buildMenu() {
                             type: 'info',
                             title: 'Om Forensics Toolbox',
                             message: 'Forensics Toolbox',
-                            detail: `Version ${app.getVersion()}\n\nLokal verktygslåda för IT-forensik. Körs helt lokalt på den här datorn. Ingen internetanslutning krävs för verktygen — endast för de valfria externa länkarna i sidopanelen.\n\nBaserad på CryptoToolbox av Adrian Neshad.`,
+                            detail: `Version ${app.getVersion()}\n\nLokal verktygslåda för IT-forensik. Körs helt lokalt på den här datorn. Ingen internetanslutning krävs för verktygen — endast för de valfria externa länkarna i sidopanelen och den valfria onlinekartan i EXIF-visaren.\n\nKartdata © OpenStreetMap-bidragsgivare (ODbL), Protomaps.\n\nBaserad på CryptoToolbox av Adrian Neshad.`,
                         });
                     },
                 },
@@ -135,6 +140,8 @@ app.whenReady().then(() => {
     session.defaultSession.on('will-download', (_event, item) => {
         item.setSaveDialogOptions({ defaultPath: item.getFilename() });
     });
+    maps.handleMapProtocol(MAPS_DIR);
+    maps.stripIdentifyingHeaders(session.defaultSession);
 
     buildMenu();
     createWindow();

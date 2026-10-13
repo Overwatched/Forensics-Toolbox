@@ -1,8 +1,11 @@
 #!/usr/bin/env node
 // Döper om de filer electron-builder just byggde i release/ till det slutgiltiga,
-// användarvända namnet: "ForensicsToolbox-X.Y.exe" (portabel) och
-// "ForensicsToolbox-X.Y-Installer.exe" (NSIS-installer) — där X.Y alltid är samma
-// version som visas i Toolbox.htmls sidopanel.
+// användarvända namnet: "ForensicsToolbox-X.Y-Portable.zip" (packa upp och kör, ingen
+// installation) och "ForensicsToolbox-X.Y-Installer.exe" (NSIS-installer) — där X.Y
+// alltid är samma version som visas i Toolbox.htmls sidopanel.
+//
+// Portabelt är en zip och inte en självuppackande exe: en sådan packar upp hela appen,
+// inklusive offlinekartan, i en tempmapp vid varje start.
 //
 // Körs automatiskt efter `npm run dist` / `dist:portable` / `dist:installer`.
 
@@ -25,13 +28,13 @@ if (!fs.existsSync(RELEASE_DIR)) {
     process.exit(1);
 }
 
-const portableName = `ForensicsToolbox-${shortVersion}.exe`;
+const portableName = `ForensicsToolbox-${shortVersion}-Portable.zip`;
 const installerName = `ForensicsToolbox-${shortVersion}-Installer.exe`;
 
 // Städa bort ev. tidigare omdöpta filer från lokala testbyggen av en annan version,
 // så de inte ligger kvar och skapar förvirring bredvid den nya byggen.
 for (const file of fs.readdirSync(RELEASE_DIR)) {
-    if (/^ForensicsToolbox-\d+\.\d+(-Installer)?\.exe$/.test(file) && file !== portableName && file !== installerName) {
+    if (/^ForensicsToolbox-\d+\.\d+(-Installer\.exe|-Portable\.zip|\.exe)$/.test(file) && file !== portableName && file !== installerName) {
         fs.unlinkSync(path.join(RELEASE_DIR, file));
     }
 }
@@ -51,5 +54,5 @@ function renameFirstMatch(pattern, targetName) {
     console.log(`finalize-artifacts: ${found} -> ${targetName}`);
 }
 
-renameFirstMatch(/^ForensicsToolbox-Portable-.*\.exe$/i, portableName);
+renameFirstMatch(/^ForensicsToolbox-[\d.]+-win-x64\.zip$/i, portableName);
 renameFirstMatch(/^Forensics Toolbox Setup .*\.exe$/i, installerName);

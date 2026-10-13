@@ -2,6 +2,11 @@ name: Bygg och publicera (Windows, Linux, macOS)
 
 # Bygger native på respektive runner via matrix (inte cross-compile från en maskin).
 # Push till main (utom rena .md-ändringar) eller manuell "Run workflow".
+#
+# Med offlinekartan är varje plattformsfil runt 1,5 GB. Varje bygge laddar därför upp
+# sina filer direkt till releasen (som utkast) i stället för att samla allt i ett jobb,
+# och releasen publiceras när alla byggen är klara. Release-texten finns i
+# .github/release-notes.md.
 on:
   push:
     branches: [main]
@@ -42,8 +47,32 @@ jobs:
       - name: Kör enhetstester
         run: npm test
 
-  build:
+  # Skapar releasen som utkast (eller gör en befintlig till utkast) och tar bort gamla filer.
+  prepare:
     needs: [version, test]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Skapa eller återställ release-utkast
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          TAG="v$VERSION"
+          MAPS=$(node -p "require('./maps/kartdata.json').release")
+          sed -e "s/{{VERSION}}/$VERSION/g" -e "s/{{SHA}}/$GITHUB_SHA/g" -e "s/{{MAPS}}/$MAPS/g" .github/release-notes.md > notes.md
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release edit "$TAG" --draft=true --title "Forensics Toolbox $VERSION" --notes-file notes.md
+            gh release view "$TAG" --json assets --jq '.assets[].name' | while IFS= read -r name; do
+              echo "Tar bort tidigare fil: $name"
+              gh release delete-asset "$TAG" "$name" --yes
+            done
+          else
+            gh release create "$TAG" --draft --target "$GITHUB_SHA" --title "Forensics Toolbox $VERSION" --notes-file notes.md
+          fi
+
+  build:
+    needs: [version, prepare]
     strategy:
       fail-fast: false
       matrix:
@@ -88,6 +117,9 @@ jobs:
       - name: Installera beroenden
         run: npm ci
 
+      - name: Hämta offlinekartor (kontrollerar SHA-256)
+        run: node scripts/fetch-map-data.js
+
       - name: Synka version
         run: npm run sync-version
 
@@ -116,79 +148,27 @@ jobs:
         if: matrix.platform == 'linux'
         run: node scripts/pack-html-folder.js
 
-      - name: Lista release-filer
+      - name: Ladda upp till releasen
         shell: bash
-        run: ls -la release/ || true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: v${{ needs.version.outputs.version }}
+        run: |
+          shopt -s nullglob
+          files=(release/*.exe release/*.AppImage release/*.dmg release/*-html.zip release/*-Portable.zip release/*-x64.zip release/*-arm64.zip)
+          if [ ${#files[@]} -eq 0 ]; then echo "Inga release-filer"; exit 1; fi
+          ls -la "${files[@]}"
+          gh release upload "$TAG" "${files[@]}" --clobber
 
-      - name: Ladda upp build-artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: forensics-toolbox-${{ matrix.platform }}
-          path: |
-            release/*.exe
-            release/*.AppImage
-            release/*.dmg
-            release/*-html.zip
-            release/*-x64.zip
-            release/*-arm64.zip
-          if-no-files-found: warn
-
-  release:
+  publish:
     needs: [version, build]
     runs-on: ubuntu-latest
     steps:
-      - name: Ladda ner alla plattformsartifacts
-        uses: actions/download-artifact@v4
-        with:
-          path: dist
-          pattern: forensics-toolbox-*
-          merge-multiple: true
-
-      - name: Lista filer
-        run: find dist -type f | sort
-
-      - name: Rensa gamla assets i releasen (om den finns)
+      - uses: actions/checkout@v4
+      - name: Publicera releasen
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           TAG="v${{ needs.version.outputs.version }}"
-          if gh release view "$TAG" --repo "${{ github.repository }}" >/dev/null 2>&1; then
-            gh release view "$TAG" --repo "${{ github.repository }}" --json assets --jq '.assets[].name' |
-              while IFS= read -r name; do
-                echo "Tar bort tidigare asset: $name"
-                gh release delete-asset "$TAG" "$name" --repo "${{ github.repository }}" --yes
-              done
-          else
-            echo "Ingen befintlig release för $TAG ännu."
-          fi
-
-      - name: Skapa/uppdatera GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: v${{ needs.version.outputs.version }}
-          name: Forensics Toolbox ${{ needs.version.outputs.version }}
-          body: |
-            Automatiskt byggd från commit `${{ github.sha }}`.
-
-            ## Nytt i 1.6
-            - **EXIF-visare** — välj eller släpp en mapp och se metadata för alla filer: tid med tidszon, enhet, programvara och position. Flaggor för fel filändelse, saknad kamerametadata, skärmdump, tecken på redigering och app i filnamnet. Alla taggar per fil, CSV- och JSON-export. ExifTool 13.42 körs offline i WebAssembly och kan inte ändra filerna.
-            - **App-ID** — omvänd uppslagning: klistra in bundle-id eller paketnamn och få appnamn. Katalogen har 277 appar, nu även kamera-, moln-, valv- och systemappar.
-            - **Photos.sqlite** — frågorna fungerar nu på iOS 14 och senare (tidigare "no such table: ZGENERICASSET"), och skaparappen läses ur rätt kolumn från iOS 15. Nya frågor om kamera, position, skärmdumpar, redigeringar, Delat med dig, personer och album.
-
-            ## Windows
-            - **ForensicsToolbox-${{ needs.version.outputs.version }}.exe** — portabel
-            - **ForensicsToolbox-${{ needs.version.outputs.version }}-Installer.exe** — NSIS-installer
-
-            ## HTML-mapp (ingen .exe)
-            - **ForensicsToolbox-${{ needs.version.outputs.version }}-html.zip** — packa upp och öppna `Toolbox.html` i webbläsaren (för miljöer där körbara filer inte är tillåtna)
-
-            ## Linux
-            - **ForensicsToolbox-*.AppImage** — körbar AppImage (x64)
-
-            ## macOS
-            - **ForensicsToolbox-*.dmg** / **.zip** — osignerat bygge (Gatekeeper kan varna; högerklicka → Öppna)
-
-            > macOS-binären är **inte** notariserad/signerad i CI. Windows är osignerad också.
-          files: |
-            dist/**
-          fail_on_unmatched_files: false
+          gh release view "$TAG" --json assets --jq '.assets[] | "\(.name)  \(.size)"'
+          gh release edit "$TAG" --draft=false --latest

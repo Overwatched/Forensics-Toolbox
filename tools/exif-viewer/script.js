@@ -48,6 +48,11 @@
     var sortDesc = false;
     var renderTimer = null;
     var selected = null;
+    var view = 'table';
+    var timeFrom = $('time-from');
+    var timeTo = $('time-to');
+    var exportMenu = $('export-menu');
+    var mapView = null;
 
     var appNames = {};
     if (window.AppIds) {
@@ -84,8 +89,9 @@
         window.open(url, '_blank', 'noopener,noreferrer');
     }
 
-    function download(content, type, filename) {
-        var blob = new Blob(['\uFEFF' + content], { type: type });
+    // BOM så att Excel läser CSV som UTF-8. GeoJSON (RFC 7946) och KML får ingen.
+    function download(content, type, filename, noBom) {
+        var blob = new Blob([(noBom ? '' : '\uFEFF') + content], { type: type });
         var url = URL.createObjectURL(blob);
         var link = document.createElement('a');
         link.href = url;
@@ -243,7 +249,6 @@
         row.tags = ExifCore.cleanTags(tags);
         row.summary = ExifCore.summarize(row.tags, row.name);
         row.status = 'done';
-        row.file = null;
         var s = row.summary;
         row.hay = [
             row.path, s.type, s.mime, s.taken && s.taken.text, s.device && s.device.text, s.software && s.software.text,
@@ -277,6 +282,8 @@
         filter = 'all';
         searchInput.value = '';
         query = '';
+        timeFrom.value = '';
+        timeTo.value = '';
         results.classList.toggle('display-none', !rows.length);
         updateProgress();
         scheduleRender();
@@ -377,8 +384,11 @@
 
     function visibleRows() {
         var q = query.toLowerCase();
+        var from = timeFrom.value;
+        var to = timeTo.value;
         var list = rows.filter(function (r) {
             if (filter !== 'all' && !hasFlag(r, filter)) return false;
+            if ((from || to) && !ExifCore.inTimeRange(r.summary && r.summary.taken, from, to)) return false;
             if (!q) return true;
             return (r.hay || r.path.toLowerCase()).indexOf(q) >= 0;
         });
@@ -470,9 +480,65 @@
             th.classList.toggle('sorted', th.dataset.sort === sortKey);
             th.classList.toggle('desc', th.dataset.sort === sortKey && sortDesc);
         });
-        var done = rows.some(function (r) { return r.status === 'done'; });
-        $('export-csv').disabled = !done;
-        $('export-json').disabled = !done;
+        var done = list.filter(function (r) { return r.status === 'done'; });
+        var pts = MapCore.points(done);
+        exportMenu.querySelectorAll('[data-export]').forEach(function (b) {
+            b.disabled = /kml|geojson/.test(b.dataset.export) ? !pts.length : !done.length;
+        });
+        $('time-clear').classList.toggle('display-none', !timeFrom.value && !timeTo.value);
+        $('map-count').textContent = pts.length.toLocaleString('sv-SE');
+        if (view === 'map') {
+            empty.classList.add('display-none');
+            updateMap(done, pts);
+        }
+    }
+
+    // --- Karta --------------------------------------------------------------------
+
+    function mapNotes(done, pts) {
+        var zero = done.filter(function (r) { return r.summary.position && r.summary.position.zero; }).length;
+        var missing = done.length - pts.length - zero;
+        var parts = [pts.length.toLocaleString('sv-SE') + ' av ' + done.length.toLocaleString('sv-SE') + ' filer har position.'];
+        if (zero) parts.push(zero + ' har position 0, 0 och ritas inte.');
+        if (missing && filter !== 'gps') parts.push('Filter, sökning och tidsspann gäller även kartan.');
+        return parts.join(' ');
+    }
+
+    function updateMap(done, pts) {
+        if (!mapView) return;
+        mapView.setPoints(pts, MapCore.route(pts), mapNotes(done, pts));
+    }
+
+    function ensureMap() {
+        if (mapView) return mapView;
+        mapView = ExifMap.create({
+            onSelect: function (id) {
+                var row = rows.filter(function (r) { return r.id === id; })[0];
+                if (row) openDetail(row);
+            },
+            getFile: function (id) {
+                var row = rows.filter(function (r) { return r.id === id; })[0];
+                return row ? row.file : null;
+            },
+            copy: copyText,
+            openExternal: openExternal,
+        });
+        return mapView;
+    }
+
+    function setView(next) {
+        view = next;
+        document.querySelectorAll('.view-switch [data-view]').forEach(function (b) {
+            var on = b.dataset.view === view;
+            b.classList.toggle('active', on);
+            b.setAttribute('aria-selected', on ? 'true' : 'false');
+        });
+        $('table-view').classList.toggle('display-none', view !== 'table');
+        $('map-view').classList.toggle('display-none', view !== 'map');
+        if (view === 'map') ensureMap();
+        render();
+        if (view === 'map') return mapView.show();
+        return Promise.resolve();
     }
 
     function scheduleRender() {
@@ -526,10 +592,13 @@
             pos.append(make('span', 'mono', coords));
             var actions = make('span', 'inline-actions');
             actions.append(linkButton('Kopiera', function () { copyText(coords); }));
-            actions.append(linkButton('Visa på karta', function () {
-                openExternal('https://www.openstreetmap.org/?mlat=' + s.position.lat + '&mlon=' + s.position.lon
-                    + '#map=17/' + s.position.lat + '/' + s.position.lon, 'OpenStreetMap');
-            }));
+            if (!s.position.zero) {
+                actions.append(linkButton('Visa på kartan', function () {
+                    var id = row.id;
+                    closeDetail();
+                    setView('map').then(function () { mapView.focus(id); });
+                }));
+            }
             pos.append(actions);
             summaryRow(dl, 'Position', pos, s.position.source);
         }
@@ -599,22 +668,43 @@
         return visibleRows().filter(function (r) { return r.status === 'done'; });
     }
 
-    $('export-csv').addEventListener('click', function () {
-        download(ExifCore.toCsv(exportRows()), 'text/csv;charset=utf-8', 'exif-' + stamp() + '.csv');
-        showToast('CSV sparad');
-    });
+    var EXPORTS = {
+        csv: function () {
+            download(ExifCore.toCsv(exportRows()), 'text/csv;charset=utf-8', 'exif-' + stamp() + '.csv');
+        },
+        json: function () {
+            var data = {
+                tool: 'Forensics Toolbox — EXIF-visare',
+                engine: engine.version,
+                exported: localTime(Date.now()),
+                files: exportRows().map(function (r) {
+                    return { path: r.path, size: r.size, modified: r.modified, summary: r.summary, tags: r.tags };
+                }),
+            };
+            download(JSON.stringify(data, null, 2), 'application/json;charset=utf-8', 'exif-' + stamp() + '.json');
+        },
+        kml: function () {
+            download(MapCore.toKml(MapCore.points(exportRows()), {
+                title: 'EXIF-visare ' + stamp(),
+                description: 'Forensics Toolbox, ' + engine.version + ', exporterad ' + localTime(Date.now()),
+            }), 'application/vnd.google-earth.kml+xml;charset=utf-8', 'exif-' + stamp() + '.kml', true);
+        },
+        geojson: function () {
+            download(MapCore.toGeoJson(MapCore.points(exportRows()), {
+                tool: 'Forensics Toolbox — EXIF-visare', engine: engine.version, exported: localTime(Date.now()),
+            }), 'application/geo+json;charset=utf-8', 'exif-' + stamp() + '.geojson', true);
+        },
+    };
 
-    $('export-json').addEventListener('click', function () {
-        var data = {
-            tool: 'Forensics Toolbox — EXIF-visare',
-            engine: engine.version,
-            exported: localTime(Date.now()),
-            files: exportRows().map(function (r) {
-                return { path: r.path, size: r.size, modified: r.modified, summary: r.summary, tags: r.tags };
-            }),
-        };
-        download(JSON.stringify(data, null, 2), 'application/json;charset=utf-8', 'exif-' + stamp() + '.json');
-        showToast('JSON sparad');
+    exportMenu.addEventListener('click', function (e) {
+        var b = e.target.closest('[data-export]');
+        if (!b || b.disabled) return;
+        exportMenu.open = false;
+        EXPORTS[b.dataset.export]();
+        showToast(b.firstChild.textContent + ' sparad');
+    });
+    document.addEventListener('click', function (e) {
+        if (exportMenu.open && !exportMenu.contains(e.target)) exportMenu.open = false;
     });
 
     // --- Händelser ----------------------------------------------------------------
@@ -643,6 +733,17 @@
     searchInput.addEventListener('input', function () {
         query = searchInput.value.trim();
         scheduleRender();
+    });
+
+    [timeFrom, timeTo].forEach(function (input) { input.addEventListener('change', render); });
+    $('time-clear').addEventListener('click', function () {
+        timeFrom.value = '';
+        timeTo.value = '';
+        render();
+    });
+
+    document.querySelectorAll('.view-switch [data-view]').forEach(function (b) {
+        b.addEventListener('click', function () { setView(b.dataset.view); });
     });
 
     document.querySelectorAll('.files th[data-sort]').forEach(function (th) {

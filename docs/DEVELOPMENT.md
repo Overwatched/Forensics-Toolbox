@@ -45,8 +45,9 @@ GPU/VSync-varningar i terminalen på Linux är oftast ofarliga.
 | `npm run postinstall` | Packa upp/ladda Electron-binär vid behov |
 | `npm run pack:linux` | Snabb Linux-dir under `release/` |
 | `npm run dist:linux` | Linux AppImage (+ dir) → `release/` |
-| `npm run dist` / `dist:win` | Windows NSIS + portable `.exe` (kör på **Windows** eller CI) |
-| `npm run dist:portable` | Endast portable `.exe` |
+| `npm run fetch-maps` | Hämtar offlinekartorna till `maps/` (krävs före `dist*`, se Kartor) |
+| `npm run dist` / `dist:win` | Windows NSIS + portabel zip (kör på **Windows** eller CI) |
+| `npm run dist:portable` | Endast portabel zip |
 | `npm run dist:installer` | Endast NSIS-installer |
 | `npm run sync-version` | Synkar version från `Toolbox.html` → `package.json` |
 
@@ -59,8 +60,15 @@ Cross-build från en enda maskin är opålitligt. Använd:
 
 Artifacts (efter finalize / CI):
 
-- `ForensicsToolbox-X.Y.exe` (portable)
+- `ForensicsToolbox-X.Y-Portable.zip` (packa upp och kör `Forensics Toolbox.exe`)
 - `ForensicsToolbox-X.Y-Installer.exe`
+
+Portabel Windows är en zip i stället för en självuppackande `.exe`: med kartorna är appen
+runt 1,5 GB, och en portabel `.exe` packar upp allt till en tempmapp vid varje start.
+
+CI skapar releasen som utkast, låter varje byggjobb ladda upp sina filer direkt (alla
+filer får inte plats på ett enda jobbs disk) och publicerar när alla jobb är klara.
+Releasetexten kommer från `.github/release-notes.md`.
 
 Versionen läses från texten `Version X.Y` i `Toolbox.html`.
 
@@ -74,7 +82,8 @@ tools/_shared/        # Delat verktygs-skal (toolkit.js: temahantering)
 tools/<namn>/         # Ett verktyg per mapp (HTML/JS/CSS)
 documentation/        # Referens / guider i iframe
 queries/              # SQL-mallar (catalog.json är källan, catalog.js genereras)
-scripts/              # sync-version, sync-queries, vendor-exiftool, ensure-electron, finalize-artifacts
+maps/                 # kartdata.json (incheckad) + *.pmtiles (hämtas, gitignorerade)
+scripts/              # sync-version, sync-queries, vendor-exiftool, vendor-maps, kartdata, ensure-electron, finalize-artifacts
 ```
 
 ### Query-kataloger
@@ -106,6 +115,35 @@ workern från `scripts/exiftool/worker-entry.mjs` med esbuild och lägger in
 `exif-vendor.test.js` kontrollerar wasm-filens SHA-256 och läser en riktig bild med
 workern. Byt version genom att ändra `PACKAGES` i skriptet och köra det igen.
 
+### Kartor i EXIF-visaren
+
+Kartvyn (`map-view.js`, logik i `map-core.js`) använder MapLibre GL och Protomaps
+vektorkartor i PMTiles-format.
+
+- **Bibliotek, stil, typsnitt och ikoner:** `tools/exif-viewer/vendor/maps/` byggs av
+  `node scripts/vendor-maps.js` från fastlåsta npm-paket och en fastlåst commit av
+  `protomaps/basemaps-assets`. Allt bäddas in i `.js`-filer (ingen `fetch()` under
+  `file://`), och MapLibre-workern körs från en Blob-URL. `map-vendor.test.js`
+  kontrollerar hashar mot `VERSIONS.json` och att offlinestilen saknar URL:er.
+- **Kartdata:** `maps/world.pmtiles` (hela världen, zoom 0–6, 45 MB) och
+  `maps/sweden.pmtiles` (Sverige, zoom 7–14, 1,3 GB) är för stora för git. De ligger
+  som filer i en egen GitHub-release (`kartdata-ÅÅÅÅMMDD`, förhandsversion).
+  `maps/kartdata.json` pekar ut releasen och filernas SHA-256.
+  `npm run fetch-maps` hämtar och verifierar dem; CI gör samma sak före bygget.
+- **Ny kartdata:** installera [pmtiles-CLI:t](https://github.com/protomaps/go-pmtiles),
+  kör `node scripts/build-map-data.js` (senaste Protomaps-bygget, eller ett datum
+  `ÅÅÅÅMMDD`) och ladda upp filerna med kommandot som skriptet skriver ut. Sveriges
+  gräns finns i `scripts/maps/sweden-region.geojson`. Checka in den nya `kartdata.json`.
+- **I appen:** `electron/map-protocol.js` serverar `maps/` som `ftmaps://data/<fil>` med
+  Range-stöd, så att kartan bara läser de delar av filen som behövs. Endast filnamn som
+  `namn.pmtiles`/`namn.json` direkt i `maps/` lämnas ut.
+- **Onlinekarta (OpenFreeMap):** kräver att användaren godkänner det varje session.
+  Bara kartrutor för området som visas hämtas; filer, sökvägar och metadata skickas
+  aldrig. Electron tar bort appnamnet ur User-Agent och Referer/Cookie ur alla
+  externa anrop.
+- **HTML-versionen** saknar `ftmaps://` och kartfilerna; användaren väljer
+  `.pmtiles`-filerna själv i kartvyn eller använder onlinekartan.
+
 ### Lägga till ett verktyg
 
 1. Skapa `tools/<namn>/` med HTML (+ ev. JS/CSS)
@@ -130,10 +168,10 @@ workern. Byt version genom att ändra `PACKAGES` i skriptet och köra det igen.
 - Visa version i hubben: `Version 1.1` i `Toolbox.html`
 - `sync-version` sätter `package.json` till `1.1.0` (semver för electron-builder)
 - Höj versionen i `Toolbox.html` innan release/push om du vill ha ny GitHub Release-tagg
-- `npm run pack-html` skapar `release/ForensicsToolbox-X.Y-html.zip` (Toolbox.html utan exe)
+- `npm run pack-html` skapar `release/ForensicsToolbox-X.Y-html.zip` (Toolbox.html utan exe, utan kartfiler)
 
 ## Kända begränsningar
 
-- Offline för lokala verktyg; externa länkar/nedladdningar kräver nät och bekräftelsedialog
+- Offline för lokala verktyg; externa länkar/nedladdningar och onlinekartan kräver nät och bekräftelse
 - Windows-signing är avstängd (`signAndEditExecutable: false`)
 - `npm audit`-varningar i Electron-kedjan är vanliga; åtgärda inte med `audit fix --force` utan översikt

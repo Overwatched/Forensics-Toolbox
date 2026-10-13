@@ -1,0 +1,22 @@
+{
+  "source": "Protomaps basemap 20261013 (OpenStreetMap)",
+  "date": "2026-10-13",
+  "license": "© OpenStreetMap-bidragsgivare, ODbL 1.0",
+  "release": "kartdata-20261013",
+  "files": {
+    "world.pmtiles": {
+      "label": "Världen",
+      "minzoom": 0,
+      "maxzoom": 6,
+      "bytes": 45082663,
+      "sha256": "bbfd1beed70878a0ade6aef050f952cbe9f22ab8f3e1a2503e7a1a3e9b9e5dbc"
+    },
+    "sweden.pmtiles": {
+      "label": "Sverige",
+      "minzoom": 7,
+      "maxzoom": 14,
+      "bytes": 1284864637,
+      "sha256": "3d2540667282eea21cef3982460c410a3ac10f7044623162f2c432344954a0c1"
+    }
+  }
+}

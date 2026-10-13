@@ -1,0 +1,34 @@
+{
+  "packages": {
+    "maplibre-gl": {
+      "version": "6.14.0",
+      "integrity": "sha512-L7U9y9TyPJ3P/JJbW+eH+A3FzdPq+3fnZFqqeCwf/S6cRGganHwVI5b/C8/zOYzreUzsloDPZVVaMQA94wOt4A=="
+    },
+    "pmtiles": {
+      "version": "4.5.0",
+      "integrity": "sha512-CBeD4SoUluFziGdy/8k7FOjQxQy486n+929W/tWophauvMICpkZ26vGBWhDt/6b1FZQWNaf4jFdT/5+q0Wii5w=="
+    },
+    "@protomaps/basemaps": {
+      "version": "5.7.2",
+      "integrity": "sha512-K1Yk6bWdULulYg+R2QRVXx4NzJZan5YQhpejEG0c1/sXruJrfPIPZuakpf3jwAgVmjIRVQwAv+yRafDeN0aaUQ=="
+    }
+  },
+  "assets": {
+    "repo": "protomaps/basemaps-assets",
+    "commit": "028c18f713baecad011301ff7a69acc39bcc2ae7",
+    "fonts": [
+      "Noto Sans Devanagari Regular v1",
+      "Noto Sans Italic",
+      "Noto Sans Medium",
+      "Noto Sans Regular"
+    ],
+    "sprites": [
+      "light",
+      "dark"
+    ]
+  },
+  "sha256": {
+    "maplibre.js": "a556af1074623e4f48ba1fe772be0f0e075518679af4102309cc9d97df2acad2",
+    "map-assets.js": "09fcc36e1dfbde136743c35671491add1972276ff59464e1e43a3571385100b3"
+  }
+}
