@@ -4,7 +4,7 @@ Lokal verktygslåda för **IT-forensik**. Körs helt offline som Electron-app (l
 
 Forkad och omarbetad från [AdrianNeshad/CryptoToolbox](https://github.com/AdrianNeshad/CryptoToolbox) (Verktygslådan).
 
-## Verktyg (v1.5)
+## Verktyg (v1.6)
 
 | Verktyg | Beskrivning |
 |---------|-------------|
@@ -52,7 +52,7 @@ Paketerad Linux-build (AppImage + uppackad mapp):
 
 ```bash
 npm run dist:linux
-# AppImage: release/ForensicsToolbox-1.5.AppImage
+# AppImage: release/ForensicsToolbox-1.6.AppImage
 # Uppackad:  release/linux-unpacked/  → kör ./forensics-toolbox
 ```
 
@@ -85,8 +85,8 @@ npm run dist:mac      # osignerat DMG + ZIP
 
 Release-filer (GitHub Releases):
 
-- `ForensicsToolbox-1.5.exe` — portabel Windows
-- `ForensicsToolbox-1.5-html.zip` — packa upp och öppna `Toolbox.html` (ingen .exe)
+- `ForensicsToolbox-1.6.exe` — portabel Windows
+- `ForensicsToolbox-1.6-html.zip` — packa upp och öppna `Toolbox.html` (ingen .exe)
 
 | Mål | Kommando | Output |
 |-----|----------|--------|

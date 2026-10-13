@@ -170,9 +170,10 @@ jobs:
           body: |
             Automatiskt byggd från commit `${{ github.sha }}`.
 
-            ## Nytt i 1.5
-            - **App-ID** — sök ett appnamn och få Android-paket och iOS bundle-id, med länk till Play Store eller App Store. Filtrera på typ (chatt, krypto, Sverige med flera) och exportera de appar som visas som CSV, med skilda kolumner för iOS och Android.
-            - Katalogen är offline. iOS-id är lästa ur iTunes lookup. Saknas en plattform lämnas fältet tomt.
+            ## Nytt i 1.6
+            - **EXIF-visare** — välj eller släpp en mapp och se metadata för alla filer: tid med tidszon, enhet, programvara och position. Flaggor för fel filändelse, saknad kamerametadata, skärmdump, tecken på redigering och app i filnamnet. Alla taggar per fil, CSV- och JSON-export. ExifTool 13.42 körs offline i WebAssembly och kan inte ändra filerna.
+            - **App-ID** — omvänd uppslagning: klistra in bundle-id eller paketnamn och få appnamn. Katalogen har 277 appar, nu även kamera-, moln-, valv- och systemappar.
+            - **Photos.sqlite** — frågorna fungerar nu på iOS 14 och senare (tidigare "no such table: ZGENERICASSET"), och skaparappen läses ur rätt kolumn från iOS 15. Nya frågor om kamera, position, skärmdumpar, redigeringar, Delat med dig, personer och album.
 
             ## Windows
             - **ForensicsToolbox-${{ needs.version.outputs.version }}.exe** — portabel

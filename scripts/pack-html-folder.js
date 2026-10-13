@@ -39,6 +39,7 @@ function copyRecursive(src, dst) {
         fs.mkdirSync(dst, { recursive: true });
         for (const name of fs.readdirSync(src)) {
             if (name === '.DS_Store' || name === 'Thumbs.db') continue;
+            if (name === 'fixtures' || name.endsWith('.test.js')) continue;
             copyRecursive(path.join(src, name), path.join(dst, name));
         }
         return;
