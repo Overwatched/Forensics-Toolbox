@@ -1,5 +1,12 @@
 Automatiskt byggd från commit `{{SHA}}`.
 
+## Nytt i 1.10
+
+- Klicka på en punkt och välj **Dölj** eller **Ta bort**. Dölj tar bort den från kartan men lämnar den i listan, där den kan visas igen.
+- **Visa noggrannhet** ritar en cirkel när positionen har horisontell noggrannhet. Bubblorna kan visa samma värde.
+- **Mät** avstånd med två klick. **Spara bild** sparar kartan som PNG, inklusive bubblor.
+- Testdata i Positioner har miniatyrer, och några punkter har noggrannhet så att cirklarna syns.
+
 ## Nytt i 1.9
 
 - **Lista** över positionerna, med nummer, tid, enhet och möjlighet att ta bort en punkt ur listan.

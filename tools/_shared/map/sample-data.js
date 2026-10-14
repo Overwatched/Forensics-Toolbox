@@ -4,26 +4,26 @@
     'use strict';
 
     var FILES = [
-        { name: 'IMG_4101.JPG', time: '2024:06:01 14:00:12', place: 'Centralstationen', lat: 59.33030, lon: 18.05860, make: 'Apple', model: 'iPhone 15 Pro', offset: '+02:00' },
+        { name: 'IMG_4101.JPG', time: '2024:06:01 14:00:12', place: 'Centralstationen', lat: 59.33030, lon: 18.05860, accuracy: 8, make: 'Apple', model: 'iPhone 15 Pro', offset: '+02:00' },
         { name: 'IMG_4102.JPG', time: '2024:06:01 14:04:40', place: 'Sergels torg', lat: 59.33260, lon: 18.06490, make: 'Apple', model: 'iPhone 15 Pro', offset: '+02:00' },
         { name: 'IMG_4103.JPG', time: '2024:06:01 14:09:05', place: 'Kungsträdgården', lat: 59.33130, lon: 18.07160, make: 'Apple', model: 'iPhone 15 Pro', offset: '+02:00' },
         { name: 'IMG_4104.JPG', time: '2024:06:01 14:14:30', place: 'Riksdagshuset', lat: 59.32750, lon: 18.06810, make: 'Apple', model: 'iPhone 15 Pro', offset: '+02:00' },
         { name: 'IMG_4105.JPG', time: '2024:06:01 14:19:02', place: 'Kungliga slottet', lat: 59.32680, lon: 18.07170, make: 'Apple', model: 'iPhone 15 Pro', offset: '+02:00' },
-        { name: 'IMG_4106.JPG', time: '2024:06:01 14:25:48', place: 'Stortorget', lat: 59.32510, lon: 18.07070, make: 'Apple', model: 'iPhone 15 Pro', offset: '+02:00' },
+        { name: 'IMG_4106.JPG', time: '2024:06:01 14:25:48', place: 'Stortorget', lat: 59.32510, lon: 18.07070, accuracy: 25, make: 'Apple', model: 'iPhone 15 Pro', offset: '+02:00' },
         { name: 'IMG_4107.JPG', time: '2024:06:01 14:31:15', place: 'Västerlånggatan', lat: 59.32380, lon: 18.07000, make: 'Apple', model: 'iPhone 15 Pro', offset: '+02:00' },
         { name: 'IMG_4108.JPG', time: '2024:06:01 14:37:20', place: 'Riddarholmskyrkan', lat: 59.32470, lon: 18.06470, make: 'Apple', model: 'iPhone 15 Pro', offset: '+02:00' },
         { name: 'IMG_4109.JPG', time: '2024:06:01 14:46:55', place: 'Slussen', lat: 59.31950, lon: 18.07220, make: 'Apple', model: 'iPhone 15 Pro', offset: '+02:00' },
-        { name: 'IMG_4110.JPG', time: '2024:06:01 15:02:30', place: 'Fotografiska', lat: 59.31770, lon: 18.08560, make: 'Apple', model: 'iPhone 15 Pro', offset: '+02:00' },
+        { name: 'IMG_4110.JPG', time: '2024:06:01 15:02:30', place: 'Fotografiska', lat: 59.31770, lon: 18.08560, accuracy: 60, make: 'Apple', model: 'iPhone 15 Pro', offset: '+02:00' },
         { name: '20240601_151012.jpg', time: '2024:06:01 15:10:12', place: 'Fridhemsplan', lat: 59.33240, lon: 18.02950, make: 'samsung', model: 'SM-S918B', offset: '' },
         { name: '20240601_152230.jpg', time: '2024:06:01 15:22:30', place: 'Kronobergsparken', lat: 59.33110, lon: 18.03820, make: 'samsung', model: 'SM-S918B', offset: '' },
-        { name: '20240601_153548.jpg', time: '2024:06:01 15:35:48', place: 'Stadshuset', lat: 59.32740, lon: 18.05500, make: 'samsung', model: 'SM-S918B', offset: '' },
+        { name: '20240601_153548.jpg', time: '2024:06:01 15:35:48', place: 'Stadshuset', lat: 59.32740, lon: 18.05500, accuracy: 150, make: 'samsung', model: 'SM-S918B', offset: '' },
         { name: '20240601_154820.jpg', time: '2024:06:01 15:48:20', place: 'Rålambshovsparken', lat: 59.32890, lon: 18.02580, make: 'samsung', model: 'SM-S918B', offset: '' },
         { name: '20240601_160510.jpg', time: '2024:06:01 16:05:10', place: 'Kristineberg', lat: 59.33360, lon: 18.00420, make: 'samsung', model: 'SM-S918B', offset: '' },
         { name: 'IMG_4121.JPG', time: '2024:06:01 18:05:10', place: 'Vasamuseet', lat: 59.32800, lon: 18.09140, make: 'Apple', model: 'iPhone 15 Pro', offset: '+02:00' },
-        { name: 'IMG_4122.JPG', time: '2024:06:01 18:41:33', place: 'Skansen', lat: 59.32630, lon: 18.10360, make: 'Apple', model: 'iPhone 15 Pro', offset: '+02:00' },
+        { name: 'IMG_4122.JPG', time: '2024:06:01 18:41:33', place: 'Skansen', lat: 59.32630, lon: 18.10360, accuracy: 400, make: 'Apple', model: 'iPhone 15 Pro', offset: '+02:00' },
         { name: 'IMG_4123.JPG', time: '2024:06:01 19:20:04', place: 'Gröna Lund', lat: 59.32330, lon: 18.09630, make: 'Apple', model: 'iPhone 15 Pro', offset: '+02:00' },
         { name: 'IMG_4131.JPG', time: '2024:06:02 09:32:47', place: 'Monteliusvägen', lat: 59.32160, lon: 18.05970, make: 'Apple', model: 'iPhone 15 Pro', offset: '+02:00' },
-        { name: 'IMG_4132.JPG', time: '2024:06:02 10:05:19', place: 'Hornstull', lat: 59.31570, lon: 18.03390, make: 'Apple', model: 'iPhone 15 Pro', offset: '+02:00' },
+        { name: 'IMG_4132.JPG', time: '2024:06:02 10:05:19', place: 'Hornstull', lat: 59.31570, lon: 18.03390, accuracy: 900, make: 'Apple', model: 'iPhone 15 Pro', offset: '+02:00' },
         { name: 'IMG_4140.JPG', time: '2024:06:01 16:10:00', place: 'Ingen GPS', lat: null, lon: null, make: 'Apple', model: 'iPhone 15 Pro', offset: '+02:00' },
         { name: 'IMG_4141.JPG', time: '2024:06:01 16:20:00', place: 'Position 0, 0', lat: 0, lon: 0, make: 'Apple', model: 'iPhone 15 Pro', offset: '+02:00' },
     ];
@@ -75,10 +75,12 @@
         var latRef = gps ? putStr(file.lat < 0 ? 'S' : 'N') : null;
         var lonRef = gps ? putStr(file.lon < 0 ? 'W' : 'E') : null;
         var rationals = gps ? dms(file.lat).concat(dms(file.lon)) : [];
+        var hasAcc = gps && file.accuracy > 0;
+        if (hasAcc) rationals.push([Math.round(file.accuracy * 100), 100]);
 
         var ifd0Count = 4 + (gps ? 1 : 0);
         var exifCount = 1 + (offset ? 1 : 0);
-        var gpsCount = gps ? 4 : 0;
+        var gpsCount = gps ? (hasAcc ? 5 : 4) : 0;
         var header = 8;
         var ifd0Size = 2 + ifd0Count * 12 + 4;
         var exifSize = 2 + exifCount * 12 + 4;
@@ -118,13 +120,14 @@
 
         var gpsIfd = [];
         if (gps) {
-            gpsIfd = u16(4).concat(
+            gpsIfd = u16(gpsCount).concat(
                 strEntry(0x0001, latRef),
                 entry(0x0002, 5, 3, rationalStart),
                 strEntry(0x0003, lonRef),
-                entry(0x0004, 5, 3, rationalStart + 24),
-                u32(0)
+                entry(0x0004, 5, 3, rationalStart + 24)
             );
+            if (hasAcc) gpsIfd = gpsIfd.concat(entry(0x001F, 5, 1, rationalStart + 48));
+            gpsIfd = gpsIfd.concat(u32(0));
         }
 
         var rationalBytes = [];
@@ -169,16 +172,28 @@
         };
     }
 
+    function jpegFile(meta) {
+        var jpegs = root.SampleJpegs;
+        if (!jpegs || !jpegs[meta.name] || typeof File === 'undefined') return null;
+        var bin = atob(jpegs[meta.name]);
+        var bytes = new Uint8Array(bin.length);
+        for (var i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+        return new File([bytes], meta.name, { type: 'image/jpeg' });
+    }
+
     function positionPoints() {
-        return FILES.filter(function (file) { return file.lat && file.lon; }).map(function (file, i) {
+        return FILES.filter(function (file) { return file.lat && file.lon; }).map(function (file) {
             return {
                 name: file.name,
                 path: 'Testdata/' + file.name,
                 lat: file.lat,
                 lon: file.lon,
+                accuracy: file.accuracy || null,
                 source: 'testdata',
                 taken: taken(file),
                 device: file.make + ' ' + file.model,
+                mime: 'image/jpeg',
+                file: jpegFile(file),
                 layer: 'Testdata · Stockholm',
             };
         });

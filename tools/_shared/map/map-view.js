@@ -282,18 +282,25 @@
         var route = labeledToggle('Rutt i tidsordning');
         if (opts.routeOn) route.input.checked = true;
         var perDevice = labeledToggle('Per enhet');
+        var accuracy = labeledToggle('Visa noggrannhet');
         var online = labeledToggle('Onlinekarta');
         var fit = make('button', 'link-btn', 'Visa alla');
         fit.type = 'button';
         var listBtn = make('button', 'link-btn', 'Lista');
         listBtn.type = 'button';
+        var measureBtn = make('button', 'link-btn', 'Mät');
+        measureBtn.type = 'button';
+        var saveBtn = make('button', 'link-btn', 'Spara bild');
+        saveBtn.type = 'button';
         var routeSection = make('div', 'map-section');
         routeSection.append(make('h3', '', 'Rutt'));
         var routeStack = make('div', 'map-stack');
-        routeStack.append(route.label, perDevice.label);
+        routeStack.append(route.label, perDevice.label, accuracy.label);
         var routeActions = make('div', 'map-row');
-        routeActions.append(fit, listBtn);
+        routeActions.append(fit, listBtn, measureBtn, saveBtn);
         routeSection.append(routeStack, routeActions);
+        var measureNote = make('p', 'map-note');
+        routeSection.append(measureNote);
         var bubbles = make('div', 'map-section map-bubbles');
         function bubbleBox(text) {
             return labeledToggle(text);
@@ -305,8 +312,11 @@
         var bubbleDevice = bubbleBox('Enhet');
         var bubbleApp = bubbleBox('App');
         var bubblePos = bubbleBox('Longitud/latitud');
+        var bubbleAccuracy = bubbleBox('Noggrannhet');
         var bubbleNote = bubbleBox('Händelse');
-        bubbleFields.append(bubbleTime.label, bubbleName.label, bubbleDevice.label, bubbleApp.label, bubblePos.label, bubbleNote.label);
+        var bubbleTitles = bubbleBox('Titel');
+        var bubbleThumb = bubbleBox('Miniatyr');
+        bubbleFields.append(bubbleTime.label, bubbleName.label, bubbleDevice.label, bubbleApp.label, bubblePos.label, bubbleAccuracy.label, bubbleNote.label, bubbleTitles.label, bubbleThumb.label);
         var bubbleLeaders = labeledToggle('Linje till punkten');
         var bubbleSmaller = make('button', 'link-btn', 'Mindre');
         var bubbleLarger = make('button', 'link-btn', 'Större');
@@ -322,7 +332,10 @@
         bubbleDevice = bubbleDevice.input;
         bubbleApp = bubbleApp.input;
         bubblePos = bubblePos.input;
+        bubbleAccuracy = bubbleAccuracy.input;
         bubbleNote = bubbleNote.input;
+        bubbleTitles = bubbleTitles.input;
+        bubbleThumb = bubbleThumb.input;
         var routeNote = make('p', 'map-note');
         var note = make('p', 'map-note');
         var fallback = make('div', 'map-fallback display-none');
@@ -378,10 +391,12 @@
         consent.append(actions);
         host.append(mapEl, list, panel, show, timeBar, consent);
         return {
-            wrap: host, map: mapEl, status: status, route: route.input, perDevice: perDevice.input, online: online.input, fit: fit,
+            wrap: host, map: mapEl, status: status, route: route.input, perDevice: perDevice.input, accuracy: accuracy.input,
+            online: online.input, fit: fit, measureBtn: measureBtn, saveBtn: saveBtn, measureNote: measureNote,
             listBtn: listBtn, list: list,
             bubbleTime: bubbleTime, bubbleName: bubbleName, bubbleDevice: bubbleDevice, bubbleApp: bubbleApp,
-            bubblePos: bubblePos, bubbleNote: bubbleNote, bubbleLeaders: bubbleLeaders.input,
+            bubblePos: bubblePos, bubbleAccuracy: bubbleAccuracy, bubbleNote: bubbleNote, bubbleTitles: bubbleTitles, bubbleThumb: bubbleThumb,
+            bubbleLeaders: bubbleLeaders.input,
             bubbleSmaller: bubbleSmaller, bubbleLarger: bubbleLarger,
             routeNote: routeNote, note: note, steps: steps, timeBar: timeBar, timeInput: timeInput, play: play, timeLabel: timeLabel,
             fallback: fallback, pickDir: pickDir, pick: pick, input: input,
@@ -423,17 +438,33 @@
         }
 
         var notes = {};
+        var hidden = {};
+
+        function drawnPoints() {
+            return points.filter(function (p) { return !hidden[p.id]; });
+        }
 
         function bubbleText(p) {
+            var titled = el.bubbleTitles.checked;
+            function line(label, value) {
+                if (!value) return;
+                parts.push(titled ? label + ': ' + value : value);
+            }
             var parts = [];
-            if (el.bubbleTime.checked && p.taken) parts.push(p.taken.text);
-            if (el.bubbleName.checked && p.name) parts.push(p.name);
-            if (el.bubbleDevice.checked && p.device) parts.push(p.device);
-            if (el.bubbleApp.checked && p.app) parts.push(p.app);
-            if (el.bubblePos.checked) parts.push('lon ' + p.lon.toFixed(5) + ', lat ' + p.lat.toFixed(5));
+            if (el.bubbleTime.checked && p.taken) line('Tid', p.taken.text);
+            if (el.bubbleName.checked && p.name) line('Filnamn', p.name);
+            if (el.bubbleDevice.checked && p.device) line('Enhet', p.device);
+            if (el.bubbleApp.checked && p.app) line('App', p.app);
+            if (el.bubblePos.checked) line('Longitud/latitud', p.lon.toFixed(5) + ', ' + p.lat.toFixed(5));
+            if (el.bubbleAccuracy.checked && p.accuracy > 0) line('Noggrannhet', Math.round(p.accuracy) + ' m');
             var note = notes[p.id] || p.note || '';
-            if (el.bubbleNote.checked && note) parts.push(note);
+            if (el.bubbleNote.checked && note) line('Händelse', note);
             return parts.join('\n');
+        }
+
+        function bubbleFile(p) {
+            if (!el.bubbleThumb.checked || !opts.getFile || !THUMB_MIME.test(p.mime || '')) return null;
+            return opts.getFile(p.id);
         }
 
         function geojson() {
@@ -441,7 +472,7 @@
             if (routeInfo) routeInfo.steps.forEach(function (s) { steps[s.point.id] = s.index; });
             return {
                 type: 'FeatureCollection',
-                features: points.map(function (p) {
+                features: drawnPoints().map(function (p) {
                     return {
                         type: 'Feature',
                         id: p.id,
@@ -459,11 +490,12 @@
 
         function shownRoutes() {
             if (!el.route.checked) return [];
+            var list = drawnPoints();
             if (el.perDevice.checked && root.MapCore.routesBy) {
-                return root.MapCore.routesBy(points, 'device')
+                return root.MapCore.routesBy(list, 'device')
                     .map(function (g) { return g.route; });
             }
-            return routeInfo ? [routeInfo] : [];
+            return list.length ? [root.MapCore.route(list)] : [];
         }
 
         function routeGeojson() {
@@ -490,11 +522,85 @@
             return { type: 'FeatureCollection', features: features };
         }
 
+        function accuracyGeojson() {
+            var features = [];
+            if (el.accuracy.checked && root.MapCore.circlePolygon) {
+                drawnPoints().forEach(function (p) {
+                    if (!(p.accuracy > 0)) return;
+                    features.push({
+                        type: 'Feature',
+                        geometry: { type: 'Polygon', coordinates: [root.MapCore.circlePolygon(p.lon, p.lat, p.accuracy)] },
+                        properties: {},
+                    });
+                });
+            }
+            return { type: 'FeatureCollection', features: features };
+        }
+
+        var measureClicks = [];
+        var measuring = false;
+
+        function addMeasure(lngLat, event) {
+            if (event && event.originalEvent) event.originalEvent._ftMeasured = true;
+            if (measureClicks.length >= 2) measureClicks = [];
+            measureClicks.push(lngLat);
+            refreshMeasure();
+        }
+
+        function measureGeojson() {
+            var features = measureClicks.map(function (c) {
+                return { type: 'Feature', geometry: { type: 'Point', coordinates: [c.lng, c.lat] }, properties: {} };
+            });
+            if (measureClicks.length >= 2) {
+                features.push({
+                    type: 'Feature',
+                    geometry: { type: 'LineString', coordinates: measureClicks.slice(0, 2).map(function (c) { return [c.lng, c.lat]; }) },
+                    properties: {},
+                });
+            }
+            return { type: 'FeatureCollection', features: features };
+        }
+
+        function refreshMeasure() {
+            if (map && map.getSource('measure')) map.getSource('measure').setData(measureGeojson());
+            if (measureClicks.length < 2) {
+                el.measureNote.textContent = measureClicks.length === 1
+                    ? 'Klicka en punkt till.'
+                    : (measuring ? 'Klicka startpunkt.' : '');
+                return;
+            }
+            var a = measureClicks[0];
+            var b = measureClicks[1];
+            el.measureNote.textContent = root.MapCore.formatDistance(root.MapCore.haversine(
+                { lat: a.lat, lon: a.lng }, { lat: b.lat, lon: b.lng }));
+        }
+
         function addDataLayers() {
             if (!map.hasImage('route-arrow')) map.addImage('route-arrow', arrowImage(), { pixelRatio: 2 });
             map.addSource('route', { type: 'geojson', data: routeGeojson() });
+            map.addSource('accuracy', { type: 'geojson', data: accuracyGeojson() });
+            map.addSource('measure', { type: 'geojson', data: measureGeojson() });
             map.addSource('files', {
                 type: 'geojson', data: geojson(), cluster: true, clusterRadius: 42, clusterMaxZoom: 16,
+            });
+            map.addLayer({
+                id: 'accuracy-fill', type: 'fill', source: 'accuracy',
+                paint: { 'fill-color': '#0a84ff', 'fill-opacity': 0.15 },
+            });
+            map.addLayer({
+                id: 'accuracy-line', type: 'line', source: 'accuracy',
+                paint: { 'line-color': '#0a84ff', 'line-width': 1.5, 'line-opacity': 0.85 },
+            });
+            map.addLayer({
+                id: 'measure-line', type: 'line', source: 'measure',
+                filter: ['==', ['geometry-type'], 'LineString'],
+                layout: { 'line-cap': 'round' },
+                paint: { 'line-color': '#1c1c1e', 'line-width': 2, 'line-dasharray': [1.5, 1.5] },
+            });
+            map.addLayer({
+                id: 'measure-points', type: 'circle', source: 'measure',
+                filter: ['==', ['geometry-type'], 'Point'],
+                paint: { 'circle-radius': 5, 'circle-color': '#ffffff', 'circle-stroke-color': '#1c1c1e', 'circle-stroke-width': 2 },
             });
             map.addLayer({
                 id: 'route-line', type: 'line', source: 'route',
@@ -600,7 +706,7 @@
                     left: rect.left - mapRect.left, top: rect.top - mapRect.top,
                     right: rect.right - mapRect.left, bottom: rect.bottom - mapRect.top,
                 }, pt.x, pt.y);
-                [3.5, 1.5].forEach(function (stroke, i) {
+                [2, 1].forEach(function (stroke, i) {
                     var line = svgEl('line');
                     line.setAttribute('x1', pt.x);
                     line.setAttribute('y1', pt.y);
@@ -613,17 +719,30 @@
             });
         }
 
+        var bubbleUrls = [];
+
         function syncBubbles() {
+            bubbleUrls.forEach(function (url) { URL.revokeObjectURL(url); });
+            bubbleUrls = [];
             bubbleMarkers.forEach(function (item) { item.marker.remove(); });
             bubbleMarkers = [];
             if (!map) return;
             points.forEach(function (p) {
                 var text = bubbleText(p);
-                if (!text) return;
+                var file = bubbleFile(p);
+                if (hidden[p.id] || (!text && !file)) return;
                 var off = bubbleOffset[p.id] || { x: 0, y: -12 };
                 var anchor = make('div', 'ft-bubble-anchor');
                 var card = make('div', 'ft-bubble');
-                card.textContent = text;
+                if (file) {
+                    var img = make('img', 'ft-bubble-thumb');
+                    var url = URL.createObjectURL(file);
+                    bubbleUrls.push(url);
+                    img.src = url;
+                    img.alt = '';
+                    card.append(img);
+                }
+                if (text) card.append(make('div', 'ft-bubble-text', text));
                 card.style.fontSize = Math.round(13 * bubbleScale) + 'px';
                 card.style.transform = 'translate(' + off.x + 'px, ' + off.y + 'px)';
                 card.title = 'Dra för att flytta bubblan';
@@ -665,6 +784,8 @@
             var stepOn = el.route.checked ? 'visible' : 'none';
             if (map.getLayer('point-step')) map.setLayoutProperty('point-step', 'visibility', stepOn);
             if (map.getLayer('point-badge')) map.setLayoutProperty('point-badge', 'visibility', stepOn);
+            if (map.getSource('accuracy')) map.getSource('accuracy').setData(accuracyGeojson());
+            refreshMeasure();
             syncBubbles();
         }
 
@@ -720,6 +841,7 @@
             row(p.taken ? p.taken.kind : 'Tid', p.taken ? p.taken.text : 'Ingen tid i filen');
             row('Enhet', p.device);
             row('Position', p.lat + ', ' + p.lon);
+            if (p.accuracy > 0) row('Horisontell noggrannhet', Math.round(p.accuracy) + ' m');
             var step = routeInfo && routeInfo.steps.filter(function (s) { return s.point.id === p.id; })[0];
             if (step) {
                 var routeText = 'Punkt ' + step.index + ' av ' + routeInfo.steps.length + (step.assumed ? ' (tidszon antagen)' : '');
@@ -739,15 +861,23 @@
             copy.type = 'button';
             copy.addEventListener('click', function () { opts.copy(p.lat + ', ' + p.lon); });
             actions.append(more, copy);
-            if (opts.onRemove) {
-                var remove = make('button', 'link-btn', 'Ta bort ur listan');
-                remove.type = 'button';
-                remove.addEventListener('click', function () {
-                    closePopup();
-                    opts.onRemove(p.id);
-                });
-                actions.append(remove);
-            }
+            var hideBtn = make('button', 'link-btn', hidden[p.id] ? 'Visa' : 'Dölj');
+            hideBtn.type = 'button';
+            hideBtn.addEventListener('click', function () {
+                if (hidden[p.id]) delete hidden[p.id];
+                else hidden[p.id] = true;
+                closePopup();
+                refreshData();
+                renderList();
+            });
+            var remove = make('button', 'link-btn', 'Ta bort');
+            remove.type = 'button';
+            remove.addEventListener('click', function () {
+                closePopup();
+                delete hidden[p.id];
+                if (opts.onRemove) opts.onRemove(p.id);
+            });
+            actions.append(hideBtn, remove);
             box.append(actions);
             return box;
         }
@@ -812,6 +942,7 @@
                 if (opts.onContext) opts.onContext({ lat: e.lngLat.lat, lon: e.lngLat.lng });
             });
             map.on('click', 'clusters', function (e) {
+                if (measuring) { addMeasure(e.lngLat, e); return; }
                 var f = e.features[0];
                 var src = map.getSource('files');
                 var id = f.properties.cluster_id;
@@ -827,6 +958,7 @@
                 });
             });
             map.on('click', 'points', function (e) {
+                if (measuring) { addMeasure(e.lngLat, e); return; }
                 var ids = {};
                 e.features.forEach(function (f) { ids[f.properties.id] = true; });
                 if (Object.keys(ids).length > 1) {
@@ -842,6 +974,10 @@
             });
             map.on('styleimagemissing', function (e) {
                 if (!map.hasImage(e.id)) map.addImage(e.id, { width: 1, height: 1, data: new Uint8Array(4) });
+            });
+            map.on('click', function (e) {
+                if (!measuring || (e.originalEvent && e.originalEvent._ftMeasured)) return;
+                addMeasure(e.lngLat, e);
             });
             map.on('error', function (e) {
                 var msg = e && e.error && e.error.message;
@@ -883,6 +1019,7 @@
                     zoom: 4,
                     maxZoom: 19,
                     attributionControl: false,
+                    preserveDrawingBuffer: true,
                     localIdeographFontFamily: 'sans-serif',
                 });
                 map.addControl(new root.maplibregl.NavigationControl({ visualizePitch: false }), 'top-right');
@@ -950,7 +1087,7 @@
             }
             rows.forEach(function (row) {
                 var p = row.point;
-                var item = make('div', 'map-list-row' + (String(p.id) === activeId ? ' active' : ''));
+                var item = make('div', 'map-list-row' + (String(p.id) === activeId ? ' active' : '') + (hidden[p.id] ? ' is-hidden' : ''));
                 item.dataset.id = String(p.id);
                 item.append(make('b', 'map-list-num', row.index ? String(row.index) : '–'));
                 var body = make('div', 'map-list-body');
@@ -977,13 +1114,22 @@
                     if (opts.onSelect) opts.onSelect(p.id);
                     else openList(p.id);
                 });
+                var hideRow = make('button', 'link-btn', hidden[p.id] ? 'Visa på kartan' : 'Dölj');
+                hideRow.type = 'button';
+                hideRow.addEventListener('click', function (e) {
+                    e.stopPropagation();
+                    if (hidden[p.id]) delete hidden[p.id];
+                    else hidden[p.id] = true;
+                    refreshData();
+                    renderList();
+                });
                 var remove = make('button', 'link-btn', 'Ta bort');
                 remove.type = 'button';
                 remove.addEventListener('click', function (e) {
                     e.stopPropagation();
                     if (opts.onRemove) opts.onRemove(p.id);
                 });
-                buttons.append(more, remove);
+                buttons.append(more, hideRow, remove);
                 body.append(buttons);
                 item.append(body);
                 item.addEventListener('click', function () { openPoint(p); });
@@ -1049,7 +1195,7 @@
             refreshData();
         });
         el.listBtn.addEventListener('click', function () { setList(!listOpen); if (listOpen) renderList(); });
-        [el.bubbleTime, el.bubbleName, el.bubbleDevice, el.bubbleApp, el.bubblePos, el.bubbleNote].forEach(function (box) {
+        [el.bubbleTime, el.bubbleName, el.bubbleDevice, el.bubbleApp, el.bubblePos, el.bubbleAccuracy, el.bubbleNote, el.bubbleTitles, el.bubbleThumb].forEach(function (box) {
             box.addEventListener('change', refreshData);
         });
         el.bubbleSmaller.addEventListener('click', function () {
@@ -1077,7 +1223,89 @@
                 showTime(t);
             }, 200);
         });
+        function saveMapImage() {
+            if (!map) return;
+            map.triggerRepaint();
+            requestAnimationFrame(function () {
+                var glCanvas = map.getCanvas();
+                var out = document.createElement('canvas');
+                out.width = glCanvas.width;
+                out.height = glCanvas.height;
+                var ctx = out.getContext('2d');
+                ctx.drawImage(glCanvas, 0, 0);
+                var box = map.getContainer().getBoundingClientRect();
+                var scale = glCanvas.width / box.width;
+                if (el.bubbleLeaders.checked) {
+                    bubbleMarkers.forEach(function (item) {
+                        var pt = map.project([item.point.lon, item.point.lat]);
+                        var rect = item.card.getBoundingClientRect();
+                        var end = edgeToward({
+                            left: rect.left - box.left, top: rect.top - box.top,
+                            right: rect.right - box.left, bottom: rect.bottom - box.top,
+                        }, pt.x, pt.y);
+                        ctx.beginPath();
+                        ctx.moveTo(pt.x * scale, pt.y * scale);
+                        ctx.lineTo(end.x * scale, end.y * scale);
+                        ctx.strokeStyle = '#1c1c1e';
+                        ctx.lineWidth = 2 * scale;
+                        ctx.stroke();
+                        ctx.beginPath();
+                        ctx.moveTo(pt.x * scale, pt.y * scale);
+                        ctx.lineTo(end.x * scale, end.y * scale);
+                        ctx.strokeStyle = '#ffffff';
+                        ctx.lineWidth = 1 * scale;
+                        ctx.stroke();
+                    });
+                }
+                bubbleMarkers.forEach(function (item) {
+                    var rect = item.card.getBoundingClientRect();
+                    var x = (rect.left - box.left) * scale;
+                    var y = (rect.top - box.top) * scale;
+                    var w = rect.width * scale;
+                    var h = rect.height * scale;
+                    ctx.beginPath();
+                    ctx.roundRect(x, y, w, h, 8 * scale);
+                    ctx.fillStyle = '#ffffff';
+                    ctx.fill();
+                    ctx.lineWidth = scale;
+                    ctx.strokeStyle = '#1c1c1e';
+                    ctx.stroke();
+                    ctx.fillStyle = '#1c1c1e';
+                    ctx.font = '600 ' + Math.round(13 * bubbleScale * scale) + 'px sans-serif';
+                    ctx.textBaseline = 'top';
+                    var textY = y + 4 * scale;
+                    var thumb = item.card.querySelector('img');
+                    if (thumb && thumb.complete && thumb.naturalWidth) {
+                        var thumbH = thumb.getBoundingClientRect().height * scale;
+                        ctx.drawImage(thumb, x + 4 * scale, textY, w - 8 * scale, thumbH);
+                        textY += thumbH + 4 * scale;
+                    }
+                    var textEl = item.card.querySelector('.ft-bubble-text');
+                    var lineH = Math.round(13 * bubbleScale * 1.35 * scale);
+                    (textEl ? textEl.textContent : '').split('\n').forEach(function (line, i) {
+                        if (line) ctx.fillText(line, x + 8 * scale, textY + i * lineH);
+                    });
+                });
+                var a = document.createElement('a');
+                a.download = 'karta.png';
+                a.href = out.toDataURL('image/png');
+                a.click();
+            });
+        }
+
         el.fit.addEventListener('click', fit);
+        el.accuracy.addEventListener('change', function () {
+            if (map && map.getSource('accuracy')) map.getSource('accuracy').setData(accuracyGeojson());
+        });
+        el.measureBtn.addEventListener('click', function () {
+            measuring = !measuring;
+            el.measureBtn.classList.toggle('active', measuring);
+            measureClicks = [];
+            el.measureNote.textContent = measuring ? 'Klicka startpunkt.' : '';
+            refreshMeasure();
+            if (map) map.getCanvas().style.cursor = measuring ? 'crosshair' : '';
+        });
+        el.saveBtn.addEventListener('click', saveMapImage);
         el.online.addEventListener('change', function () {
             if (!el.online.checked) {
                 online = false;

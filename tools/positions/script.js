@@ -205,6 +205,20 @@
         mapView = ToolboxMap.create({
             host: $('map-host'),
             routeOn: true,
+            getFile: function (id) {
+                var found = null;
+                layers.forEach(function (layer) {
+                    layer.points.forEach(function (p) { if (p.id === id) found = p; });
+                });
+                return found && found.file ? found.file : null;
+            },
+            onRemove: function (id) {
+                layers.forEach(function (layer) {
+                    layer.points = layer.points.filter(function (p) { return p.id !== id; });
+                });
+                layers = layers.filter(function (layer) { return layer.points.length; });
+                refresh();
+            },
             onContext: function (pos) {
                 clickAt = pos;
                 $('manual').classList.remove('display-none');

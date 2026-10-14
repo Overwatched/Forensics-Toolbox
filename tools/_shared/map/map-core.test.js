@@ -145,6 +145,14 @@ test('sträcka, fart och orimlig förflyttning', () => {
     assert.strictEqual(gpsHop.implausible, 0);
 });
 
+test('noggrannhetscirkel ligger ungefär på rätt avstånd', () => {
+    const ring = map.circlePolygon(18.06, 59.33, 1000);
+    assert.strictEqual(ring.length, 65);
+    assert.deepStrictEqual(ring[0], ring[ring.length - 1]);
+    const edge = { lon: ring[0][0], lat: ring[0][1] };
+    assert.ok(Math.abs(map.haversine({ lon: 18.06, lat: 59.33 }, edge) - 1000) < 5);
+});
+
 test('turer vid uppehåll, vistelse och en rutt per enhet', () => {
     const walk = [
         pt(1, 59.3303, 18.0586, '2024-06-01 14:00:00'),

@@ -157,7 +157,10 @@
         }
         if (lat === null || lon === null || isNaN(lat) || isNaN(lon)) return null;
         if (Math.abs(lat) > 90 || Math.abs(lon) > 180) return null;
-        return { lat: Math.round(lat * 1e6) / 1e6, lon: Math.round(lon * 1e6) / 1e6, zero: lat === 0 && lon === 0, source: source };
+        var accRaw = tags['GPS:GPSHPositioningError'];
+        var accuracy = parseFloat(accRaw);
+        if (!(accuracy > 0)) accuracy = null;
+        return { lat: Math.round(lat * 1e6) / 1e6, lon: Math.round(lon * 1e6) / 1e6, zero: lat === 0 && lon === 0, source: source, accuracy: accuracy };
     }
 
     function device(tags) {

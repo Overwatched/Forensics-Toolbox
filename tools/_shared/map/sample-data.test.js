@@ -12,6 +12,10 @@ test('testdata har två rutter och filer utan giltig position', () => {
     const points = sample.positionPoints();
     assert.strictEqual(points.length, 20);
     assert.strictEqual(points[0].name, 'IMG_4101.JPG');
+    assert.strictEqual(points[0].accuracy, 8);
+    assert.strictEqual(points[0].mime, 'image/jpeg');
+    assert.ok(points[0].file);
+    assert.ok(points.filter((p) => p.accuracy > 0).length >= 6);
     const routes = map.routesBy(points, 'device');
     assert.strictEqual(routes.length, 2);
     routes.forEach((g) => {
@@ -66,6 +70,7 @@ test('ExifTool läser den påhittade testdatan', { timeout: 60000 }, async () =>
     assert.strictEqual(walk.device.text, 'Apple iPhone 15 Pro');
     assert.ok(Math.abs(walk.position.lat - 59.3303) < 0.0002);
     assert.strictEqual(walk.taken.zone, '+02:00');
+    assert.strictEqual(walk.position.accuracy, 8);
 
     const samsung = await read('20240601_151012.jpg');
     assert.strictEqual(samsung.device.text, 'samsung SM-S918B');

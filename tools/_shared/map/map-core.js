@@ -17,6 +17,7 @@
                 name: r.name,
                 lat: s.position.lat,
                 lon: s.position.lon,
+                accuracy: s.position.accuracy || null,
                 source: s.position.source,
                 taken: s.taken || null,
                 device: s.device ? s.device.text : '',
@@ -89,6 +90,23 @@
     function formatDistance(meters) {
         if (meters < 1000) return Math.round(meters) + ' m';
         return (meters / 1000).toFixed(1).replace('.', ',') + ' km';
+    }
+
+    // Ring runt en punkt, i meter. EXIF utan noggrannhet ritas inte.
+    function circlePolygon(lon, lat, meters, steps) {
+        steps = steps || 64;
+        var coords = [];
+        var latRad = lat * Math.PI / 180;
+        var i;
+        for (i = 0; i <= steps; i++) {
+            var bearing = (i / steps) * 2 * Math.PI;
+            var dx = meters * Math.sin(bearing);
+            var dy = meters * Math.cos(bearing);
+            var dLat = (dy / 6371000) * (180 / Math.PI);
+            var dLon = (dx / (6371000 * Math.cos(latRad))) * (180 / Math.PI);
+            coords.push([lon + dLon, lat + dLat]);
+        }
+        return coords;
     }
 
     function formatDuration(seconds) {
@@ -434,6 +452,7 @@
         legText: legText,
         positionAt: positionAt,
         haversine: haversine,
+        circlePolygon: circlePolygon,
         simplify: simplify,
         formatDistance: formatDistance,
         formatDuration: formatDuration,
