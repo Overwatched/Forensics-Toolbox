@@ -63,14 +63,14 @@ for (const item of INCLUDE) {
 
 const mapNames = ['kartdata.json', 'world.pmtiles', 'sweden.pmtiles'];
 const mapDir = path.join(ROOT, 'maps');
-const mapFiles = mapNames.filter((name) => fs.existsSync(path.join(mapDir, name)));
-if (mapFiles.includes('world.pmtiles') && mapFiles.includes('sweden.pmtiles')) {
-    fs.mkdirSync(path.join(dest, 'maps'), { recursive: true });
-    mapFiles.forEach((name) => fs.copyFileSync(path.join(mapDir, name), path.join(dest, 'maps', name)));
-    console.log('pack-html-folder: tar med offlinekartan (' + mapFiles.join(', ') + ')');
-} else {
-    console.log('pack-html-folder: kartfiler saknas i maps/, zippen får ingen offlinekarta');
+const missingMaps = mapNames.filter((name) => !fs.existsSync(path.join(mapDir, name)));
+if (missingMaps.length) {
+    console.error('pack-html-folder: saknar ' + missingMaps.join(', ') + ' i maps/. Kör npm run fetch-maps först.');
+    process.exit(1);
 }
+fs.mkdirSync(path.join(dest, 'maps'), { recursive: true });
+mapNames.forEach((name) => fs.copyFileSync(path.join(mapDir, name), path.join(dest, 'maps', name)));
+console.log('pack-html-folder: tar med offlinekartan (' + mapNames.join(', ') + ')');
 
 const readme = [
     'Forensics Toolbox ' + shortVersion + ' — HTML-mapp',
@@ -80,7 +80,9 @@ const readme = [
     '',
     'Start:',
     '  1. Packa upp zip-filen om den inte redan är uppackad.',
-    '  2. Öppna Toolbox.html i webbläsaren (dubbelklicka, eller dra till Chrome/Edge).',
+    '  2. Dubbelklicka Öppna.bat (Windows) eller Öppna.command (macOS/Linux).',
+    '     Den startar en lokal sida så att kartan i mappen maps används direkt.',
+    '     Du behöver inte ladda ner kartdata separat.',
     '',
     'Om sidan ser ostylad ut blockerar webbläsaren file://. Då kan du:',
     '  - öppna Toolbox.html via Edge/Chrome med en lokal mapp, eller',
@@ -92,13 +94,28 @@ const readme = [
     'så de fungerar även när fetch() av .json blockeras.',
     '',
     'Kartan:',
-    '  Offlinekartan ligger i mappen maps (världen och Sverige). Öppnar du sidan via',
-    '  den lokala servern används den direkt. Dubbelklickar du Toolbox.html i Chrome',
-    '  frågar kartan en gång efter mappen maps. Onlinekartan går också att slå på.',
+    '  Offlinekartan (världen och Sverige) ligger redan i mappen maps.',
+    '  Öppna.bat / Öppna.command använder den automatiskt.',
     '',
 ].join('\n');
 
 fs.writeFileSync(path.join(dest, 'LÄS MIG.txt'), readme, 'utf8');
+fs.writeFileSync(path.join(dest, 'Öppna.bat'), [
+    '@echo off',
+    'cd /d "%~dp0"',
+    'start "" http://127.0.0.1:8080/Toolbox.html',
+    'python -m http.server 8080',
+    '',
+].join('\r\n'), 'utf8');
+fs.writeFileSync(path.join(dest, 'Öppna.command'), [
+    '#!/bin/sh',
+    'cd "$(dirname "$0")"',
+    'python3 -m http.server 8080 &',
+    'sleep 1',
+    'open http://127.0.0.1:8080/Toolbox.html',
+    'wait',
+    '',
+].join('\n'), { mode: 0o755 });
 
 function countFiles(dir) {
     let n = 0;

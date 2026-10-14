@@ -15,7 +15,7 @@ Offlinekartan från 1.7 finns kvar: världen i översikt, Sverige på gatunivå.
 - **ForensicsToolbox-{{VERSION}}-Portable.zip** — portabel, packa upp och kör `Forensics Toolbox.exe`
 
 ## HTML-mapp (ingen .exe)
-- **ForensicsToolbox-{{VERSION}}-html.zip** — packa upp och öppna `Toolbox.html`. Offlinekartan ligger i mappen `maps`. Via en lokal server används den direkt. Vid dubbelklick i Chrome frågar kartan en gång efter den mappen.
+- **ForensicsToolbox-{{VERSION}}-html.zip** — packa upp och dubbelklicka `Öppna.bat` eller `Öppna.command`. Offlinekartan ligger redan i mappen `maps`.
 
 ## Linux
 - **ForensicsToolbox-*.AppImage** — körbar AppImage (x64)

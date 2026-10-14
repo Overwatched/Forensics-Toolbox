@@ -44,10 +44,11 @@ test('offlinestilen hämtar inget utanför datorn', () => {
         assert.ok(assets.glyphs['Noto Sans Regular']['0-255'] && assets.glyphs['Noto Sans Regular']['8192-8447']);
         assert.ok(assets.sprites[flavor] && assets.sprites[flavor + '@2x'], 'ikoner ' + flavor);
     }
-    // Det enda externa i kartvyn är onlinekartan, som kräver godkännande.
+    // Det enda externa som hämtas är onlinekartan. SVG-namnrymden är ingen nedladdning.
     const view = fs.readFileSync(path.join(__dirname, 'map-view.js'), 'utf8');
     const urls = view.match(/https?:\/\/[^'"\s)]+/g) || [];
-    assert.deepStrictEqual([...new Set(urls.map((u) => new URL(u).host))], ['tiles.openfreemap.org']);
+    const hosts = [...new Set(urls.map((u) => new URL(u).host))].filter((host) => host !== 'www.w3.org');
+    assert.deepStrictEqual(hosts, ['tiles.openfreemap.org']);
 });
 
 test('kartdata.json beskriver världen och Sverige', () => {
