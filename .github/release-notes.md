@@ -1,11 +1,12 @@
 Automatiskt byggd från commit `{{SHA}}`.
 
-## Nytt i 1.8
+## Nytt i 1.9
 
-- **EXIF & karta** fyller fönstret. Filer med position ritas på kartan, och **Per enhet** ger en rutt per telefon. Linjen följer tiden hela vägen, även över vatten.
-- **Positioner** är ett nytt verktyg för GPX, KML, CSV, GeoJSON, Google-tidslinje och inklistrade koordinater.
-- **Fyll med testdata** lägger in en påhittad promenad i Stockholm i båda verktygen.
-- Filnamnsmönster (till exempel Samsungs kameranamn) förklaras och jämförs med tillverkaren i metadatan. Filer kan tas bort ur listan utan att röras på disken.
+- **Lista** över positionerna, med nummer, tid, enhet och möjlighet att ta bort en punkt ur listan.
+- **Bubblor** vid punkterna. Välj tid, filnamn, enhet, app, longitud/latitud eller en egen händelse. Bubblorna går att dra, göra större eller mindre, och kan få en linje till punkten.
+- Punktnumren är vita i en mörk cirkel. Menyn går att dölja inför en bild.
+- Appnamn slås upp från metadata mot App-ID. Datumfält visas som ÅÅÅÅ-MM-DD och TT:MM.
+- HTML-zippen innehåller offlinekartan i mappen `maps`.
 
 Offlinekartan från 1.7 finns kvar: världen i översikt, Sverige på gatunivå. Onlinekartan är valfri och skickar bara kartrutor.
 
@@ -14,7 +15,7 @@ Offlinekartan från 1.7 finns kvar: världen i översikt, Sverige på gatunivå.
 - **ForensicsToolbox-{{VERSION}}-Portable.zip** — portabel, packa upp och kör `Forensics Toolbox.exe`
 
 ## HTML-mapp (ingen .exe)
-- **ForensicsToolbox-{{VERSION}}-html.zip** — packa upp och öppna `Toolbox.html`. Offlinekartan ingår inte; kartfilerna finns under releasen [{{MAPS}}](https://github.com/Overwatched/Forensics-Toolbox/releases/tag/{{MAPS}}).
+- **ForensicsToolbox-{{VERSION}}-html.zip** — packa upp och öppna `Toolbox.html`. Offlinekartan ligger i mappen `maps`. Via en lokal server används den direkt. Vid dubbelklick i Chrome frågar kartan en gång efter den mappen.
 
 ## Linux
 - **ForensicsToolbox-*.AppImage** — körbar AppImage (x64)

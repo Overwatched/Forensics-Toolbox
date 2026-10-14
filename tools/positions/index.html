@@ -30,10 +30,12 @@
 
                 <section class="side-block">
                     <h2>Tidsspann</h2>
-                    <label class="field" for="time-from">Från</label>
-                    <input type="datetime-local" id="time-from">
-                    <label class="field" for="time-to">Till</label>
-                    <input type="datetime-local" id="time-to">
+                    <label class="field" for="time-from-date">Från</label>
+                    <input type="text" id="time-from-date" placeholder="ÅÅÅÅ-MM-DD" maxlength="10" inputmode="numeric" autocomplete="off">
+                    <input type="text" id="time-from-time" placeholder="TT:MM" maxlength="5" inputmode="numeric" aria-label="Från tid" autocomplete="off">
+                    <label class="field" for="time-to-date">Till</label>
+                    <input type="text" id="time-to-date" placeholder="ÅÅÅÅ-MM-DD" maxlength="10" inputmode="numeric" autocomplete="off">
+                    <input type="text" id="time-to-time" placeholder="TT:MM" maxlength="5" inputmode="numeric" aria-label="Till tid" autocomplete="off">
                 </section>
 
                 <section class="side-block sources">
@@ -42,8 +44,9 @@
                     <div id="manual" class="manual display-none">
                         <p id="manual-where"></p>
                         <input id="manual-name" type="text" placeholder="Etikett">
-                        <label class="field" for="manual-time">Tid, om den finns</label>
-                        <input id="manual-time" type="datetime-local">
+                        <label class="field" for="manual-date">Tid, om den finns</label>
+                        <input id="manual-date" type="text" placeholder="ÅÅÅÅ-MM-DD" maxlength="10" inputmode="numeric" autocomplete="off">
+                        <input id="manual-time" type="text" placeholder="TT:MM" maxlength="5" inputmode="numeric" aria-label="Tidpunkt" autocomplete="off">
                         <button type="button" id="manual-add" class="secondary-btn">Lägg till punkt här</button>
                     </div>
                 </section>

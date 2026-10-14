@@ -20,6 +20,7 @@
                 source: s.position.source,
                 taken: s.taken || null,
                 device: s.device ? s.device.text : '',
+                app: s.appHit ? s.appHit.name : '',
                 software: s.software ? s.software.text : '',
                 type: s.type || '',
                 mime: s.mime || '',

@@ -205,6 +205,45 @@
         return out;
     }
 
+    function escapeRe(s) {
+        return String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    }
+
+    // Helt ord eller ett paket-/bundle-id. Korta alias som "wa" räknas inte.
+    function containsTerm(hay, needle) {
+        if (!needle || needle.length < 4) return false;
+        return new RegExp('(^|[^a-z0-9])' + escapeRe(needle) + '($|[^a-z0-9])', 'i').test(hay);
+    }
+
+    function matchApp(tags, apps) {
+        tags = tags || {};
+        apps = apps || [];
+        var values = Object.keys(tags).map(function (k) { return { key: k, value: str(tags[k]).trim() }; })
+            .filter(function (f) { return f.value; });
+        var software = values.filter(function (f) {
+            return /software|creatortool|usercomment|encoder|application/i.test(f.key);
+        });
+        var i;
+        var j;
+        for (i = 0; i < apps.length; i++) {
+            var ids = [apps[i].android, apps[i].ios && apps[i].ios.bundleId].filter(Boolean);
+            for (j = 0; j < values.length; j++) {
+                if (ids.some(function (id) { return containsTerm(values[j].value, id); })) {
+                    return { id: apps[i].id, name: apps[i].name, source: values[j].key, value: values[j].value };
+                }
+            }
+        }
+        for (i = 0; i < apps.length; i++) {
+            var names = [apps[i].name].concat(apps[i].aliases || []);
+            for (j = 0; j < software.length; j++) {
+                if (names.some(function (name) { return containsTerm(software[j].value, name); })) {
+                    return { id: apps[i].id, name: apps[i].name, source: software[j].key, value: software[j].value };
+                }
+            }
+        }
+        return null;
+    }
+
     function describePattern(match, appName) {
         var text = (appName || match.app) + ' — filnamnet följer mönstret ' + match.hint;
         if (match.note) text += ' (' + match.note + ')';
@@ -493,6 +532,7 @@
         extensionMismatch: extensionMismatch,
         filenameApps: filenameApps,
         filenameMatches: filenameMatches,
+        matchApp: matchApp,
         describePattern: describePattern,
         officeTags: officeTags,
         readZipEntries: readZipEntries,

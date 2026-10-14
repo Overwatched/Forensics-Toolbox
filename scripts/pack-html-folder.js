@@ -61,6 +61,17 @@ for (const item of INCLUDE) {
     copyRecursive(from, path.join(dest, item));
 }
 
+const mapNames = ['kartdata.json', 'world.pmtiles', 'sweden.pmtiles'];
+const mapDir = path.join(ROOT, 'maps');
+const mapFiles = mapNames.filter((name) => fs.existsSync(path.join(mapDir, name)));
+if (mapFiles.includes('world.pmtiles') && mapFiles.includes('sweden.pmtiles')) {
+    fs.mkdirSync(path.join(dest, 'maps'), { recursive: true });
+    mapFiles.forEach((name) => fs.copyFileSync(path.join(mapDir, name), path.join(dest, 'maps', name)));
+    console.log('pack-html-folder: tar med offlinekartan (' + mapFiles.join(', ') + ')');
+} else {
+    console.log('pack-html-folder: kartfiler saknas i maps/, zippen får ingen offlinekarta');
+}
+
 const readme = [
     'Forensics Toolbox ' + shortVersion + ' — HTML-mapp',
     '',
@@ -80,10 +91,10 @@ const readme = [
     'Query-katalogerna har JS-fallback',
     'så de fungerar även när fetch() av .json blockeras.',
     '',
-    'Kartan i EXIF-visaren:',
-    '  Offlinekartorna (1,3 GB) ingår inte i den här mappen. Ladda ner world.pmtiles',
-    '  och sweden.pmtiles från releasen "kartdata-…" på GitHub och välj dem med',
-    '  "Välj kartfiler" i kartvyn. Det går också att slå på onlinekartan.',
+    'Kartan:',
+    '  Offlinekartan ligger i mappen maps (världen och Sverige). Öppnar du sidan via',
+    '  den lokala servern används den direkt. Dubbelklickar du Toolbox.html i Chrome',
+    '  frågar kartan en gång efter mappen maps. Onlinekartan går också att slå på.',
     '',
 ].join('\n');
 

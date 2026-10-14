@@ -109,18 +109,82 @@
         return list.sort(function (a, b) { return a.header.minZoom - b.header.minZoom; });
     }
 
-    // Kartfilerna som följer med skrivbordsappen.
-    function openBundled() {
-        return fetch(MAP_DATA + 'kartdata.json').then(function (res) {
+    var PAGE_MAPS = '';
+    try { PAGE_MAPS = new URL('../../maps/', document.baseURI).href; } catch (e) { PAGE_MAPS = ''; }
+
+    function openFromUrl(base) {
+        return fetch(base + 'kartdata.json').then(function (res) {
             if (!res.ok) throw new Error('Ingen kartdata');
             return res.json();
         }).then(function (json) {
             manifest = json;
             return Promise.all(Object.keys(json.files).map(function (name) {
-                return addArchive(new root.pmtiles.FetchSource(MAP_DATA + name), json.files[name].label);
+                return addArchive(new root.pmtiles.FetchSource(base + name), json.files[name].label);
             }));
         }).then(function (list) {
             archives = sortArchives(list);
+        });
+    }
+
+    function mapDb() {
+        return new Promise(function (resolve, reject) {
+            var req = indexedDB.open('ft-maps', 1);
+            req.onupgradeneeded = function () { req.result.createObjectStore('dir'); };
+            req.onsuccess = function () { resolve(req.result); };
+            req.onerror = function () { reject(req.error); };
+        });
+    }
+
+    function loadDirHandle() {
+        return mapDb().then(function (db) {
+            return new Promise(function (resolve) {
+                var req = db.transaction('dir').objectStore('dir').get('maps');
+                req.onsuccess = function () { resolve(req.result || null); };
+                req.onerror = function () { resolve(null); };
+            });
+        }).catch(function () { return null; });
+    }
+
+    function saveDirHandle(handle) {
+        return mapDb().then(function (db) {
+            return new Promise(function (resolve) {
+                var req = db.transaction('dir', 'readwrite').objectStore('dir').put(handle, 'maps');
+                req.onsuccess = function () { resolve(); };
+                req.onerror = function () { resolve(); };
+            });
+        }).catch(function () {});
+    }
+
+    function filesInDir(dir) {
+        return dir.getFileHandle('kartdata.json').then(function () { return dir; }, function () {
+            return dir.getDirectoryHandle('maps');
+        }).then(function (folder) {
+            return folder.getFileHandle('kartdata.json').then(function (handle) {
+                return handle.getFile().then(function (file) { return file.text(); });
+            }).then(function (text) {
+                var json = JSON.parse(text);
+                return Promise.all(Object.keys(json.files).map(function (name) {
+                    return folder.getFileHandle(name).then(function (handle) { return handle.getFile(); });
+                })).then(function (files) { return { json: json, files: files }; });
+            });
+        });
+    }
+
+    // Skrivbordsappen via ftmaps://, annars maps/ bredvid sidan, annars en tidigare vald mapp.
+    function openBundled() {
+        return openFromUrl(MAP_DATA).catch(function () {
+            return PAGE_MAPS ? openFromUrl(PAGE_MAPS) : Promise.reject(new Error('ingen sökväg'));
+        }).catch(function () {
+            return loadDirHandle().then(function (handle) {
+                if (!handle || !handle.queryPermission) throw new Error('ingen mapp');
+                return handle.queryPermission({ mode: 'read' }).then(function (state) {
+                    if (state !== 'granted') throw new Error('behörighet');
+                    return filesInDir(handle);
+                });
+            }).then(function (got) {
+                manifest = got.json;
+                return openFiles(got.files).then(function () { manifest = got.json; });
+            });
         });
     }
 
@@ -198,7 +262,7 @@
         var label = make('label', 'toggle');
         var input = make('input');
         input.type = 'checkbox';
-        label.append(input, document.createTextNode(' ' + text));
+        label.append(input, make('span', '', text));
         return { label: label, input: input };
     }
 
@@ -208,18 +272,63 @@
         host.textContent = '';
         var mapEl = make('div', 'map');
         var status = make('p', 'map-status');
+        var hide = make('button', 'map-hide', 'Dölj');
+        hide.type = 'button';
+        hide.title = 'Dölj menyn, till exempel inför en bild';
+        var show = make('button', 'map-show secondary-btn display-none', 'Meny');
+        show.type = 'button';
+        var head = make('div', 'map-head');
+        head.append(status, hide);
         var route = labeledToggle('Rutt i tidsordning');
         if (opts.routeOn) route.input.checked = true;
         var perDevice = labeledToggle('Per enhet');
         var online = labeledToggle('Onlinekarta');
         var fit = make('button', 'link-btn', 'Visa alla');
         fit.type = 'button';
-        var controls = make('div', 'map-controls');
-        controls.append(route.label, perDevice.label, online.label, fit);
+        var listBtn = make('button', 'link-btn', 'Lista');
+        listBtn.type = 'button';
+        var routeSection = make('div', 'map-section');
+        routeSection.append(make('h3', '', 'Rutt'));
+        var routeStack = make('div', 'map-stack');
+        routeStack.append(route.label, perDevice.label);
+        var routeActions = make('div', 'map-row');
+        routeActions.append(fit, listBtn);
+        routeSection.append(routeStack, routeActions);
+        var bubbles = make('div', 'map-section map-bubbles');
+        function bubbleBox(text) {
+            return labeledToggle(text);
+        }
+        bubbles.append(make('h3', '', 'Bubblor'));
+        var bubbleFields = make('div', 'map-bubble-grid');
+        var bubbleTime = bubbleBox('Tid');
+        var bubbleName = bubbleBox('Filnamn');
+        var bubbleDevice = bubbleBox('Enhet');
+        var bubbleApp = bubbleBox('App');
+        var bubblePos = bubbleBox('Longitud/latitud');
+        var bubbleNote = bubbleBox('Händelse');
+        bubbleFields.append(bubbleTime.label, bubbleName.label, bubbleDevice.label, bubbleApp.label, bubblePos.label, bubbleNote.label);
+        var bubbleLeaders = labeledToggle('Linje till punkten');
+        var bubbleSmaller = make('button', 'link-btn', 'Mindre');
+        var bubbleLarger = make('button', 'link-btn', 'Större');
+        bubbleSmaller.type = 'button';
+        bubbleLarger.type = 'button';
+        bubbleSmaller.title = 'Mindre text i bubblorna';
+        bubbleLarger.title = 'Större text i bubblorna';
+        var bubbleSize = make('div', 'map-row');
+        bubbleSize.append(bubbleSmaller, bubbleLarger);
+        bubbles.append(bubbleFields, bubbleLeaders.label, bubbleSize);
+        bubbleTime = bubbleTime.input;
+        bubbleName = bubbleName.input;
+        bubbleDevice = bubbleDevice.input;
+        bubbleApp = bubbleApp.input;
+        bubblePos = bubblePos.input;
+        bubbleNote = bubbleNote.input;
         var routeNote = make('p', 'map-note');
         var note = make('p', 'map-note');
         var fallback = make('div', 'map-fallback display-none');
-        fallback.append(make('p', '', 'Offlinekartan följer med skrivbordsappen. Här kan du välja kartfilerna (world.pmtiles, sweden.pmtiles) själv.'));
+        fallback.append(make('p', '', 'Offlinekartan ligger i mappen maps. Välj den mappen, eller filerna world.pmtiles och sweden.pmtiles.'));
+        var pickDir = make('button', 'secondary-btn', 'Välj mappen maps…');
+        pickDir.type = 'button';
         var pick = make('button', 'secondary-btn', 'Välj kartfiler…');
         pick.type = 'button';
         var input = make('input');
@@ -227,7 +336,7 @@
         input.accept = '.pmtiles';
         input.multiple = true;
         input.hidden = true;
-        fallback.append(pick, input);
+        fallback.append(pickDir, pick, input);
         var steps = make('div', 'map-steps');
         var timeBar = make('div', 'map-time display-none');
         var timeInput = make('input');
@@ -239,8 +348,20 @@
         play.type = 'button';
         var timeLabel = make('span', 'map-time-label', '');
         timeBar.append(play, timeInput, timeLabel);
+        var onlineSection = make('div', 'map-section');
+        onlineSection.append(online.label);
         var panel = make('div', 'map-panel');
-        panel.append(status, controls, routeNote, note, steps, fallback);
+        panel.append(head, routeSection, bubbles, onlineSection, routeNote, note, fallback);
+        hide.addEventListener('click', function () {
+            panel.classList.add('display-none');
+            show.classList.remove('display-none');
+        });
+        show.addEventListener('click', function () {
+            panel.classList.remove('display-none');
+            show.classList.add('display-none');
+        });
+        var list = make('aside', 'map-list display-none');
+        list.setAttribute('aria-label', 'Positioner');
 
         var consent = make('div', 'consent display-none');
         consent.setAttribute('role', 'dialog');
@@ -255,11 +376,15 @@
         consentOk.type = 'button';
         actions.append(consentCancel, consentOk);
         consent.append(actions);
-        host.append(mapEl, panel, timeBar, consent);
+        host.append(mapEl, list, panel, show, timeBar, consent);
         return {
             wrap: host, map: mapEl, status: status, route: route.input, perDevice: perDevice.input, online: online.input, fit: fit,
+            listBtn: listBtn, list: list,
+            bubbleTime: bubbleTime, bubbleName: bubbleName, bubbleDevice: bubbleDevice, bubbleApp: bubbleApp,
+            bubblePos: bubblePos, bubbleNote: bubbleNote, bubbleLeaders: bubbleLeaders.input,
+            bubbleSmaller: bubbleSmaller, bubbleLarger: bubbleLarger,
             routeNote: routeNote, note: note, steps: steps, timeBar: timeBar, timeInput: timeInput, play: play, timeLabel: timeLabel,
-            fallback: fallback, pick: pick, input: input,
+            fallback: fallback, pickDir: pickDir, pick: pick, input: input,
             consent: consent, consentOk: consentOk, consentCancel: consentCancel,
         };
     }
@@ -297,6 +422,20 @@
             el.fallback.classList.toggle('display-none', online || archives.length > 0);
         }
 
+        var notes = {};
+
+        function bubbleText(p) {
+            var parts = [];
+            if (el.bubbleTime.checked && p.taken) parts.push(p.taken.text);
+            if (el.bubbleName.checked && p.name) parts.push(p.name);
+            if (el.bubbleDevice.checked && p.device) parts.push(p.device);
+            if (el.bubbleApp.checked && p.app) parts.push(p.app);
+            if (el.bubblePos.checked) parts.push('lon ' + p.lon.toFixed(5) + ', lat ' + p.lat.toFixed(5));
+            var note = notes[p.id] || p.note || '';
+            if (el.bubbleNote.checked && note) parts.push(note);
+            return parts.join('\n');
+        }
+
         function geojson() {
             var steps = {};
             if (routeInfo) routeInfo.steps.forEach(function (s) { steps[s.point.id] = s.index; });
@@ -307,7 +446,10 @@
                         type: 'Feature',
                         id: p.id,
                         geometry: { type: 'Point', coordinates: [p.lon, p.lat] },
-                        properties: { id: p.id, kind: kind(p.mime), step: steps[p.id] || 0, color: p.color || '' },
+                        properties: {
+                            id: p.id, kind: kind(p.mime), step: steps[p.id] || 0, color: p.color || '',
+                            label: bubbleText(p),
+                        },
                     };
                 }),
             };
@@ -398,22 +540,132 @@
                     'circle-stroke-width': ['case', ['boolean', ['feature-state', 'selected'], false], 3, 2],
                 },
             });
+            var stepOn = el.route.checked ? 'visible' : 'none';
+            map.addLayer({
+                id: 'point-badge', type: 'circle', source: 'files',
+                filter: ['all', ['!', ['has', 'point_count']], ['>', ['get', 'step'], 0]],
+                layout: { visibility: stepOn },
+                paint: {
+                    'circle-radius': 13,
+                    'circle-color': '#1c1c1e',
+                    'circle-stroke-color': '#ffffff',
+                    'circle-stroke-width': 2,
+                },
+            });
             map.addLayer({
                 id: 'point-step', type: 'symbol', source: 'files',
                 filter: ['all', ['!', ['has', 'point_count']], ['>', ['get', 'step'], 0]],
                 layout: {
-                    'text-field': ['to-string', ['get', 'step']], 'text-font': FONT, 'text-size': 11,
-                    'text-offset': [0, -1.5], 'text-allow-overlap': true, visibility: el.route.checked ? 'visible' : 'none',
+                    'text-field': ['to-string', ['get', 'step']], 'text-font': FONT, 'text-size': 13,
+                    'text-allow-overlap': true, visibility: stepOn,
                 },
-                paint: { 'text-color': '#ff9f0a', 'text-halo-color': '#000000', 'text-halo-width': 1.2 },
+                paint: { 'text-color': '#ffffff', 'text-halo-color': '#1c1c1e', 'text-halo-width': 1.2 },
             });
+        }
+
+        var bubbleMarkers = [];
+        var bubbleOffset = {};
+        var bubbleScale = 1;
+        var leaderSvg = null;
+
+        function svgEl(name) {
+            return document.createElementNS('http://www.w3.org/2000/svg', name);
+        }
+
+        function edgeToward(box, px, py) {
+            var cx = (box.left + box.right) / 2;
+            var cy = (box.top + box.bottom) / 2;
+            var dx = px - cx;
+            var dy = py - cy;
+            if (!dx && !dy) return { x: cx, y: box.bottom };
+            var scale = Math.min((box.right - box.left) / 2 / Math.abs(dx), (box.bottom - box.top) / 2 / Math.abs(dy));
+            return { x: cx + dx * scale, y: cy + dy * scale };
+        }
+
+        function updateLeaders() {
+            if (!leaderSvg || !map) return;
+            while (leaderSvg.firstChild) leaderSvg.removeChild(leaderSvg.firstChild);
+            if (!el.bubbleLeaders.checked) return;
+            var container = map.getContainer();
+            var width = container.clientWidth;
+            var height = container.clientHeight;
+            leaderSvg.setAttribute('viewBox', '0 0 ' + width + ' ' + height);
+            leaderSvg.setAttribute('width', String(width));
+            leaderSvg.setAttribute('height', String(height));
+            var mapRect = container.getBoundingClientRect();
+            bubbleMarkers.forEach(function (item) {
+                var pt = map.project([item.point.lon, item.point.lat]);
+                var rect = item.card.getBoundingClientRect();
+                var end = edgeToward({
+                    left: rect.left - mapRect.left, top: rect.top - mapRect.top,
+                    right: rect.right - mapRect.left, bottom: rect.bottom - mapRect.top,
+                }, pt.x, pt.y);
+                [3.5, 1.5].forEach(function (stroke, i) {
+                    var line = svgEl('line');
+                    line.setAttribute('x1', pt.x);
+                    line.setAttribute('y1', pt.y);
+                    line.setAttribute('x2', end.x);
+                    line.setAttribute('y2', end.y);
+                    line.setAttribute('stroke', i ? '#ffffff' : '#1c1c1e');
+                    line.setAttribute('stroke-width', String(stroke));
+                    leaderSvg.appendChild(line);
+                });
+            });
+        }
+
+        function syncBubbles() {
+            bubbleMarkers.forEach(function (item) { item.marker.remove(); });
+            bubbleMarkers = [];
+            if (!map) return;
+            points.forEach(function (p) {
+                var text = bubbleText(p);
+                if (!text) return;
+                var off = bubbleOffset[p.id] || { x: 0, y: -12 };
+                var anchor = make('div', 'ft-bubble-anchor');
+                var card = make('div', 'ft-bubble');
+                card.textContent = text;
+                card.style.fontSize = Math.round(13 * bubbleScale) + 'px';
+                card.style.transform = 'translate(' + off.x + 'px, ' + off.y + 'px)';
+                card.title = 'Dra för att flytta bubblan';
+                anchor.append(card);
+                card.addEventListener('click', function (e) { e.stopPropagation(); });
+                card.addEventListener('pointerdown', function (e) {
+                    if (e.button !== 0) return;
+                    e.preventDefault();
+                    e.stopPropagation();
+                    map.dragPan.disable();
+                    var startX = e.clientX;
+                    var startY = e.clientY;
+                    var origin = { x: off.x, y: off.y };
+                    function move(ev) {
+                        off = { x: origin.x + ev.clientX - startX, y: origin.y + ev.clientY - startY };
+                        bubbleOffset[p.id] = off;
+                        card.style.transform = 'translate(' + off.x + 'px, ' + off.y + 'px)';
+                        updateLeaders();
+                    }
+                    function up() {
+                        map.dragPan.enable();
+                        window.removeEventListener('pointermove', move);
+                        window.removeEventListener('pointerup', up);
+                    }
+                    window.addEventListener('pointermove', move);
+                    window.addEventListener('pointerup', up);
+                });
+                var marker = new root.maplibregl.Marker({ element: anchor, anchor: 'bottom', offset: [0, -10] })
+                    .setLngLat([p.lon, p.lat]).addTo(map);
+                bubbleMarkers.push({ marker: marker, card: card, point: p });
+            });
+            requestAnimationFrame(updateLeaders);
         }
 
         function refreshData() {
             if (!map || !map.getSource('files')) return;
             map.getSource('files').setData(geojson());
             map.getSource('route').setData(routeGeojson());
-            if (map.getLayer('point-step')) map.setLayoutProperty('point-step', 'visibility', el.route.checked ? 'visible' : 'none');
+            var stepOn = el.route.checked ? 'visible' : 'none';
+            if (map.getLayer('point-step')) map.setLayoutProperty('point-step', 'visibility', stepOn);
+            if (map.getLayer('point-badge')) map.setLayoutProperty('point-badge', 'visibility', stepOn);
+            syncBubbles();
         }
 
         function currentStyle() {
@@ -479,7 +731,10 @@
             var actions = make('div', 'map-popup-actions');
             var more = make('button', 'link-btn', 'Visa metadata');
             more.type = 'button';
-            more.addEventListener('click', function () { opts.onSelect(p.id); });
+            more.addEventListener('click', function () {
+                openList(p.id);
+                if (opts.onSelect) opts.onSelect(p.id);
+            });
             var copy = make('button', 'link-btn', 'Kopiera koordinater');
             copy.type = 'button';
             copy.addEventListener('click', function () { opts.copy(p.lat + ', ' + p.lon); });
@@ -545,6 +800,13 @@
         }
 
         function bindEvents() {
+            if (!leaderSvg) {
+                leaderSvg = svgEl('svg');
+                leaderSvg.setAttribute('class', 'ft-leaders');
+                map.getContainer().appendChild(leaderSvg);
+                map.on('move', updateLeaders);
+                map.on('resize', updateLeaders);
+            }
             map.on('contextmenu', function (e) {
                 e.preventDefault();
                 if (opts.onContext) opts.onContext({ lat: e.lngLat.lat, lon: e.lngLat.lng });
@@ -647,27 +909,104 @@
             el.routeNote.textContent = el.route.checked && info && info.steps.length > 1
                 ? [root.MapCore.routeNote(info), root.MapCore.routeSummary ? root.MapCore.routeSummary(info) : ''].filter(Boolean).join(' ')
                 : '';
-            renderSteps();
+            renderList();
             setupTime();
             el.note.textContent = notes || '';
             if (popup && selectedId !== null && !byId[selectedId]) closePopup();
             refreshData();
         }
 
-        function renderSteps() {
-            el.steps.textContent = '';
-            if (!el.route.checked || !routeInfo || routeInfo.steps.length < 2) return;
-            var details = make('details', 'map-step-list');
-            details.append(make('summary', '', 'Steg (' + routeInfo.steps.length + ')'));
-            routeInfo.steps.forEach(function (s) {
-                var b = make('button', 'map-popup-item');
-                b.type = 'button';
-                var when = s.point.taken ? s.point.taken.text : '';
-                b.append(make('span', '', s.index + '. ' + s.point.name), make('span', 'muted', when.slice(11, 16)));
-                b.addEventListener('click', function () { openPoint(s.point); });
-                details.append(b);
+        var listOpen = false;
+        var labelTimer = null;
+
+        function orderedPoints() {
+            var seen = {};
+            var out = [];
+            if (routeInfo) routeInfo.steps.forEach(function (s) {
+                seen[s.point.id] = true;
+                out.push({ point: s.point, index: s.index });
             });
-            el.steps.append(details);
+            points.forEach(function (p) {
+                if (!seen[p.id]) out.push({ point: p, index: 0 });
+            });
+            return out;
+        }
+
+        function renderList() {
+            var active = el.list.querySelector('.map-list-row.active');
+            var activeId = active ? active.dataset.id : '';
+            el.list.textContent = '';
+            var head = make('div', 'map-list-head');
+            head.append(make('strong', '', 'Positioner'));
+            var close = make('button', 'link-btn', 'Stäng');
+            close.type = 'button';
+            close.addEventListener('click', function () { setList(false); });
+            head.append(close);
+            el.list.append(head);
+            var rows = orderedPoints();
+            if (!rows.length) {
+                el.list.append(make('p', 'map-note', 'Inga positioner att visa.'));
+                return;
+            }
+            rows.forEach(function (row) {
+                var p = row.point;
+                var item = make('div', 'map-list-row' + (String(p.id) === activeId ? ' active' : ''));
+                item.dataset.id = String(p.id);
+                item.append(make('b', 'map-list-num', row.index ? String(row.index) : '–'));
+                var body = make('div', 'map-list-body');
+                body.append(make('div', 'map-list-name', p.name || 'Punkt'));
+                var meta = [p.taken ? p.taken.text : 'Ingen tid', p.device, p.app].filter(Boolean).join(' · ');
+                if (meta) body.append(make('div', 'map-list-meta', meta));
+                var event = make('input');
+                event.type = 'text';
+                event.placeholder = 'Händelse';
+                event.value = notes[p.id] || p.note || '';
+                event.addEventListener('click', function (e) { e.stopPropagation(); });
+                event.addEventListener('input', function () {
+                    notes[p.id] = event.value;
+                    p.note = event.value;
+                    clearTimeout(labelTimer);
+                    labelTimer = setTimeout(refreshData, 200);
+                });
+                body.append(event);
+                var buttons = make('div', 'map-list-actions');
+                var more = make('button', 'link-btn', 'Visa metadata');
+                more.type = 'button';
+                more.addEventListener('click', function (e) {
+                    e.stopPropagation();
+                    if (opts.onSelect) opts.onSelect(p.id);
+                    else openList(p.id);
+                });
+                var remove = make('button', 'link-btn', 'Ta bort');
+                remove.type = 'button';
+                remove.addEventListener('click', function (e) {
+                    e.stopPropagation();
+                    if (opts.onRemove) opts.onRemove(p.id);
+                });
+                buttons.append(more, remove);
+                body.append(buttons);
+                item.append(body);
+                item.addEventListener('click', function () { openPoint(p); });
+                el.list.append(item);
+            });
+        }
+
+        function setList(open) {
+            listOpen = open;
+            el.list.classList.toggle('display-none', !open);
+            el.wrap.classList.toggle('map-with-list', open);
+            if (map) map.resize();
+        }
+
+        function openList(id) {
+            setList(true);
+            renderList();
+            if (id === undefined || id === null) return;
+            var row = el.list.querySelector('[data-id="' + String(id) + '"]');
+            if (!row) return;
+            el.list.querySelectorAll('.map-list-row.active').forEach(function (n) { n.classList.remove('active'); });
+            row.classList.add('active');
+            row.scrollIntoView({ block: 'nearest' });
         }
 
         var playTimer = null;
@@ -696,7 +1035,7 @@
             data.features.push({
                 type: 'Feature', id: -1,
                 geometry: { type: 'Point', coordinates: [pos.lon, pos.lat] },
-                properties: { id: -1, kind: 'other', step: 0, color: '#ff453a' },
+                properties: { id: -1, kind: 'other', step: 0, color: '#ff453a', label: '' },
             });
             map.getSource('files').setData(data);
         }
@@ -705,10 +1044,23 @@
             el.routeNote.textContent = el.route.checked && routeInfo && routeInfo.steps.length > 1
                 ? [root.MapCore.routeNote(routeInfo), root.MapCore.routeSummary ? root.MapCore.routeSummary(routeInfo) : ''].filter(Boolean).join(' ')
                 : '';
-            renderSteps();
+            renderList();
             setupTime();
             refreshData();
         });
+        el.listBtn.addEventListener('click', function () { setList(!listOpen); if (listOpen) renderList(); });
+        [el.bubbleTime, el.bubbleName, el.bubbleDevice, el.bubbleApp, el.bubblePos, el.bubbleNote].forEach(function (box) {
+            box.addEventListener('change', refreshData);
+        });
+        el.bubbleSmaller.addEventListener('click', function () {
+            bubbleScale = Math.max(0.75, Math.round(bubbleScale * 0.85 * 100) / 100);
+            syncBubbles();
+        });
+        el.bubbleLarger.addEventListener('click', function () {
+            bubbleScale = Math.min(2, Math.round(bubbleScale * 1.18 * 100) / 100);
+            syncBubbles();
+        });
+        el.bubbleLeaders.addEventListener('change', updateLeaders);
         el.perDevice.addEventListener('change', refreshData);
         el.timeInput.addEventListener('input', function () { showTime(Number(el.timeInput.value)); });
         el.play.addEventListener('click', function () {
@@ -742,6 +1094,26 @@
             if (map) applyStyle();
         });
         el.consentCancel.addEventListener('click', function () { el.consent.classList.add('display-none'); });
+        el.pickDir.addEventListener('click', function () {
+            var choose = window.showDirectoryPicker
+                ? window.showDirectoryPicker({ mode: 'read' })
+                : Promise.reject(new Error('ingen mappväljare'));
+            choose.then(function (dir) {
+                return filesInDir(dir).then(function (got) {
+                    manifest = got.json;
+                    return openFiles(got.files).then(function () {
+                        manifest = got.json;
+                        return saveDirHandle(dir);
+                    });
+                });
+            }).then(function () {
+                if (map && !online) applyStyle();
+                else updateStatus();
+            }).catch(function (err) {
+                if (err && err.name === 'AbortError') return;
+                el.input.click();
+            });
+        });
         el.pick.addEventListener('click', function () { el.input.click(); });
         el.input.addEventListener('change', function () {
             var files = el.input.files;
@@ -775,6 +1147,7 @@
                 });
             },
             resize: function () { if (map) map.resize(); },
+            openList: openList,
             onlineHost: ONLINE.host,
         };
     }

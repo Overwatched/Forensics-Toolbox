@@ -18,14 +18,24 @@
 
     function setStatus(text) { $('status').textContent = text || ''; }
 
+    function timeBound(date, time, end) {
+        var d = (date || '').trim();
+        var t = (time || '').trim();
+        if (!d && !t) return '';
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) return '';
+        if (!/^\d{2}:\d{2}$/.test(t)) t = '';
+        var clock = t ? t + (end ? ':59' : ':00') : (end ? '23:59:59' : '00:00:00');
+        return d + ' ' + clock;
+    }
+
     function inRange(p) {
-        var from = $('time-from').value;
-        var to = $('time-to').value;
+        var from = timeBound($('time-from-date').value, $('time-from-time').value, false);
+        var to = timeBound($('time-to-date').value, $('time-to-time').value, true);
         if (!from && !to) return true;
         if (!p.taken) return false;
         var wall = p.taken.sort.slice(0, 19);
-        if (from && wall < from.replace('T', ' ')) return false;
-        if (to && wall > to.replace('T', ' ') + ':59') return false;
+        if (from && wall < from) return false;
+        if (to && wall > to) return false;
         return true;
     }
 
@@ -229,12 +239,16 @@
         takeResult('Inklistrad', MapImport.parse(text, 'klistra.txt'));
         $('paste').value = '';
     });
-    ['time-from', 'time-to'].forEach(function (id) { $(id).addEventListener('change', refresh); });
+    ['time-from-date', 'time-from-time', 'time-to-date', 'time-to-time'].forEach(function (id) {
+        $(id).addEventListener('input', refresh);
+    });
 
     $('manual-add').addEventListener('click', function () {
         if (!clickAt) return;
         var name = $('manual-name').value.trim() || 'Manuell punkt';
-        var time = $('manual-time').value;
+        var date = $('manual-date').value.trim();
+        var clock = $('manual-time').value.trim();
+        var time = date && clock ? date + ' ' + clock + ':00' : (date ? date + ' 00:00:00' : '');
         var layer = layers.filter(function (l) { return l.name === 'Manuella'; })[0] || addLayer('Manuella', []);
         var point = {
             id: nextId++, name: name, path: name, lat: clickAt.lat, lon: clickAt.lon, source: 'manuell',

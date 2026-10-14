@@ -146,8 +146,9 @@ vektorkartor i PMTiles-format.
   Bara kartrutor för området som visas hämtas; filer, sökvägar och metadata skickas
   aldrig. Electron tar bort appnamnet ur User-Agent och Referer/Cookie ur alla
   externa anrop.
-- **HTML-versionen** saknar `ftmaps://` och kartfilerna; användaren väljer
-  `.pmtiles`-filerna själv i kartvyn eller använder onlinekartan.
+- **HTML-versionen** har ingen `ftmaps://`. Kartfilerna packas med i mappen `maps`.
+  Sidan läser dem via en relativ sökväg när den öppnas genom en lokal server, och
+  frågar annars en gång efter mappen. Onlinekartan fungerar som i skrivbordsappen.
 
 ### Lägga till ett verktyg
 
@@ -173,7 +174,7 @@ vektorkartor i PMTiles-format.
 - Visa version i hubben: `Version 1.1` i `Toolbox.html`
 - `sync-version` sätter `package.json` till `1.1.0` (semver för electron-builder)
 - Höj versionen i `Toolbox.html` innan release/push om du vill ha ny GitHub Release-tagg
-- `npm run pack-html` skapar `release/ForensicsToolbox-X.Y-html.zip` (Toolbox.html utan exe, utan kartfiler)
+- `npm run pack-html` skapar `release/ForensicsToolbox-X.Y-html.zip` (Toolbox.html utan exe, med kartfiler om de finns i `maps/`)
 
 ## Kända begränsningar
 

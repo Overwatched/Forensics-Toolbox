@@ -55,10 +55,12 @@
                     <input id="search" type="search" placeholder="Sök filnamn, enhet, programvara eller taggvärde…" autocomplete="off" spellcheck="false">
                 </label>
                 <div class="time-range" title="Jämför tiden som den står i filen, se tidszonen i kolumnen Tid">
-                    <span>Tid</span>
-                    <input type="datetime-local" id="time-from" aria-label="Från">
-                    <span class="muted">–</span>
-                    <input type="datetime-local" id="time-to" aria-label="Till">
+                    <span>Från</span>
+                    <input type="text" id="time-from-date" class="date-field" placeholder="ÅÅÅÅ-MM-DD" maxlength="10" inputmode="numeric" aria-label="Från datum" autocomplete="off">
+                    <input type="text" id="time-from-time" class="time-field" placeholder="TT:MM" maxlength="5" inputmode="numeric" aria-label="Från tid" autocomplete="off">
+                    <span>Till</span>
+                    <input type="text" id="time-to-date" class="date-field" placeholder="ÅÅÅÅ-MM-DD" maxlength="10" inputmode="numeric" aria-label="Till datum" autocomplete="off">
+                    <input type="text" id="time-to-time" class="time-field" placeholder="TT:MM" maxlength="5" inputmode="numeric" aria-label="Till tid" autocomplete="off">
                     <button type="button" id="time-clear" class="icon-btn display-none" aria-label="Rensa tidsfilter">×</button>
                 </div>
                 <details id="export-menu" class="menu">

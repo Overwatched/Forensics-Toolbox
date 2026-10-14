@@ -140,6 +140,20 @@ test('filnamnsmönster jämförs med tillverkaren i metadata', () => {
     assert.strictEqual(flag.patterns[0].strength, 'stark');
 });
 
+test('app i metadata slås upp mot App-ID, inte via en svag delsträng', () => {
+    const apps = [
+        { id: 'whatsapp', name: 'WhatsApp', aliases: ['wa'], android: 'com.whatsapp', ios: { bundleId: 'net.whatsapp.WhatsApp' } },
+        { id: 'signal', name: 'Signal', aliases: ['privata meddelanden'], android: 'org.thoughtcrime.securesms' },
+    ];
+    const hit = core.matchApp({ 'IFD0:Software': 'WhatsApp/2.23.20' }, apps);
+    assert.strictEqual(hit.name, 'WhatsApp');
+    assert.strictEqual(hit.source, 'IFD0:Software');
+    assert.strictEqual(core.matchApp({ 'IFD0:Software': 'swappable camera' }, apps), null);
+    const pkg = core.matchApp({ 'XMP-exif:UserComment': 'saved by com.whatsapp' }, apps);
+    assert.strictEqual(pkg.id, 'whatsapp');
+    assert.strictEqual(core.matchApp({ 'Keys:Software': '17.5.1' }, apps), null);
+});
+
 test('koordinater tolkas från grader, minuter och sekunder', () => {
     assert.strictEqual(core.parseCoord('59.3293'), 59.3293);
     assert.ok(Math.abs(core.parseCoord('33 deg 52\' 10.20" S') + 33.8695) < 1e-4);

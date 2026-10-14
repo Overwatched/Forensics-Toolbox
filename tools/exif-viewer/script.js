@@ -52,8 +52,10 @@
     var renderTimer = null;
     var selected = null;
     var view = 'table';
-    var timeFrom = $('time-from');
-    var timeTo = $('time-to');
+    var timeFromDate = $('time-from-date');
+    var timeFromTime = $('time-from-time');
+    var timeToDate = $('time-to-date');
+    var timeToTime = $('time-to-time');
     var exportMenu = $('export-menu');
     var mapView = null;
 
@@ -252,6 +254,7 @@
         }
         row.tags = ExifCore.cleanTags(tags);
         row.summary = ExifCore.summarize(row.tags, row.name);
+        row.summary.appHit = ExifCore.matchApp(row.tags, (window.AppIds && AppIds.APPS) || []);
         row.status = 'done';
         var s = row.summary;
         row.hay = [
@@ -286,8 +289,10 @@
         filter = 'all';
         searchInput.value = '';
         query = '';
-        timeFrom.value = '';
-        timeTo.value = '';
+        timeFromDate.value = '';
+        timeFromTime.value = '';
+        timeToDate.value = '';
+        timeToTime.value = '';
         removed = new Set();
         selectedIds = new Set();
         lastRemoved = [];
@@ -389,10 +394,20 @@
         }
     }
 
+    // ÅÅÅÅ-MM-DD och TT:MM blir samma sträng som det gamla datumfältet skickade till filtret.
+    function timeBound(date, time, end) {
+        var d = (date || '').trim();
+        var t = (time || '').trim();
+        if (!d && !t) return '';
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) return '';
+        if (t && !/^\d{2}:\d{2}$/.test(t)) t = '';
+        return d + 'T' + (t || (end ? '23:59' : '00:00'));
+    }
+
     function visibleRows() {
         var q = query.toLowerCase();
-        var from = timeFrom.value;
-        var to = timeTo.value;
+        var from = timeBound(timeFromDate.value, timeFromTime.value, false);
+        var to = timeBound(timeToDate.value, timeToTime.value, true);
         var list = rows.filter(function (r) {
             if (filter === 'removed') return removed.has(r.id);
             if (removed.has(r.id)) return false;
@@ -615,7 +630,7 @@
         exportMenu.querySelectorAll('[data-export]').forEach(function (b) {
             b.disabled = /kml|geojson/.test(b.dataset.export) ? !pts.length : !done.length;
         });
-        $('time-clear').classList.toggle('display-none', !timeFrom.value && !timeTo.value);
+        $('time-clear').classList.toggle('display-none', !timeFromDate.value && !timeFromTime.value && !timeToDate.value && !timeToTime.value);
         $('map-count').textContent = pts.length.toLocaleString('sv-SE');
         if (view === 'map') {
             empty.classList.add('display-none');
@@ -744,6 +759,7 @@
             pos.append(actions);
             summaryRow(dl, 'Position', pos, s.position.source);
         }
+        if (s.appHit) summaryRow(dl, 'App', s.appHit.name, s.appHit.source);
         if (s.patterns && s.patterns.length) {
             var box = make('span');
             s.patterns.forEach(function (m) {
@@ -888,10 +904,14 @@
         scheduleRender();
     });
 
-    [timeFrom, timeTo].forEach(function (input) { input.addEventListener('change', render); });
+    [timeFromDate, timeFromTime, timeToDate, timeToTime].forEach(function (input) {
+        input.addEventListener('input', render);
+    });
     $('time-clear').addEventListener('click', function () {
-        timeFrom.value = '';
-        timeTo.value = '';
+        timeFromDate.value = '';
+        timeFromTime.value = '';
+        timeToDate.value = '';
+        timeToTime.value = '';
         render();
     });
 
