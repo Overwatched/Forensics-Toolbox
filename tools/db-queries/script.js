@@ -14,6 +14,8 @@ const recommendedBox = document.getElementById('recommended-box');
 const dbOverview = document.getElementById('db-overview');
 const workspace = document.getElementById('workspace');
 const toast = document.getElementById('toast');
+const resultPreview = document.getElementById('result-preview');
+const sqlStepLabel = document.getElementById('sql-step-label');
 
 const COCOA_EPOCH = 978307200;
 const MAX_UNIX = 4102444800;
@@ -60,7 +62,8 @@ function currentDb() {
 
 function recommendedQuery(db) {
     if (!db) return null;
-    return (db.queries || []).find((q) => q.recommended) || db.queries[0] || null;
+    const list = db.queries || [];
+    return list.find((q) => q.recommended) || list.find((q) => q.group !== 'advanced') || list[0] || null;
 }
 
 function currentQuery() {
@@ -138,12 +141,30 @@ function formatSql(sql) {
     return s.replace(/\n{3,}/g, '\n\n').trim();
 }
 
-function colorKeywords(escaped) {
-    return escaped.replace(KW_RE, '<span class="sql-kw">$1</span>');
+const SQL_TOKEN_RE = new RegExp(
+    "(--[^\\n]*)|('(?:[^']|'')*')|(\\u0001U\\d+\\u0001)|\\b(\\d+(?:\\.\\d+)?)\\b|\\b([A-Za-z_]\\w*)(?=\\s*\\()|" +
+    KW_RE.source, 'gi');
+const KW_EXACT = new RegExp('^' + KW_RE.source + '$', 'i');
+
+function colorSql(text) {
+    let out = '';
+    let last = 0;
+    text.replace(SQL_TOKEN_RE, (m, comment, str, hole, num, fn, kw, offset) => {
+        out += escapeHtml(text.slice(last, offset));
+        last = offset + m.length;
+        if (hole) out += m;
+        else if (comment) out += '<span class="sql-comment">' + escapeHtml(m) + '</span>';
+        else if (str) out += '<span class="sql-str">' + escapeHtml(m) + '</span>';
+        else if (num) out += '<span class="sql-num">' + m + '</span>';
+        else if (fn && !KW_EXACT.test(fn)) out += '<span class="sql-fn">' + escapeHtml(m) + '</span>';
+        else out += '<span class="sql-kw">' + escapeHtml(m) + '</span>';
+        return m;
+    });
+    return out + escapeHtml(text.slice(last));
 }
 
 function highlightSql(formatted, parts) {
-    let html = colorKeywords(escapeHtml(formatted));
+    let html = colorSql(formatted);
     parts.forEach((p, i) => {
         const token = '\u0001U' + i + '\u0001';
         const cls = p.user ? 'sql-user' : 'sql-default';
@@ -293,28 +314,31 @@ function renderFlow() {
     }
     const steps = db.flow || [
         'Läs in databasen + <code>-wal</code> + <code>-shm</code>',
-        'Standardquery, eller visa enskilda queries',
+        'Använd den rekommenderade queryn, eller välj en annan',
         'Fyll i värden (tid, filnamn, app)',
         'Kopiera SQL och kör i DB Browser',
     ];
-    flowBox.innerHTML = '<h2>Kort flöde</h2><ol>' +
-        steps.map((s) => '<li>' + s + '</li>').join('') + '</ol>' +
+    flowBox.innerHTML = '<h2>Så här gör du</h2><ol class="flow-steps">' +
+        steps.map((s) => '<li><span>' + s + '</span></li>').join('') + '</ol>' +
         (db.footerHtml || '');
 }
 
 function renderRecommended() {
-    const q = recommendedQuery(currentDb());
-    recommendedBox.classList.toggle('display-none', showQueries || !q);
+    const q = currentQuery();
+    recommendedBox.classList.toggle('display-none', !q);
     if (!q) return;
+    const badge = q.recommended
+        ? '<span class="badge">Rekommenderas</span>'
+        : (q.group === 'advanced' ? '<span class="badge muted">Hjälp</span>' : '');
     recommendedBox.innerHTML =
-        '<div class="q-title"><span class="badge">Rekommenderas</span><span>' + escapeHtml(q.title) + '</span></div>' +
-        '<div class="q-sub">' + escapeHtml(q.subtitle || '') + '</div>';
+        '<div class="q-title">' + badge + '<span>' + escapeHtml(q.title) + '</span></div>' +
+        (q.subtitle ? '<div class="q-sub"><strong>Vad den gör:</strong> ' + escapeHtml(q.subtitle) + '</div>' : '');
 }
 
 function fillQuerySelect() {
     const db = currentDb();
     querySelect.innerHTML = (db.queries || []).map((q) => {
-        const prefix = q.group === 'advanced' ? 'Avancerat: ' : '';
+        const prefix = q.recommended ? '★ ' : '';
         return '<option value="' + escapeHtml(q.id) + '">' + escapeHtml(prefix + q.title) + '</option>';
     }).join('');
     const rec = recommendedQuery(db);
@@ -355,9 +379,11 @@ function renderParams() {
             <input type="text" id="param-${escapeHtml(name)}" data-param="${escapeHtml(name)}"
               spellcheck="false" autocomplete="off" placeholder="${escapeHtml(paramLabels[name] || name)}">
           </div>`).join('');
+        step += 1;
     }
 
     paramsEl.innerHTML = html;
+    if (sqlStepLabel) sqlStepLabel.textContent = step + '. SQL';
     paramsEl.querySelectorAll('input').forEach((input) => {
         const refresh = () => {
             sqlDirty = false;
@@ -416,8 +442,31 @@ function generateSql() {
     sqlOut.value = built.plain;
     sqlView.innerHTML = built.html || '';
     copyButton.disabled = !built.plain;
+    renderResultPreview(built.plain);
     updateTimePreview();
     if (!editing) setEditMode(false);
+}
+
+function renderResultPreview(sql) {
+    if (!resultPreview || !window.QueryPreview) return;
+    const cols = window.QueryPreview.columns(sql);
+    if (!cols.length) {
+        resultPreview.innerHTML = '<p class="muted">Det här är ingen query som returnerar rader, bara en mall eller arbetsgång. Läs kommentarerna i SQL:en.</p>';
+        return;
+    }
+    const rows = window.QueryPreview.exampleRows(cols, {
+        filename: paramValue('filename'),
+        packageName: paramValue('packageName'),
+        bundleId: paramValue('bundleId'),
+        rows: 10,
+    });
+    resultPreview.innerHTML =
+        '<p class="muted">Påhittade exempelrader. Kolumnerna kommer från SQL:en.</p>' +
+        '<div class="result-scroll"><table><thead><tr>' +
+        cols.map((c) => '<th>' + escapeHtml(c) + '</th>').join('') +
+        '</tr></thead><tbody>' +
+        rows.map((r) => '<tr>' + r.map((v) => '<td>' + escapeHtml(v) + '</td>').join('') + '</tr>').join('') +
+        '</tbody></table></div>';
 }
 
 function onDbChange() {
@@ -428,7 +477,7 @@ function onDbChange() {
     sqlDirty = false;
     setEditMode(false);
     queryPanel.classList.add('display-none');
-    showQueriesBtn.textContent = 'Visa enskilda queries';
+    showQueriesBtn.textContent = 'Välj en annan query…';
     if (!db) {
         sqlView.innerHTML = '';
         sqlOut.value = '';
@@ -483,7 +532,7 @@ function buildDatabases(photos, android, appUsage) {
             note: [band.notes, photos.timeNote].filter(Boolean).join(' '),
             flow: [
                 'Läs in <code>Photos.sqlite</code> + <code>-wal</code> + <code>-shm</code>',
-                'Standardquery, eller visa enskilda queries',
+                'Använd den rekommenderade queryn, eller välj en annan',
                 'Ange filnamn, tidsspann eller app',
                 'Kopiera SQL och kör i DB Browser',
             ],
@@ -515,7 +564,7 @@ function buildDatabases(photos, android, appUsage) {
             note: appUsage.sourceNote,
             flow: [
                 'Läs in databasen + <code>-wal</code> + <code>-shm</code>',
-                'Standardquery, eller visa enskilda queries',
+                'Använd den rekommenderade queryn, eller välj en annan',
                 'Ange tidsspann som <code>ÅÅÅÅ-MM-DD TT:MM</code>',
                 'Kopiera SQL och kör i DB Browser',
             ],
@@ -537,8 +586,9 @@ function buildDatabases(photos, android, appUsage) {
         const queries = (cat.queries || []).map((q) => ({
             id: q.id,
             title: q.title,
-            subtitle: q.goal || '',
+            subtitle: q.description || '',
             recommended: !!q.recommended,
+            group: q.group,
             params: q.params || [],
             sql: q.sql,
         }));
@@ -555,7 +605,7 @@ function buildDatabases(photos, android, appUsage) {
             note: android.sourceNote,
             flow: [
                 'Läs in databasen + <code>-wal</code> + <code>-shm</code>',
-                'Standardquery, eller visa enskilda queries',
+                'Använd den rekommenderade queryn, eller välj en annan',
                 'Fyll i filnamn / tid / paket om queryn frågar efter det',
                 'Kopiera SQL och kör i DB Browser',
             ],
@@ -705,6 +755,7 @@ dbSelect.addEventListener('change', () => {
 
 querySelect.addEventListener('change', () => {
     sqlDirty = false;
+    renderRecommended();
     renderParams();
     generateSql();
 });
@@ -712,7 +763,7 @@ querySelect.addEventListener('change', () => {
 showQueriesBtn.addEventListener('click', () => {
     showQueries = !showQueries;
     queryPanel.classList.toggle('display-none', !showQueries);
-    showQueriesBtn.textContent = showQueries ? 'Dölj enskilda queries' : 'Visa enskilda queries';
+    showQueriesBtn.textContent = showQueries ? 'Använd rekommenderad query' : 'Välj en annan query…';
     if (!showQueries) {
         const rec = recommendedQuery(currentDb());
         if (rec) querySelect.value = rec.id;

@@ -1,5 +1,11 @@
 Automatiskt byggd från commit `{{SHA}}`.
 
+## Nytt i 1.13
+
+- **Queries:** varje Android-query förklarar vad den gör, och den mest användbara är förvald och märkt ★. Schema-frågor heter "Hjälp: …".
+- SQL:en ligger till höger med tydligare färger i ljust och mörkt tema. Under den visas **Så kan resultatet se ut**, med kolumnerna queryn returnerar och påhittade exempelrader.
+- Stegen är numrerade och knappen för att byta query är större.
+
 ## Nytt i 1.12
 
 - HTML-zippen startar ingen lokal server. Öppna `Toolbox.html` och välj mappen `maps`. Kartan läser filerna direkt därifrån.
