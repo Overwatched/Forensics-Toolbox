@@ -19,7 +19,7 @@
         {
           "id": "app-usage",
           "title": "/app/usage — app aktiv",
-          "subtitle": "iLEAPP knowledgeC_AppUsage. ZVALUESTRING = bundle-ID.",
+          "subtitle": "Visar vilka appar som användes inom tidsspannet, med start, slut och antal sekunder. ZVALUESTRING är appens bundle-ID.",
           "recommended": true,
           "timeEpoch": "cocoa",
           "params": ["timeStart", "timeEnd", "bundleId"],
@@ -28,7 +28,7 @@
         {
           "id": "app-infocus",
           "title": "/app/inFocus — förgrund (äldre iOS)",
-          "subtitle": "Sarah Edwards / APOLLO. Saknas ofta från iOS 16 — då är det Biome App.InFocus.",
+          "subtitle": "Visar vilken app som låg i förgrunden på skärmen inom tidsspannet. Saknas ofta från iOS 16, då finns uppgiften i Biome App.InFocus i stället.",
           "timeEpoch": "cocoa",
           "params": ["timeStart", "timeEnd", "bundleId"],
           "sql": "SELECT\n  datetime(ZOBJECT.ZSTARTDATE + 978307200, 'unixepoch', 'localtime') AS ZSTARTDATE,\n  datetime(ZOBJECT.ZENDDATE + 978307200, 'unixepoch', 'localtime') AS ZENDDATE,\n  datetime(ZOBJECT.ZCREATIONDATE + 978307200, 'unixepoch', 'localtime') AS ZCREATIONDATE,\n  ZOBJECT.ZSTREAMNAME,\n  ZOBJECT.ZVALUESTRING,\n  (ZOBJECT.ZENDDATE - ZOBJECT.ZSTARTDATE) AS usage_seconds\nFROM ZOBJECT\nWHERE ZOBJECT.ZSTREAMNAME = '/app/inFocus'\n  AND ZOBJECT.ZSTARTDATE BETWEEN {{cocoaStart}} AND {{cocoaEnd}}\n  AND IFNULL(ZOBJECT.ZVALUESTRING, '') LIKE '%{{bundleId}}%'\nORDER BY ZOBJECT.ZSTARTDATE;"
@@ -36,7 +36,7 @@
         {
           "id": "is-backlit",
           "title": "/display/isBacklit — skärm tänd",
-          "subtitle": "iLEAPP knowledgeC_isBacklit. Korsreferera mot app-aktivitet.",
+          "subtitle": "Visar när skärmen tändes och släcktes inom tidsspannet. Jämför med app-aktiviteten för att se om någon tittade på telefonen.",
           "timeEpoch": "cocoa",
           "params": ["timeStart", "timeEnd"],
           "sql": "SELECT\n  datetime(ZOBJECT.ZSTARTDATE + 978307200, 'unixepoch', 'localtime') AS ZSTARTDATE,\n  datetime(ZOBJECT.ZENDDATE + 978307200, 'unixepoch', 'localtime') AS ZENDDATE,\n  datetime(ZOBJECT.ZCREATIONDATE + 978307200, 'unixepoch', 'localtime') AS ZCREATIONDATE,\n  CASE ZOBJECT.ZVALUEINTEGER\n    WHEN 0 THEN 'Backlight off'\n    WHEN 1 THEN 'Backlight on'\n    ELSE ZOBJECT.ZVALUEINTEGER\n  END AS ZVALUEINTEGER\nFROM ZOBJECT\nWHERE ZOBJECT.ZSTREAMNAME = '/display/isBacklit'\n  AND ZOBJECT.ZSTARTDATE BETWEEN {{cocoaStart}} AND {{cocoaEnd}}\nORDER BY ZOBJECT.ZSTARTDATE;"
@@ -44,15 +44,16 @@
         {
           "id": "is-locked",
           "title": "/device/isLocked — låst/olåst",
-          "subtitle": "iLEAPP knowledgeC_isLocked.",
+          "subtitle": "Visar när telefonen låstes och låstes upp inom tidsspannet.",
           "timeEpoch": "cocoa",
           "params": ["timeStart", "timeEnd"],
           "sql": "SELECT\n  datetime(ZOBJECT.ZSTARTDATE + 978307200, 'unixepoch', 'localtime') AS ZSTARTDATE,\n  datetime(ZOBJECT.ZENDDATE + 978307200, 'unixepoch', 'localtime') AS ZENDDATE,\n  datetime(ZOBJECT.ZCREATIONDATE + 978307200, 'unixepoch', 'localtime') AS ZCREATIONDATE,\n  CASE ZOBJECT.ZVALUEINTEGER\n    WHEN 0 THEN 'Unlocked'\n    WHEN 1 THEN 'Locked'\n    ELSE ZOBJECT.ZVALUEINTEGER\n  END AS ZVALUEINTEGER\nFROM ZOBJECT\nWHERE ZOBJECT.ZSTREAMNAME = '/device/isLocked'\n  AND ZOBJECT.ZSTARTDATE BETWEEN {{cocoaStart}} AND {{cocoaEnd}}\nORDER BY ZOBJECT.ZSTARTDATE;"
         },
         {
           "id": "streams",
-          "title": "Lista ZSTREAMNAME (översikt)",
-          "subtitle": "Vilka strömmar som finns i just den här databasen.",
+          "title": "Hjälp: lista strömmarna i databasen",
+          "subtitle": "Söker inte efter händelser. Visar vilka strömmar (ZSTREAMNAME) som finns och hur många rader var och en har, så att du ser vilka queries som kan ge träffar.",
+          "group": "advanced",
           "params": [],
           "sql": "SELECT ZSTREAMNAME, COUNT(*) AS n\nFROM ZOBJECT\nGROUP BY ZSTREAMNAME\nORDER BY n DESC;"
         }
@@ -67,7 +68,8 @@
         {
           "id": "interactions",
           "title": "Interaktioner per app + person",
-          "subtitle": "iLEAPP interactionCContacts. ZBUNDLEID = app som användes.",
+          "subtitle": "Visar kontakter med personer inom tidsspannet (meddelanden, samtal, delning) och vilken app som användes. ZBUNDLEID är appen.",
+          "recommended": true,
           "timeEpoch": "cocoa",
           "params": ["timeStart", "timeEnd", "bundleId"],
           "sql": "SELECT\n  datetime(ZINTERACTIONS.ZSTARTDATE + 978307200, 'unixepoch', 'localtime') AS ZSTARTDATE,\n  datetime(ZINTERACTIONS.ZENDDATE + 978307200, 'unixepoch', 'localtime') AS ZENDDATE,\n  ZINTERACTIONS.ZBUNDLEID,\n  ZCONTACTS.ZDISPLAYNAME,\n  ZCONTACTS.ZIDENTIFIER,\n  ZINTERACTIONS.ZDIRECTION,\n  ZINTERACTIONS.ZISRESPONSE,\n  ZINTERACTIONS.ZRECIPIENTCOUNT,\n  datetime(ZINTERACTIONS.ZCREATIONDATE + 978307200, 'unixepoch', 'localtime') AS ZCREATIONDATE\nFROM ZINTERACTIONS\nLEFT JOIN ZCONTACTS ON ZINTERACTIONS.ZSENDER = ZCONTACTS.Z_PK\nWHERE ZINTERACTIONS.ZSTARTDATE BETWEEN {{cocoaStart}} AND {{cocoaEnd}}\n  AND IFNULL(ZINTERACTIONS.ZBUNDLEID, '') LIKE '%{{bundleId}}%'\nORDER BY ZINTERACTIONS.ZSTARTDATE;"
@@ -83,7 +85,7 @@
         {
           "id": "resumed",
           "title": "ACTIVITY_RESUMED — app i förgrund",
-          "subtitle": "ALEAPP Digital Wellbeing. type 1 = ACTIVITY_RESUMED.",
+          "subtitle": "Visar varje gång en app öppnades eller kom tillbaka till förgrunden inom tidsspannet (ACTIVITY_RESUMED).",
           "recommended": true,
           "timeEpoch": "unix-ms",
           "params": ["timeStart", "timeEnd", "packageName"],
@@ -92,7 +94,7 @@
         {
           "id": "fg-events",
           "title": "Förgrunds-händelser (resumed/paused/stopped)",
-          "subtitle": "ALEAPP. type 1/2/23.",
+          "subtitle": "Visar när appar öppnades, pausades och stängdes inom tidsspannet, så att du kan se hur länge en app var aktiv.",
           "timeEpoch": "unix-ms",
           "params": ["timeStart", "timeEnd", "packageName"],
           "sql": "SELECT\n  datetime(events.timestamp / 1000, 'unixepoch', 'localtime') AS timestamp,\n  packages.package_name,\n  CASE events.type\n    WHEN 1 THEN 'ACTIVITY_RESUMED'\n    WHEN 2 THEN 'ACTIVITY_PAUSED'\n    WHEN 23 THEN 'ACTIVITY_STOPPED'\n    ELSE events.type\n  END AS type\nFROM events\nINNER JOIN packages ON events.package_id = packages._id\nWHERE events.type IN (1, 2, 23)\n  AND events.timestamp BETWEEN {{unixMsStart}} AND {{unixMsEnd}}\n  AND IFNULL(packages.package_name, '') LIKE '%{{packageName}}%'\nORDER BY events.timestamp;"

@@ -20,7 +20,7 @@ window.APP_USAGE_CATALOG = {
         {
           "id": "app-usage",
           "title": "/app/usage — app aktiv",
-          "subtitle": "iLEAPP knowledgeC_AppUsage. ZVALUESTRING = bundle-ID.",
+          "subtitle": "Visar vilka appar som användes inom tidsspannet, med start, slut och antal sekunder. ZVALUESTRING är appens bundle-ID.",
           "recommended": true,
           "timeEpoch": "cocoa",
           "params": [
@@ -33,7 +33,7 @@ window.APP_USAGE_CATALOG = {
         {
           "id": "app-infocus",
           "title": "/app/inFocus — förgrund (äldre iOS)",
-          "subtitle": "Sarah Edwards / APOLLO. Saknas ofta från iOS 16 — då är det Biome App.InFocus.",
+          "subtitle": "Visar vilken app som låg i förgrunden på skärmen inom tidsspannet. Saknas ofta från iOS 16, då finns uppgiften i Biome App.InFocus i stället.",
           "timeEpoch": "cocoa",
           "params": [
             "timeStart",
@@ -45,7 +45,7 @@ window.APP_USAGE_CATALOG = {
         {
           "id": "is-backlit",
           "title": "/display/isBacklit — skärm tänd",
-          "subtitle": "iLEAPP knowledgeC_isBacklit. Korsreferera mot app-aktivitet.",
+          "subtitle": "Visar när skärmen tändes och släcktes inom tidsspannet. Jämför med app-aktiviteten för att se om någon tittade på telefonen.",
           "timeEpoch": "cocoa",
           "params": [
             "timeStart",
@@ -56,7 +56,7 @@ window.APP_USAGE_CATALOG = {
         {
           "id": "is-locked",
           "title": "/device/isLocked — låst/olåst",
-          "subtitle": "iLEAPP knowledgeC_isLocked.",
+          "subtitle": "Visar när telefonen låstes och låstes upp inom tidsspannet.",
           "timeEpoch": "cocoa",
           "params": [
             "timeStart",
@@ -66,8 +66,9 @@ window.APP_USAGE_CATALOG = {
         },
         {
           "id": "streams",
-          "title": "Lista ZSTREAMNAME (översikt)",
-          "subtitle": "Vilka strömmar som finns i just den här databasen.",
+          "title": "Hjälp: lista strömmarna i databasen",
+          "subtitle": "Söker inte efter händelser. Visar vilka strömmar (ZSTREAMNAME) som finns och hur många rader var och en har, så att du ser vilka queries som kan ge träffar.",
+          "group": "advanced",
           "params": [],
           "sql": "SELECT ZSTREAMNAME, COUNT(*) AS n\nFROM ZOBJECT\nGROUP BY ZSTREAMNAME\nORDER BY n DESC;"
         }
@@ -82,7 +83,8 @@ window.APP_USAGE_CATALOG = {
         {
           "id": "interactions",
           "title": "Interaktioner per app + person",
-          "subtitle": "iLEAPP interactionCContacts. ZBUNDLEID = app som användes.",
+          "subtitle": "Visar kontakter med personer inom tidsspannet (meddelanden, samtal, delning) och vilken app som användes. ZBUNDLEID är appen.",
+          "recommended": true,
           "timeEpoch": "cocoa",
           "params": [
             "timeStart",
@@ -102,7 +104,7 @@ window.APP_USAGE_CATALOG = {
         {
           "id": "resumed",
           "title": "ACTIVITY_RESUMED — app i förgrund",
-          "subtitle": "ALEAPP Digital Wellbeing. type 1 = ACTIVITY_RESUMED.",
+          "subtitle": "Visar varje gång en app öppnades eller kom tillbaka till förgrunden inom tidsspannet (ACTIVITY_RESUMED).",
           "recommended": true,
           "timeEpoch": "unix-ms",
           "params": [
@@ -115,7 +117,7 @@ window.APP_USAGE_CATALOG = {
         {
           "id": "fg-events",
           "title": "Förgrunds-händelser (resumed/paused/stopped)",
-          "subtitle": "ALEAPP. type 1/2/23.",
+          "subtitle": "Visar när appar öppnades, pausades och stängdes inom tidsspannet, så att du kan se hur länge en app var aktiv.",
           "timeEpoch": "unix-ms",
           "params": [
             "timeStart",

@@ -10,7 +10,7 @@ window.PHOTOS_SQLITE_CATALOG = {
       "id": "full-story",
       "recommended": true,
       "label": "Standardquery för Photos.sqlite",
-      "subtitle": "Rekommenderad väg — tider, app, kamera, position och lagring för valda filnamn",
+      "subtitle": "Hämtar allt viktigt om bilderna med valda filnamn: tider, vilken app som skapade och redigerade dem, kamera, position och var de lagras",
       "params": [
         "filename"
       ],
@@ -19,7 +19,7 @@ window.PHOTOS_SQLITE_CATALOG = {
     {
       "id": "when-created",
       "label": "När skapades bildfilen?",
-      "subtitle": "ZDATECREATED, ZADDEDDATE, EXIF-tid och tidszon",
+      "subtitle": "Visar när bilden skapades, när den lades till i biblioteket, tiden i EXIF och vilken tidszon som gällde",
       "params": [
         "filename"
       ],
@@ -96,7 +96,7 @@ window.PHOTOS_SQLITE_CATALOG = {
     {
       "id": "when-modified",
       "label": "När ändrades bildfilen senast?",
-      "subtitle": "ZMODIFICATIONDATE och redigeringsapp",
+      "subtitle": "Visar när bilden senast ändrades och vilken app som ändrade den",
       "params": [
         "filename"
       ],
@@ -165,7 +165,7 @@ window.PHOTOS_SQLITE_CATALOG = {
     {
       "id": "where-stored",
       "label": "Var lagras bildfilen?",
-      "subtitle": "ZDIRECTORY, ZFILENAME, ZORIGINALFILENAME",
+      "subtitle": "Visar mappen och filnamnet på telefonen, och vad filen hette innan den importerades",
       "params": [
         "filename"
       ],
@@ -182,21 +182,21 @@ window.PHOTOS_SQLITE_CATALOG = {
     },
     {
       "id": "schema-probe",
-      "label": "Lista tabeller i databasen",
-      "subtitle": "sqlite_master — Z*-tabeller",
+      "label": "Hjälp: lista tabellerna i databasen",
+      "subtitle": "Söker inte efter bilder. Visar vilka Z-tabeller som finns, så att du kan se om en query passar den här iOS-versionen",
       "params": [],
       "group": "advanced"
     },
     {
       "id": "columns-asset",
-      "label": "Visa kolumner (asset-tabeller)",
-      "subtitle": "PRAGMA table_info",
+      "label": "Hjälp: lista kolumnerna i bildtabellerna",
+      "subtitle": "Söker inte efter bilder. Visar kolumnerna i bildtabellen (ZASSET, i iOS 10–13 ZGENERICASSET) och ZADDITIONALASSETATTRIBUTES, om en query klagar på att en kolumn saknas",
       "params": [],
       "group": "advanced"
     },
     {
       "id": "album-join-tables",
-      "label": "Hitta tabellen som kopplar bilder till album",
+      "label": "Hjälp: hitta tabellen som kopplar bilder till album",
       "subtitle": "Numret i Z_nnASSETS skiljer mellan iOS-versioner. Kolumnerna visar hur tabellen ska kopplas",
       "params": [],
       "group": "advanced"

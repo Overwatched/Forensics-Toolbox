@@ -16,6 +16,8 @@ const workspace = document.getElementById('workspace');
 const toast = document.getElementById('toast');
 const resultPreview = document.getElementById('result-preview');
 const sqlStepLabel = document.getElementById('sql-step-label');
+const dbPicker = document.getElementById('db-picker');
+const backBtn = document.getElementById('back-btn');
 
 const COCOA_EPOCH = 978307200;
 const MAX_UNIX = 4102444800;
@@ -454,7 +456,10 @@ function renderResultPreview(sql) {
         resultPreview.innerHTML = '<p class="muted">Det här är ingen query som returnerar rader, bara en mall eller arbetsgång. Läs kommentarerna i SQL:en.</p>';
         return;
     }
+    const db = currentDb();
     const rows = window.QueryPreview.exampleRows(cols, {
+        sql: sql,
+        platform: db ? db.os : '',
         filename: paramValue('filename'),
         packageName: paramValue('packageName'),
         bundleId: paramValue('bundleId'),
@@ -473,6 +478,7 @@ function onDbChange() {
     const db = currentDb();
     workspace.classList.toggle('display-none', !db);
     if (dbOverview) dbOverview.classList.toggle('display-none', !!db);
+    dbPicker.classList.toggle('display-none', !db);
     showQueries = false;
     sqlDirty = false;
     setEditMode(false);
@@ -576,6 +582,7 @@ function buildDatabases(photos, android, appUsage) {
                 title: q.title,
                 subtitle: q.subtitle || '',
                 recommended: !!q.recommended,
+                group: q.group,
                 params: q.params || [],
                 sql: q.sql,
             })),
@@ -667,7 +674,13 @@ function selectDb(id) {
     dbSelect.value = id;
     sqlDirty = false;
     onDbChange();
+    window.scrollTo(0, 0);
 }
+
+const OS_INTRO = {
+    iOS: 'iPhone och iPad. Tiderna i databaserna räknas från 2001 och konverteras i SQL:en.',
+    Android: 'Telefoner och surfplattor. MediaStore finns på alla, de andra beror på tillverkare och version.',
+};
 
 function renderOverview() {
     if (!dbOverview) return;
@@ -677,19 +690,24 @@ function renderOverview() {
         (groups[f.os] || (groups[f.os] = [])).push(f);
     });
 
-    let html = '';
+    let html = '<div class="db-sections">';
     Object.keys(groups).forEach((os) => {
         if (!groups[os].length) return;
-        html += '<div class="db-os">' + escapeHtml(os) + '</div><div class="db-grid">';
+        html += '<section class="db-section"><div class="db-section-head"><h2>' + escapeHtml(os) + '</h2>' +
+            '<p>' + escapeHtml(OS_INTRO[os] || '') + '</p></div>';
         groups[os].forEach((f) => {
-            const multi = f.items.length > 1;
-            const defaultId = f.items[f.items.length - 1].id;
-            html += '<div class="db-card" role="button" tabindex="0" data-db="' + escapeHtml(defaultId) + '">';
+            const defaultDb = f.items[f.items.length - 1];
+            const rec = recommendedQuery(defaultDb);
+            const path = String(defaultDb.dbPathHint || '').replace(/\s*\(.*\)\s*$/, '');
+            const count = defaultDb.queries.length;
+            html += '<div class="db-card" role="button" tabindex="0" data-db="' + escapeHtml(defaultDb.id) + '">';
             html += '<div class="db-card-title"><span>' + escapeHtml(f.title) + '</span>' +
-                '<span class="db-card-os">' + escapeHtml(os) + '</span></div>';
+                '<span class="db-card-count">' + count + (count === 1 ? ' query' : ' queries') + '</span></div>';
             html += '<div class="db-card-blurb">' + escapeHtml(f.blurb) + '</div>';
-            if (multi) {
-                html += '<div class="db-card-versions">';
+            if (path) html += '<div class="db-card-path" title="' + escapeHtml(path) + '">' + escapeHtml(path) + '</div>';
+            if (rec) html += '<div class="db-card-rec"><span class="badge">Rekommenderas</span>' + escapeHtml(rec.title) + '</div>';
+            if (f.items.length > 1) {
+                html += '<div class="db-card-versions"><span class="db-card-versions-label">iOS-version:</span>';
                 f.items.forEach((item) => {
                     html += '<button type="button" class="db-chip" data-db="' + escapeHtml(item.id) + '">' +
                         escapeHtml(item.versionLabel || item.label) + '</button>';
@@ -698,9 +716,9 @@ function renderOverview() {
             }
             html += '</div>';
         });
-        html += '</div>';
+        html += '</section>';
     });
-    dbOverview.innerHTML = html;
+    dbOverview.innerHTML = html + '</div>';
 
     dbOverview.querySelectorAll('.db-chip').forEach((chip) => {
         chip.addEventListener('click', (e) => {
@@ -749,6 +767,12 @@ async function init() {
 }
 
 dbSelect.addEventListener('change', () => {
+    sqlDirty = false;
+    onDbChange();
+});
+
+backBtn.addEventListener('click', () => {
+    dbSelect.value = '';
     sqlDirty = false;
     onDbChange();
 });

@@ -13,15 +13,20 @@
     <div id="container">
         <header class="page-header">
             <h1>Queries</h1>
-            <p>Välj databas. Översikten visar vad varje källa innehåller.</p>
+            <p>Välj databasen du har hittat i utvinningen. Du får färdig SQL att köra i DB Browser for SQLite.</p>
         </header>
 
         <div id="load-error" class="banner error display-none"></div>
 
-        <div class="step-label">1. Databas</div>
-        <select id="db-select" disabled>
-            <option value="">Välj databas…</option>
-        </select>
+        <div id="db-picker" class="display-none">
+            <div class="step-label">1. Databas</div>
+            <div class="db-picker-row">
+                <button type="button" class="secondary back-btn" id="back-btn">← Alla databaser</button>
+                <select id="db-select" disabled>
+                    <option value="">Välj databas…</option>
+                </select>
+            </div>
+        </div>
         <div id="db-overview" class="db-overview"></div>
 
         <div id="workspace" class="workspace display-none">
