@@ -70,6 +70,7 @@ if (missingMaps.length) {
 }
 fs.mkdirSync(path.join(dest, 'maps'), { recursive: true });
 mapNames.forEach((name) => fs.copyFileSync(path.join(mapDir, name), path.join(dest, 'maps', name)));
+fs.copyFileSync(path.join(ROOT, 'scripts', 'serve-html.py'), path.join(dest, 'serve-html.py'));
 console.log('pack-html-folder: tar med offlinekartan (' + mapNames.join(', ') + ')');
 
 const readme = [
@@ -80,22 +81,19 @@ const readme = [
     '',
     'Start:',
     '  1. Packa upp zip-filen om den inte redan är uppackad.',
-    '  2. Dubbelklicka Öppna.bat (Windows) eller Öppna.command (macOS/Linux).',
-    '     Den startar en lokal sida så att kartan i mappen maps används direkt.',
-    '     Du behöver inte ladda ner kartdata separat.',
+    '  2. Dubbelklicka Öppna.bat (Windows) eller Öppna.command (macOS/Linux)',
+    '     om skript får köras. Kartan i mappen maps används då direkt.',
     '',
-    'Om sidan ser ostylad ut blockerar webbläsaren file://. Då kan du:',
-    '  - öppna Toolbox.html via Edge/Chrome med en lokal mapp, eller',
-    '  - starta en enkel lokal server i den här mappen, t.ex.:',
-    '      python -m http.server 8080',
-    '    och gå till http://127.0.0.1:8080/Toolbox.html',
+    'På en låst dator, där skript och .exe inte får köras:',
+    '  Öppna Toolbox.html i Edge eller Chrome.',
+    '  Gå till EXIF & karta eller Positioner och välj mappen maps.',
+    '  Dialogen är en mapp, inte en enstaka fil.',
     '',
     'Query-katalogerna har JS-fallback',
     'så de fungerar även när fetch() av .json blockeras.',
     '',
     'Kartan:',
-    '  Offlinekartan (världen och Sverige) ligger redan i mappen maps.',
-    '  Öppna.bat / Öppna.command använder den automatiskt.',
+    '  Offlinekartan (världen i översikt, Sverige på gatunivå) ligger i mappen maps.',
     '',
 ].join('\n');
 
@@ -103,14 +101,15 @@ fs.writeFileSync(path.join(dest, 'LÄS MIG.txt'), readme, 'utf8');
 fs.writeFileSync(path.join(dest, 'Öppna.bat'), [
     '@echo off',
     'cd /d "%~dp0"',
-    'start "" http://127.0.0.1:8080/Toolbox.html',
-    'python -m http.server 8080',
+    'start "" cmd /c "timeout /t 1 /nobreak >nul & start http://127.0.0.1:8080/Toolbox.html"',
+    'python serve-html.py 8080',
+    'if errorlevel 1 py -3 serve-html.py 8080',
     '',
 ].join('\r\n'), 'utf8');
 fs.writeFileSync(path.join(dest, 'Öppna.command'), [
     '#!/bin/sh',
     'cd "$(dirname "$0")"',
-    'python3 -m http.server 8080 &',
+    'python3 serve-html.py 8080 &',
     'sleep 1',
     'open http://127.0.0.1:8080/Toolbox.html',
     'wait',

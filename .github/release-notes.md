@@ -1,5 +1,10 @@
 Automatiskt byggd från commit `{{SHA}}`.
 
+## Nytt i 1.11
+
+- **Välj mappen maps** öppnar en mapp, inte en enstaka fil. På en låst dator: öppna `Toolbox.html` i Edge eller Chrome och peka ut mappen `maps`. Ingen .exe och ingen Python krävs.
+- `Öppna.bat` och `Öppna.command` använder en lokal server som kan lämna ut delar av kartfilen. Då laddas offlinekartan av sig själv, med Sverige på gatunivå.
+
 ## Nytt i 1.10
 
 - Klicka på en punkt och välj **Dölj** eller **Ta bort**. Dölj tar bort den från kartan men lämnar den i listan, där den kan visas igen.

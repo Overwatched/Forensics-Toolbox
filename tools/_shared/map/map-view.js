@@ -155,17 +155,55 @@
         }).catch(function () {});
     }
 
-    function filesInDir(dir) {
-        return dir.getFileHandle('kartdata.json').then(function () { return dir; }, function () {
-            return dir.getDirectoryHandle('maps');
-        }).then(function (folder) {
-            return folder.getFileHandle('kartdata.json').then(function (handle) {
-                return handle.getFile().then(function (file) { return file.text(); });
-            }).then(function (text) {
+    function listPmtiles(folder) {
+        var files = [];
+        var iter = folder.values();
+        function step() {
+            return iter.next().then(function (item) {
+                if (item.done) return files;
+                var entry = item.value;
+                if (entry.kind === 'file' && /\.pmtiles$/i.test(entry.name)) {
+                    return entry.getFile().then(function (file) {
+                        files.push(file);
+                        return step();
+                    });
+                }
+                return step();
+            });
+        }
+        return step();
+    }
+
+    // kartdata.json namnger filerna. Saknas den, som när world.pmtiles och
+    // sweden.pmtiles laddats ner var för sig, duger .pmtiles-filerna i mappen.
+    function readMapFolder(folder) {
+        return folder.getFileHandle('kartdata.json').then(function (handle) {
+            return handle.getFile().then(function (file) { return file.text(); }).then(function (text) {
                 var json = JSON.parse(text);
                 return Promise.all(Object.keys(json.files).map(function (name) {
-                    return folder.getFileHandle(name).then(function (handle) { return handle.getFile(); });
+                    return folder.getFileHandle(name).then(function (fileHandle) {
+                        return fileHandle.getFile();
+                    }, function () {
+                        throw new Error('saknar ' + name);
+                    });
                 })).then(function (files) { return { json: json, files: files }; });
+            });
+        }, function () {
+            return listPmtiles(folder).then(function (files) {
+                if (!files.length) throw new Error('mappen saknar kartdata.json och .pmtiles-filer');
+                return { json: null, files: files };
+            });
+        });
+    }
+
+    function filesInDir(dir) {
+        return dir.getFileHandle('kartdata.json').then(function () {
+            return readMapFolder(dir);
+        }, function () {
+            return dir.getDirectoryHandle('maps').then(function (folder) {
+                return readMapFolder(folder);
+            }, function () {
+                return readMapFolder(dir);
             });
         });
     }
@@ -344,12 +382,17 @@
         pickDir.type = 'button';
         var pick = make('button', 'secondary-btn', 'Välj kartfiler…');
         pick.type = 'button';
+        var dirInput = make('input');
+        dirInput.type = 'file';
+        dirInput.multiple = true;
+        dirInput.setAttribute('webkitdirectory', '');
+        dirInput.setAttribute('directory', '');
+        dirInput.hidden = true;
         var input = make('input');
         input.type = 'file';
-        input.accept = '.pmtiles';
         input.multiple = true;
         input.hidden = true;
-        fallback.append(pickDir, pick, input);
+        fallback.append(pickDir, pick, dirInput, input);
         var steps = make('div', 'map-steps');
         var timeBar = make('div', 'map-time display-none');
         var timeInput = make('input');
@@ -399,7 +442,7 @@
             bubbleLeaders: bubbleLeaders.input,
             bubbleSmaller: bubbleSmaller, bubbleLarger: bubbleLarger,
             routeNote: routeNote, note: note, steps: steps, timeBar: timeBar, timeInput: timeInput, play: play, timeLabel: timeLabel,
-            fallback: fallback, pickDir: pickDir, pick: pick, input: input,
+            fallback: fallback, pickDir: pickDir, pick: pick, dirInput: dirInput, input: input,
             consent: consent, consentOk: consentOk, consentCancel: consentCancel,
         };
     }
@@ -1322,37 +1365,34 @@
             if (map) applyStyle();
         });
         el.consentCancel.addEventListener('click', function () { el.consent.classList.add('display-none'); });
-        el.pickDir.addEventListener('click', function () {
-            var choose = window.showDirectoryPicker
-                ? window.showDirectoryPicker({ mode: 'read' })
-                : Promise.reject(new Error('ingen mappväljare'));
-            choose.then(function (dir) {
-                return filesInDir(dir).then(function (got) {
-                    manifest = got.json;
-                    return openFiles(got.files).then(function () {
-                        manifest = got.json;
-                        return saveDirHandle(dir);
-                    });
-                });
-            }).then(function () {
-                if (map && !online) applyStyle();
-                else updateStatus();
-            }).catch(function (err) {
-                if (err && err.name === 'AbortError') return;
-                el.input.click();
+        function useChosenFiles(files) {
+            var tiles = Array.prototype.filter.call(files || [], function (file) {
+                return /\.pmtiles$/i.test(file.name);
             });
-        });
-        el.pick.addEventListener('click', function () { el.input.click(); });
-        el.input.addEventListener('change', function () {
-            var files = el.input.files;
-            if (!files || !files.length) return;
-            start().then(function () { return openFiles(files); }).then(function () {
-                el.input.value = '';
+            if (!tiles.length) {
+                setStatus('Mappen behöver innehålla world.pmtiles och sweden.pmtiles.', 'missing');
+                return;
+            }
+            start().then(function () { return openFiles(tiles); }).then(function () {
                 if (!online) applyStyle();
                 updateStatus();
             }).catch(function (err) {
                 setStatus('Kartfilerna kunde inte läsas: ' + (err && err.message ? err.message : err), 'missing');
             });
+        }
+        el.pickDir.addEventListener('click', function () {
+            // Alltid en mappdialog, i samma klick. En filväljare som reserv
+            // gjorde att Windows bara lät användaren markera en fil.
+            el.dirInput.click();
+        });
+        el.pick.addEventListener('click', function () { el.input.click(); });
+        el.dirInput.addEventListener('change', function () {
+            useChosenFiles(el.dirInput.files);
+            el.dirInput.value = '';
+        });
+        el.input.addEventListener('change', function () {
+            useChosenFiles(el.input.files);
+            el.input.value = '';
         });
 
         return {
