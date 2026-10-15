@@ -26,6 +26,20 @@ Verktyg för IT-forensik som körs på din egen dator. Inget nätverk behövs. O
 
 Knappen **Fyll med testdata** i EXIF & karta och Positioner lägger in en påhittad promenad i Stockholm, så att kartan går att prova direkt.
 
+## Bilder
+
+Positioner, med bubblor för enhet och en cirkel för noggrannhet.
+
+![Positioner med bubblor och noggrannhetscirkel](docs/images/positioner-bubblor.png)
+
+EXIF & karta, med listan över bilderna bredvid kartan.
+
+![EXIF och karta med positionslista](docs/images/exif-lista.png)
+
+Positioner, med miniatyrer i bubblorna.
+
+![Positioner med miniatyrer i bubblorna](docs/images/positioner-miniatyrer.png)
+
 ## Köra från källkod
 
 Kräver Node.js 20.

@@ -12,6 +12,7 @@ on:
     branches: [main]
     paths-ignore:
       - '**.md'
+      - 'docs/images/**'
   workflow_dispatch:
 
 permissions:
