@@ -377,7 +377,7 @@
         var routeNote = make('p', 'map-note');
         var note = make('p', 'map-note');
         var fallback = make('div', 'map-fallback display-none');
-        fallback.append(make('p', '', 'Offlinekartan ligger i mappen maps. Välj den mappen, eller filerna world.pmtiles och sweden.pmtiles.'));
+        fallback.append(make('p', '', 'Offlinekartan ligger i mappen maps bredvid Toolbox.html. Välj den mappen. Ingen server behövs.'));
         var pickDir = make('button', 'secondary-btn', 'Välj mappen maps…');
         pickDir.type = 'button';
         var pick = make('button', 'secondary-btn', 'Välj kartfiler…');
@@ -476,7 +476,7 @@
         function updateStatus() {
             if (online) setStatus('Online · ' + ONLINE.name + ' hämtar kartrutor för området som visas. Inga filer skickas.', 'online');
             else if (archives.length) setStatus(offlineLabel(), 'offline');
-            else setStatus('Ingen offlinekarta. Välj kartfiler eller slå på onlinekartan.', 'missing');
+            else setStatus('Ingen offlinekarta. Välj mappen maps, eller slå på onlinekartan.', 'missing');
             el.fallback.classList.toggle('display-none', online || archives.length > 0);
         }
 

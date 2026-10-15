@@ -70,7 +70,6 @@ if (missingMaps.length) {
 }
 fs.mkdirSync(path.join(dest, 'maps'), { recursive: true });
 mapNames.forEach((name) => fs.copyFileSync(path.join(mapDir, name), path.join(dest, 'maps', name)));
-fs.copyFileSync(path.join(ROOT, 'scripts', 'serve-html.py'), path.join(dest, 'serve-html.py'));
 console.log('pack-html-folder: tar med offlinekartan (' + mapNames.join(', ') + ')');
 
 const readme = [
@@ -81,13 +80,12 @@ const readme = [
     '',
     'Start:',
     '  1. Packa upp zip-filen om den inte redan är uppackad.',
-    '  2. Dubbelklicka Öppna.bat (Windows) eller Öppna.command (macOS/Linux)',
-    '     om skript får köras. Kartan i mappen maps används då direkt.',
+    '  2. Öppna Toolbox.html i Edge eller Chrome.',
+    '  3. Gå till EXIF & karta eller Positioner.',
+    '  4. Välj mappen maps. Dialogen är en mapp, inte en enstaka fil.',
     '',
-    'På en låst dator, där skript och .exe inte får köras:',
-    '  Öppna Toolbox.html i Edge eller Chrome.',
-    '  Gå till EXIF & karta eller Positioner och välj mappen maps.',
-    '  Dialogen är en mapp, inte en enstaka fil.',
+    'Kartan läser filerna direkt från mappen. Ingen server och inget skript behövs.',
+    'Valet görs igen varje gång sidan öppnas.',
     '',
     'Query-katalogerna har JS-fallback',
     'så de fungerar även när fetch() av .json blockeras.',
@@ -98,23 +96,6 @@ const readme = [
 ].join('\n');
 
 fs.writeFileSync(path.join(dest, 'LÄS MIG.txt'), readme, 'utf8');
-fs.writeFileSync(path.join(dest, 'Öppna.bat'), [
-    '@echo off',
-    'cd /d "%~dp0"',
-    'start "" cmd /c "timeout /t 1 /nobreak >nul & start http://127.0.0.1:8080/Toolbox.html"',
-    'python serve-html.py 8080',
-    'if errorlevel 1 py -3 serve-html.py 8080',
-    '',
-].join('\r\n'), 'utf8');
-fs.writeFileSync(path.join(dest, 'Öppna.command'), [
-    '#!/bin/sh',
-    'cd "$(dirname "$0")"',
-    'python3 serve-html.py 8080 &',
-    'sleep 1',
-    'open http://127.0.0.1:8080/Toolbox.html',
-    'wait',
-    '',
-].join('\n'), { mode: 0o755 });
 
 function countFiles(dir) {
     let n = 0;

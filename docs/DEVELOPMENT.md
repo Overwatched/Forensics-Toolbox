@@ -147,8 +147,9 @@ vektorkartor i PMTiles-format.
   aldrig. Electron tar bort appnamnet ur User-Agent och Referer/Cookie ur alla
   externa anrop.
 - **HTML-versionen** har ingen `ftmaps://`. Kartfilerna packas med i mappen `maps`.
-  Sidan läser dem via en relativ sökväg när den öppnas genom en lokal server, och
-  frågar annars en gång efter mappen. Onlinekartan fungerar som i skrivbordsappen.
+  En dubbelklickad `Toolbox.html` får inte läsa den mappen själv, så användaren
+  väljer mappen `maps` i kartan. Webbläsaren läser då filerna i bitar, utan server.
+  Onlinekartan fungerar som i skrivbordsappen.
 
 ### Lägga till ett verktyg
 

@@ -1,9 +1,12 @@
 Automatiskt byggd från commit `{{SHA}}`.
 
+## Nytt i 1.12
+
+- HTML-zippen startar ingen lokal server. Öppna `Toolbox.html` och välj mappen `maps`. Kartan läser filerna direkt därifrån.
+
 ## Nytt i 1.11
 
-- **Välj mappen maps** öppnar en mapp, inte en enstaka fil. På en låst dator: öppna `Toolbox.html` i Edge eller Chrome och peka ut mappen `maps`. Ingen .exe och ingen Python krävs.
-- `Öppna.bat` och `Öppna.command` använder en lokal server som kan lämna ut delar av kartfilen. Då laddas offlinekartan av sig själv, med Sverige på gatunivå.
+- **Välj mappen maps** öppnar en mapp, inte en enstaka fil. På en låst dator: öppna `Toolbox.html` i Edge eller Chrome och peka ut mappen `maps`. Ingen .exe, ingen Python och ingen lokal server.
 
 ## Nytt i 1.10
 
@@ -27,7 +30,7 @@ Offlinekartan från 1.7 finns kvar: världen i översikt, Sverige på gatunivå.
 - **ForensicsToolbox-{{VERSION}}-Portable.zip** — portabel, packa upp och kör `Forensics Toolbox.exe`
 
 ## HTML-mapp (ingen .exe)
-- **ForensicsToolbox-{{VERSION}}-html.zip** — packa upp och dubbelklicka `Öppna.bat` eller `Öppna.command`. Offlinekartan ligger redan i mappen `maps`.
+- **ForensicsToolbox-{{VERSION}}-html.zip** — packa upp, öppna `Toolbox.html` och välj mappen `maps`. Offlinekartan ligger redan där. Ingen server behövs.
 
 ## Linux
 - **ForensicsToolbox-*.AppImage** — körbar AppImage (x64)

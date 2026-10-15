@@ -18,7 +18,7 @@ Verktyg för IT-forensik som körs på din egen dator. Inget nätverk behövs. O
 | `…-Portable.zip` | Packa upp och kör `Forensics Toolbox.exe` |
 | Linux `.AppImage` | Gör filen körbar och starta den |
 | macOS `.dmg` | Osignerad. Högerklicka och välj Öppna om datorn varnar |
-| `…-html.zip` | När körbara filer inte är tillåtna. Kartan följer med. `Öppna.bat` om skript får köras, annars öppna `Toolbox.html` och välj mappen `maps` |
+| `…-html.zip` | När körbara filer inte är tillåtna. Öppna `Toolbox.html` och välj mappen `maps`. Ingen server behövs |
 
 ## Verktyg
 
