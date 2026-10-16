@@ -509,7 +509,28 @@
         return cut > 0 ? path.slice(0, cut) : '';
     }
 
+    // Ett fast nummer per punkt i tidsordning, så att kartan och listan går att para ihop och
+    // så att "punkt 7" betyder samma sak även när punkter tas ur rutten. Utan tid kommer sist.
+    function numberPoints(list, steps) {
+        var numbers = {};
+        var inRoute = {};
+        var n = 0;
+        (steps || []).forEach(function (s) { inRoute[s.point.id] = true; });
+        list.map(function (p, i) { return { p: p, i: i, t: p.taken && p.taken.sort ? p.taken.sort : '' }; })
+            .sort(function (a, b) {
+                if (a.t !== b.t) {
+                    if (!a.t) return 1;
+                    if (!b.t) return -1;
+                    return a.t < b.t ? -1 : 1;
+                }
+                return a.i - b.i;
+            })
+            .forEach(function (x) { if (!numbers[x.p.id]) numbers[x.p.id] = ++n; });
+        return { numbers: numbers, inRoute: inRoute };
+    }
+
     var api = {
+        numberPoints: numberPoints,
         BUBBLE_FIELDS: BUBBLE_FIELDS,
         defaultBubble: defaultBubble,
         bubbleParts: bubbleParts,

@@ -361,8 +361,18 @@
         var online = labeledToggle('Onlinekarta');
         var fit = make('button', 'link-btn', 'Visa alla');
         fit.type = 'button';
-        var listBtn = make('button', 'link-btn', 'Lista');
+        var listBtn = make('button', 'map-list-btn', 'Lista');
         listBtn.type = 'button';
+        listBtn.title = 'Visa alla punkter i en lista';
+        var numbersRow = make('label', 'map-field');
+        numbersRow.append(make('span', '', 'Nummer på'));
+        var numbers = make('select');
+        [['all', 'Alla punkter'], ['route', 'Bara rutten'], ['none', 'Inga']].forEach(function (o) {
+            var opt = make('option', '', o[1]);
+            opt.value = o[0];
+            numbers.append(opt);
+        });
+        numbersRow.append(numbers);
         var measureBtn = make('button', 'link-btn', 'Mät');
         measureBtn.type = 'button';
         var saveBtn = make('button', 'link-btn', 'Spara bild');
@@ -370,9 +380,9 @@
         var routeSection = make('div', 'map-section');
         routeSection.append(make('h3', '', 'Rutt'));
         var routeStack = make('div', 'map-stack');
-        routeStack.append(route.label, perDevice.label, accuracy.label);
+        routeStack.append(route.label, perDevice.label, accuracy.label, numbersRow);
         var routeActions = make('div', 'map-row');
-        routeActions.append(fit, listBtn, measureBtn, saveBtn);
+        routeActions.append(fit, measureBtn, saveBtn);
         routeSection.append(routeStack, routeActions);
         var measureNote = make('p', 'map-note');
         routeSection.append(measureNote);
@@ -479,7 +489,7 @@
             editor: editor, bubbleCustom: bubbleCustom, bubbleReset: bubbleReset,
             wrap: host, map: mapEl, status: status, route: route.input, perDevice: perDevice.input, accuracy: accuracy.input,
             online: online.input, fit: fit, measureBtn: measureBtn, saveBtn: saveBtn, measureNote: measureNote,
-            listBtn: listBtn, list: list,
+            listBtn: listBtn, list: list, numbers: numbers,
             bubbleTime: bubbleTime, bubbleName: bubbleName, bubbleDevice: bubbleDevice, bubbleApp: bubbleApp,
             bubblePos: bubblePos, bubbleAccuracy: bubbleAccuracy, bubbleNote: bubbleNote, bubbleTitles: bubbleTitles, bubbleThumb: bubbleThumb,
             bubbleLeaders: bubbleLeaders.input,
@@ -538,12 +548,31 @@
         }
 
         // Verktyget kan dela upp rutten själv (Positioner gör det per källa).
-        var stepById = {};
+        var numberById = {};
+        var inRouteById = {};
 
         function computeRoute() {
             routeInfo = (opts.route || root.MapCore.route)(routePoints());
-            stepById = {};
-            routeInfo.steps.forEach(function (s) { stepById[s.point.id] = s.index; });
+            var numbering = root.MapCore.numberPoints(points, el.route.checked ? routeInfo.steps : []);
+            numberById = numbering.numbers;
+            inRouteById = numbering.inRoute;
+        }
+
+        function badgeShown(p) {
+            var mode = el.numbers.value;
+            if (mode === 'none') return false;
+            if (mode === 'route') return !!inRouteById[p.id];
+            return !!numberById[p.id];
+        }
+
+        function badgeFilter() {
+            var f = ['all', ['!', ['has', 'point_count']], ['>', ['get', 'step'], 0]];
+            if (el.numbers.value === 'route') f.push(['==', ['get', 'inroute'], 1]);
+            return f;
+        }
+
+        function badgeVisibility() {
+            return el.numbers.value === 'none' ? 'none' : 'visible';
         }
 
         function panelBubble() {
@@ -568,7 +597,6 @@
         }
 
         function geojson() {
-            var steps = stepById;
             return {
                 type: 'FeatureCollection',
                 features: drawnPoints().map(function (p) {
@@ -577,7 +605,8 @@
                         id: p.id,
                         geometry: { type: 'Point', coordinates: [p.lon, p.lat] },
                         properties: {
-                            id: p.id, kind: kind(p.mime), step: steps[p.id] || 0, color: p.color || '',
+                            id: p.id, kind: kind(p.mime), step: numberById[p.id] || 0,
+                            inroute: inRouteById[p.id] ? 1 : 0, color: p.color || '',
                         },
                     };
                 }),
@@ -730,7 +759,10 @@
             });
             map.addLayer({
                 id: 'cluster-count', type: 'symbol', source: 'files', filter: ['has', 'point_count'],
-                layout: { 'text-field': ['get', 'point_count_abbreviated'], 'text-font': FONT, 'text-size': 12, 'text-allow-overlap': true },
+                layout: {
+                    'text-field': ['concat', ['get', 'point_count_abbreviated'], ' st'],
+                    'text-font': FONT, 'text-size': 12, 'text-allow-overlap': true,
+                },
                 paint: { 'text-color': '#ffffff' },
             });
             map.addLayer({
@@ -743,26 +775,31 @@
                     'circle-stroke-width': ['case', ['boolean', ['feature-state', 'selected'], false], 3, 2],
                 },
             });
-            var stepOn = el.route.checked ? 'visible' : 'none';
+            // Mörk bricka för punkter i rutten, ljus för övriga.
+            var routed = ['==', ['get', 'inroute'], 1];
             map.addLayer({
                 id: 'point-badge', type: 'circle', source: 'files',
-                filter: ['all', ['!', ['has', 'point_count']], ['>', ['get', 'step'], 0]],
-                layout: { visibility: stepOn },
+                filter: badgeFilter(),
+                layout: { visibility: badgeVisibility() },
                 paint: {
                     'circle-radius': 13,
-                    'circle-color': '#1c1c1e',
-                    'circle-stroke-color': '#ffffff',
-                    'circle-stroke-width': 2,
+                    'circle-color': ['case', routed, '#1c1c1e', '#ffffff'],
+                    'circle-stroke-color': ['case', routed, '#ffffff', ['case', ['!=', ['get', 'color'], ''], ['get', 'color'], '#1c1c1e']],
+                    'circle-stroke-width': ['case', routed, 2, 2.5],
                 },
             });
             map.addLayer({
                 id: 'point-step', type: 'symbol', source: 'files',
-                filter: ['all', ['!', ['has', 'point_count']], ['>', ['get', 'step'], 0]],
+                filter: badgeFilter(),
                 layout: {
                     'text-field': ['to-string', ['get', 'step']], 'text-font': FONT, 'text-size': 13,
-                    'text-allow-overlap': true, visibility: stepOn,
+                    'text-allow-overlap': true, visibility: badgeVisibility(),
                 },
-                paint: { 'text-color': '#ffffff', 'text-halo-color': '#1c1c1e', 'text-halo-width': 1.2 },
+                paint: {
+                    'text-color': ['case', routed, '#ffffff', '#1c1c1e'],
+                    'text-halo-color': ['case', routed, '#1c1c1e', '#ffffff'],
+                    'text-halo-width': 1.2,
+                },
             });
         }
 
@@ -787,7 +824,7 @@
 
         // Punktens radie i pixlar, med vit kant. Med rutt är det den mörka sifferbrickan.
         function pointRadius(p) {
-            if (el.route.checked && stepById[p.id]) return 15;
+            if (badgeShown(p)) return 15;
             return p.id === selectedId ? 13 : 9;
         }
 
@@ -922,9 +959,11 @@
             if (!map || !map.getSource('files')) return;
             map.getSource('files').setData(geojson());
             map.getSource('route').setData(routeGeojson());
-            var stepOn = el.route.checked ? 'visible' : 'none';
-            if (map.getLayer('point-step')) map.setLayoutProperty('point-step', 'visibility', stepOn);
-            if (map.getLayer('point-badge')) map.setLayoutProperty('point-badge', 'visibility', stepOn);
+            ['point-badge', 'point-step'].forEach(function (id) {
+                if (!map.getLayer(id)) return;
+                map.setFilter(id, badgeFilter());
+                map.setLayoutProperty(id, 'visibility', badgeVisibility());
+            });
             if (map.getSource('accuracy')) map.getSource('accuracy').setData(accuracyGeojson());
             refreshMeasure();
             syncBubbles();
@@ -984,9 +1023,13 @@
             row('Enhet', p.device);
             row('Position', p.lat + ', ' + p.lon);
             if (p.accuracy > 0) row('Horisontell noggrannhet', Math.round(p.accuracy) + ' m');
-            var step = routeInfo && routeInfo.steps.filter(function (s) { return s.point.id === p.id; })[0];
+            var stepAt = inRouteById[p.id] ? routeInfo.steps.map(function (s) { return s.point.id; }).indexOf(p.id) : -1;
+            var step = stepAt >= 0 ? routeInfo.steps[stepAt] : null;
+            if (numberById[p.id]) {
+                row('Nummer', numberById[p.id] + (el.route.checked && !step ? ' (inte med i rutten)' : ''));
+            }
             if (step) {
-                var routeText = 'Punkt ' + step.index + ' av ' + routeInfo.steps.length + (step.assumed ? ' (tidszon antagen)' : '');
+                var routeText = 'Steg ' + (stepAt + 1) + ' av ' + routeInfo.steps.length + (step.assumed ? ' (tidszon antagen)' : '');
                 if (step.trip && routeInfo.trips && routeInfo.trips.length > 1) routeText += ' · tur ' + step.trip;
                 row('Rutt', routeText);
                 if (step.fromPrev && root.MapCore.legText) row('Steg', root.MapCore.legText(step.fromPrev));
@@ -1176,6 +1219,14 @@
                     localIdeographFontFamily: 'sans-serif',
                 });
                 map.addControl(new root.maplibregl.NavigationControl({ visualizePitch: false }), 'top-right');
+                map.addControl({
+                    onAdd: function () {
+                        var box = make('div', 'maplibregl-ctrl maplibregl-ctrl-group map-list-ctrl');
+                        box.append(el.listBtn);
+                        return box;
+                    },
+                    onRemove: function () { if (el.listBtn.parentNode) el.listBtn.parentNode.remove(); },
+                }, 'top-right');
                 map.addControl(new root.maplibregl.ScaleControl({ unit: 'metric' }), 'bottom-left');
                 map.addControl(new root.maplibregl.AttributionControl({ compact: true }), 'bottom-right');
                 map.once('style.load', addDataLayers);
@@ -1410,16 +1461,8 @@
         var labelTimer = null;
 
         function orderedPoints() {
-            var seen = {};
-            var out = [];
-            if (routeInfo) routeInfo.steps.forEach(function (s) {
-                seen[s.point.id] = true;
-                out.push({ point: s.point, index: s.index });
-            });
-            points.forEach(function (p) {
-                if (!seen[p.id]) out.push({ point: p, index: 0 });
-            });
-            return out;
+            return points.map(function (p) { return { point: p, index: numberById[p.id] || 0 }; })
+                .sort(function (a, b) { return (a.index || Infinity) - (b.index || Infinity); });
         }
 
         function pickedIds() {
@@ -1571,7 +1614,10 @@
                     else delete picked[p.id];
                     renderList();
                 });
-                item.append(pick, make('b', 'map-list-num', row.index ? String(row.index) : '–'));
+                var num = make('b', 'map-list-num' + (el.route.checked && !inRouteById[p.id] ? ' is-off-route' : ''),
+                    row.index ? String(row.index) : '–');
+                if (num.classList.contains('is-off-route')) num.title = 'Inte med i rutten';
+                item.append(pick, num);
                 var body = make('div', 'map-list-body');
                 body.append(make('div', 'map-list-name', p.name || 'Punkt'));
                 var source = sources.length > 1 ? root.MapCore.sourceOf(p) : '';
@@ -1637,6 +1683,8 @@
             listOpen = open;
             el.list.classList.toggle('display-none', !open);
             el.wrap.classList.toggle('map-with-list', open);
+            el.listBtn.classList.toggle('active', open);
+            el.listBtn.title = open ? 'Stäng listan' : 'Visa alla punkter i en lista';
             if (map) map.resize();
         }
 
@@ -1683,6 +1731,7 @@
         }
 
         el.route.addEventListener('change', routeChanged);
+        el.numbers.addEventListener('change', refreshData);
         el.listBtn.addEventListener('click', function () { setList(!listOpen); if (listOpen) renderList(); });
         [el.bubbleTime, el.bubbleName, el.bubbleDevice, el.bubbleApp, el.bubblePos, el.bubbleAccuracy, el.bubbleNote, el.bubbleTitles, el.bubbleThumb].forEach(function (box) {
             box.addEventListener('change', refreshData);
@@ -1866,6 +1915,7 @@
                     bearing: map.getBearing(), pitch: map.getPitch(),
                 } : null,
                 toggles: toggles,
+                numbers: el.numbers.value,
                 bubbleScale: bubbleScale,
                 bubbleOffset: bubbleOffset,
                 bubbleCfg: bubbleCfg,
@@ -1882,6 +1932,7 @@
             TOGGLES.forEach(function (key) {
                 if (typeof toggles[key] === 'boolean') el[key].checked = toggles[key];
             });
+            if (['all', 'route', 'none'].indexOf(state.numbers) >= 0) el.numbers.value = state.numbers;
             var obj = function (v) { return v && typeof v === 'object' ? Object.assign({}, v) : {}; };
             bubbleScale = Math.min(2, Math.max(0.75, Number(state.bubbleScale) || 1));
             bubbleOffset = obj(state.bubbleOffset);

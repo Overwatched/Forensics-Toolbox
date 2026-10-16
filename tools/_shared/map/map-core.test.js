@@ -249,3 +249,19 @@ test('händelsen kommer från listan och källan från lager eller mapp', () => 
     assert.strictEqual(map.sourceOf({ path: 'IMG.JPG' }), '');
     assert.strictEqual(map.sourceOf({ path: 'Resa/IMG.JPG', layer: 'Testdata · Stockholm' }), 'Testdata · Stockholm');
 });
+
+test('varje punkt får ett fast nummer i tidsordning, oberoende av rutten', () => {
+    const at = (sort) => ({ sort });
+    const a = { id: 1, taken: at('2024-06-01 12:00:00') };
+    const b = { id: 2, taken: at('2024-06-01 09:00:00') };
+    const c = { id: 3 };
+    const d = { id: 4, taken: at('2024-06-01 08:00:00') };
+    const e = { id: 5, taken: at('2024-06-01 10:00:00') };
+    const f = { id: 6, taken: at('2024-06-01 10:00:00') };
+    // Två källor där var och en börjar om på steg 1.
+    const steps = [{ point: a, index: 1 }, { point: e, index: 2 }, { point: b, index: 1 }];
+    const r = map.numberPoints([a, b, c, d, e, f], steps);
+    assert.deepStrictEqual(r.numbers, { 4: 1, 2: 2, 5: 3, 6: 4, 1: 5, 3: 6 });
+    assert.deepStrictEqual(r.inRoute, { 1: true, 5: true, 2: true });
+    assert.deepStrictEqual(map.numberPoints([a, b, c, d, e, f], []).numbers, r.numbers);
+});

@@ -1,5 +1,12 @@
 Automatiskt byggd från commit `{{SHA}}`.
 
+## Nytt i 1.18
+
+- **Varje punkt har ett fast nummer** i tidsordning, samma på kartan och i listan. Numret ändras inte när en punkt tas ur rutten eller döljs.
+- Under **Rutt** väljer du **Nummer på**: alla punkter, bara rutten eller inga. Punkter utanför rutten har en ljus bricka.
+- **Lista** ligger uppe till höger på kartan, under zoomknapparna.
+- En klunga av punkter visar till exempel **3 st**, så att den inte förväxlas med ett punktnummer.
+
 ## Nytt i 1.17
 
 - **Kartan i skrivbordsappen** visas direkt igen när programmet startas med `npm start`.
