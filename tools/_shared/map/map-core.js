@@ -442,7 +442,78 @@
         return out.join('\n') + '\n';
     }
 
+    // Bubblans rader. Miniatyren ligger först som standard, eftersom den alltid har gjort det.
+    var BUBBLE_FIELDS = [
+        { key: 'thumb', label: 'Miniatyr' },
+        { key: 'time', label: 'Tid' },
+        { key: 'name', label: 'Filnamn' },
+        { key: 'device', label: 'Enhet' },
+        { key: 'app', label: 'App' },
+        { key: 'pos', label: 'Longitud/latitud' },
+        { key: 'accuracy', label: 'Noggrannhet' },
+        { key: 'note', label: 'Händelse' },
+    ];
+
+    function fieldLabel(key) {
+        var f = BUBBLE_FIELDS.filter(function (x) { return x.key === key; })[0];
+        return f ? f.label : '';
+    }
+
+    function fieldValue(p, key, note) {
+        if (key === 'time') return p.taken ? p.taken.text : '';
+        if (key === 'name') return str(p.name);
+        if (key === 'device') return str(p.device);
+        if (key === 'app') return str(p.app);
+        if (key === 'pos') return p.lon.toFixed(5) + ', ' + p.lat.toFixed(5);
+        if (key === 'accuracy') return p.accuracy > 0 ? Math.round(p.accuracy) + ' m' : '';
+        if (key === 'note') return str(note);
+        return '';
+    }
+
+    // Panelens kryssrutor ({ time: true, titles: false, … }) som bubbelinställning.
+    function defaultBubble(flags) {
+        flags = flags || {};
+        return {
+            titles: !!flags.titles,
+            items: BUBBLE_FIELDS.map(function (f) { return { key: f.key, on: !!flags[f.key], label: '' }; }),
+        };
+    }
+
+    // Bubblans innehåll i vald ordning: { thumb: true } eller { text, heading }.
+    // En egen titel visas alltid. En egen rad med bara titel blir en rubrik.
+    function bubbleParts(p, cfg, note) {
+        var out = [];
+        (cfg.items || []).forEach(function (item) {
+            if (!item.on) return;
+            if (item.key === 'thumb') { out.push({ thumb: true }); return; }
+            var label = str(item.label).trim();
+            if (item.key === 'custom') {
+                var text = str(item.value).trim();
+                if (!label && !text) return;
+                out.push(text ? { text: label ? label + ': ' + text : text } : { text: label, heading: true });
+                return;
+            }
+            var value = fieldValue(p, item.key, note);
+            if (!value) return;
+            if (label) out.push({ text: label + ': ' + value });
+            else out.push({ text: cfg.titles ? fieldLabel(item.key) + ': ' + value : value });
+        });
+        return out;
+    }
+
+    // Källan en punkt kom från: lagret i Positioner, annars översta mappen i sökvägen.
+    function sourceOf(p) {
+        if (p.layer) return str(p.layer);
+        var path = str(p.path);
+        var cut = path.indexOf('/');
+        return cut > 0 ? path.slice(0, cut) : '';
+    }
+
     var api = {
+        BUBBLE_FIELDS: BUBBLE_FIELDS,
+        defaultBubble: defaultBubble,
+        bubbleParts: bubbleParts,
+        sourceOf: sourceOf,
         points: points,
         route: route,
         routesBy: routesBy,

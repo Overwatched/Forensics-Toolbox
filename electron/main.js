@@ -42,6 +42,10 @@ function createWindow() {
             nodeIntegration: false,
             sandbox: true,
             preload: path.join(__dirname, 'preload.js'),
+            // Verktygen ligger i iframes i Toolbox.html. Utan detta körs preload bara i
+            // huvudramen och kartan hittar inte forensicsDesktop. Med sandbox och
+            // contextIsolation får ramarna ändå ingen Node-åtkomst.
+            nodeIntegrationInSubFrames: true,
             webSecurity: true,
             spellcheck: false,
             // Krävs för Chromiums inbyggda PDF-visare.

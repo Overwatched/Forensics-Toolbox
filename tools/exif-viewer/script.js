@@ -652,7 +652,7 @@
 
     function updateMap(done, pts) {
         if (!mapView) return;
-        mapView.setPoints(pts, MapCore.route(pts), mapNotes(done, pts));
+        mapView.setPoints(pts, mapNotes(done, pts));
     }
 
     function ensureMap() {

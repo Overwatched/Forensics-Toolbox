@@ -82,9 +82,22 @@
 
     function refresh() {
         renderLayers();
+        redraw();
+    }
+
+    function redraw() {
         var points = visiblePoints();
         var note = points.length + ' punkter i ' + layers.filter(function (l) { return l.visible; }).length + ' källor.';
-        if (mapView) mapView.setPoints(points, currentRoute(points), note);
+        if (mapView) mapView.setPoints(points, note);
+    }
+
+    var colorTimer = null;
+
+    function setColor(layer, color) {
+        layer.color = color;
+        layer.points.forEach(function (p) { p.color = color; });
+        clearTimeout(colorTimer);
+        colorTimer = setTimeout(redraw, 80);
     }
 
     function renderLayers() {
@@ -92,8 +105,12 @@
         list.textContent = '';
         layers.forEach(function (layer) {
             var row = make('div', 'layer');
-            var swatch = make('span', 'swatch');
-            swatch.style.background = layer.color;
+            // Listan ritas inte om här, då skulle färgväljaren stängas mitt i valet.
+            var swatch = make('input', 'swatch');
+            swatch.type = 'color';
+            swatch.value = layer.color;
+            swatch.title = 'Byt färg på ' + layer.name;
+            swatch.addEventListener('input', function () { setColor(layer, swatch.value); });
             var name = make('span', '', layer.name + ' (' + layer.points.length + ')');
             var eye = make('button', '', layer.visible ? 'Dölj' : 'Visa');
             eye.type = 'button';
@@ -116,7 +133,9 @@
             p.layer = layer.name;
             p.layerId = layer.id;
             if (!p.device) p.device = layer.name;
-            if (!p.id) p.id = nextId++;
+            // Varje fil numrerar sina punkter från 1. Kartan behöver id som är unika
+            // över alla källor, annars döljs och tas fel punkter bort.
+            p.id = nextId++;
         });
         return points;
     }
@@ -190,8 +209,130 @@
         box.append(go);
     }
 
+    var VIEW_KIND = 'positioner-vy';
+    var THUMB_EDGE = 480;
+    var THUMB_MAX = 500;
+
+    function asView(text) {
+        if (!/^\s*\{/.test(text) || text.indexOf(VIEW_KIND) < 0) return null;
+        try {
+            var data = JSON.parse(text);
+            return data && data.kind === VIEW_KIND && Array.isArray(data.layers) ? data : null;
+        } catch (err) {
+            return null;
+        }
+    }
+
+    function thumbnail(file) {
+        if (!file || !/^image\//.test(file.type) || typeof createImageBitmap !== 'function') return Promise.resolve(null);
+        return createImageBitmap(file).then(function (bitmap) {
+            var scale = Math.min(1, THUMB_EDGE / Math.max(bitmap.width, bitmap.height));
+            var canvas = document.createElement('canvas');
+            canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+            canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+            canvas.getContext('2d').drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+            if (bitmap.close) bitmap.close();
+            return canvas.toDataURL('image/jpeg', 0.8);
+        }).catch(function () { return null; });
+    }
+
+    function dataUrlFile(url, name) {
+        var m = /^data:(image\/[a-z+.-]+);base64,(.*)$/i.exec(url || '');
+        if (!m) return null;
+        var bin = atob(m[2]);
+        var bytes = new Uint8Array(bin.length);
+        for (var i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+        return new File([bytes], name || 'miniatyr.jpg', { type: m[1] });
+    }
+
+    function pointData(p) {
+        var out = {};
+        Object.keys(p).forEach(function (key) { if (key !== 'file') out[key] = p[key]; });
+        return out;
+    }
+
+    function saveView() {
+        if (!layers.length) { setStatus('Inget att spara.'); return; }
+        var withFile = [];
+        layers.forEach(function (layer) {
+            layer.points.forEach(function (p) { if (p.file && withFile.length < THUMB_MAX) withFile.push(p); });
+        });
+        setStatus(withFile.length ? 'Sparar vyn och ' + withFile.length + ' miniatyrer…' : 'Sparar vyn…');
+        var thumbs = {};
+        var chain = Promise.resolve();
+        withFile.forEach(function (p) {
+            chain = chain.then(function () {
+                return thumbnail(p.file).then(function (url) { if (url) thumbs[p.id] = url; });
+            });
+        });
+        chain.then(function () {
+            var data = {
+                app: 'Forensics Toolbox',
+                kind: VIEW_KIND,
+                version: 1,
+                saved: new Date().toISOString(),
+                time: {
+                    fromDate: $('time-from-date').value, fromTime: $('time-from-time').value,
+                    toDate: $('time-to-date').value, toTime: $('time-to-time').value,
+                },
+                layers: layers.map(function (layer) {
+                    return {
+                        id: layer.id, name: layer.name, color: layer.color, visible: layer.visible, route: layer.route,
+                        points: layer.points.map(pointData),
+                    };
+                }),
+                thumbs: thumbs,
+                map: mapView ? mapView.getState() : null,
+            };
+            var stamp = data.saved.slice(0, 16).replace('T', '-').replace(':', '');
+            download(JSON.stringify(data), 'application/json', 'positioner-vy-' + stamp + '.json');
+            setStatus('Vyn sparades. Öppna filen med Öppna vy… för att fortsätta senare.');
+        });
+    }
+
+    function openView(data, filename) {
+        if (layers.length && !window.confirm('Ersätta källorna som visas nu med vyn ' + filename + '?')) return;
+        var thumbs = data.thumbs || {};
+        var maxId = 0;
+        var count = 0;
+        layers = data.layers.map(function (saved, i) {
+            var layer = {
+                id: Number(saved.id) || i + 1,
+                name: String(saved.name || 'Källa ' + (i + 1)),
+                color: /^#[0-9a-f]{6}$/i.test(saved.color) ? saved.color : COLORS[i % COLORS.length],
+                visible: saved.visible !== false,
+                route: saved.route !== false,
+                points: [],
+            };
+            maxId = Math.max(maxId, layer.id);
+            layer.points = (saved.points || []).filter(function (p) {
+                return p && isFinite(p.lat) && isFinite(p.lon);
+            }).map(function (p) {
+                p.color = layer.color;
+                p.layer = layer.name;
+                p.layerId = layer.id;
+                if (thumbs[p.id]) p.file = dataUrlFile(thumbs[p.id], p.name);
+                maxId = Math.max(maxId, Number(p.id) || 0);
+                return p;
+            });
+            count += layer.points.length;
+            return layer;
+        });
+        nextId = maxId + 1;
+        var time = data.time || {};
+        $('time-from-date').value = time.fromDate || '';
+        $('time-from-time').value = time.fromTime || '';
+        $('time-to-date').value = time.toDate || '';
+        $('time-to-time').value = time.toTime || '';
+        refresh();
+        ensureMap().setState(data.map);
+        setStatus('Vyn ' + filename + ' öppnades: ' + count + ' punkter i ' + layers.length + ' källor.');
+    }
+
     function readFile(file) {
         return file.text().then(function (text) {
+            var view = asView(text);
+            if (view) { openView(view, file.name); return; }
             var result = MapImport.parse(text, file.name);
             result.text = text;
             var skipped = result.skipped || 0;
@@ -205,6 +346,7 @@
         mapView = ToolboxMap.create({
             host: $('map-host'),
             routeOn: true,
+            route: currentRoute,
             getFile: function (id) {
                 var found = null;
                 layers.forEach(function (layer) {
@@ -241,6 +383,18 @@
         $('file').value = '';
         var chain = Promise.resolve();
         files.forEach(function (file) { chain = chain.then(function () { return readFile(file); }); });
+    });
+    $('view-save').addEventListener('click', saveView);
+    $('view-open').addEventListener('click', function () { $('view-file').click(); });
+    $('view-file').addEventListener('change', function () {
+        var file = $('view-file').files && $('view-file').files[0];
+        $('view-file').value = '';
+        if (!file) return;
+        file.text().then(function (text) {
+            var view = asView(text);
+            if (view) openView(view, file.name);
+            else setStatus(file.name + ' är ingen sparad vy från Positioner.');
+        });
     });
     document.addEventListener('dragover', function (e) { e.preventDefault(); });
     document.addEventListener('drop', function (e) {

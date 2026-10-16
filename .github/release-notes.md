@@ -1,5 +1,15 @@
 Automatiskt byggd från commit `{{SHA}}`.
 
+## Nytt i 1.17
+
+- **Kartan i skrivbordsappen** visas direkt igen när programmet startas med `npm start`.
+- **Rutt:** välj själv vilka punkter som ingår, per punkt i listan eller i popupen. Punkter utanför rutten syns fortfarande på kartan.
+- **Bubblor:** dubbelklicka på en bubbla, eller tryck **Bubbla** i listan, för att välja vad just den visar och i vilken ordning. Du kan byta titlar och lägga till egna rader. **Återställ alla bubblor** tar bort anpassningarna.
+- Linjen till punkten ligger under miniatyrerna, börjar utanför punkten så att siffran syns och har en tydligare stil.
+- **Listan:** ny sökruta. Markera alla, inga eller alla från en källa och ändra dem på en gång: med i rutten, dölj eller anpassa bubblor.
+- Spela-raden täcker inte längre listan.
+- **Positioner:** välj färg på varje källa. **Spara vy…** sparar källor, färger, rutt, bubblor och kartläge i en fil, och **Öppna vy…** fortsätter där du slutade. Bilder följer med som små miniatyrer. Originalfilerna ändras aldrig.
+
 ## Nytt i 1.16
 
 - **Queries:** en standardquery fungerar utan att du fyller i något. Tomt filnamn, app eller datum betyder alla rader, inte en sökning efter tecknet `…`.

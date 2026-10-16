@@ -205,3 +205,47 @@ test('position vid tid T är interpolerad mellan punkterna', () => {
     assert.strictEqual((gpx.match(/<trkseg>/g) || []).length, 1);
     assert.match(gpx, /<trkpt lat="59" lon="18"/);
 });
+
+const BUBBLE_POINT = {
+    id: 9, name: 'IMG_4101.JPG', path: 'Resa/IMG_4101.JPG', lat: 59.32931, lon: 18.06858,
+    taken: { text: '2024-06-01 14:30' }, device: 'iPhone 15 Pro', app: '', accuracy: 8,
+};
+
+test('standardbubblan följer panelens kryssrutor och har miniatyren först', () => {
+    const cfg = map.defaultBubble({ thumb: true, time: true, name: true });
+    assert.deepStrictEqual(cfg.items.map((i) => i.key), ['thumb', 'time', 'name', 'device', 'app', 'pos', 'accuracy', 'note']);
+    assert.deepStrictEqual(map.bubbleParts(BUBBLE_POINT, cfg, ''), [
+        { thumb: true }, { text: '2024-06-01 14:30' }, { text: 'IMG_4101.JPG' },
+    ]);
+});
+
+test('bubblans ordning, egna titlar och egna rader', () => {
+    const cfg = {
+        titles: false,
+        items: [
+            { key: 'custom', on: true, label: 'Brottsplats', value: '' },
+            { key: 'accuracy', on: true, label: 'GPS-fel' },
+            { key: 'time', on: true, label: '' },
+            { key: 'name', on: false, label: '' },
+            { key: 'app', on: true, label: '' },
+            { key: 'custom', on: true, label: 'Vittne', value: 'Anna' },
+            { key: 'custom', on: true, label: '', value: '' },
+        ],
+    };
+    assert.deepStrictEqual(map.bubbleParts(BUBBLE_POINT, cfg, ''), [
+        { text: 'Brottsplats', heading: true },
+        { text: 'GPS-fel: 8 m' },
+        { text: '2024-06-01 14:30' },
+        { text: 'Vittne: Anna' },
+    ]);
+    cfg.titles = true;
+    assert.strictEqual(map.bubbleParts(BUBBLE_POINT, cfg, '')[2].text, 'Tid: 2024-06-01 14:30');
+});
+
+test('händelsen kommer från listan och källan från lager eller mapp', () => {
+    const cfg = { titles: true, items: [{ key: 'note', on: true, label: '' }] };
+    assert.deepStrictEqual(map.bubbleParts(BUBBLE_POINT, cfg, 'Möte'), [{ text: 'Händelse: Möte' }]);
+    assert.strictEqual(map.sourceOf(BUBBLE_POINT), 'Resa');
+    assert.strictEqual(map.sourceOf({ path: 'IMG.JPG' }), '');
+    assert.strictEqual(map.sourceOf({ path: 'Resa/IMG.JPG', layer: 'Testdata · Stockholm' }), 'Testdata · Stockholm');
+});

@@ -61,8 +61,10 @@
 .map-status.online::before { content: "● "; color: var(--warn); }
 .map-status.missing { color: var(--warn); }
 .toggle { display: inline-flex; align-items: center; gap: 6px; font-weight: 650; cursor: pointer; }
+/* Verktygens CSS ger alla input 100 % bredd. Kryssrutor i kartan ska vara små. */
+.map-wrap input[type="checkbox"] { width: 16px; height: 16px; min-width: 16px; padding: 0; margin: 0; flex: none; }
 .toggle input { accent-color: var(--accent); }
-.ft-leaders { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 1; }
+.ft-leaders { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
 .map-note { color: var(--text-muted); margin-top: 6px; line-height: 1.45; }
 .map-note:empty { display: none; }
 .map-fallback { margin-top: 8px; display: flex; flex-direction: column; gap: 8px; align-items: flex-start; color: var(--text-muted); line-height: 1.45; }
@@ -109,7 +111,7 @@
 .map-popup-dir { color: var(--text-muted); word-break: break-all; margin-top: 2px; }
 .map-popup dl { display: grid; grid-template-columns: max-content 1fr; gap: 3px 10px; margin-top: 8px; }
 .map-popup dt { color: var(--text-muted); }
-.map-popup-actions { display: flex; gap: 6px; margin-top: 10px; }
+.map-popup-actions { display: flex; flex-wrap: wrap; gap: 4px 10px; margin-top: 10px; }
 .map-popup-list { display: flex; flex-direction: column; max-height: 220px; overflow-y: auto; margin-top: 8px; }
 
 .map-popup-item {
@@ -146,6 +148,7 @@
     cursor: grab;
 }
 .ft-bubble:active { cursor: grabbing; }
+.ft-bubble { display: flex; flex-direction: column; gap: 2px; }
 .ft-bubble-thumb {
     display: block;
     width: 160px;
@@ -153,9 +156,48 @@
     max-height: 96px;
     object-fit: cover;
     border-radius: 4px;
-    margin-bottom: 4px;
+    margin: 2px 0;
     pointer-events: none;
 }
+.ft-bubble-heading { font-weight: 800; }
+
+.map-editor {
+    position: absolute;
+    top: 10px;
+    right: 54px;
+    width: min(380px, calc(100% - 70px));
+    max-height: calc(100% - 20px);
+    overflow: auto;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 14px 16px;
+    font-size: 12px;
+    box-shadow: 0 20px 50px rgba(0, 0, 0, 0.35);
+    z-index: 3;
+}
+.map-editor h3 { font-size: 14px; margin: 0 0 4px; }
+.map-editor .map-note { margin: 0 0 8px; }
+.map-editor .toggle { display: flex; gap: 8px; margin-bottom: 8px; font-weight: 600; }
+.map-editor-items { display: flex; flex-direction: column; gap: 4px; margin-bottom: 8px; }
+.map-editor-row { display: grid; grid-template-columns: 16px minmax(0, 1fr) auto; align-items: center; gap: 8px; }
+.map-editor-row.is-custom { grid-template-columns: 16px minmax(0, 1fr) minmax(0, 1.3fr) auto; }
+.map-editor-row input[type="text"] {
+    width: 100%; min-width: 0; font: inherit; color: var(--text); background: var(--surface);
+    border: 1px solid var(--border); border-radius: 6px; padding: 4px 6px;
+}
+.map-editor-row input[type="text"]::placeholder { color: var(--text); opacity: 0.75; }
+.map-editor-row.is-custom input[type="text"]::placeholder { color: var(--text-muted); opacity: 1; }
+.map-editor-fixed { padding: 4px 7px; }
+.map-editor-moves { display: flex; gap: 2px; }
+.map-editor-btn {
+    width: 24px; height: 24px; padding: 0; font: inherit; font-size: 13px; line-height: 1; cursor: pointer;
+    color: var(--text); background: var(--surface); border: 1px solid var(--border); border-radius: 6px;
+}
+.map-editor-btn:disabled { opacity: 0.35; cursor: default; }
+.map-editor-btn:not(:disabled):hover { border-color: var(--accent); }
+
+.map-popup-route { margin-top: 8px; }
 
 .map-wrap.map-with-list { display: flex; }
 .map-wrap.map-with-list .map { flex: 1; width: auto; min-width: 0; }
@@ -169,20 +211,36 @@
     z-index: 2;
     font-size: 12px;
 }
-.map-list-head { display: flex; justify-content: space-between; align-items: center; padding: 10px 12px; position: sticky; top: 0; background: var(--surface); border-bottom: 1px solid var(--border); }
+.map-list-head { padding: 10px 12px; position: sticky; top: 0; z-index: 1; background: var(--surface); border-bottom: 1px solid var(--border); display: flex; flex-direction: column; gap: 8px; }
+.map-list-title { display: flex; justify-content: space-between; align-items: center; }
+.map-list-heading { display: flex; align-items: baseline; gap: 8px; }
+.map-list-count { font-size: 12px; color: var(--text-muted); }
+.map-list-head .map-list-search {
+    width: 100%; font: inherit; font-size: 12px; color: var(--text); background: var(--bg);
+    border: 1px solid var(--border); border-radius: 6px; padding: 5px 8px; margin: 0;
+}
+.map-list-nohit { padding: 12px; }
+.map-list-tools, .map-list-bulk { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; }
+.map-list-tools select { width: auto; font: inherit; font-size: 12px; color: var(--text); background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 2px 6px; max-width: 170px; }
+.map-list-bulk { background: var(--accent-soft, rgba(10, 132, 255, 0.14)); border-radius: 8px; padding: 6px 8px; }
 .map-list-row { display: flex; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--border); cursor: pointer; }
 .map-list-row.active { background: var(--surface-hover); }
+.map-list-row.is-picked { box-shadow: inset 3px 0 0 var(--accent); }
 .map-list-row.is-hidden { opacity: 0.55; }
+.map-list-pick { flex: none; margin-top: 2px; accent-color: var(--accent); }
+.map-list-actions .toggle { font-weight: 600; }
 .map-list-num { width: 22px; flex: none; text-align: center; }
 .map-list-body { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 4px; }
 .map-list-name { font-weight: 650; word-break: break-all; }
 .map-list-meta { color: var(--text-muted); line-height: 1.35; }
 .map-list-body input { width: 100%; font: inherit; font-size: 12px; color: var(--text); background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 4px 6px; }
-.map-list-actions { display: flex; gap: 8px; }
+.map-list-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; }
 .map-time {
     position: absolute; left: 10px; right: 54px; bottom: 10px; z-index: 2;
+    max-width: 640px;
     display: flex; align-items: center; gap: 8px;
     background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 6px 10px;
 }
+.map-wrap.map-with-list .map-time { right: calc(340px + 54px); }
 .map-time input[type="range"] { flex: 1; }
 .map-time-label { font-size: 11px; color: var(--text-muted); white-space: nowrap; }
