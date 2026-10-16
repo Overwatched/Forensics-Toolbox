@@ -41,6 +41,7 @@ function createWindow() {
             contextIsolation: true,
             nodeIntegration: false,
             sandbox: true,
+            preload: path.join(__dirname, 'preload.js'),
             webSecurity: true,
             spellcheck: false,
             // Krävs för Chromiums inbyggda PDF-visare.

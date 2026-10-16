@@ -52,6 +52,13 @@
 
     function loadVendor() {
         if (vendorPromise) return vendorPromise;
+        // Under file:// är varje adress en egen origin. En sida i tools/ får inte
+        // hämta eller skjuta in skript från en annan mapp. Statiska script-taggar
+        // i HTML-filen har redan laddat biblioteket när det behövs.
+        if (root.maplibregl && root.MAP_ASSETS) {
+            vendorPromise = Promise.resolve();
+            return vendorPromise;
+        }
         var link = document.createElement('link');
         link.rel = 'stylesheet';
         link.href = VENDOR_CSS;
@@ -69,12 +76,33 @@
         return bytes.buffer;
     }
 
+    // MapLibre startar workern som modul (type:module) och lindar koden i
+    // `import "…"`. Under file:// blir det antingen "cross-origin redirects"
+    // eller "Cannot use import statement outside a module". Källkoden är ett
+    // vanligt skript, så varje sådan worker byts mot den, utan type:module.
+    function useClassicBlobWorkers() {
+        if (root.__ftClassicWorker) return root.__ftClassicWorker;
+        var NativeWorker = root.Worker;
+        var sourceUrl = URL.createObjectURL(new Blob(
+            [root.MAPLIBRE_WORKER_SOURCE],
+            { type: 'text/javascript' }
+        ));
+        function ClassicBlobWorker(url, opts) {
+            if (opts && opts.type === 'module') return new NativeWorker(sourceUrl);
+            return new NativeWorker(url, opts);
+        }
+        ClassicBlobWorker.prototype = NativeWorker.prototype;
+        root.Worker = ClassicBlobWorker;
+        root.__ftClassicWorker = sourceUrl;
+        return sourceUrl;
+    }
+
     function setupProtocols() {
         if (protocolsReady) return;
         protocolsReady = true;
         var ml = root.maplibregl;
         var assets = root.MAP_ASSETS;
-        ml.setWorkerUrl(URL.createObjectURL(new Blob([root.MAPLIBRE_WORKER_SOURCE], { type: 'text/javascript' })));
+        ml.setWorkerUrl(useClassicBlobWorkers());
         ml.addProtocol('ftlocal', function (params) {
             var path = params.url.replace(/^ftlocal:\/\//, '');
             var m = /^glyphs\/(.+)\/(\d+-\d+)\.pbf$/.exec(path);
@@ -208,10 +236,19 @@
         });
     }
 
-    // Skrivbordsappen via ftmaps://, annars maps/ bredvid sidan, annars en tidigare vald mapp.
+    // Skrivbordsappen via ftmaps://. HTML-mappen öppnad som file:// får inte
+    // hämta ../../maps — Chromium behandlar varje filadress som en egen origin.
+    // Då läses kartfilerna ur den mapp användaren valt, via File.slice.
     function openBundled() {
-        return openFromUrl(MAP_DATA).catch(function () {
-            return PAGE_MAPS ? openFromUrl(PAGE_MAPS) : Promise.reject(new Error('ingen sökväg'));
+        // ftmaps:// och file:// går inte att hämta med fetch i en webbläsare.
+        // Chromium loggar då "scheme doesn't support CORS" och, för file://,
+        // "unique security origins". Bara skrivbordsappen har ftmaps://.
+        var step = root.forensicsDesktop
+            ? openFromUrl(MAP_DATA)
+            : Promise.reject(new Error('ingen skrivbordskarta'));
+        return step.catch(function () {
+            if (location.protocol === 'file:' || !PAGE_MAPS) throw new Error('ingen sökväg');
+            return openFromUrl(PAGE_MAPS);
         }).catch(function () {
             return loadDirHandle().then(function (handle) {
                 if (!handle || !handle.queryPermission) throw new Error('ingen mapp');
