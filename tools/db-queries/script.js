@@ -192,7 +192,8 @@ function applyListParam(sql, name, raw, parts) {
     if (!sql.includes(placeholder)) return sql;
     const terms = splitTerms(raw);
     const user = terms.length > 0;
-    const values = (terms.length ? terms : ['…']).map((t) => t.replace(/'/g, "''"));
+    // Tomt fält ska träffa allt. LIKE '%…%' söker efter tecknet … och ger inga rader.
+    const values = (terms.length ? terms : ['']).map((t) => t.replace(/'/g, "''"));
 
     function take(val) {
         const i = parts.length;
@@ -262,7 +263,6 @@ function applyTextParams(sql, params, parts) {
             if (!out.includes(token)) continue;
             let v = raw.replace(/'/g, "''");
             const user = !!raw;
-            if (!v) v = '…';
             out = replaceToken(out, token, takePart(parts, v, user));
         }
     }
@@ -364,11 +364,11 @@ function renderParams() {
         html += `
           <div class="param-block">
             <label class="field-label" for="param-timeStart">${escapeHtml(paramLabels.timeStart || 'Från (ÅÅÅÅ-MM-DD TT:MM)')}</label>
-            <input type="text" id="param-timeStart" spellcheck="false" autocomplete="off" placeholder="2024-08-01 00:00">
+            <input type="text" id="param-timeStart" spellcheck="false" autocomplete="off" placeholder="Tomt = från början">
           </div>
           <div class="param-block">
             <label class="field-label" for="param-timeEnd">${escapeHtml(paramLabels.timeEnd || 'Till (ÅÅÅÅ-MM-DD TT:MM)')}</label>
-            <input type="text" id="param-timeEnd" spellcheck="false" autocomplete="off" placeholder="2024-08-14 23:59">
+            <input type="text" id="param-timeEnd" spellcheck="false" autocomplete="off" placeholder="Tomt = till slutet">
           </div>`;
         html += '</div><div id="time-preview" class="time-preview"></div>';
         step += 1;

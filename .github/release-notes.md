@@ -1,5 +1,10 @@
 Automatiskt byggd från commit `{{SHA}}`.
 
+## Nytt i 1.16
+
+- **Queries:** en standardquery fungerar utan att du fyller i något. Tomt filnamn, app eller datum betyder alla rader, inte en sökning efter tecknet `…`.
+- Photos-frågorna söker inte längre i `ZORIGINALFILENAME` i WHERE-satsen. Den kolumnen saknas ofta och gjorde att frågan inte gav några träffar.
+
 ## Nytt i 1.15
 
 - **HTML-kartan** fungerar när `Toolbox.html` öppnas som fil, till exempel på en låst dator. Välj mappen `maps`. Kartan läser filerna direkt, utan lokal server.
