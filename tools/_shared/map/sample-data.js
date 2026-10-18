@@ -3,27 +3,30 @@
 (function (root) {
     'use strict';
 
+    // 1 juni 2024. Anna (iPhone) går till Sergels torg. Erik (Samsung) kommer från
+    // Kungsholmen. De möts och tar taxi till Fotografiska. Sedan går Anna på Djurgården.
+    // Två bilder dagen efter ligger med flit utanför rutterna. bubble = färdig bubbla.
     var FILES = [
-        { name: 'IMG_4101.JPG', time: '2024:06:01 14:00:12', place: 'Centralstationen', lat: 59.33030, lon: 18.05860, accuracy: 8, make: 'Apple', model: 'iPhone 15 Pro', offset: '+02:00' },
-        { name: 'IMG_4102.JPG', time: '2024:06:01 14:04:40', place: 'Sergels torg', lat: 59.33260, lon: 18.06490, make: 'Apple', model: 'iPhone 15 Pro', offset: '+02:00' },
-        { name: 'IMG_4103.JPG', time: '2024:06:01 14:09:05', place: 'Kungsträdgården', lat: 59.33130, lon: 18.07160, make: 'Apple', model: 'iPhone 15 Pro', offset: '+02:00' },
-        { name: 'IMG_4104.JPG', time: '2024:06:01 14:14:30', place: 'Riksdagshuset', lat: 59.32750, lon: 18.06810, make: 'Apple', model: 'iPhone 15 Pro', offset: '+02:00' },
-        { name: 'IMG_4105.JPG', time: '2024:06:01 14:19:02', place: 'Kungliga slottet', lat: 59.32680, lon: 18.07170, make: 'Apple', model: 'iPhone 15 Pro', offset: '+02:00' },
-        { name: 'IMG_4106.JPG', time: '2024:06:01 14:25:48', place: 'Stortorget', lat: 59.32510, lon: 18.07070, accuracy: 25, make: 'Apple', model: 'iPhone 15 Pro', offset: '+02:00' },
-        { name: 'IMG_4107.JPG', time: '2024:06:01 14:31:15', place: 'Västerlånggatan', lat: 59.32380, lon: 18.07000, make: 'Apple', model: 'iPhone 15 Pro', offset: '+02:00' },
-        { name: 'IMG_4108.JPG', time: '2024:06:01 14:37:20', place: 'Riddarholmskyrkan', lat: 59.32470, lon: 18.06470, make: 'Apple', model: 'iPhone 15 Pro', offset: '+02:00' },
-        { name: 'IMG_4109.JPG', time: '2024:06:01 14:46:55', place: 'Slussen', lat: 59.31950, lon: 18.07220, make: 'Apple', model: 'iPhone 15 Pro', offset: '+02:00' },
-        { name: 'IMG_4110.JPG', time: '2024:06:01 15:02:30', place: 'Fotografiska', lat: 59.31770, lon: 18.08560, accuracy: 60, make: 'Apple', model: 'iPhone 15 Pro', offset: '+02:00' },
-        { name: '20240601_151012.jpg', time: '2024:06:01 15:10:12', place: 'Fridhemsplan', lat: 59.33240, lon: 18.02950, make: 'samsung', model: 'SM-S918B', offset: '' },
+        { name: 'IMG_4101.JPG', time: '2024:06:01 14:00:12', place: 'Centralstationen', lat: 59.33030, lon: 18.05860, accuracy: 8, make: 'Apple', model: 'iPhone 15 Pro', offset: '+02:00', note: 'Anna lämnar Centralstationen', bubble: true, shift: { x: -120, y: -30 } },
+        { name: 'IMG_4102.JPG', time: '2024:06:01 14:12:40', place: 'Klarabergsgatan', lat: 59.33140, lon: 18.06120, make: 'Apple', model: 'iPhone 15 Pro', offset: '+02:00' },
+        { name: 'IMG_4103.JPG', time: '2024:06:01 14:24:05', place: 'Hötorget', lat: 59.33490, lon: 18.06270, make: 'Apple', model: 'iPhone 15 Pro', offset: '+02:00' },
+        { name: 'IMG_4104.JPG', time: '2024:06:01 14:36:30', place: 'Sergels torg', lat: 59.33260, lon: 18.06490, accuracy: 12, make: 'Apple', model: 'iPhone 15 Pro', offset: '+02:00' },
+        { name: 'IMG_4105.JPG', time: '2024:06:01 15:05:02', place: 'Sergels torg', lat: 59.33255, lon: 18.06505, accuracy: 15, make: 'Apple', model: 'iPhone 15 Pro', offset: '+02:00', note: 'Anna väntar vid Sergels torg', bubble: true, ring: true, shift: { x: -30, y: -80 } },
+        { name: '20240601_151012.jpg', time: '2024:06:01 15:10:12', place: 'Fridhemsplan', lat: 59.33240, lon: 18.02950, accuracy: 25, make: 'samsung', model: 'SM-S918B', offset: '', note: 'Erik lämnar Fridhemsplan', bubble: true },
         { name: '20240601_152230.jpg', time: '2024:06:01 15:22:30', place: 'Kronobergsparken', lat: 59.33110, lon: 18.03820, make: 'samsung', model: 'SM-S918B', offset: '' },
-        { name: '20240601_153548.jpg', time: '2024:06:01 15:35:48', place: 'Stadshuset', lat: 59.32740, lon: 18.05500, accuracy: 150, make: 'samsung', model: 'SM-S918B', offset: '' },
-        { name: '20240601_154820.jpg', time: '2024:06:01 15:48:20', place: 'Rålambshovsparken', lat: 59.32890, lon: 18.02580, make: 'samsung', model: 'SM-S918B', offset: '' },
-        { name: '20240601_160510.jpg', time: '2024:06:01 16:05:10', place: 'Kristineberg', lat: 59.33360, lon: 18.00420, make: 'samsung', model: 'SM-S918B', offset: '' },
-        { name: 'IMG_4121.JPG', time: '2024:06:01 18:05:10', place: 'Vasamuseet', lat: 59.32800, lon: 18.09140, make: 'Apple', model: 'iPhone 15 Pro', offset: '+02:00' },
-        { name: 'IMG_4122.JPG', time: '2024:06:01 18:41:33', place: 'Skansen', lat: 59.32630, lon: 18.10360, accuracy: 400, make: 'Apple', model: 'iPhone 15 Pro', offset: '+02:00' },
-        { name: 'IMG_4123.JPG', time: '2024:06:01 19:20:04', place: 'Gröna Lund', lat: 59.32330, lon: 18.09630, make: 'Apple', model: 'iPhone 15 Pro', offset: '+02:00' },
-        { name: 'IMG_4131.JPG', time: '2024:06:02 09:32:47', place: 'Monteliusvägen', lat: 59.32160, lon: 18.05970, make: 'Apple', model: 'iPhone 15 Pro', offset: '+02:00' },
-        { name: 'IMG_4132.JPG', time: '2024:06:02 10:05:19', place: 'Hornstull', lat: 59.31570, lon: 18.03390, accuracy: 900, make: 'Apple', model: 'iPhone 15 Pro', offset: '+02:00' },
+        { name: '20240601_153548.jpg', time: '2024:06:01 15:35:48', place: 'Stadshuset', lat: 59.32740, lon: 18.05500, accuracy: 120, make: 'samsung', model: 'SM-S918B', offset: '', note: 'Svag GPS vid Stadshuset', bubble: true, ring: true },
+        { name: '20240601_154820.jpg', time: '2024:06:01 15:48:20', place: 'T-Centralen', lat: 59.33080, lon: 18.05800, make: 'samsung', model: 'SM-S918B', offset: '' },
+        { name: '20240601_160510.jpg', time: '2024:06:01 16:05:10', place: 'Sergels torg', lat: 59.33262, lon: 18.06485, accuracy: 20, make: 'samsung', model: 'SM-S918B', offset: '', note: 'Möte med Anna', bubble: true, ring: true, shift: { x: 110, y: -70 } },
+        { name: 'IMG_4106.JPG', time: '2024:06:01 16:12:18', place: 'Hamngatan', lat: 59.32950, lon: 18.07100, accuracy: 20, make: 'Apple', model: 'iPhone 15 Pro', offset: '+02:00', note: 'Taxi, båda åker mot Södermalm', bubble: true, shift: { x: 80, y: 16 } },
+        { name: 'IMG_4107.JPG', time: '2024:06:01 16:18:40', place: 'Slottsbacken', lat: 59.32680, lon: 18.07170, make: 'Apple', model: 'iPhone 15 Pro', offset: '+02:00' },
+        { name: 'IMG_4108.JPG', time: '2024:06:01 16:26:05', place: 'Slussen', lat: 59.31950, lon: 18.07220, accuracy: 40, make: 'Apple', model: 'iPhone 15 Pro', offset: '+02:00' },
+        { name: 'IMG_4109.JPG', time: '2024:06:01 16:34:22', place: 'Katarinavägen', lat: 59.31820, lon: 18.07850, make: 'Apple', model: 'iPhone 15 Pro', offset: '+02:00' },
+        { name: 'IMG_4110.JPG', time: '2024:06:01 16:42:30', place: 'Fotografiska', lat: 59.31770, lon: 18.08560, accuracy: 12, make: 'Apple', model: 'iPhone 15 Pro', offset: '+02:00', note: 'Framme vid Fotografiska', bubble: true },
+        { name: 'IMG_4121.JPG', time: '2024:06:01 17:30:10', place: 'Vasamuseet', lat: 59.32800, lon: 18.09140, make: 'Apple', model: 'iPhone 15 Pro', offset: '+02:00' },
+        { name: 'IMG_4122.JPG', time: '2024:06:01 18:05:33', place: 'Skansen', lat: 59.32630, lon: 18.10360, accuracy: 180, make: 'Apple', model: 'iPhone 15 Pro', offset: '+02:00', note: 'Osäker position på Skansen', bubble: true, ring: true },
+        { name: 'IMG_4123.JPG', time: '2024:06:01 18:40:04', place: 'Gröna Lund', lat: 59.32330, lon: 18.09630, make: 'Apple', model: 'iPhone 15 Pro', offset: '+02:00' },
+        { name: 'IMG_4131.JPG', time: '2024:06:02 09:32:47', place: 'Monteliusvägen', lat: 59.32160, lon: 18.05970, make: 'Apple', model: 'iPhone 15 Pro', offset: '+02:00', note: 'Dagen efter, inte med i rutten', bubble: true },
+        { name: 'IMG_4132.JPG', time: '2024:06:02 10:05:19', place: 'Hornstull', lat: 59.31570, lon: 18.03390, accuracy: 80, make: 'Apple', model: 'iPhone 15 Pro', offset: '+02:00' },
         { name: 'IMG_4140.JPG', time: '2024:06:01 16:10:00', place: 'Ingen GPS', lat: null, lon: null, make: 'Apple', model: 'iPhone 15 Pro', offset: '+02:00' },
         { name: 'IMG_4141.JPG', time: '2024:06:01 16:20:00', place: 'Position 0, 0', lat: 0, lon: 0, make: 'Apple', model: 'iPhone 15 Pro', offset: '+02:00' },
     ];
@@ -181,25 +184,53 @@
         return new File([bytes], meta.name, { type: 'image/jpeg' });
     }
 
-    function positionPoints() {
-        return FILES.filter(function (file) { return file.lat && file.lon; }).map(function (file) {
-            return {
-                name: file.name,
-                path: 'Testdata/' + file.name,
-                lat: file.lat,
-                lon: file.lon,
-                accuracy: file.accuracy || null,
-                source: 'testdata',
-                taken: taken(file),
-                device: file.make + ' ' + file.model,
-                mime: 'image/jpeg',
-                file: jpegFile(file),
-                layer: 'Testdata · Stockholm',
-            };
-        });
+    function positionPoint(file) {
+        return {
+            name: file.name,
+            path: 'Testdata/' + file.name,
+            lat: file.lat,
+            lon: file.lon,
+            accuracy: file.accuracy || null,
+            source: 'testdata',
+            taken: taken(file),
+            device: file.make + ' ' + file.model,
+            mime: 'image/jpeg',
+            note: file.note || '',
+            file: jpegFile(file),
+        };
     }
 
-    var api = { files: FILES, exifFiles: exifFiles, positionPoints: positionPoints, withExif: withExif };
+    function positionPoints() {
+        return FILES.filter(function (file) { return file.lat && file.lon; }).map(positionPoint);
+    }
+
+    // Två källor och färdiga rutter i tidsordning, så att Positioner kan visa exemplet direkt.
+    function positionScenario() {
+        var iphone = [];
+        var samsung = [];
+        FILES.forEach(function (file) {
+            if (!(file.lat && file.lon)) return;
+            (file.make === 'Apple' ? iphone : samsung).push(positionPoint(file));
+        });
+        return {
+            summary: 'Anna med iPhone och Erik med Samsung möts vid Sergels torg och tar taxi till Fotografiska.',
+            layers: [
+                { name: 'iPhone 15 Pro', color: '#0a84ff', points: iphone },
+                { name: 'Samsung S23', color: '#30d158', points: samsung },
+            ],
+            routes: [
+                { name: 'Till mötet, Anna', files: ['IMG_4101.JPG', 'IMG_4102.JPG', 'IMG_4103.JPG', 'IMG_4104.JPG', 'IMG_4105.JPG'] },
+                { name: 'Till mötet, Erik', files: ['20240601_151012.jpg', '20240601_152230.jpg', '20240601_153548.jpg', '20240601_154820.jpg', '20240601_160510.jpg'] },
+                { name: 'Taxi till Fotografiska', files: ['IMG_4106.JPG', 'IMG_4107.JPG', 'IMG_4108.JPG', 'IMG_4109.JPG', 'IMG_4110.JPG'] },
+                { name: 'Djurgården', files: ['IMG_4121.JPG', 'IMG_4122.JPG', 'IMG_4123.JPG'] },
+            ],
+            bubbles: FILES.filter(function (file) { return file.bubble; }).map(function (file) {
+                return { file: file.name, ring: !!file.ring, shift: file.shift || null };
+            }),
+        };
+    }
+
+    var api = { files: FILES, exifFiles: exifFiles, positionPoints: positionPoints, positionScenario: positionScenario, withExif: withExif };
     if (typeof module !== 'undefined' && module.exports) module.exports = api;
     else root.SampleData = api;
 })(typeof window !== 'undefined' ? window : globalThis);

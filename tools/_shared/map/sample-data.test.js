@@ -13,9 +13,21 @@ test('testdata har två rutter och filer utan giltig position', () => {
     assert.strictEqual(points.length, 20);
     assert.strictEqual(points[0].name, 'IMG_4101.JPG');
     assert.strictEqual(points[0].accuracy, 8);
+    assert.strictEqual(points[0].note, 'Anna lämnar Centralstationen');
     assert.strictEqual(points[0].mime, 'image/jpeg');
     assert.ok(points[0].file);
     assert.ok(points.filter((p) => p.accuracy > 0).length >= 6);
+    const scenario = sample.positionScenario();
+    assert.strictEqual(scenario.layers.length, 2);
+    assert.strictEqual(scenario.layers[0].points.length, 15);
+    assert.strictEqual(scenario.layers[1].points.length, 5);
+    const meeting = scenario.layers[1].points.find((p) => p.name === '20240601_160510.jpg');
+    const waiting = scenario.layers[0].points.find((p) => p.name === 'IMG_4105.JPG');
+    assert.ok(map.haversine(meeting, waiting) < 40);
+    assert.ok(scenario.bubbles.some((b) => b.file === '20240601_160510.jpg' && b.ring));
+    assert.deepStrictEqual(scenario.routes.map((r) => r.name), [
+        'Till mötet, Anna', 'Till mötet, Erik', 'Taxi till Fotografiska', 'Djurgården',
+    ]);
     const routes = map.routesBy(points, 'device');
     assert.strictEqual(routes.length, 2);
     routes.forEach((g) => {

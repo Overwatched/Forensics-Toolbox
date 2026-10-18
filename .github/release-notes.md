@@ -1,5 +1,14 @@
 Automatiskt byggd från commit `{{SHA}}`.
 
+## Nytt i 1.20
+
+- **Positioner:** under **Rutter** skriver du första och sista punkten och trycker **Lägg till**. Fälten är förifyllda med första och sista punkten. Namnet ändrar du på raden som dyker upp. **Dölj** tar bort linjen, punkterna och numren ligger kvar.
+- **Bubblor** på en källa eller rutt öppnar samma redigerare: linje till punkten, horisontell noggrannhet och vad bubblan ska visa. **Anpassa standard…** gäller punkter som inte har en egen inställning. Storleken **Mindre** / **Större** gäller alla.
+- **I kartan** i listan visar bara positioner som syns på kartan just nu. Numren ändras inte.
+- Tidsspannet är kompaktare. Det står vilken tid som jämförs: klockslaget som det står i källan i Positioner och EXIF, datorns tidszon i Queries.
+- **Fyll med testdata** visar Anna (iPhone) och Erik (Samsung) som möts vid Sergels torg och tar taxi till Fotografiska, med rutter, bubblor och noggrannhetsringar redan på.
+- Vid väldigt många punkter ritas bubblor för det som syns, och listan visar de första träffarna. EXIF skickar inte med miniatyrer till Positioner om det är fler än 50 bilder.
+
 ## Nytt i 1.19
 
 - **EXIF:** **Karta** och **Till Positioner** öppnar Positioner. Bilderna som syns just nu blir källan **EXIF-bilder**, så att de kan visas tillsammans med GPS-spår. Samma knapp igen uppdaterar källan i stället för att lägga till en kopia.

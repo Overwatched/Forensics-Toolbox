@@ -529,8 +529,70 @@
         return { numbers: numbers, inRoute: inRoute };
     }
 
+    // "1-10 = Hemfärd, 11-15 = Brottsplats" eller "punkt 1-10 = rutt A".
+    // Tom text är inga egna rutter. Felaktig text ger error.
+    function parseRouteText(text) {
+        var raw = str(text).replace(/[–—]/g, '-').trim();
+        if (!raw) return null;
+        var routes = [];
+        var parts = raw.split(/[,;\n]+/);
+        for (var i = 0; i < parts.length; i++) {
+            var part = parts[i].trim();
+            if (!part) continue;
+            if (/\d+\s*-\s*(?!\d)/.test(part)) return { error: true };
+            var range = /(\d+)\s*(?:-\s*(\d+))?/.exec(part);
+            if (!range) return { error: true };
+            var a = Number(range[1]);
+            var b = range[2] ? Number(range[2]) : a;
+            if (a < 1 || b < 1) return { error: true };
+            if (a > b) { var swap = a; a = b; b = swap; }
+            var name = part.replace(range[0], ' ')
+                .replace(/punkt(?:er)?/ig, ' ')
+                .replace(/[=:]/g, ' ')
+                .replace(/\brutt(?:en|er)?\b/ig, ' ')
+                .replace(/\s+/g, ' ')
+                .trim();
+            if (!name) name = 'Rutt ' + (routes.length + 1);
+            if (name.length > 40) name = name.slice(0, 40).trim();
+            routes.push({ name: name, from: a, to: b });
+        }
+        if (!routes.length) return { error: true };
+        return { routes: routes };
+    }
+
+    function parseRanges(text) {
+        var parsed = parseRouteText(text);
+        if (!parsed || parsed.error) return parsed;
+        return { ranges: parsed.routes.map(function (r) { return [r.from, r.to]; }) };
+    }
+
+    // Varje intervall blir en grupp, i nummerordning. Ett nummer som ingår i flera
+    // intervall hamnar bara i det första.
+    function pointsInRanges(list, numberOf, ranges) {
+        var used = {};
+        return ranges.map(function (range) {
+            var group = [];
+            list.forEach(function (p) {
+                if (used[p.id]) return;
+                var n = numberOf(p);
+                if (n >= range[0] && n <= range[1]) {
+                    used[p.id] = true;
+                    group.push(p);
+                }
+            });
+            group.sort(function (a, b) { return numberOf(a) - numberOf(b); });
+            return group;
+        });
+    }
+
+    var ROUTE_COLORS = ['#ff9f0a', '#64d2ff', '#30d158', '#bf5af2', '#ff375f', '#ffd60a'];
+
     var api = {
         numberPoints: numberPoints,
+        parseRanges: parseRanges,
+        parseRouteText: parseRouteText,
+        pointsInRanges: pointsInRanges,
+        ROUTE_COLORS: ROUTE_COLORS,
         BUBBLE_FIELDS: BUBBLE_FIELDS,
         defaultBubble: defaultBubble,
         bubbleParts: bubbleParts,

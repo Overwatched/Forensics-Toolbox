@@ -55,7 +55,8 @@
                     </svg>
                     <input id="search" type="search" placeholder="Sök filnamn, enhet, programvara eller taggvärde…" autocomplete="off" spellcheck="false">
                 </label>
-                <div class="time-range" title="Jämför tiden som den står i filen, se tidszonen i kolumnen Tid">
+                <div class="time-range">
+                    <span class="time-zone" title="Filtret jämför siffrorna som de står i filen. 14:00 matchar 14:00 oavsett filens tidszon.">Tidszon: klockslag i filen</span>
                     <span>Från</span>
                     <input type="text" id="time-from-date" class="date-field" placeholder="ÅÅÅÅ-MM-DD" maxlength="10" inputmode="numeric" aria-label="Från datum" autocomplete="off">
                     <input type="text" id="time-from-time" class="time-field" placeholder="TT:MM" maxlength="5" inputmode="numeric" aria-label="Från tid" autocomplete="off">

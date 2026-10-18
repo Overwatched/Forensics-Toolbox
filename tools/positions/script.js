@@ -23,7 +23,8 @@
         var t = (time || '').trim();
         if (!d && !t) return '';
         if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) return '';
-        if (!/^\d{2}:\d{2}$/.test(t)) t = '';
+        var clockMatch = /^(\d{2}:\d{2})(?::\d{2})?$/.exec(t);
+        t = clockMatch ? clockMatch[1] : '';
         var clock = t ? t + (end ? ':59' : ':00') : (end ? '23:59:59' : '00:00:00');
         return d + ' ' + clock;
     }
@@ -89,6 +90,20 @@
         var points = visiblePoints();
         var note = points.length + ' punkter i ' + layers.filter(function (l) { return l.visible; }).length + ' källor.';
         if (mapView) mapView.setPoints(points, note);
+        fillRouteSpan();
+    }
+
+    var routeDefaults = { from: '', to: '' };
+
+    function fillRouteSpan() {
+        var span = mapView && mapView.numberSpan ? mapView.numberSpan() : null;
+        var next = span ? { from: String(span.first), to: String(span.last) } : { from: '', to: '' };
+        ['from', 'to'].forEach(function (key) {
+            var el = $(key === 'from' ? 'route-from' : 'route-to');
+            if (document.activeElement === el) return;
+            if (!el.value || el.value === routeDefaults[key]) el.value = next[key];
+        });
+        routeDefaults = next;
     }
 
     var colorTimer = null;
@@ -118,11 +133,21 @@
             var route = make('button', '', layer.route ? 'Rutt på' : 'Rutt av');
             route.type = 'button';
             route.addEventListener('click', function () { layer.route = !layer.route; refresh(); });
-            var del = make('button', '', '×');
+            var bubbles = make('button', '', 'Bubblor');
+            bubbles.type = 'button';
+            bubbles.title = 'Anpassa bubblorna för ' + layer.name;
+            bubbles.addEventListener('click', function () {
+                var ids = visiblePoints().filter(function (p) { return p.layerId === layer.id; }).map(function (p) { return p.id; });
+                if (!ids.length) { setStatus('Inga punkter från ' + layer.name + ' visas just nu.'); return; }
+                ensureMap().editBubbles(ids, layer.name);
+            });
+            var del = make('button', 'quiet', '×');
             del.type = 'button';
             del.title = 'Ta bort källa';
             del.addEventListener('click', function () { layers = layers.filter(function (l) { return l !== layer; }); refresh(); });
-            row.append(swatch, name, eye, route, del);
+            var actions = make('div', 'layer-actions');
+            actions.append(eye, route, bubbles, del);
+            row.append(swatch, name, actions);
             list.append(row);
         });
     }
@@ -283,6 +308,7 @@
                     };
                 }),
                 thumbs: thumbs,
+                routes: namedRoutes,
                 map: mapView ? mapView.getState() : null,
             };
             var stamp = data.saved.slice(0, 16).replace('T', '-').replace(':', '');
@@ -326,8 +352,10 @@
         $('time-from-time').value = time.fromTime || '';
         $('time-to-date').value = time.toDate || '';
         $('time-to-time').value = time.toTime || '';
+        loadRoutes(data);
         refresh();
         ensureMap().setState(data.map);
+        ensureMap().setNamedRoutes(namedRoutes);
         setStatus('Vyn ' + filename + ' öppnades: ' + count + ' punkter i ' + layers.length + ' källor.');
     }
 
@@ -385,11 +413,51 @@
 
     $('pick').addEventListener('click', function () { $('file').click(); });
     $('fill-sample').addEventListener('click', function () {
-        if (layers.some(function (l) { return l.name === 'Testdata · Stockholm'; })) {
-            setStatus('Testdata finns redan.');
+        if (layers.some(function (l) { return l.sample; })) {
+            setStatus('Exemplet är redan inlagt.');
             return;
         }
-        addChunked('Testdata · Stockholm', SampleData.positionPoints());
+        var scenario = SampleData.positionScenario();
+        scenario.layers.forEach(function (spec) {
+            var layer = addLayer(spec.name, spec.points);
+            layer.sample = true;
+            layer.color = spec.color;
+            layer.points.forEach(function (p) { p.color = spec.color; });
+        });
+        refresh();
+        var numbering = MapCore.numberPoints(visiblePoints(), []).numbers;
+        var byName = {};
+        layers.forEach(function (layer) {
+            layer.points.forEach(function (p) { byName[p.name] = p; });
+        });
+        namedRoutes = [];
+        scenario.routes.forEach(function (route) {
+            var nums = route.files.map(function (name) {
+                return byName[name] ? numbering[byName[name].id] : 0;
+            }).filter(Boolean);
+            if (nums.length < 2) return;
+            var from = Math.min.apply(null, nums);
+            var to = Math.max.apply(null, nums);
+            if (to - from + 1 !== nums.length) return;
+            namedRoutes.push({ name: route.name, from: from, to: to, visible: true });
+        });
+        $('route-error').textContent = '';
+        renderRouteList();
+        var bubbles = {};
+        var shifts = {};
+        scenario.bubbles.forEach(function (item) {
+            var point = byName[item.file];
+            if (!point) return;
+            var cfg = MapCore.defaultBubble({ time: true, note: !!point.note });
+            cfg.leader = true;
+            cfg.ring = !!item.ring;
+            bubbles[point.id] = cfg;
+            if (item.shift) shifts[point.id] = item.shift;
+        });
+        ensureMap().setNamedRoutes(namedRoutes);
+        ensureMap().setBubbles(null, bubbles, shifts);
+        ensureMap().fitView();
+        setStatus(scenario.summary);
     });
     $('file').addEventListener('change', function () {
         var files = Array.prototype.slice.call($('file').files || []);
@@ -422,6 +490,7 @@
     });
     ['time-from-date', 'time-from-time', 'time-to-date', 'time-to-time'].forEach(function (id) {
         $(id).addEventListener('input', refresh);
+        $(id).addEventListener('change', refresh);
     });
 
     $('manual-add').addEventListener('click', function () {
@@ -514,6 +583,123 @@
             if (hit) ensureMap().focus(hit.id);
         }
     }
+
+    var namedRoutes = [];
+    var routeTimer = null;
+
+    function pointNumber(id) {
+        var raw = $(id).value.trim();
+        var n = Number(raw);
+        return /^\d+$/.test(raw) && n >= 1 ? n : 0;
+    }
+
+    function syncRoutes() {
+        renderRouteList();
+        if (mapView) mapView.setNamedRoutes(namedRoutes);
+    }
+
+    function loadRoutes(data) {
+        var list = Array.isArray(data.routes) ? data.routes : [];
+        if (!list.length && data.routeText) {
+            var parsed = MapCore.parseRouteText(data.routeText);
+            if (parsed && !parsed.error) list = parsed.routes;
+        }
+        namedRoutes = list.filter(function (r) { return r && r.from >= 1 && r.to >= 1; }).map(function (r) {
+            var from = Number(r.from);
+            var to = Number(r.to);
+            if (from > to) { var swap = from; from = to; to = swap; }
+            return { name: String(r.name || 'Rutt'), from: from, to: to, visible: r.visible !== false };
+        });
+        $('route-error').textContent = '';
+        renderRouteList();
+    }
+
+    function renderRouteList() {
+        var list = $('route-list');
+        list.textContent = '';
+        namedRoutes.forEach(function (route, i) {
+            var row = make('div', 'route-row');
+            var swatch = make('span', 'route-swatch');
+            swatch.style.background = MapCore.ROUTE_COLORS[i % MapCore.ROUTE_COLORS.length];
+            var name = make('input', 'route-name');
+            name.type = 'text';
+            name.value = route.name;
+            name.setAttribute('aria-label', 'Namn på rutten');
+            name.addEventListener('input', function () {
+                route.name = name.value.trim() || ('Rutt ' + (i + 1));
+                clearTimeout(routeTimer);
+                routeTimer = setTimeout(function () { if (mapView) mapView.setNamedRoutes(namedRoutes); }, 200);
+            });
+            name.addEventListener('blur', function () {
+                if (!name.value.trim()) {
+                    route.name = 'Rutt ' + (i + 1);
+                    name.value = route.name;
+                }
+                if (mapView) mapView.setNamedRoutes(namedRoutes);
+            });
+            if (route.visible === false) row.classList.add('is-hidden');
+            var range = make('span', 'range', route.from === route.to ? String(route.from) : route.from + '–' + route.to);
+            var bubbles = make('button', '', 'Bubblor');
+            bubbles.type = 'button';
+            bubbles.title = 'Anpassa bubblorna för ' + route.name;
+            bubbles.addEventListener('click', function () {
+                var ids = ensureMap().idsInRange(route.from, route.to);
+                if (!ids.length) { setStatus('Inga punkter i ' + route.name + '.'); return; }
+                ensureMap().editBubbles(ids, route.name);
+            });
+            var hide = make('button', '', route.visible === false ? 'Visa' : 'Dölj');
+            hide.type = 'button';
+            hide.title = route.visible === false ? 'Visa rutten igen' : 'Dölj den här rutten';
+            hide.addEventListener('click', function () {
+                route.visible = route.visible === false;
+                syncRoutes();
+            });
+            var del = make('button', 'quiet', '×');
+            del.type = 'button';
+            del.title = 'Ta bort ' + route.name;
+            del.addEventListener('click', function () {
+                namedRoutes.splice(i, 1);
+                $('route-error').textContent = '';
+                syncRoutes();
+            });
+            var actions = make('div', 'route-actions');
+            actions.append(bubbles, hide, del);
+            row.append(swatch, name, range, actions);
+            list.append(row);
+        });
+    }
+
+    function addRoute() {
+        var a = pointNumber('route-from');
+        var b = pointNumber('route-to');
+        if (!a && !b) {
+            $('route-error').textContent = 'Fyll i första och sista punkten.';
+            return;
+        }
+        if (!a) a = b;
+        if (!b) b = a;
+        if (a > b) { var swap = a; a = b; b = swap; }
+        var clash = namedRoutes.filter(function (r) { return !(b < r.from || a > r.to); })[0];
+        if (clash) {
+            $('route-error').textContent = 'De punkterna ingår redan i ' + clash.name + '.';
+            return;
+        }
+        namedRoutes.push({ name: 'Rutt ' + (namedRoutes.length + 1), from: a, to: b, visible: true });
+        $('route-from').value = routeDefaults.from;
+        $('route-to').value = routeDefaults.to;
+        $('route-error').textContent = '';
+        syncRoutes();
+        var field = document.querySelectorAll('.route-name');
+        var last = field[field.length - 1];
+        if (last) { last.focus(); last.select(); }
+    }
+
+    $('route-add').addEventListener('click', addRoute);
+    ['route-from', 'route-to'].forEach(function (id) {
+        $(id).addEventListener('keydown', function (e) {
+            if (e.key === 'Enter') addRoute();
+        });
+    });
 
     window.addEventListener('message', function (e) {
         var data = e.data;

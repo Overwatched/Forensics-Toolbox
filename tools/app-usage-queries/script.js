@@ -44,6 +44,14 @@ function currentQuery() {
     return (db.queries || []).find((q) => q.id === querySelect.value) || db.queries[0];
 }
 
+function localZoneName() {
+    try {
+        return Intl.DateTimeFormat().resolvedOptions().timeZone || '';
+    } catch (e) {
+        return '';
+    }
+}
+
 function unixFromUserTime(value) {
     if (value == null) return null;
     const t = String(value).trim();
@@ -145,6 +153,7 @@ function renderParams() {
               </div>`;
         }
         html += `</div>
+          <p class="zone-note">Tidszon: ${escapeHtml(localZoneName() || 'datorns tid')}</p>
           <div id="time-preview" class="time-preview"></div>`;
     }
     if (other.length) {

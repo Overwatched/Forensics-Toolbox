@@ -701,7 +701,8 @@
 
     function scheduleRender() {
         if (renderTimer) return;
-        renderTimer = setTimeout(render, rows.length > 500 ? 400 : 120);
+        var heavy = rows.length > 400 && (queue.length || busy);
+        renderTimer = setTimeout(render, heavy ? 1500 : (rows.length > 500 ? 400 : 120));
     }
 
     // --- Detaljvy -----------------------------------------------------------------
@@ -931,18 +932,24 @@
         var done = visibleRows().filter(function (r) { return r.status === 'done'; });
         var pts = MapCore.points(done);
         if (!pts.length) { showToast('Inga positioner att skicka'); return; }
-        var files = {};
-        done.forEach(function (r) { files[r.id] = r.file; });
+        var FILE_CAP = 50;
+        var withFiles = pts.length <= FILE_CAP;
+        if (withFiles) {
+            var files = {};
+            done.forEach(function (r) { files[r.id] = r.file; });
+            pts.forEach(function (p) { if (files[p.id]) p.file = files[p.id]; });
+        }
         pts.forEach(function (p) {
             p.exifId = p.id;
             p.detail = 'Visa i EXIF';
-            if (files[p.id]) p.file = files[p.id];
         });
         window.parent.postMessage({
             source: 'forensics-toolbox', type: 'positions', layerKey: 'exif', layerName: 'EXIF-bilder',
             points: pts, focusExifId: focusExifId,
         }, '*');
-        showToast(pts.length + (pts.length === 1 ? ' bild öppnades' : ' bilder öppnades') + ' i Positioner');
+        var text = pts.length + (pts.length === 1 ? ' bild öppnades' : ' bilder öppnades') + ' i Positioner';
+        if (!withFiles) text += '. Miniatyrer följer med för högst ' + FILE_CAP + ' bilder, så filtrera listan om du vill se dem.';
+        showToast(text);
     }
 
     $('to-positions').addEventListener('click', function () { sendToPositions(); });

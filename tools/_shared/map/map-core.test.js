@@ -265,3 +265,27 @@ test('varje punkt får ett fast nummer i tidsordning, oberoende av rutten', () =
     assert.deepStrictEqual(r.inRoute, { 1: true, 5: true, 2: true });
     assert.deepStrictEqual(map.numberPoints([a, b, c, d, e, f], []).numbers, r.numbers);
 });
+
+test('intervall blir egna rutter och ett nummer hamnar bara i det första', () => {
+    assert.strictEqual(map.parseRanges(''), null);
+    assert.strictEqual(map.parseRanges('  '), null);
+    assert.deepStrictEqual(map.parseRanges('1-12, 20–30'), { ranges: [[1, 12], [20, 30]] });
+    assert.deepStrictEqual(map.parseRanges('12-1; 5'), { ranges: [[1, 12], [5, 5]] });
+    assert.strictEqual(map.parseRanges('1-').error, true);
+    assert.strictEqual(map.parseRanges('0-3').error, true);
+    const points = [{ id: 'a' }, { id: 'b' }, { id: 'c' }, { id: 'd' }];
+    const numberOf = (p) => ({ a: 1, b: 2, c: 3, d: 4 })[p.id];
+    const groups = map.pointsInRanges(points, numberOf, [[1, 2], [2, 4]]);
+    assert.deepStrictEqual(groups.map((g) => g.map((p) => p.id)), [['a', 'b'], ['c', 'd']]);
+});
+
+test('en rad kan namnge flera rutter', () => {
+    assert.deepStrictEqual(map.parseRouteText('punkt 1-10 = rutt A, punkt 11-15 rutt B'), {
+        routes: [{ name: 'A', from: 1, to: 10 }, { name: 'B', from: 11, to: 15 }],
+    });
+    assert.deepStrictEqual(map.parseRouteText('1-10 = Hemfärd'), {
+        routes: [{ name: 'Hemfärd', from: 1, to: 10 }],
+    });
+    assert.strictEqual(map.parseRouteText('1-10').routes[0].name, 'Rutt 1');
+    assert.strictEqual(map.parseRouteText('bara text').error, true);
+});

@@ -165,7 +165,7 @@ tr:hover .row-remove, .row-remove:focus { opacity: 1; }
 .files th.sorted.desc::after { content: " ↓"; }
 
 .files td { padding: 8px 12px; border-bottom: 1px solid var(--border); vertical-align: top; }
-.files tbody tr { cursor: pointer; }
+.files tbody tr { cursor: pointer; content-visibility: auto; contain-intrinsic-size: auto 40px; }
 .files tbody tr:hover td { background: var(--surface-hover); }
 .files tbody tr:last-child td { border-bottom: none; }
 .files tr.pending td { color: var(--text-muted); }
@@ -341,6 +341,7 @@ tr:hover .row-remove, .row-remove:focus { opacity: 1; }
 }
 .time-range .date-field { width: 7.4em; }
 .time-range .time-field { width: 3.6em; }
+.time-range .time-zone { font-size: 11px; white-space: nowrap; }
 
 [data-theme="light"] .time-range input { color-scheme: light; }
 

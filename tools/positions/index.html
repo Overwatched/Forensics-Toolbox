@@ -31,12 +31,17 @@
 
                 <section class="side-block">
                     <h2>Tidsspann</h2>
-                    <label class="field" for="time-from-date">Från</label>
-                    <input type="text" id="time-from-date" placeholder="ÅÅÅÅ-MM-DD" maxlength="10" inputmode="numeric" autocomplete="off">
-                    <input type="text" id="time-from-time" placeholder="TT:MM" maxlength="5" inputmode="numeric" aria-label="Från tid" autocomplete="off">
-                    <label class="field" for="time-to-date">Till</label>
-                    <input type="text" id="time-to-date" placeholder="ÅÅÅÅ-MM-DD" maxlength="10" inputmode="numeric" autocomplete="off">
-                    <input type="text" id="time-to-time" placeholder="TT:MM" maxlength="5" inputmode="numeric" aria-label="Till tid" autocomplete="off">
+                    <p class="zone-note">Tidszon: klockslaget som det står i källan, ingen omräkning</p>
+                    <div class="time-row">
+                        <label class="field" for="time-from-date">Från</label>
+                        <input type="text" id="time-from-date" class="date-field" placeholder="ÅÅÅÅ-MM-DD" maxlength="10" inputmode="numeric" autocomplete="off">
+                        <input type="text" id="time-from-time" class="time-field" placeholder="TT:MM" maxlength="5" inputmode="numeric" aria-label="Från tid" autocomplete="off">
+                    </div>
+                    <div class="time-row">
+                        <label class="field" for="time-to-date">Till</label>
+                        <input type="text" id="time-to-date" class="date-field" placeholder="ÅÅÅÅ-MM-DD" maxlength="10" inputmode="numeric" autocomplete="off">
+                        <input type="text" id="time-to-time" class="time-field" placeholder="TT:MM" maxlength="5" inputmode="numeric" aria-label="Till tid" autocomplete="off">
+                    </div>
                 </section>
 
                 <section class="side-block sources">
@@ -53,11 +58,26 @@
                 </section>
 
                 <section class="side-block">
+                    <h2>Rutter</h2>
+                    <div class="route-add">
+                        <label class="field" for="route-from">Punkter</label>
+                        <div class="route-span">
+                            <input id="route-from" type="text" inputmode="numeric" maxlength="6" aria-label="Första punkten" autocomplete="off">
+                            <span>–</span>
+                            <input id="route-to" type="text" inputmode="numeric" maxlength="6" aria-label="Sista punkten" autocomplete="off">
+                            <button type="button" id="route-add" class="secondary-btn">Lägg till</button>
+                        </div>
+                    </div>
+                    <p id="route-error" class="status"></p>
+                    <div id="route-list"></div>
+                </section>
+
+                <section class="side-block">
                     <h2>Spara arbetet</h2>
                     <button type="button" id="view-save" class="secondary-btn">Spara vy…</button>
                     <button type="button" id="view-open" class="secondary-btn">Öppna vy…</button>
                     <input type="file" id="view-file" accept=".json,application/json" hidden>
-                    <p class="field">Källor, färger, rutt, bubblor och kartläge sparas i en fil. Bilder följer med som små miniatyrer.</p>
+                    <p class="field">Källor, färger, namngivna rutter, bubblor och kartläge sparas i en fil. Bilder följer med som små miniatyrer.</p>
                 </section>
 
                 <section class="side-block exports">

@@ -97,6 +97,14 @@ function looksLikeEpoch(raw) {
 
 // Inmatade datum tolkas av `new Date()` i maskinens lokala tidszon. Det måste framgå,
 // annars blir tidsspannet fel mot en databas som lagrar UTC.
+function localZoneName() {
+    try {
+        return Intl.DateTimeFormat().resolvedOptions().timeZone || '';
+    } catch (e) {
+        return '';
+    }
+}
+
 function zoneNote(unixSeconds) {
     let zone = '';
     try {
@@ -370,7 +378,8 @@ function renderParams() {
             <label class="field-label" for="param-timeEnd">${escapeHtml(paramLabels.timeEnd || 'Till (ÅÅÅÅ-MM-DD TT:MM)')}</label>
             <input type="text" id="param-timeEnd" spellcheck="false" autocomplete="off" placeholder="Tomt = till slutet">
           </div>`;
-        html += '</div><div id="time-preview" class="time-preview"></div>';
+        html += '</div><p class="zone-note">Tidszon: ' + escapeHtml(localZoneName() || 'datorns tid') + '</p>';
+        html += '<div id="time-preview" class="time-preview"></div>';
         step += 1;
     }
     if (other.length) {
