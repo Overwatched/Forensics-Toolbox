@@ -662,6 +662,7 @@
             onSelect: function (id) {
                 var row = rows.filter(function (r) { return r.id === id; })[0];
                 if (row) openDetail(row);
+                return !!row;
             },
             getFile: function (id) {
                 var row = rows.filter(function (r) { return r.id === id; })[0];
@@ -753,7 +754,8 @@
                 actions.append(linkButton('Visa på kartan', function () {
                     var id = row.id;
                     closeDetail();
-                    setView('map').then(function () { mapView.focus(id); });
+                    if (inToolbox()) sendToPositions(id);
+                    else setView('map').then(function () { mapView.focus(id); });
                 }));
             }
             pos.append(actions);
@@ -915,15 +917,53 @@
         render();
     });
 
-    $('to-positions').addEventListener('click', function () {
-        var pts = MapCore.points(visibleRows().filter(function (r) { return r.status === 'done'; }));
+    // I verktygslådan är Positioner kartan. Där blir bilderna en egen källa, så att de
+    // kan visas tillsammans med GPS-spår. Öppnas EXIF för sig själv finns kartan kvar här.
+    function inToolbox() {
+        return window.parent && window.parent !== window;
+    }
+
+    function sendToPositions(focusExifId) {
+        if (!inToolbox()) {
+            showToast('Öppna verktygslådan för att visa bilderna tillsammans med andra positioner.');
+            return;
+        }
+        var done = visibleRows().filter(function (r) { return r.status === 'done'; });
+        var pts = MapCore.points(done);
         if (!pts.length) { showToast('Inga positioner att skicka'); return; }
-        window.parent.postMessage({ source: 'forensics-toolbox', type: 'positions', points: pts }, '*');
-        showToast(pts.length + ' positioner skickade till Positioner');
+        var files = {};
+        done.forEach(function (r) { files[r.id] = r.file; });
+        pts.forEach(function (p) {
+            p.exifId = p.id;
+            p.detail = 'Visa i EXIF';
+            if (files[p.id]) p.file = files[p.id];
+        });
+        window.parent.postMessage({
+            source: 'forensics-toolbox', type: 'positions', layerKey: 'exif', layerName: 'EXIF-bilder',
+            points: pts, focusExifId: focusExifId,
+        }, '*');
+        showToast(pts.length + (pts.length === 1 ? ' bild öppnades' : ' bilder öppnades') + ' i Positioner');
+    }
+
+    $('to-positions').addEventListener('click', function () { sendToPositions(); });
+    if (inToolbox()) {
+        var mapTab = document.querySelector('.view-switch [data-view="map"]');
+        if (mapTab) mapTab.title = 'Visa bilderna som en källa i Positioner';
+    }
+
+    window.addEventListener('message', function (e) {
+        var data = e.data;
+        if (!data || data.source !== 'forensics-toolbox' || data.type !== 'show-exif') return;
+        var row = rows.filter(function (r) { return r.id === data.exifId; })[0];
+        if (row) openDetail(row);
+        else showToast('Bilden finns inte kvar i listan.');
     });
 
     document.querySelectorAll('.view-switch [data-view]').forEach(function (b) {
-        b.addEventListener('click', function () { setView(b.dataset.view); });
+        b.addEventListener('click', function () {
+            if (b.dataset.view === 'map' && inToolbox()) { sendToPositions(); return; }
+            setView(b.dataset.view);
+        });
     });
     window.addEventListener('resize', function () { if (mapView) mapView.resize(); });
 

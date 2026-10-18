@@ -1,5 +1,11 @@
 Automatiskt byggd från commit `{{SHA}}`.
 
+## Nytt i 1.19
+
+- **EXIF:** **Karta** och **Till Positioner** öppnar Positioner. Bilderna som syns just nu blir källan **EXIF-bilder**, så att de kan visas tillsammans med GPS-spår. Samma knapp igen uppdaterar källan i stället för att lägga till en kopia.
+- **Visa i EXIF** på en bildpunkt öppnar filen i EXIF igen.
+- Öppnas EXIF för sig själv, utan verktygslådan, finns kartan kvar där.
+
 ## Nytt i 1.18
 
 - **Varje punkt har ett fast nummer** i tidsordning, samma på kartan och i listan. Numret ändras inte när en punkt tas ur rutten eller döljs.

@@ -125,7 +125,18 @@ function initToolNav() {
         if (data.type === 'positions' && Array.isArray(data.points)) {
             openTool('tools/positions/index.html');
             const frame = frames.get('tools/positions/index.html');
-            const send = () => postToFrame(frame, { source: 'forensics-toolbox', type: 'positions', points: data.points });
+            const send = () => postToFrame(frame, {
+                source: 'forensics-toolbox', type: 'positions', points: data.points,
+                layerKey: data.layerKey, layerName: data.layerName, focusExifId: data.focusExifId,
+            });
+            if (frame && frame.dataset.ready) send();
+            else if (frame) frame.addEventListener('load', send, { once: true });
+            return;
+        }
+        if (data.type === 'show-exif') {
+            openTool('tools/exif-viewer/index.html');
+            const frame = frames.get('tools/exif-viewer/index.html');
+            const send = () => postToFrame(frame, { source: 'forensics-toolbox', type: 'show-exif', exifId: data.exifId });
             if (frame && frame.dataset.ready) send();
             else if (frame) frame.addEventListener('load', send, { once: true });
             return;

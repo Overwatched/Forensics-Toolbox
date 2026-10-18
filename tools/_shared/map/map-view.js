@@ -1044,11 +1044,11 @@
             });
             box.append(inRoute.label);
             var actions = make('div', 'map-popup-actions');
-            var more = make('button', 'link-btn', 'Visa metadata');
+            var more = make('button', 'link-btn', p.detail || 'Visa metadata');
             more.type = 'button';
             more.addEventListener('click', function () {
+                if (opts.onSelect && opts.onSelect(p.id)) return;
                 openList(p.id);
-                if (opts.onSelect) opts.onSelect(p.id);
             });
             var copy = make('button', 'link-btn', 'Kopiera koordinater');
             copy.type = 'button';
@@ -1637,12 +1637,12 @@
                 });
                 body.append(event);
                 var buttons = make('div', 'map-list-actions');
-                var more = make('button', 'link-btn', 'Visa metadata');
+                var more = make('button', 'link-btn', p.detail || 'Visa metadata');
                 more.type = 'button';
                 more.addEventListener('click', function (e) {
                     e.stopPropagation();
-                    if (opts.onSelect) opts.onSelect(p.id);
-                    else openList(p.id);
+                    if (opts.onSelect && opts.onSelect(p.id)) return;
+                    openList(p.id);
                 });
                 var hideRow = make('button', 'link-btn', hidden[p.id] ? 'Visa på kartan' : 'Dölj');
                 hideRow.type = 'button';

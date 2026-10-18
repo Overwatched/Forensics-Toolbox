@@ -278,6 +278,7 @@
                 layers: layers.map(function (layer) {
                     return {
                         id: layer.id, name: layer.name, color: layer.color, visible: layer.visible, route: layer.route,
+                        key: layer.key || '',
                         points: layer.points.map(pointData),
                     };
                 }),
@@ -298,6 +299,7 @@
         layers = data.layers.map(function (saved, i) {
             var layer = {
                 id: Number(saved.id) || i + 1,
+                key: typeof saved.key === 'string' ? saved.key : '',
                 name: String(saved.name || 'Källa ' + (i + 1)),
                 color: /^#[0-9a-f]{6}$/i.test(saved.color) ? saved.color : COLORS[i % COLORS.length],
                 visible: saved.visible !== false,
@@ -341,6 +343,14 @@
         });
     }
 
+    function findPoint(id) {
+        var found = null;
+        layers.forEach(function (layer) {
+            layer.points.forEach(function (p) { if (p.id === id) found = p; });
+        });
+        return found;
+    }
+
     function ensureMap() {
         if (mapView) return mapView;
         mapView = ToolboxMap.create({
@@ -348,11 +358,14 @@
             routeOn: true,
             route: currentRoute,
             getFile: function (id) {
-                var found = null;
-                layers.forEach(function (layer) {
-                    layer.points.forEach(function (p) { if (p.id === id) found = p; });
-                });
+                var found = findPoint(id);
                 return found && found.file ? found.file : null;
+            },
+            onSelect: function (id) {
+                var found = findPoint(id);
+                if (!found || found.exifId == null) return false;
+                window.parent.postMessage({ source: 'forensics-toolbox', type: 'show-exif', exifId: found.exifId }, '*');
+                return true;
             },
             onRemove: function (id) {
                 layers.forEach(function (layer) {
@@ -456,10 +469,56 @@
         }
     });
 
+    function placeOnLayer(layer, src, kept) {
+        var p = Object.assign({}, src);
+        p.color = layer.color;
+        p.layer = layer.name;
+        p.layerId = layer.id;
+        if (!p.device) p.device = layer.name;
+        if (p.exifId != null && Object.prototype.hasOwnProperty.call(kept, p.exifId)) {
+            p.id = kept[p.exifId];
+            delete kept[p.exifId];
+        } else {
+            p.id = nextId++;
+        }
+        if (p.id >= nextId) nextId = p.id + 1;
+        return p;
+    }
+
+    // Samma nyckel uppdaterar källan i stället för att lägga till en kopia. Bildernas id
+    // behålls, så att ruttval och bubblor ligger kvar när filtren i EXIF ändras.
+    function receivePositions(data) {
+        if (!data.layerKey) { addChunked('EXIF & karta', data.points); return; }
+        var name = String(data.layerName || 'EXIF-bilder');
+        var layer = layers.filter(function (l) { return l.key === data.layerKey; })[0];
+        var created = !layer;
+        if (!layer) {
+            layer = {
+                id: nextId++, key: data.layerKey, name: name,
+                color: COLORS[layers.length % COLORS.length], visible: true, route: true, points: [],
+            };
+            if (layer.id >= nextId) nextId = layer.id + 1;
+            layers.push(layer);
+        }
+        layer.name = name;
+        var kept = {};
+        layer.points.forEach(function (p) { if (p.exifId != null) kept[p.exifId] = p.id; });
+        layer.points = data.points.map(function (src) { return placeOnLayer(layer, src, kept); });
+        refresh();
+        var n = layer.points.length;
+        setStatus(created
+            ? n + (n === 1 ? ' bild lades till' : ' bilder lades till') + ' som källan ' + name + '.'
+            : 'Källan ' + name + ' uppdaterades: ' + n + (n === 1 ? ' bild.' : ' bilder.'));
+        if (data.focusExifId != null) {
+            var hit = layer.points.filter(function (p) { return p.exifId === data.focusExifId; })[0];
+            if (hit) ensureMap().focus(hit.id);
+        }
+    }
+
     window.addEventListener('message', function (e) {
         var data = e.data;
         if (!data || data.source !== 'forensics-toolbox' || data.type !== 'positions' || !Array.isArray(data.points)) return;
-        addChunked('EXIF & karta', data.points);
+        receivePositions(data);
     });
 
     ensureMap().show();
