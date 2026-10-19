@@ -2025,12 +2025,14 @@
         });
         el.pick.addEventListener('click', function () { el.input.click(); });
         el.dirInput.addEventListener('change', function () {
-            useChosenFiles(el.dirInput.files);
+            var snapshot = Array.prototype.slice.call(el.dirInput.files || []);
             el.dirInput.value = '';
+            useChosenFiles(snapshot);
         });
         el.input.addEventListener('change', function () {
-            useChosenFiles(el.input.files);
+            var snapshot = Array.prototype.slice.call(el.input.files || []);
             el.input.value = '';
+            useChosenFiles(snapshot);
         });
 
         var TOGGLES = ['route', 'perDevice'];

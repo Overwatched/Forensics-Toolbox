@@ -1,5 +1,9 @@
 Automatiskt byggd från commit `{{SHA}}`.
 
+## Nytt i 1.21
+
+- **HTML-kartan:** valda kartfiler behålls när filväljaren töms. Mappen `maps` och en enstaka `.pmtiles`-fil kan importeras igen.
+
 ## Nytt i 1.20
 
 - **Positioner:** under **Rutter** skriver du första och sista punkten och trycker **Lägg till**. Fälten är förifyllda med första och sista punkten. Namnet ändrar du på raden som dyker upp. **Dölj** tar bort linjen, punkterna och numren ligger kvar.
