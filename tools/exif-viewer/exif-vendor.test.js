@@ -77,7 +77,16 @@ test('workern läser EXIF ur en riktig bild utan att ändra den', { timeout: 600
     assert.ok(result.ok, result.error);
     assert.strictEqual(result.tags['IFD0:Model'], 'iPhone 15 Pro');
     assert.strictEqual(result.tags['Composite:SubSecDateTimeOriginal'], '2024:06:01 14:34:56+02:00');
+    assert.strictEqual(result.unknown, false);
     assert.strictEqual(crypto.createHash('sha256').update(bytes).digest('hex'), before);
+
+    self.onmessage({ data: { type: 'parse', id: 8, file: new File([bytes], 'exif-sample.jpg'), unknown: true } });
+    const all = await next('result');
+    assert.strictEqual(all.id, 8);
+    assert.strictEqual(all.unknown, true);
+    assert.ok(all.ok, all.error);
+    assert.strictEqual(all.tags['IFD0:Model'], 'iPhone 15 Pro');
+    assert.ok(Object.keys(all.tags).length >= Object.keys(result.tags).length);
 
     const core = require('./exif-core.js');
     const s = core.summarize(core.cleanTags(result.tags), 'exif-sample.jpg');

@@ -176,8 +176,29 @@
     box-shadow: 0 20px 50px rgba(0, 0, 0, 0.35);
     z-index: 3;
 }
+.map-with-list .map-editor { right: 354px; }
 .map-editor h3 { font-size: 14px; margin: 0 0 4px; }
 .map-editor h4 { font-size: 11px; letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-muted); margin: 10px 0 4px; }
+.map-event { display: flex; flex-direction: column; align-items: stretch; gap: 4px; margin: 0 0 8px; font-weight: 650; }
+.map-event input {
+    width: 100%; font: inherit; font-size: 12px; font-weight: 450; color: var(--text);
+    background: #5c5c66; border: 1px solid #b4b4bc; border-radius: 6px; padding: 6px 8px;
+}
+.map-event input::placeholder { color: #c2c2ca; }
+[data-theme="light"] .map-event input { background: #ffffff; border-color: #aeaeb2; }
+[data-theme="light"] .map-event input::placeholder { color: var(--text-muted); }
+.map-event input:focus { outline: none; border-color: var(--accent); }
+.map-event-hint { font-weight: 450; color: var(--text-muted); }
+.map-pickbar {
+    position: absolute; left: 50%; bottom: 36px; transform: translateX(-50%); z-index: 4;
+    display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 4px 10px;
+    max-width: calc(100% - 24px); padding: 8px 12px;
+    background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: 12px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.22); font-size: 12px;
+}
+.map-with-list .map-pickbar { left: calc(50% - 170px); }
+.map-pickbar .link-btn { font-weight: 650; }
+.map-pick-hint { color: var(--text-muted); }
 .map-bubbles .secondary-btn { width: 100%; text-align: center; }
 .map-editor .map-note { margin: 0 0 8px; }
 .map-editor .toggle { display: flex; gap: 8px; margin-bottom: 8px; font-weight: 600; }
@@ -222,7 +243,9 @@
     border: 1px solid var(--border); border-radius: 6px; padding: 5px 8px; margin: 0;
 }
 .map-list-nohit { padding: 12px; }
-.map-list-tools, .map-list-bulk { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; }
+.map-list-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; }
+.map-list-hint { margin: 0; }
+.map-list-note { margin-top: 2px; }
 .map-list-tools button.is-on { background: var(--accent); color: #fff; border-radius: 6px; padding: 2px 8px; }
 .map-list-tools select { width: auto; font: inherit; font-size: 12px; color: var(--text); background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 2px 6px; max-width: 170px; }
 .map-list-bulk { background: var(--accent-soft, rgba(10, 132, 255, 0.14)); border-radius: 8px; padding: 6px 8px; }

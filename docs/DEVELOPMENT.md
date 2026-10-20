@@ -180,5 +180,5 @@ vektorkartor i PMTiles-format.
 ## Kända begränsningar
 
 - Offline för lokala verktyg; externa länkar/nedladdningar och onlinekartan kräver nät och bekräftelse
-- Windows-signing är avstängd (`signAndEditExecutable: false`)
+- Windows-signing är avstängd (`signExecutable: false`). Ikon och metadata skrivs ändå in i exe-filen.
 - `npm audit`-varningar i Electron-kedjan är vanliga; åtgärda inte med `audit fix --force` utan översikt

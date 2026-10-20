@@ -18,10 +18,11 @@ const CORS = {
 // Måste köras innan app är redo.
 // electron läses in här och inte överst, så att mapRequestHandler kan testas i Node.
 function registerMapScheme() {
-    require('electron').protocol.registerSchemesAsPrivileged([{
-        scheme: SCHEME,
-        privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true, stream: true },
-    }]);
+    const privileges = { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true, stream: true };
+    require('electron').protocol.registerSchemesAsPrivileged([
+        { scheme: SCHEME, privileges: privileges },
+        { scheme: 'ftmedia', privileges: privileges },
+    ]);
 }
 
 function reply(status, body, headers) {

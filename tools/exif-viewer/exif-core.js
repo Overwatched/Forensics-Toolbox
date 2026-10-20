@@ -3,17 +3,32 @@
 (function (root) {
     'use strict';
 
-    // ExifTool körs mot en kopia i minnet. Sökväg, åtkomsttid, inode-tid och rättigheter
-    // kommer därför från minnesfilsystemet och säger inget om originalfilen.
+    // ExifTool körs mot en kopia i minnet. Sökväg, tider, inode och rättigheter kommer
+    // därför från minnesfilsystemet. ExifTool:Now och liknande beskriver körningen, inte filen.
     var DROP = {
         'SourceFile': true,
         'ExifTool:ExifToolVersion': true,
+        'ExifTool:Now': true,
+        'ExifTool:NewGUID': true,
+        'ExifTool:FileSequence': true,
+        'ExifTool:ProcessingTime': true,
         'System:FileName': true,
         'System:Directory': true,
         'System:FileModifyDate': true,
         'System:FileAccessDate': true,
         'System:FileInodeChangeDate': true,
         'System:FilePermissions': true,
+        'System:BaseName': true,
+        'System:FilePath': true,
+        'System:FileAttributes': true,
+        'System:FileDeviceNumber': true,
+        'System:FileInodeNumber': true,
+        'System:FileHardLinks': true,
+        'System:FileUserID': true,
+        'System:FileGroupID': true,
+        'System:FileDeviceID': true,
+        'System:FileBlockSize': true,
+        'System:FileBlockCount': true,
     };
 
     var TIME_SOURCES = [

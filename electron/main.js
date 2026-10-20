@@ -1,7 +1,8 @@
-const { app, BrowserWindow, shell, Menu, session, dialog } = require('electron');
+const { app, BrowserWindow, shell, Menu, session, dialog, ipcMain } = require('electron');
 const path = require('node:path');
 const fs = require('node:fs');
 const maps = require('./map-protocol');
+const media = require('./media-protocol');
 
 // Sökväg till projektroten. I dev-läge (npm start) är detta repo-roten.
 // I ett paketerat bygge (electron-builder, asar: false) är strukturen identisk under
@@ -146,6 +147,9 @@ app.whenReady().then(() => {
         item.setSaveDialogOptions({ defaultPath: item.getFilename() });
     });
     maps.handleMapProtocol(MAPS_DIR);
+    media.handleMediaProtocol();
+    ipcMain.handle('media-allow', function (_event, filePath) { return media.allow(filePath); });
+    ipcMain.handle('media-revoke', function (_event, filePath) { return media.revoke(filePath); });
     maps.stripIdentifyingHeaders(session.defaultSession);
 
     buildMenu();

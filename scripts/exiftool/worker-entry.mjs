@@ -12,6 +12,9 @@ self.window = self;
 self.document = {};
 
 const ARGS = ['-json', '-a', '-G1', '-s', '-api', 'LargeFileSupport=1'];
+// -U tar med okända taggar, även ur binära block. RequestAll=3 tar med taggar
+// som ExifTool annars hoppar över (unsafe, protected, hidden).
+const ALL_ARGS = ARGS.concat(['-U', '-api', 'RequestAll=3']);
 
 let wasm = null;
 
@@ -25,8 +28,12 @@ async function gunzipBase64(b64) {
 
 const wasmFetch = async () => ({ arrayBuffer: async () => wasm });
 
-async function parse(file) {
-    const result = await parseMetadata(file, { args: ARGS, fetch: wasmFetch, transform: (s) => JSON.parse(s) });
+async function parse(file, allValues) {
+    const result = await parseMetadata(file, {
+        args: allValues ? ALL_ARGS : ARGS,
+        fetch: wasmFetch,
+        transform: (s) => JSON.parse(s),
+    });
     if (!result.success) return { ok: false, error: String(result.error || 'Okänt fel') };
     return { ok: true, tags: (result.data && result.data[0]) || {} };
 }
@@ -36,7 +43,7 @@ self.onmessage = async (event) => {
     if (msg.type === 'init') {
         try {
             wasm = await gunzipBase64(msg.wasmGz);
-            const probe = await parse(new File([new Uint8Array([0xff, 0xd8, 0xff, 0xd9])], 'probe.jpg'));
+            const probe = await parse(new File([new Uint8Array([0xff, 0xd8, 0xff, 0xd9])], 'probe.jpg'), false);
             self.postMessage({ type: 'ready', version: probe.ok ? probe.tags['ExifTool:ExifToolVersion'] : null });
         } catch (err) {
             self.postMessage({ type: 'init-error', error: String((err && err.message) || err) });
@@ -46,10 +53,10 @@ self.onmessage = async (event) => {
     if (msg.type === 'parse') {
         let out;
         try {
-            out = await parse(msg.file);
+            out = await parse(msg.file, !!msg.unknown);
         } catch (err) {
             out = { ok: false, error: String((err && err.message) || err) };
         }
-        self.postMessage(Object.assign({ type: 'result', id: msg.id }, out));
+        self.postMessage(Object.assign({ type: 'result', id: msg.id, unknown: !!msg.unknown }, out));
     }
 };

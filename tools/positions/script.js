@@ -133,13 +133,13 @@
             var route = make('button', '', layer.route ? 'Rutt på' : 'Rutt av');
             route.type = 'button';
             route.addEventListener('click', function () { layer.route = !layer.route; refresh(); });
-            var bubbles = make('button', '', 'Bubblor');
+            var bubbles = make('button', '', 'Anpassa');
             bubbles.type = 'button';
             bubbles.title = 'Anpassa bubblorna för ' + layer.name;
             bubbles.addEventListener('click', function () {
                 var ids = visiblePoints().filter(function (p) { return p.layerId === layer.id; }).map(function (p) { return p.id; });
                 if (!ids.length) { setStatus('Inga punkter från ' + layer.name + ' visas just nu.'); return; }
-                ensureMap().editBubbles(ids, layer.name);
+                adaptPoints(ids, layer.name);
             });
             var del = make('button', 'quiet', '×');
             del.type = 'button';
@@ -377,6 +377,12 @@
             layer.points.forEach(function (p) { if (p.id === id) found = p; });
         });
         return found;
+    }
+
+    function adaptPoints(ids, title) {
+        var map = ensureMap();
+        map.mark(ids);
+        map.editBubbles(ids, title);
     }
 
     function ensureMap() {
@@ -639,13 +645,13 @@
             });
             if (route.visible === false) row.classList.add('is-hidden');
             var range = make('span', 'range', route.from === route.to ? String(route.from) : route.from + '–' + route.to);
-            var bubbles = make('button', '', 'Bubblor');
+            var bubbles = make('button', '', 'Anpassa');
             bubbles.type = 'button';
             bubbles.title = 'Anpassa bubblorna för ' + route.name;
             bubbles.addEventListener('click', function () {
                 var ids = ensureMap().idsInRange(route.from, route.to);
                 if (!ids.length) { setStatus('Inga punkter i ' + route.name + '.'); return; }
-                ensureMap().editBubbles(ids, route.name);
+                adaptPoints(ids, route.name);
             });
             var hide = make('button', '', route.visible === false ? 'Visa' : 'Dölj');
             hide.type = 'button';

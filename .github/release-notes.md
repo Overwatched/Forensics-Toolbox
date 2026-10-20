@@ -1,5 +1,13 @@
 Automatiskt byggd från commit `{{SHA}}`.
 
+## Nytt i 1.22
+
+- **EXIF** visar bilden eller videon direkt, även som tumnagel i listan. Knappen med en överstruken bild döljer dem. Filen läses bara, och tidsstämplarna lämnas som de är.
+- **Alla värden, även okända** läser om filerna och tar med taggar som ExifTool annars hoppar över. Uppgifter som bara kommer från minneskopian visas inte.
+- **Händelse** i bubbelredigeraren har en egen ruta, så den syns mot panelen i både ljust och mörkt läge.
+- **Skift+klick i listan** markerar alla rader mellan den senast markerade och den du klickar. Ett nytt skift+klick flyttar slutet av intervallet.
+- **Windows-installationen** får programmets egen ikon. Den installerade appen visar inte längre Electron-ikonen.
+
 ## Nytt i 1.21
 
 - **HTML-kartan:** valda kartfiler behålls när filväljaren töms. Mappen `maps` och en enstaka `.pmtiles`-fil kan importeras igen.

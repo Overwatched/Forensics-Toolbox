@@ -41,7 +41,12 @@
     var lastRemoved = [];
     var seen = {};
     var queue = [];
+    var reread = [];
     var busy = null;
+    var busyFrom = null;
+    var busyUnknown = false;
+    var rereadTotal = 0;
+    var rereadDone = 0;
     var nextId = 1;
     var batch = { total: 0, done: 0, started: 0 };
     var engine = { worker: null, ready: false, version: '' };
@@ -58,6 +63,14 @@
     var timeToTime = $('time-to-time');
     var exportMenu = $('export-menu');
     var mapView = null;
+    var showMedia = true;
+    var mediaObjectUrl = null;
+    var mediaToken = 0;
+    var thumbGeneration = 0;
+    var thumbUrls = [];
+    try { showMedia = localStorage.getItem('exif-show-media') !== '0'; } catch (err) { showMedia = true; }
+    var showUnknown = false;
+    try { showUnknown = localStorage.getItem('exif-show-unknown') === '1'; } catch (err) { showUnknown = false; }
 
     var appNames = {};
     if (window.AppIds) {
@@ -165,9 +178,11 @@
         worker.onerror = function (event) {
             event.preventDefault();
             var row = busy;
+            var unknown = busyUnknown;
             busy = null;
+            busyFrom = null;
             worker.terminate();
-            if (row) complete(row, { 'ExifTool:Error': 'ExifTool avbröts på filen: ' + (event.message || 'okänt fel') });
+            if (row) complete(row, { 'ExifTool:Error': 'ExifTool avbröts på filen: ' + (event.message || 'okänt fel') }, unknown);
             startEngine();
         };
         worker.postMessage({ type: 'init', wasmGz: window.EXIFTOOL_WASM_GZ });
@@ -208,11 +223,31 @@
 
     function pump() {
         if (busy || !engine.ready) return;
-        var row = queue.shift();
-        while (row && removed.has(row.id)) row = queue.shift();
-        if (!row) return;
+        var row = null;
+        var from = 'queue';
+        while (queue.length) {
+            row = queue.shift();
+            if (row && !removed.has(row.id) && rows.indexOf(row) >= 0) break;
+            row = null;
+        }
+        if (!row) {
+            from = 'reread';
+            while (reread.length) {
+                row = reread.shift();
+                if (!row || removed.has(row.id) || rows.indexOf(row) < 0) { row = null; continue; }
+                if (showUnknown ? row.tagsAll : row.tagsKnown) { row = null; continue; }
+                break;
+            }
+        }
+        if (!row) {
+            updateProgress();
+            return;
+        }
         busy = row;
-        engine.worker.postMessage({ type: 'parse', id: row.id, file: row.file });
+        busyFrom = from;
+        busyUnknown = showUnknown;
+        engine.worker.postMessage({ type: 'parse', id: row.id, file: row.file, unknown: busyUnknown });
+        updateProgress();
     }
 
     function readRange(file) {
@@ -234,27 +269,51 @@
     }
 
     function finish(row, msg) {
+        var from = busyFrom;
+        var unknown = typeof msg.unknown === 'boolean' ? msg.unknown : busyUnknown;
+        busy = null;
+        busyFrom = null;
         if (!msg.ok) {
-            busy = null;
-            complete(row, { 'ExifTool:Error': msg.error });
+            if (from === 'reread') {
+                showToast('Kunde inte läsa om ' + row.name);
+                rereadDone++;
+                updateProgress();
+                scheduleRender();
+                pump();
+                return;
+            }
+            complete(row, { 'ExifTool:Error': msg.error }, unknown);
             pump();
             return;
         }
         withOffice(row, msg.tags).then(function (tags) {
-            busy = null;
-            complete(row, tags);
+            if (rows.indexOf(row) < 0) {
+                updateProgress();
+                pump();
+                return;
+            }
+            storeTags(row, tags, unknown);
+            publish(row);
+            noteParse(row, from);
+            updateProgress();
+            scheduleRender();
+            if (selected === row) renderDetail();
             pump();
         });
     }
 
-    function complete(row, tags) {
-        if (rows.indexOf(row) < 0) {
-            updateProgress();
-            return;
-        }
-        row.tags = ExifCore.cleanTags(tags);
-        row.summary = ExifCore.summarize(row.tags, row.name);
-        row.summary.appHit = ExifCore.matchApp(row.tags, (window.AppIds && AppIds.APPS) || []);
+    function storeTags(row, tags, unknown) {
+        var clean = ExifCore.cleanTags(tags);
+        if (unknown) row.tagsAll = clean;
+        else row.tagsKnown = clean;
+    }
+
+    function publish(row) {
+        var tags = showUnknown ? (row.tagsAll || row.tagsKnown) : (row.tagsKnown || row.tagsAll);
+        if (!tags) return;
+        row.tags = tags;
+        row.summary = ExifCore.summarize(tags, row.name);
+        row.summary.appHit = ExifCore.matchApp(tags, (window.AppIds && AppIds.APPS) || []);
         row.status = 'done';
         var s = row.summary;
         row.hay = [
@@ -263,7 +322,26 @@
             s.apps.map(function (a) { return appNames[a] || a; }).join(' '),
             JSON.stringify(row.tags),
         ].join(' ').toLowerCase();
-        batch.done++;
+    }
+
+    function noteParse(row, from) {
+        var have = showUnknown ? row.tagsAll : row.tagsKnown;
+        if (from === 'queue') batch.done++;
+        else if (have) rereadDone++;
+        if (row.file && have) return;
+        if (!row.file || row.status === 'queued' || reread.indexOf(row) >= 0) return;
+        reread.push(row);
+        rereadTotal++;
+    }
+
+    function complete(row, tags, unknown) {
+        if (rows.indexOf(row) < 0) {
+            updateProgress();
+            return;
+        }
+        storeTags(row, tags, !!unknown);
+        publish(row);
+        noteParse(row, 'queue');
         updateProgress();
         scheduleRender();
         if (selected === row) renderDetail();
@@ -275,13 +353,20 @@
         queue = [];
         rows = rows.filter(function (r) { return r.status !== 'queued' || r === busy; });
         batch.total -= dropped;
+        var droppedReread = reread.length;
+        reread = [];
+        if (droppedReread) { rereadTotal = 0; rereadDone = 0; }
         updateProgress();
         scheduleRender();
-        showToast(dropped + ' filer lästes inte');
+        if (dropped) showToast(dropped + ' filer lästes inte');
+        else if (droppedReread) showToast('Avbröt omläsningen');
     }
 
     function clearAll() {
         queue = [];
+        reread = [];
+        rereadTotal = 0;
+        rereadDone = 0;
         rows = [];
         seen = {};
         batch = { total: 0, done: 0, started: 0 };
@@ -302,20 +387,33 @@
     }
 
     function updateProgress() {
-        var running = queue.length || (busy && rows.indexOf(busy) >= 0);
-        progressBox.classList.toggle('display-none', !running);
-        if (!running) {
-            if (batch.total) {
-                showToast(batch.done + ' filer lästa på ' + duration(Date.now() - batch.started));
-            }
-            batch = { total: 0, done: 0, started: 0 };
+        var importing = queue.length || (busy && busyFrom === 'queue');
+        var rereading = reread.length || (busy && busyFrom === 'reread');
+        progressBox.classList.toggle('display-none', !importing && !rereading);
+        if (importing) {
+            var pct = batch.total ? Math.round((batch.done / batch.total) * 100) : 0;
+            progressText.textContent = engine.ready
+                ? 'Läser ' + batch.done.toLocaleString('sv-SE') + ' av ' + batch.total.toLocaleString('sv-SE') + ' filer'
+                : 'Väntar på ExifTool…';
+            barFill.style.width = pct + '%';
             return;
         }
-        var pct = batch.total ? Math.round((batch.done / batch.total) * 100) : 0;
-        progressText.textContent = engine.ready
-            ? 'Läser ' + batch.done.toLocaleString('sv-SE') + ' av ' + batch.total.toLocaleString('sv-SE') + ' filer'
-            : 'Väntar på ExifTool…';
-        barFill.style.width = pct + '%';
+        if (batch.total) {
+            showToast(batch.done + ' filer lästa på ' + duration(Date.now() - batch.started));
+            batch = { total: 0, done: 0, started: 0 };
+        }
+        if (rereading) {
+            var pctReread = rereadTotal ? Math.round((rereadDone / rereadTotal) * 100) : 0;
+            var mode = showUnknown ? 'med alla värden, även okända' : 'utan okända taggar';
+            progressText.textContent = 'Läser om ' + rereadDone.toLocaleString('sv-SE') + ' av ' + rereadTotal.toLocaleString('sv-SE') + ' filer ' + mode;
+            barFill.style.width = pctReread + '%';
+            return;
+        }
+        if (rereadTotal) {
+            showToast(showUnknown ? 'Alla värden, även okända, är inlästa' : 'Visar de vanliga taggarna');
+            rereadTotal = 0;
+            rereadDone = 0;
+        }
     }
 
     // --- Inläsning ----------------------------------------------------------------
@@ -445,15 +543,61 @@
         return box;
     }
 
+    function releaseThumbs() {
+        thumbGeneration++;
+        thumbUrls.forEach(function (url) { URL.revokeObjectURL(url); });
+        thumbUrls = [];
+    }
+
+    function attachThumb(el, row) {
+        var gen = thumbGeneration;
+        var path = filePath(row.file);
+        var ready = path && window.forensicsMedia && forensicsMedia.allow
+            ? forensicsMedia.allow(path).then(function (ok) {
+                return ok ? 'ftmedia://view/?p=' + encodeURIComponent(path) : '';
+            })
+            : Promise.resolve('');
+        ready.then(function (src) {
+            var blob = !src;
+            if (blob && row.file) src = URL.createObjectURL(row.file);
+            if (gen !== thumbGeneration || !el.isConnected || !src) {
+                if (blob && src) URL.revokeObjectURL(src);
+                return;
+            }
+            if (blob) thumbUrls.push(src);
+            el.src = src;
+        }).catch(function () {});
+    }
+
+    function fileCell(row) {
+        var file = make('td', 'cell-file');
+        var line = make('div', 'file-line');
+        var kind = showMedia && row.file ? mediaKind(row) : '';
+        if (kind) {
+            var thumb = document.createElement(kind === 'video' ? 'video' : 'img');
+            thumb.className = 'row-thumb';
+            if (kind === 'video') {
+                thumb.muted = true;
+                thumb.preload = 'metadata';
+                thumb.tabIndex = -1;
+            } else thumb.alt = '';
+            line.append(thumb);
+            attachThumb(thumb, row);
+        }
+        var text = make('div', 'file-text');
+        text.append(make('div', 'name', row.name));
+        var dir = row.path.slice(0, Math.max(0, row.path.length - row.name.length)).replace(/\/$/, '');
+        if (dir) text.append(make('div', 'dir', dir));
+        line.append(text);
+        file.append(line);
+        return file;
+    }
+
     function buildRow(row) {
         var tr = make('tr', row.status === 'queued' ? 'pending' : '');
         tr.dataset.id = row.id;
         tr.append(checkCell(row));
-        var file = make('td', 'cell-file');
-        file.append(make('div', 'name', row.name));
-        var dir = row.path.slice(0, Math.max(0, row.path.length - row.name.length)).replace(/\/$/, '');
-        if (dir) file.append(make('div', 'dir', dir));
-        tr.append(file);
+        tr.append(fileCell(row));
 
         if (row.status === 'queued') {
             var wait = make('td', 'muted', row === busy ? 'Läser…' : 'Väntar…');
@@ -614,6 +758,7 @@
 
     function render() {
         renderTimer = null;
+        releaseThumbs();
         renderChips();
         var list = visibleRows();
         var frag = document.createDocumentFragment();
@@ -725,11 +870,84 @@
         return b;
     }
 
+    function clearMediaNode() {
+        if (mediaObjectUrl) {
+            URL.revokeObjectURL(mediaObjectUrl);
+            mediaObjectUrl = null;
+        }
+        var host = $('detail-media');
+        if (host) host.textContent = '';
+    }
+
+    function releaseMedia() {
+        mediaToken++;
+        clearMediaNode();
+    }
+
+    function mediaKind(row) {
+        var mime = (row.summary && row.summary.mime) || (row.file && row.file.type) || '';
+        if (/^image\//i.test(mime)) return 'image';
+        if (/^video\//i.test(mime)) return 'video';
+        var name = (row.name || '').toLowerCase();
+        if (/\.(jpe?g|png|gif|webp|bmp|heic|tif|tiff)$/.test(name)) return 'image';
+        if (/\.(mp4|mov|m4v|webm|mkv|avi)$/.test(name)) return 'video';
+        return '';
+    }
+
+    function filePath(file) {
+        if (!file || !window.forensicsMedia || !forensicsMedia.pathFor) return '';
+        try { return forensicsMedia.pathFor(file) || ''; }
+        catch (err) { return ''; }
+    }
+
+    function renderMedia(row) {
+        var token = ++mediaToken;
+        var host = $('detail-media');
+        clearMediaNode();
+        if (!showMedia || !host) return;
+        var kind = mediaKind(row);
+        if (!kind || !row.file) {
+            host.append(make('p', 'media-note', 'Den här filen är inte en bild eller video.'));
+            return;
+        }
+        host.append(make('p', 'media-note', 'Källfilen skrivs inte. Tidsstämplarna lämnas som de är.'));
+        var path = filePath(row.file);
+        var ready = path && forensicsMedia.allow
+            ? forensicsMedia.allow(path).then(function (ok) {
+                return ok ? 'ftmedia://view/?p=' + encodeURIComponent(path) : '';
+            })
+            : Promise.resolve('');
+        ready.then(function (src) {
+            if (token !== mediaToken || selected !== row || !showMedia) return;
+            if (!src) {
+                mediaObjectUrl = URL.createObjectURL(row.file);
+                src = mediaObjectUrl;
+            }
+            var el = document.createElement(kind === 'video' ? 'video' : 'img');
+            el.className = 'media-view';
+            if (kind === 'image') el.alt = '';
+            if (kind === 'video') {
+                el.controls = true;
+                el.preload = 'metadata';
+            }
+            el.addEventListener('error', function () {
+                if (el.parentNode) el.remove();
+                if (!host.querySelector('.media-miss')) host.append(make('p', 'media-note media-miss', 'Innehållet kunde inte visas. Filen är orörd.'));
+            });
+            el.src = src;
+            host.append(el);
+        }).catch(function () {
+            if (token !== mediaToken || selected !== row || !host) return;
+            host.append(make('p', 'media-note media-miss', 'Innehållet kunde inte visas. Filen är orörd.'));
+        });
+    }
+
     function renderDetail() {
         var row = selected;
         if (!row) return;
         $('detail-name').textContent = row.name;
         $('detail-path').textContent = row.path;
+        renderMedia(row);
         var dl = $('detail-summary');
         dl.textContent = '';
         var s = row.summary;
@@ -740,6 +958,7 @@
             $('detail-groups').textContent = '';
             return;
         }
+        if (showUnknown && row.file && !row.tagsAll) summaryRow(dl, 'Taggar', 'Läser alla värden, även okända…');
         var type = summaryRow(dl, 'Filtyp', [s.type, s.mime].filter(Boolean).join(' · '), 'File:FileType');
         if (type && s.mismatch) type.append(make('div', 'reason bad', s.flags.filter(function (f) { return f.id === 'ext'; })[0].reason));
         if (s.taken) summaryRow(dl, s.taken.kind, s.taken.text, s.taken.source);
@@ -818,6 +1037,7 @@
 
     function closeDetail() {
         selected = null;
+        releaseMedia();
         detail.classList.add('display-none');
         backdrop.classList.add('display-none');
     }
@@ -999,6 +1219,57 @@
         if (row) openDetail(row);
     });
 
+    function syncUnknownBoxes() {
+        document.querySelectorAll('[data-unknown]').forEach(function (box) { box.checked = showUnknown; });
+    }
+    function setUnknown(on) {
+        if (on === showUnknown) return;
+        showUnknown = on;
+        try { localStorage.setItem('exif-show-unknown', on ? '1' : '0'); }
+        catch (err) { /* inställningen gäller bara den här visningen */ }
+        syncUnknownBoxes();
+        reread = reread.filter(function (row) {
+            return row.file && rows.indexOf(row) >= 0 && !(on ? row.tagsAll : row.tagsKnown);
+        });
+        rows.forEach(function (row) {
+            if (!row.file || row.status === 'queued') return;
+            if (on ? row.tagsAll : row.tagsKnown) {
+                publish(row);
+                return;
+            }
+            if (busy === row && busyUnknown === on) return;
+            if (reread.indexOf(row) < 0) reread.push(row);
+        });
+        rereadTotal = reread.length + (busy && busyFrom === 'reread' && busyUnknown === on ? 1 : 0);
+        rereadDone = 0;
+        updateProgress();
+        scheduleRender();
+        if (selected) renderDetail();
+        pump();
+    }
+    syncUnknownBoxes();
+    document.querySelectorAll('[data-unknown]').forEach(function (box) {
+        box.addEventListener('change', function () { setUnknown(box.checked); });
+    });
+
+    function syncMediaButton() {
+        var button = $('show-media');
+        button.classList.toggle('is-on', showMedia);
+        button.setAttribute('aria-pressed', showMedia ? 'true' : 'false');
+        var label = showMedia ? 'Dölj bilder och video' : 'Visa bilder och video';
+        button.title = label;
+        button.setAttribute('aria-label', label);
+    }
+    syncMediaButton();
+    $('show-media').addEventListener('click', function () {
+        showMedia = !showMedia;
+        try { localStorage.setItem('exif-show-media', showMedia ? '1' : '0'); }
+        catch (err) { /* inställningen gäller bara den här visningen */ }
+        syncMediaButton();
+        if (!showMedia) releaseMedia();
+        else if (selected) renderMedia(selected);
+        render();
+    });
     $('detail-close').addEventListener('click', closeDetail);
     backdrop.addEventListener('click', closeDetail);
     document.addEventListener('keydown', function (e) {

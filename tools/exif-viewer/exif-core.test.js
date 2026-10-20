@@ -165,6 +165,8 @@ test('minnesfilsystemets fält tas bort', () => {
     const clean = core.cleanTags(IPHONE_HEIC);
     assert.ok(!('SourceFile' in clean));
     assert.ok(!('System:FileModifyDate' in clean));
+    assert.ok(!('ExifTool:Now' in core.cleanTags({ 'ExifTool:Now': '2026:01:01 00:00:00', 'IFD0:Make': 'Apple' })));
+    assert.ok(!('System:FileInodeNumber' in core.cleanTags({ 'System:FileInodeNumber': 1, 'IFD0:Make': 'Apple' })));
     assert.ok('IFD0:Make' in clean);
     const groups = core.groupTags(clean).map((g) => g.group);
     assert.deepStrictEqual(groups, ['File', 'IFD0', 'ExifIFD', 'Composite']);
