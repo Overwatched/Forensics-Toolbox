@@ -96,6 +96,13 @@ test('kartservern: Range, CORS och bara filer i maps/', async () => {
         assert.strictEqual((await req(bad)).status, 404, bad);
     }
 
+    fs.writeFileSync(path.join(dir, 'Ortofoto_Sthlm.pmtiles'), data);
+    fs.writeFileSync(path.join(dir, 'notes.txt'), 'x');
+    res = await req('ftmaps://list/');
+    assert.deepStrictEqual(await res.json(), ['Ortofoto_Sthlm.pmtiles', 'world.pmtiles']);
+    res = await req('ftmaps://data/Ortofoto_Sthlm.pmtiles', { Range: 'bytes=0-1' });
+    assert.strictEqual(res.status, 206);
+
     res = await req('ftmaps://data/world.pmtiles', { 'Access-Control-Request-Headers': 'range' }, 'OPTIONS');
     assert.strictEqual(res.status, 204);
     assert.match(res.headers.get('Access-Control-Allow-Headers'), /Range/);

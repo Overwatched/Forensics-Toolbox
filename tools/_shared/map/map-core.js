@@ -587,12 +587,96 @@
 
     var ROUTE_COLORS = ['#ff9f0a', '#64d2ff', '#30d158', '#bf5af2', '#ff375f', '#ffd60a'];
 
+    // PMTiles-headerns tileType: 1 är vektor (MVT), 2–5 är bilder (png, jpeg, webp, avif).
+    function archiveKind(tileType) {
+        return tileType >= 2 && tileType <= 5 ? 'raster' : 'vector';
+    }
+
+    var BASEMAPS = [
+        { key: 'map', label: 'Karta' },
+        { key: 'satellite', label: 'Satellit' },
+        { key: 'hybrid', label: 'Hybrid' },
+    ];
+
+    // Satellit och hybrid kräver minst en bildfil (flygfoton eller satellitbilder).
+    function basemapModes(archives) {
+        var raster = (archives || []).some(function (a) { return a.kind === 'raster'; });
+        return BASEMAPS.filter(function (b) { return b.key === 'map' || raster; }).map(function (b) { return b.key; });
+    }
+
+    // Över en bild behålls bara det som går att läsa ovanpå: namn, vägar och gränser.
+    function hybridLayer(layer) {
+        if (layer.type === 'symbol') return true;
+        if (layer.type !== 'line') return false;
+        if (/^boundaries/.test(layer.id)) return true;
+        return /^roads_/.test(layer.id) && !/casing|tunnels|rail|runway|taxiway|pier/.test(layer.id);
+    }
+
+    // Kartstilen för offlinekartan. Varje fil får en egen källa, och filer med högre min-zoom
+    // (Sverige) ritas ovanpå den grövre kartan där de har data. Bildfilerna läggs ovanpå
+    // vektorkartan, så att kartan syns där bilderna tar slut.
+    // archives: [{ kind, minZoom, maxZoom, bounds, tileSize }], i ordning med lägst min-zoom först.
+    function basemapStyle(opts) {
+        var mode = basemapModes(opts.archives).indexOf(opts.mode) >= 0 ? opts.mode : 'map';
+        var sources = {};
+        var base = [];
+        var over = [];
+        var images = [];
+        var vectorCount = 0;
+        opts.archives.forEach(function (a, i) {
+            var src = 'pm' + i;
+            var source = {
+                type: a.kind === 'raster' ? 'raster' : 'vector',
+                tiles: [opts.tileUrl(i)],
+                minzoom: a.minZoom,
+                maxzoom: a.maxZoom,
+                bounds: a.bounds,
+                attribution: a.attribution || opts.attribution,
+            };
+            if (a.kind === 'raster') {
+                if (mode === 'map') return;
+                source.tileSize = a.tileSize || 256;
+                sources[src] = source;
+                images.push({ id: src + '-raster', type: 'raster', source: src, minzoom: a.minZoom });
+                return;
+            }
+            sources[src] = source;
+            var first = vectorCount++ === 0;
+            opts.layers.forEach(function (layer) {
+                if (layer.type === 'background') {
+                    if (first) base.push(layer);
+                    return;
+                }
+                var copy = Object.assign({}, layer, { id: src + '-' + layer.id, source: src });
+                if (!first) copy.minzoom = Math.max(layer.minzoom || 0, a.minZoom);
+                if (mode === 'map') base.push(copy);
+                else if (mode === 'satellite') {
+                    if (layer.type !== 'symbol') base.push(copy);
+                } else if (hybridLayer(layer)) {
+                    if (layer.type === 'line') copy.paint = Object.assign({}, layer.paint, { 'line-opacity': 0.65 });
+                    over.push(copy);
+                } else base.push(copy);
+            });
+        });
+        return {
+            version: 8,
+            glyphs: opts.glyphs,
+            sprite: opts.sprite,
+            sources: sources,
+            layers: base.concat(images, over),
+        };
+    }
+
     var api = {
         numberPoints: numberPoints,
         parseRanges: parseRanges,
         parseRouteText: parseRouteText,
         pointsInRanges: pointsInRanges,
         ROUTE_COLORS: ROUTE_COLORS,
+        BASEMAPS: BASEMAPS,
+        archiveKind: archiveKind,
+        basemapModes: basemapModes,
+        basemapStyle: basemapStyle,
         BUBBLE_FIELDS: BUBBLE_FIELDS,
         defaultBubble: defaultBubble,
         bubbleParts: bubbleParts,

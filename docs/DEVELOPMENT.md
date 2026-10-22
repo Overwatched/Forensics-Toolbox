@@ -142,6 +142,22 @@ vektorkartor i PMTiles-format.
 - **I appen:** `electron/map-protocol.js` serverar `maps/` som `ftmaps://data/<fil>` med
   Range-stöd, så att kartan bara läser de delar av filen som behövs. Endast filnamn som
   `namn.pmtiles`/`namn.json` direkt i `maps/` lämnas ut.
+- **Bakgrund: Karta, Satellit och Hybrid.** Satellit och Hybrid kräver en bildkarta: en
+  `.pmtiles`-fil med bildrutor (png, jpeg eller webp), till exempel flygfoton. Filen läggs i
+  `maps/` (skrivbordsappen listar mappen via `ftmaps://list/`, HTML-versionen tar med alla
+  `.pmtiles` i den valda mappen) eller väljs med "Lägg till bildkarta…". Bilderna ritas ovanpå
+  vektorkartan, så kartan syns där bilderna tar slut. Hybrid lägger vägar, gränser och namn
+  ovanpå bilden. Stilen byggs av `MapCore.basemapStyle()` och testas i `map-core.test.js`.
+  Rutstorleken (256 eller 512 px) läses från en avkodad ruta. Från en GeoTIFF med GDAL och
+  pmtiles-CLI:t:
+
+  ```bash
+  gdal_translate -of MBTILES ortofoto.tif ortofoto.mbtiles   # projiceras om till webbmercator
+  gdaladdo -r average ortofoto.mbtiles 2 4 8 16              # lägre zoomnivåer
+  pmtiles convert ortofoto.mbtiles ortofoto.pmtiles
+  ```
+
+  Filnamnet får bestå av bokstäver a–z, siffror, `-` och `_`.
 - **Onlinekarta (OpenFreeMap):** kräver att användaren godkänner det varje session.
   Bara kartrutor för området som visas hämtas; filer, sökvägar och metadata skickas
   aldrig. Electron tar bort appnamnet ur User-Agent och Referer/Cookie ur alla

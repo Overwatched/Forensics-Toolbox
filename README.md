@@ -28,6 +28,8 @@ Verktyg för IT-forensik som körs på din egen dator. Inget nätverk behövs. O
 - **Queries.** Färdiga frågor mot Photos.sqlite, knowledgeC och Android.
 - **Övrigt.** Tidskonvertering, nyckelring, hash, filjämförelse, Magic Text, QR, CyberChef, korta checklistor och länkar till externa verktyg.
 
+Kartan kan visa flygfoton eller satellitbilder (Satellit och Hybrid) om du lägger en bildkarta i `.pmtiles`-format i mappen `maps`. Inga bilder hämtas från nätet. Se [utvecklingsdokumentationen](docs/DEVELOPMENT.md).
+
 Knappen **Fyll med testdata** i EXIF & karta och Positioner lägger in en påhittad promenad i Stockholm, så att kartan går att prova direkt.
 
 ## Köra från källkod

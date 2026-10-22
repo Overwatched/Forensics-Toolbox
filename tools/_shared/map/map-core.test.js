@@ -289,3 +289,54 @@ test('en rad kan namnge flera rutter', () => {
     assert.strictEqual(map.parseRouteText('1-10').routes[0].name, 'Rutt 1');
     assert.strictEqual(map.parseRouteText('bara text').error, true);
 });
+
+test('bakgrund: satellit och hybrid kräver en bildfil', () => {
+    assert.strictEqual(map.archiveKind(1), 'vector');
+    assert.strictEqual(map.archiveKind(3), 'raster');
+    assert.strictEqual(map.archiveKind(0), 'vector');
+    assert.deepStrictEqual(map.basemapModes([{ kind: 'vector' }]), ['map']);
+    assert.deepStrictEqual(map.basemapModes([{ kind: 'vector' }, { kind: 'raster' }]), ['map', 'satellite', 'hybrid']);
+});
+
+test('bakgrund: lagerordning för karta, satellit och hybrid', () => {
+    const layers = [
+        { id: 'background', type: 'background' },
+        { id: 'water', type: 'fill', paint: {} },
+        { id: 'roads_minor_casing', type: 'line', paint: {} },
+        { id: 'roads_minor', type: 'line', paint: { 'line-width': 2 } },
+        { id: 'boundaries', type: 'line', paint: {} },
+        { id: 'places_locality', type: 'symbol' },
+    ];
+    const archives = [
+        { kind: 'vector', minZoom: 0, maxZoom: 6, bounds: [-180, -85, 180, 85] },
+        { kind: 'raster', minZoom: 10, maxZoom: 17, bounds: [17.9, 59.2, 18.2, 59.4], tileSize: 512 },
+        { kind: 'vector', minZoom: 7, maxZoom: 14, bounds: [10, 55, 25, 70] },
+    ];
+    const style = (mode) => map.basemapStyle({
+        archives, layers, mode, glyphs: 'g', sprite: 's', attribution: 'OSM', tileUrl: (i) => 'ftpm://' + i + '/{z}/{x}/{y}',
+    });
+
+    const plain = style('map');
+    assert.deepStrictEqual(Object.keys(plain.sources), ['pm0', 'pm2']);
+    assert.strictEqual(plain.layers.filter((l) => l.type === 'background').length, 1);
+    assert.ok(!plain.layers.some((l) => l.type === 'raster'));
+    assert.strictEqual(plain.layers.find((l) => l.id === 'pm2-water').minzoom, 7);
+
+    const sat = style('satellite');
+    assert.strictEqual(sat.sources.pm1.type, 'raster');
+    assert.strictEqual(sat.sources.pm1.tileSize, 512);
+    assert.strictEqual(sat.layers[sat.layers.length - 1].id, 'pm1-raster');
+    assert.ok(!sat.layers.some((l) => l.type === 'symbol'));
+
+    const hybrid = style('hybrid').layers.map((l) => l.id);
+    const at = hybrid.indexOf('pm1-raster');
+    assert.ok(hybrid.indexOf('pm0-water') < at);
+    assert.ok(hybrid.indexOf('pm0-roads_minor_casing') < at);
+    assert.ok(hybrid.indexOf('pm0-roads_minor') > at);
+    assert.ok(hybrid.indexOf('pm2-places_locality') > at);
+    assert.strictEqual(style('hybrid').layers.find((l) => l.id === 'pm0-roads_minor').paint['line-width'], 2);
+
+    // Utan bildfil faller satellit tillbaka till kartan.
+    const noRaster = map.basemapStyle({ archives: [archives[0]], layers, mode: 'satellite', tileUrl: () => 'x' });
+    assert.ok(noRaster.layers.some((l) => l.type === 'symbol'));
+});

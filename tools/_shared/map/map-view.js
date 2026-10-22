@@ -126,16 +126,50 @@
         });
     }
 
+    // Bildrutor är oftast 256 eller 512 pixlar, och headern säger inte vilket. En ruta
+    // nära mitten avkodas för att ta reda på det.
+    function rasterTileSize(pm, h) {
+        var z = Math.max(h.minZoom, Math.min(h.maxZoom, h.centerZoom || h.minZoom));
+        var n = Math.pow(2, z);
+        var lat = Math.max(-85, Math.min(85, h.centerLat)) * Math.PI / 180;
+        var x = Math.min(n - 1, Math.max(0, Math.floor((h.centerLon + 180) / 360 * n)));
+        var y = Math.min(n - 1, Math.max(0, Math.floor((1 - Math.log(Math.tan(lat) + 1 / Math.cos(lat)) / Math.PI) / 2 * n)));
+        return pm.getZxy(z, x, y).then(function (r) {
+            if (!r || !root.createImageBitmap) return 256;
+            return root.createImageBitmap(new Blob([r.data])).then(function (bmp) {
+                var size = bmp.width;
+                if (bmp.close) bmp.close();
+                return size === 512 ? 512 : 256;
+            });
+        }).catch(function () { return 256; });
+    }
+
     function addArchive(source, label) {
         var pm = new root.pmtiles.PMTiles(source);
         return pm.getHeader().then(function (header) {
-            return { pm: pm, header: header, label: label };
+            var archive = {
+                pm: pm, header: header, label: label, kind: root.MapCore.archiveKind(header.tileType),
+                minZoom: header.minZoom, maxZoom: header.maxZoom,
+                bounds: [header.minLon, header.minLat, header.maxLon, header.maxLat],
+            };
+            if (archive.kind !== 'raster') return archive;
+            return Promise.all([
+                rasterTileSize(pm, header),
+                pm.getMetadata().catch(function () { return null; }),
+            ]).then(function (r) {
+                archive.tileSize = r[0];
+                var meta = r[1] || {};
+                archive.attribution = meta.attribution ? String(meta.attribution).replace(/<[^>]*>/g, '') : label;
+                return archive;
+            });
         });
     }
 
     function sortArchives(list) {
         return list.sort(function (a, b) { return a.header.minZoom - b.header.minZoom; });
     }
+
+    function baseName(name) { return name.replace(/\.pmtiles$/i, ''); }
 
     var PAGE_MAPS = '';
     try { PAGE_MAPS = new URL('../../maps/', document.baseURI).href; } catch (e) { PAGE_MAPS = ''; }
@@ -146,10 +180,22 @@
             return res.json();
         }).then(function (json) {
             manifest = json;
-            return Promise.all(Object.keys(json.files).map(function (name) {
-                return addArchive(new root.pmtiles.FetchSource(base + name), json.files[name].label);
-            }));
+            // Egna kartfiler i samma mapp, till exempel flygfoton. Bara skrivbordsappen kan lista mappen.
+            var extra = base === MAP_DATA
+                ? fetch('ftmaps://list/').then(function (res) { return res.ok ? res.json() : []; }).catch(function () { return []; })
+                : Promise.resolve([]);
+            return extra.then(function (names) {
+                var all = Object.keys(json.files).map(function (name) { return { name: name, label: json.files[name].label }; });
+                names.forEach(function (name) {
+                    if (!json.files[name]) all.push({ name: name, label: baseName(name) });
+                });
+                return Promise.all(all.map(function (f) {
+                    return addArchive(new root.pmtiles.FetchSource(base + f.name), f.label).catch(function () { return null; });
+                }));
+            });
         }).then(function (list) {
+            list = list.filter(Boolean);
+            if (!list.length) throw new Error('Inga läsbara kartfiler');
             archives = sortArchives(list);
         });
     }
@@ -214,7 +260,13 @@
                     }, function () {
                         throw new Error('saknar ' + name);
                     });
-                })).then(function (files) { return { json: json, files: files }; });
+                })).then(function (files) {
+                    // Egna .pmtiles-filer i mappen, till exempel flygfoton, kommer också med.
+                    return listPmtiles(folder).then(function (all) {
+                        all.forEach(function (f) { if (!json.files[f.name]) files.push(f); });
+                        return { json: json, files: files };
+                    });
+                });
             });
         }, function () {
             return listPmtiles(folder).then(function (files) {
@@ -263,49 +315,38 @@
         });
     }
 
-    function openFiles(files) {
+    function readFiles(files) {
         return Promise.all(Array.prototype.map.call(files, function (f) {
-            return addArchive(new root.pmtiles.FileSource(f), f.name.replace(/\.pmtiles$/i, ''));
-        })).then(function (list) {
+            return addArchive(new root.pmtiles.FileSource(f), baseName(f.name));
+        }));
+    }
+
+    function openFiles(files) {
+        return readFiles(files).then(function (list) {
             manifest = null;
             archives = sortArchives(list);
         });
     }
 
-    // Lägsta zoomnivån först. Filer med högre min-zoom (Sverige) ritas ovanpå och täcker
-    // den grövre kartan där de har data; utanför syns översikten.
-    function offlineStyle() {
-        var base = root.MAP_ASSETS.layers[theme()];
-        var sources = {};
-        var layers = [];
-        archives.forEach(function (a, i) {
-            var h = a.header;
-            var src = 'pm' + i;
-            sources[src] = {
-                type: 'vector',
-                tiles: ['ftpm://' + i + '/{z}/{x}/{y}'],
-                minzoom: h.minZoom,
-                maxzoom: h.maxZoom,
-                bounds: [h.minLon, h.minLat, h.maxLon, h.maxLat],
-                attribution: OFFLINE_ATTRIBUTION,
-            };
-            base.forEach(function (layer) {
-                if (layer.type === 'background') {
-                    if (i === 0) layers.push(layer);
-                    return;
-                }
-                var copy = Object.assign({}, layer, { id: src + '-' + layer.id, source: src });
-                if (i > 0) copy.minzoom = Math.max(layer.minzoom || 0, h.minZoom);
-                layers.push(copy);
-            });
+    // Lägger till filer utöver de som redan är öppna. En fil med samma namn ersätter den gamla.
+    function addFiles(files) {
+        return readFiles(files).then(function (list) {
+            var names = list.map(function (a) { return a.label; });
+            archives = sortArchives(archives.filter(function (a) { return names.indexOf(a.label) < 0; }).concat(list));
+            return list;
         });
-        return {
-            version: 8,
+    }
+
+    function offlineStyle(mode) {
+        return root.MapCore.basemapStyle({
+            archives: archives,
+            layers: root.MAP_ASSETS.layers[theme()],
+            mode: mode,
             glyphs: 'ftlocal://glyphs/{fontstack}/{range}.pbf',
             sprite: 'ftlocal://sprites/' + theme(),
-            sources: sources,
-            layers: layers,
-        };
+            attribution: OFFLINE_ATTRIBUTION,
+            tileUrl: function (i) { return 'ftpm://' + i + '/{z}/{x}/{y}'; },
+        });
     }
 
     function arrowImage() {
@@ -486,10 +527,32 @@
         play.type = 'button';
         var timeLabel = make('span', 'map-time-label', '');
         timeBar.append(play, timeInput, timeLabel);
-        var onlineSection = make('div', 'map-section');
-        onlineSection.append(online.label);
+        var baseSection = make('div', 'map-section');
+        baseSection.append(make('h3', '', 'Bakgrund'));
+        var basemapRow = make('div', 'map-segment');
+        basemapRow.setAttribute('role', 'radiogroup');
+        basemapRow.setAttribute('aria-label', 'Bakgrund');
+        var basemapButtons = {};
+        root.MapCore.BASEMAPS.forEach(function (b) {
+            var btn = make('button', 'map-segment-btn', b.label);
+            btn.type = 'button';
+            btn.dataset.mode = b.key;
+            btn.setAttribute('role', 'radio');
+            basemapRow.append(btn);
+            basemapButtons[b.key] = btn;
+        });
+        var basemapNote = make('p', 'map-note');
+        var addImagery = make('button', 'link-btn', 'Lägg till bildkarta…');
+        addImagery.type = 'button';
+        addImagery.title = 'Flygfoton eller satellitbilder i PMTiles-format. Läses lokalt, inget skickas.';
+        var imageryInput = make('input');
+        imageryInput.type = 'file';
+        imageryInput.accept = '.pmtiles';
+        imageryInput.multiple = true;
+        imageryInput.hidden = true;
+        baseSection.append(basemapRow, basemapNote, addImagery, imageryInput, online.label);
         var panel = make('div', 'map-panel');
-        panel.append(head, routeSection, bubbles, onlineSection, routeNote, note, fallback);
+        panel.append(head, baseSection, routeSection, bubbles, routeNote, note, fallback);
         hide.addEventListener('click', function () {
             panel.classList.add('display-none');
             show.classList.remove('display-none');
@@ -530,6 +593,7 @@
             routeNote: routeNote, note: note, steps: steps, timeBar: timeBar, timeInput: timeInput, play: play, timeLabel: timeLabel,
             fallback: fallback, pickDir: pickDir, pick: pick, dirInput: dirInput, input: input,
             consent: consent, consentOk: consentOk, consentCancel: consentCancel,
+            basemapButtons: basemapButtons, basemapNote: basemapNote, addImagery: addImagery, imageryInput: imageryInput,
         };
     }
 
@@ -546,6 +610,7 @@
         var thumbUrl = null;
         var fittedOnce = false;
         var styleError = '';
+        var basemap = 'map';
 
         function setStatus(text, state) {
             el.status.textContent = text;
@@ -564,6 +629,26 @@
             else if (archives.length) setStatus(offlineLabel(), 'offline');
             else setStatus('Ingen offlinekarta. Välj mappen maps, eller slå på onlinekartan.', 'missing');
             el.fallback.classList.toggle('display-none', online || archives.length > 0);
+            updateBasemap();
+        }
+
+        function updateBasemap() {
+            var modes = root.MapCore.basemapModes(archives);
+            var active = modes.indexOf(basemap) >= 0 ? basemap : 'map';
+            Object.keys(el.basemapButtons).forEach(function (key) {
+                var btn = el.basemapButtons[key];
+                var on = key === active;
+                btn.disabled = modes.indexOf(key) < 0;
+                btn.classList.toggle('active', on);
+                btn.setAttribute('aria-checked', on ? 'true' : 'false');
+                btn.title = btn.disabled ? 'Kräver en bildkarta (flygfoton eller satellitbilder)' : '';
+            });
+            var images = archives.filter(function (a) { return a.kind === 'raster'; });
+            el.basemapNote.textContent = images.length
+                ? 'Bilder: ' + images.map(function (a) {
+                    return a.label + ' (zoom ' + a.minZoom + '–' + a.maxZoom + ')';
+                }).join(', ') + '. Utanför bilderna syns kartan.'
+                : 'Satellit kräver en bildkarta i PMTiles-format, till exempel flygfoton. Lägg filen i mappen maps eller välj den här.';
         }
 
         var notes = {};
@@ -1168,8 +1253,28 @@
 
         function currentStyle() {
             if (online) return ONLINE.styles[theme()];
-            if (archives.length) return offlineStyle();
+            if (archives.length) return offlineStyle(basemap);
             return { version: 8, glyphs: 'ftlocal://glyphs/{fontstack}/{range}.pbf', sources: {}, layers: [] };
+        }
+
+        // Onlinekartan har ingen satellit. Lokala bildkartor läggs under namnen i onlinestilen,
+        // och i läget Satellit döljs namnen. Bilderna hämtas aldrig från nätet.
+        function addOnlineImagery() {
+            if (basemap === 'map') return;
+            var firstLabel = null;
+            map.getStyle().layers.forEach(function (layer) {
+                if (layer.type !== 'symbol') return;
+                if (!firstLabel) firstLabel = layer.id;
+                if (basemap === 'satellite') map.setLayoutProperty(layer.id, 'visibility', 'none');
+            });
+            archives.forEach(function (a, i) {
+                if (a.kind !== 'raster') return;
+                map.addSource('ftimg' + i, {
+                    type: 'raster', tiles: ['ftpm://' + i + '/{z}/{x}/{y}'], tileSize: a.tileSize || 256,
+                    minzoom: a.minZoom, maxzoom: a.maxZoom, bounds: a.bounds, attribution: a.attribution,
+                });
+                map.addLayer({ id: 'ftimg' + i, type: 'raster', source: 'ftimg' + i }, firstLabel || undefined);
+            });
         }
 
         function applyStyle() {
@@ -1177,10 +1282,19 @@
             var style = currentStyle();
             map.setStyle(style, { diff: false });
             map.once('style.load', function () {
+                if (online) addOnlineImagery();
                 addDataLayers();
                 paintStates();
             });
             updateStatus();
+        }
+
+        function setBasemap(mode) {
+            if (root.MapCore.basemapModes(archives).indexOf(mode) < 0) mode = 'map';
+            if (mode === basemap) return;
+            basemap = mode;
+            if (map) applyStyle();
+            else updateBasemap();
         }
 
         var selectedId = null;
@@ -2241,6 +2355,24 @@
             if (map) map.getCanvas().style.cursor = measuring ? 'crosshair' : '';
         });
         el.saveBtn.addEventListener('click', saveMapImage);
+        Object.keys(el.basemapButtons).forEach(function (key) {
+            el.basemapButtons[key].addEventListener('click', function () { setBasemap(key); });
+        });
+        el.addImagery.addEventListener('click', function () { el.imageryInput.click(); });
+        el.imageryInput.addEventListener('change', function () {
+            var files = Array.prototype.filter.call(el.imageryInput.files || [], function (f) { return /\.pmtiles$/i.test(f.name); });
+            el.imageryInput.value = '';
+            if (!files.length) return;
+            start().then(function () { return addFiles(files); }).then(function (added) {
+                var images = added.filter(function (a) { return a.kind === 'raster'; });
+                // En ny bildkarta visas direkt som hybrid, annars händer inget synligt.
+                if (images.length && basemap === 'map') basemap = 'hybrid';
+                applyStyle();
+                if (!images.length) setStatus('Filen innehåller en vektorkarta, inte bilder. Den används som karta.', 'offline');
+            }).catch(function (err) {
+                setStatus('Bildkartan kunde inte läsas: ' + (err && err.message ? err.message : err), 'missing');
+            });
+        });
         el.online.addEventListener('change', function () {
             if (!el.online.checked) {
                 online = false;
@@ -2314,6 +2446,7 @@
                 } : null,
                 toggles: toggles,
                 numbers: el.numbers.value,
+                basemap: basemap,
                 routes: namedRoutes,
                 bubbleScale: bubbleScale,
                 bubbleOffset: bubbleOffset,
@@ -2335,6 +2468,13 @@
             });
             if (['all', 'route', 'none'].indexOf(state.numbers) >= 0) el.numbers.value = state.numbers;
             if (Array.isArray(state.routes)) useNamedRoutes(state.routes);
+            // Valet sparas även om bildkartan inte är öppnad än. Stilen faller då tillbaka till kartan.
+            var keys = root.MapCore.BASEMAPS.map(function (b) { return b.key; });
+            if (keys.indexOf(state.basemap) >= 0 && state.basemap !== basemap) {
+                basemap = state.basemap;
+                if (map) applyStyle();
+                else updateBasemap();
+            }
             var obj = function (v) { return v && typeof v === 'object' ? Object.assign({}, v) : {}; };
             bubbleScale = Math.min(2, Math.max(0.75, Number(state.bubbleScale) || 1));
             bubbleOffset = obj(state.bubbleOffset);

@@ -1,12 +1,13 @@
 // Offlinekartor: serverar filerna i maps/ via ftmaps://data/<namn>, med Range-stöd så att
 // MapLibre bara läser de delar av en kartfil (.pmtiles) som visas. fetch() mot file://
-// fungerar inte i Chromium, därför ett eget schema.
+// fungerar inte i Chromium, därför ett eget schema. ftmaps://list/ listar kartfilerna i
+// mappen, så att egna filer (till exempel flygfoton) som läggs där kommer med.
 
 const fs = require('node:fs');
 const path = require('node:path');
 
 const SCHEME = 'ftmaps';
-const NAME = /^[a-z0-9][a-z0-9-]*\.(pmtiles|json)$/;
+const NAME = /^[A-Za-z0-9][A-Za-z0-9_-]*\.(pmtiles|json)$/;
 const MAX_RANGE = 64 * 1024 * 1024;
 
 const CORS = {
@@ -40,10 +41,24 @@ async function readRange(file, start, end) {
     }
 }
 
+async function listMaps(dir) {
+    let names = [];
+    try {
+        names = (await fs.promises.readdir(dir, { withFileTypes: true }))
+            .filter((d) => d.isFile() && NAME.test(d.name) && d.name.endsWith('.pmtiles'))
+            .map((d) => d.name)
+            .sort();
+    } catch (err) {
+        names = [];
+    }
+    return reply(200, JSON.stringify(names), { 'Content-Type': 'application/json' });
+}
+
 function mapRequestHandler(dir) {
     return async (request) => {
         if (request.method === 'OPTIONS') return reply(204, null);
         const url = new URL(request.url);
+        if (url.host === 'list') return listMaps(dir);
         const name = decodeURIComponent(url.pathname.replace(/^\/+/, ''));
         if (url.host !== 'data' || !NAME.test(name)) return reply(404, 'Okänd kartfil');
         const file = path.join(dir, name);
