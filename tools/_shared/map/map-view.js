@@ -2264,18 +2264,107 @@
                 showTime(t);
             }, 200);
         });
+        // Bilden ska gå att lägga i en rapport: källa (krävs av licensen), skala, norr och
+        // när den skapades.
+        var REPORT_FOOTER = 46;
+
+        function pad(n) { return (n < 10 ? '0' : '') + n; }
+
+        function stamp(d) {
+            return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) + ' ' + pad(d.getHours()) + ':' + pad(d.getMinutes());
+        }
+
+        function zoneText(d) {
+            var off = -d.getTimezoneOffset();
+            var sign = off < 0 ? '-' : '+';
+            off = Math.abs(off);
+            return sign + pad(Math.floor(off / 60)) + ':' + pad(off % 60);
+        }
+
+        function attributionText() {
+            var node = map.getContainer().querySelector('.maplibregl-ctrl-attrib-inner');
+            var text = node ? node.textContent.replace(/\s+/g, ' ').trim() : '';
+            return text || (online ? ONLINE.name : OFFLINE_ATTRIBUTION);
+        }
+
+        function drawNorth(ctx, cx, cy, scale) {
+            var r = 18 * scale;
+            ctx.save();
+            ctx.beginPath();
+            ctx.arc(cx, cy, r, 0, Math.PI * 2);
+            ctx.fillStyle = 'rgba(255,255,255,0.92)';
+            ctx.fill();
+            ctx.lineWidth = scale;
+            ctx.strokeStyle = '#1c1c1e';
+            ctx.stroke();
+            ctx.translate(cx, cy);
+            ctx.rotate(-map.getBearing() * Math.PI / 180);
+            ctx.beginPath();
+            ctx.moveTo(0, -12 * scale);
+            ctx.lineTo(6 * scale, 6 * scale);
+            ctx.lineTo(0, 2 * scale);
+            ctx.lineTo(-6 * scale, 6 * scale);
+            ctx.closePath();
+            ctx.fillStyle = '#1c1c1e';
+            ctx.fill();
+            ctx.font = '700 ' + Math.round(9 * scale) + 'px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'alphabetic';
+            ctx.fillText('N', 0, 15.5 * scale);
+            ctx.restore();
+        }
+
+        function drawFooter(ctx, top, width, scale, now) {
+            var h = REPORT_FOOTER * scale;
+            ctx.save();
+            ctx.fillStyle = '#ffffff';
+            ctx.fillRect(0, top, width, h);
+            ctx.fillStyle = '#1c1c1e';
+            ctx.fillRect(0, top, width, scale);
+            var pad8 = 10 * scale;
+            // Skalstocken mäts mitt i kartan. Med lutning stämmer den bara ungefär.
+            var center = map.getCenter();
+            var metersPerPx = 40075016.686 * Math.cos(center.lat * Math.PI / 180) / (512 * Math.pow(2, map.getZoom()));
+            var nice = [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000, 10000, 20000, 50000, 100000, 200000, 500000, 1000000];
+            var meters = nice[0];
+            nice.forEach(function (m) { if (m / metersPerPx <= 120) meters = m; });
+            var barW = meters / metersPerPx * scale;
+            var y = top + 17 * scale;
+            ctx.strokeStyle = '#1c1c1e';
+            ctx.lineWidth = 2 * scale;
+            ctx.beginPath();
+            ctx.moveTo(pad8, y - 5 * scale);
+            ctx.lineTo(pad8, y);
+            ctx.lineTo(pad8 + barW, y);
+            ctx.lineTo(pad8 + barW, y - 5 * scale);
+            ctx.stroke();
+            ctx.textBaseline = 'alphabetic';
+            ctx.font = '600 ' + Math.round(11 * scale) + 'px sans-serif';
+            ctx.fillText(root.MapCore.formatDistance(meters), pad8, top + 33 * scale);
+            var left = pad8 + Math.max(barW, 60 * scale) + 16 * scale;
+            ctx.font = '600 ' + Math.round(11 * scale) + 'px sans-serif';
+            var view = 'Skapad ' + stamp(now) + ' (' + zoneText(now) + ') · Mitt ' +
+                center.lat.toFixed(5) + ', ' + center.lng.toFixed(5) + ' · zoom ' + map.getZoom().toFixed(1) +
+                (map.getPitch() > 1 ? ' · lutad vy, skalan ungefärlig' : '');
+            ctx.fillText(view, left, top + 18 * scale, width - left - pad8);
+            ctx.font = Math.round(10 * scale) + 'px sans-serif';
+            ctx.fillStyle = '#48484a';
+            ctx.fillText('Kartdata: ' + attributionText(), left, top + 34 * scale, width - left - pad8);
+            ctx.restore();
+        }
+
         function saveMapImage() {
             if (!map) return;
             map.triggerRepaint();
             requestAnimationFrame(function () {
                 var glCanvas = map.getCanvas();
-                var out = document.createElement('canvas');
-                out.width = glCanvas.width;
-                out.height = glCanvas.height;
-                var ctx = out.getContext('2d');
-                ctx.drawImage(glCanvas, 0, 0);
                 var box = map.getContainer().getBoundingClientRect();
                 var scale = glCanvas.width / box.width;
+                var out = document.createElement('canvas');
+                out.width = glCanvas.width;
+                out.height = glCanvas.height + Math.round(REPORT_FOOTER * scale);
+                var ctx = out.getContext('2d');
+                ctx.drawImage(glCanvas, 0, 0);
                 ctx.lineCap = 'round';
                 bubbleMarkers.forEach(function (item) {
                     if (!bubbleOf(item.point).leader) return;
@@ -2338,8 +2427,11 @@
                         if (line) ctx.fillText(line, cx, cy + row * lineH);
                     });
                 });
+                var now = new Date();
+                drawNorth(ctx, glCanvas.width - 34 * scale, 34 * scale, scale);
+                drawFooter(ctx, glCanvas.height, out.width, scale, now);
                 var a = document.createElement('a');
-                a.download = 'karta.png';
+                a.download = 'karta-' + stamp(now).replace(/[-:]/g, '').replace(' ', '-') + '.png';
                 a.href = out.toDataURL('image/png');
                 a.click();
             });
