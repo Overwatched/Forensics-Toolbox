@@ -300,3 +300,5 @@
     border: 1px solid var(--border); border-radius: 6px; padding: 2px 4px; margin: 0;
 }
 .map-time-label { overflow: hidden; text-overflow: ellipsis; max-width: 45%; }
+/* Popupen ska ligga ovanpå kartpanelen och tidsreglaget, men under dialogerna. */
+.map-wrap .maplibregl-popup { z-index: 3; }

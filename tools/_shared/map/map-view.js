@@ -1441,11 +1441,32 @@
             return box;
         }
 
+        // Kartpanelen ligger ovanpå kartans vänstra del. Hamnar popupen under den flyttas
+        // kartan åt höger, så att både punkten och popupen syns.
+        // Popupen byter ibland förankring efter första ritningen, så läget kontrolleras igen
+        // när kartan har flyttat sig.
+        function clearPanel(current, tries) {
+            if (!current || current !== popup || !map) return;
+            var panel = el.wrap.querySelector('.map-panel');
+            var box = current.getElement && current.getElement();
+            if (!panel || !box || panel.classList.contains('display-none')) return;
+            var a = panel.getBoundingClientRect();
+            var b = box.getBoundingClientRect();
+            var overlaps = b.left < a.right && b.right > a.left && b.top < a.bottom && b.bottom > a.top;
+            if (!overlaps) return;
+            var room = map.getContainer().getBoundingClientRect().right - a.right;
+            if (room < b.width + 24) return;
+            map.panBy([-(a.right + 16 - b.left), 0], { duration: 250 });
+            if (tries > 0) map.once('moveend', function () { setTimeout(function () { clearPanel(current, tries - 1); }, 30); });
+        }
+
         function showPopup(lngLat, content, id) {
             var url = thumbUrl;
             thumbUrl = null;
             popup = new root.maplibregl.Popup({ maxWidth: '300px', offset: 12, focusAfterOpen: false })
                 .setLngLat(lngLat).setDOMContent(content).addTo(map);
+            var opened = popup;
+            setTimeout(function () { clearPanel(opened, 1); }, 30);
             popup.on('close', function () {
                 if (url) URL.revokeObjectURL(url);
                 if (id !== undefined) select(null);
