@@ -340,3 +340,27 @@ test('bakgrund: lagerordning för karta, satellit och hybrid', () => {
     const noRaster = map.basemapStyle({ archives: [archives[0]], layers, mode: 'satellite', tileUrl: () => 'x' });
     assert.ok(noRaster.layers.some((l) => l.type === 'symbol'));
 });
+
+test('rutten fram till tid T slutar vid den uppskattade positionen', () => {
+    const r = map.route([
+        pt(1, 59.0, 18.0, '2024-06-01 14:00:00'),
+        pt(2, 59.2, 18.2, '2024-06-01 15:00:00'),
+        pt(3, 59.4, 18.4, '2024-06-01 16:00:00'),
+    ]);
+    const half = map.routeUntil(r, Date.UTC(2024, 5, 1, 12, 30));
+    assert.strictEqual(half.steps.length, 2);
+    assert.strictEqual(half.steps[1].partial, true);
+    assert.ok(Math.abs(half.steps[1].point.lat - 59.1) < 0.001);
+    assert.strictEqual(map.routeLines(half, '#fff').lines[0].coordinates.length, 2);
+    assert.strictEqual(map.routeUntil(r, Date.UTC(2024, 5, 1, 13, 0)).steps.length, 2);
+    assert.strictEqual(map.routeUntil(r, Date.UTC(2024, 5, 1, 15, 0)).steps.length, 3);
+    assert.strictEqual(r.steps.length, 3);
+});
+
+test('tid T skrivs i bevisets zon, inte datorns', () => {
+    const t = Date.UTC(2024, 5, 1, 12, 30, 5);
+    assert.strictEqual(map.formatInstant(t, '+02:00'), '2024-06-01 14:30:05 +02:00');
+    assert.strictEqual(map.formatInstant(t, 'UTC'), '2024-06-01 12:30:05 UTC');
+    assert.strictEqual(map.formatInstant(t, ''), '2024-06-01 12:30:05 UTC');
+    assert.strictEqual(map.formatInstant(t, '-05:00'), '2024-06-01 07:30:05 -05:00');
+});

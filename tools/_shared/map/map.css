@@ -295,3 +295,8 @@
 .map-segment-btn.active { background: var(--accent); color: #ffffff; }
 .map-segment-btn:disabled { color: var(--text-muted); opacity: 0.55; cursor: not-allowed; }
 .map-segment-btn:not(:disabled):not(.active):hover { background: var(--surface-hover); }
+.map-time select.map-time-speed {
+    width: auto; flex: none; font: inherit; font-size: 11px; color: var(--text); background: var(--bg);
+    border: 1px solid var(--border); border-radius: 6px; padding: 2px 4px; margin: 0;
+}
+.map-time-label { overflow: hidden; text-overflow: ellipsis; max-width: 45%; }

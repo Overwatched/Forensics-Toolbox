@@ -236,6 +236,7 @@
             if (steps[i].at < t) continue;
             var a = steps[i - 1];
             var b = steps[i];
+            if (b.at === t) return { at: t, before: b, after: null, interpolated: false, lat: b.point.lat, lon: b.point.lon };
             var f = (t - a.at) / (b.at - a.at);
             return {
                 at: t, before: a, after: b, interpolated: true,
@@ -244,6 +245,31 @@
             };
         }
         return null;
+    }
+
+    // Rutten fram till tiden t. Steget som pågår kortas av vid den uppskattade positionen.
+    function routeUntil(r, t) {
+        var steps = r.steps.filter(function (s) { return s.at <= t; });
+        var pos = positionAt(r, t);
+        if (pos && pos.interpolated) {
+            var b = pos.after;
+            steps.push({
+                point: { id: null, lat: pos.lat, lon: pos.lon, name: '' },
+                at: t, trip: b.trip, fromPrev: b.fromPrev, partial: true,
+            });
+        }
+        return Object.assign({}, r, { steps: steps });
+    }
+
+    function pad2(n) { return (n < 10 ? '0' : '') + n; }
+
+    // Tidpunkten i angiven zon, med zonen utskriven, så att den inte beror på datorns klocka.
+    function formatInstant(t, zone) {
+        var off = zoneMinutes(zone);
+        if (off === null) { off = 0; zone = 'UTC'; }
+        var d = new Date(t + off * 60000);
+        return d.getUTCFullYear() + '-' + pad2(d.getUTCMonth() + 1) + '-' + pad2(d.getUTCDate()) + ' ' +
+            pad2(d.getUTCHours()) + ':' + pad2(d.getUTCMinutes()) + ':' + pad2(d.getUTCSeconds()) + ' ' + zone;
     }
 
     function simplify(coords, tolerance) {
@@ -689,6 +715,8 @@
         routeSummary: routeSummary,
         legText: legText,
         positionAt: positionAt,
+        routeUntil: routeUntil,
+        formatInstant: formatInstant,
         haversine: haversine,
         circlePolygon: circlePolygon,
         simplify: simplify,

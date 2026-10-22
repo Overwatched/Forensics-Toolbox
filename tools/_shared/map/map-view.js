@@ -526,7 +526,15 @@
         var play = make('button', 'link-btn', 'Spela');
         play.type = 'button';
         var timeLabel = make('span', 'map-time-label', '');
-        timeBar.append(play, timeInput, timeLabel);
+        var speed = make('select', 'map-time-speed');
+        speed.title = 'Uppspelningens hastighet';
+        speed.setAttribute('aria-label', 'Hastighet');
+        [['auto', 'Hela på 10 s'], ['60', '1 min/s'], ['600', '10 min/s'], ['3600', '1 h/s']].forEach(function (o) {
+            var opt = make('option', '', o[1]);
+            opt.value = o[0];
+            speed.append(opt);
+        });
+        timeBar.append(play, speed, timeInput, timeLabel);
         var baseSection = make('div', 'map-section');
         baseSection.append(make('h3', '', 'Bakgrund'));
         var basemapRow = make('div', 'map-segment');
@@ -550,7 +558,9 @@
         imageryInput.accept = '.pmtiles';
         imageryInput.multiple = true;
         imageryInput.hidden = true;
-        baseSection.append(basemapRow, basemapNote, addImagery, imageryInput, online.label);
+        var imageryRow = make('div', 'map-row');
+        imageryRow.append(addImagery, imageryInput);
+        baseSection.append(basemapRow, basemapNote, imageryRow, online.label);
         var panel = make('div', 'map-panel');
         panel.append(head, baseSection, routeSection, bubbles, routeNote, note, fallback);
         hide.addEventListener('click', function () {
@@ -590,7 +600,7 @@
             listBtn: listBtn, list: list, numbers: numbers,
             bubbleStandard: bubbleStandard,
             bubbleSmaller: bubbleSmaller, bubbleLarger: bubbleLarger,
-            routeNote: routeNote, note: note, steps: steps, timeBar: timeBar, timeInput: timeInput, play: play, timeLabel: timeLabel,
+            routeNote: routeNote, note: note, steps: steps, timeBar: timeBar, timeInput: timeInput, play: play, timeLabel: timeLabel, speed: speed,
             fallback: fallback, pickDir: pickDir, pick: pick, dirInput: dirInput, input: input,
             consent: consent, consentOk: consentOk, consentCancel: consentCancel,
             basemapButtons: basemapButtons, basemapNote: basemapNote, addImagery: addImagery, imageryInput: imageryInput,
@@ -808,10 +818,14 @@
             return routeInfo ? [routeInfo] : [];
         }
 
+        // Tidsreglaget: null betyder hela rutten. Annars ritas rutten fram till den tiden.
+        var timeCursor = null;
+
         function routeGeojson() {
             var features = [];
             shownRoutes().forEach(function (r, group) {
                 var colorAt = r.colorIndex != null ? r.colorIndex : group;
+                if (timeCursor !== null && root.MapCore.routeUntil) r = root.MapCore.routeUntil(r, timeCursor);
                 var drawn = root.MapCore.routeLines(r, TRIP_COLORS[colorAt % TRIP_COLORS.length]);
                 drawn.lines.forEach(function (line) {
                     var coords = line.coordinates;
@@ -1010,6 +1024,7 @@
                     'text-halo-width': 1.2,
                 },
             });
+            map.addSource('time-marker', { type: 'geojson', data: timeMarkerGeojson() });
             map.addLayer({
                 id: 'pin-step', type: 'symbol', source: 'files',
                 filter: pinBadgeFilter(),
@@ -1029,6 +1044,17 @@
                     'text-color': '#ffffff',
                     'text-halo-color': '#1c1c1e',
                     'text-halo-width': 1.2,
+                },
+            });
+            // Positionen vid tid T, en per rutt. Egen källa, så att den aldrig klustras med punkterna.
+            map.addLayer({
+                id: 'time-marker', type: 'circle', source: 'time-marker',
+                paint: {
+                    'circle-radius': 9,
+                    'circle-color': ['get', 'color'],
+                    'circle-stroke-color': '#ffffff',
+                    'circle-stroke-width': 3,
+                    'circle-opacity': ['case', ['==', ['get', 'interpolated'], 1], 0.55, 1],
                 },
             });
         }
@@ -1236,6 +1262,7 @@
             if (!map || !map.getSource('files')) return;
             map.getSource('files').setData(geojson());
             map.getSource('route').setData(routeGeojson());
+            if (map.getSource('time-marker')) map.getSource('time-marker').setData(timeMarkerGeojson());
             ['point-badge', 'point-step'].forEach(function (id) {
                 if (!map.getLayer(id)) return;
                 map.setFilter(id, badgeFilter());
@@ -2205,8 +2232,16 @@
         }
 
         var playTimer = null;
+
+        function stopPlay() {
+            if (playTimer) clearInterval(playTimer);
+            playTimer = null;
+            el.play.textContent = 'Spela';
+        }
+
         function setupTime() {
-            if (playTimer) { clearInterval(playTimer); playTimer = null; el.play.textContent = 'Spela'; }
+            stopPlay();
+            timeCursor = null;
             var split = appliedRanges && customRoutes.filter(function (r) { return r.steps.length > 1; }).length > 1;
             var on = el.route.checked && routeInfo && routeInfo.steps.length > 1 && !split;
             el.timeBar.classList.toggle('display-none', !on);
@@ -2214,27 +2249,70 @@
             el.timeInput.min = String(routeInfo.steps[0].at);
             el.timeInput.max = String(routeInfo.steps[routeInfo.steps.length - 1].at);
             el.timeInput.value = el.timeInput.max;
-            el.timeLabel.textContent = '';
+            el.timeLabel.textContent = 'Dra för att se rutten fram till en tidpunkt';
+        }
+
+        // En position per rutt som visas (per enhet blir det en per enhet).
+        function timePositions() {
+            if (timeCursor === null || !root.MapCore.positionAt) return [];
+            var out = [];
+            shownRoutes().forEach(function (r, group) {
+                var pos = root.MapCore.positionAt(r, timeCursor);
+                if (!pos) return;
+                var colorAt = r.colorIndex != null ? r.colorIndex : group;
+                pos.color = TRIP_COLORS[colorAt % TRIP_COLORS.length];
+                out.push(pos);
+            });
+            return out;
+        }
+
+        function timeMarkerGeojson() {
+            return {
+                type: 'FeatureCollection',
+                features: timePositions().map(function (pos) {
+                    return {
+                        type: 'Feature',
+                        geometry: { type: 'Point', coordinates: [pos.lon, pos.lat] },
+                        properties: { color: pos.color, interpolated: pos.interpolated ? 1 : 0 },
+                    };
+                }),
+            };
+        }
+
+        // Tiden visas i zonen för punkten före T, så att den går att jämföra med källan.
+        function zoneAt(pos) {
+            var step = pos.before;
+            if (step && !step.assumed && step.point.taken && step.point.taken.zone) return { zone: step.point.taken.zone, assumed: false };
+            return { zone: routeInfo.assumedZone || 'UTC', assumed: !!routeInfo.assumedZone };
         }
 
         function showTime(t) {
-            if (!routeInfo || !root.MapCore.positionAt) return;
-            var pos = root.MapCore.positionAt(routeInfo, t);
-            if (!pos) return;
-            var when = new Date(t);
-            var label = when.toLocaleString('sv-SE');
-            if (pos.interpolated) label += ' · interpolerad, inte uppmätt';
-            else if (pos.before) label += ' · ' + pos.before.point.name;
-            el.timeLabel.textContent = label;
-            if (!map || !map.getSource('files')) return;
-            var data = geojson();
-            data.features.push({
-                type: 'Feature', id: -1,
-                geometry: { type: 'Point', coordinates: [pos.lon, pos.lat] },
-                properties: { id: -1, kind: 'other', step: 0, color: '#ff453a', label: '' },
-            });
-            map.getSource('files').setData(data);
-            paintStates();
+            timeCursor = t;
+            var list = timePositions();
+            if (list.length) {
+                var pos = list[0];
+                var z = zoneAt(pos);
+                var label = root.MapCore.formatInstant(t, z.zone) + (z.assumed ? ' (antagen zon)' : '');
+                if (list.length > 1) label += ' · ' + list.length + ' rutter';
+                else if (pos.interpolated) label += ' · uppskattad mellan två punkter, inte uppmätt';
+                else if (pos.before) label += ' · ' + (pos.before.point.name || 'punkt ' + (numberById[pos.before.point.id] || ''));
+                el.timeLabel.textContent = label;
+                el.timeLabel.title = label;
+            }
+            if (!map || !map.getSource('route')) return;
+            map.getSource('route').setData(routeGeojson());
+            map.getSource('time-marker').setData(timeMarkerGeojson());
+        }
+
+        function playStep() {
+            var start = Number(el.timeInput.min);
+            var end = Number(el.timeInput.max);
+            var tick = 100;
+            var rate = el.speed.value === 'auto' ? (end - start) / (10000 / tick) : Number(el.speed.value) * tick;
+            var t = Math.min(end, Number(el.timeInput.value) + Math.max(1, rate));
+            el.timeInput.value = String(t);
+            showTime(t);
+            if (t >= end) stopPlay();
         }
 
         el.route.addEventListener('change', routeChanged);
@@ -2251,18 +2329,14 @@
         el.perDevice.addEventListener('change', refreshData);
         el.timeInput.addEventListener('input', function () { showTime(Number(el.timeInput.value)); });
         el.play.addEventListener('click', function () {
-            if (playTimer) { clearInterval(playTimer); playTimer = null; el.play.textContent = 'Spela'; return; }
-            var start = Number(el.timeInput.min);
-            var end = Number(el.timeInput.max);
-            var t = Number(el.timeInput.value);
-            if (t >= end) t = start;
-            el.play.textContent = 'Stopp';
-            playTimer = setInterval(function () {
-                t += (end - start) / 40;
-                if (t >= end) { t = end; clearInterval(playTimer); playTimer = null; el.play.textContent = 'Spela'; }
-                el.timeInput.value = String(t);
-                showTime(t);
-            }, 200);
+            if (playTimer) { stopPlay(); return; }
+            // Står reglaget i slutet börjar uppspelningen om från början.
+            if (timeCursor === null || Number(el.timeInput.value) >= Number(el.timeInput.max)) {
+                el.timeInput.value = el.timeInput.min;
+                showTime(Number(el.timeInput.min));
+            }
+            el.play.textContent = 'Paus';
+            playTimer = setInterval(playStep, 100);
         });
         // Bilden ska gå att lägga i en rapport: källa (krävs av licensen), skala, norr och
         // när den skapades.
