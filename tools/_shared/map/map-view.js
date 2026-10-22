@@ -502,6 +502,21 @@
         measureBtn.type = 'button';
         var saveBtn = make('button', 'link-btn', 'Spara bild');
         saveBtn.type = 'button';
+        var markerSection = make('div', 'map-section');
+        markerSection.append(make('h3', '', 'Punkter'));
+        var markerRow = make('div', 'map-segment');
+        markerRow.setAttribute('role', 'radiogroup');
+        markerRow.setAttribute('aria-label', 'Punkter som');
+        var markerButtons = {};
+        [['dot', 'Prick'], ['pin', 'Nål']].forEach(function (o) {
+            var btn = make('button', 'map-segment-btn', o[1]);
+            btn.type = 'button';
+            btn.setAttribute('role', 'radio');
+            markerRow.append(btn);
+            markerButtons[o[0]] = btn;
+        });
+        var markerNote = make('p', 'map-note');
+        markerSection.append(markerRow, markerNote);
         var routeSection = make('div', 'map-section');
         routeSection.append(make('h3', '', 'Rutt'));
         var routeStack = make('div', 'map-stack');
@@ -594,7 +609,7 @@
         imageryRow.append(addImagery, imageryInput);
         baseSection.append(basemapRow, basemapNote, imageryRow, online.label);
         var panel = make('div', 'map-panel');
-        panel.append(head, baseSection, routeSection, bubbles, routeNote, note, fallback);
+        panel.append(head, baseSection, markerSection, routeSection, bubbles, routeNote, note, fallback);
         hide.addEventListener('click', function () {
             panel.classList.add('display-none');
             show.classList.remove('display-none');
@@ -635,6 +650,7 @@
             routeNote: routeNote, note: note, steps: steps, timeBar: timeBar, timeInput: timeInput, play: play, timeLabel: timeLabel, speed: speed,
             fallback: fallback, pickDir: pickDir, pick: pick, dirInput: dirInput, input: input,
             consent: consent, consentOk: consentOk, consentCancel: consentCancel,
+            markerButtons: markerButtons, markerNote: markerNote,
             basemapButtons: basemapButtons, basemapNote: basemapNote, addImagery: addImagery, imageryInput: imageryInput,
         };
     }
@@ -936,7 +952,22 @@
                 { lat: a.lat, lon: a.lng }, { lat: b.lat, lon: b.lng }));
         }
 
+        // Nålbilderna läggs till innan punkterna ritas. Skapas de först när MapLibre saknar dem
+        // (styleimagemissing) hinner rutor som laddas samtidigt ritas utan nålen, som då är
+        // osynlig vid vissa zoomnivåer tills kartan ritas om.
+        function ensurePinImages() {
+            if (!map) return;
+            var colors = {};
+            points.forEach(function (p) { colors[pointColor(p)] = true; });
+            Object.keys(COLORS).forEach(function (k) { colors[COLORS[k]] = true; });
+            Object.keys(colors).forEach(function (c) {
+                addPinImage(map, 'ft-pin-n-' + c);
+                addPinImage(map, 'ft-pin-d-' + c);
+            });
+        }
+
         function addDataLayers() {
+            ensurePinImages();
             if (!map.hasImage('route-arrow')) map.addImage('route-arrow', arrowImage(), { pixelRatio: 2 });
             map.addSource('route', { type: 'geojson', data: routeGeojson() });
             map.addSource('accuracy', { type: 'geojson', data: accuracyGeojson() });
@@ -1344,6 +1375,7 @@
 
         function refreshData() {
             if (!map || !map.getSource('files')) return;
+            ensurePinImages();
             map.getSource('files').setData(geojson());
             map.getSource('route').setData(routeGeojson());
             if (map.getSource('time-marker')) map.getSource('time-marker').setData(timeMarkerGeojson());
@@ -1762,7 +1794,31 @@
             el.routeNote.textContent = parts.filter(Boolean).join(' ');
         }
 
+        // Valet Prick/Nål i panelen är standarden. Punkter med eget val i Anpassa räknas upp.
+        function updateMarkerChoice() {
+            var pin = !!standardCfg.pin;
+            [['dot', !pin], ['pin', pin]].forEach(function (x) {
+                var btn = el.markerButtons[x[0]];
+                btn.classList.toggle('active', x[1]);
+                btn.setAttribute('aria-checked', x[1] ? 'true' : 'false');
+            });
+            var own = Object.keys(bubbleCfg).filter(function (id) {
+                return byId[id] && bubbleCfg[id].pin !== undefined && !!bubbleCfg[id].pin !== pin;
+            }).length;
+            el.markerNote.textContent = own
+                ? (own === 1 ? '1 punkt har' : own + ' punkter har') + ' eget val och visas som ' + (pin ? 'prick.' : 'nål.')
+                : '';
+        }
+
+        function setMarker(pin) {
+            standardCfg = cloneBubble(standardCfg);
+            standardCfg.pin = pin;
+            updateMarkerChoice();
+            refreshData();
+        }
+
         function updateBubbleNote() {
+            updateMarkerChoice();
             var n = Object.keys(bubbleCfg).filter(function (id) { return byId[id]; }).length;
             var parts = [];
             if (n) parts.push(n + (n === 1 ? ' punkt har egen inställning.' : ' punkter har egen inställning.'));
@@ -2664,6 +2720,8 @@
             el.basemapButtons[key].addEventListener('click', function () { setBasemap(key); });
         });
         el.addImagery.addEventListener('click', function () { el.imageryInput.click(); });
+        el.markerButtons.dot.addEventListener('click', function () { setMarker(false); });
+        el.markerButtons.pin.addEventListener('click', function () { setMarker(true); });
         el.imageryInput.addEventListener('change', function () {
             var files = Array.prototype.filter.call(el.imageryInput.files || [], function (f) { return /\.pmtiles$/i.test(f.name); });
             el.imageryInput.value = '';
