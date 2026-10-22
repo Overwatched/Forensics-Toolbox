@@ -1,5 +1,15 @@
 Automatiskt byggd från commit `{{SHA}}`.
 
+## Nytt i 1.23
+
+- **Bakgrund: Karta, Satellit och Hybrid.** Lägg en bildkarta (flygfoton eller satellitbilder i `.pmtiles`-format) i mappen `maps`, eller välj den med **Lägg till bildkarta…**. Bilderna läses lokalt och ingenting hämtas från nätet. Hybrid lägger vägar och namn ovanpå bilden.
+- **Nål i Google Maps-stil.** Välj **Prick** eller **Nål** under **Punkter** i kartpanelen. Nålen har källans färg, numret i huvudet och växer och krymper med zoomen.
+- **Spara bild** ger en bild för rapporter: norrpil, skalstock, när bilden skapades, kartans mittpunkt och kartdatakällan.
+- **Tidsreglaget** ritar rutten fram till vald tid, med en markör per rutt. Tiden visas i bevisets tidszon, och uppskattade positioner märks som inte uppmätta. Uppspelningen har hastighetsval.
+- **Popupen** hamnar inte längre bakom kartpanelen.
+- **Fyll med testdata** följer gatorna i Stockholm. Rutterna går inte över vattnet, och kvällen är på Södermalm.
+- Kartan går snabbare med många punkter: markeringar och bubblor ritas inte om i onödan.
+
 ## Nytt i 1.22
 
 - **EXIF** visar bilden eller videon direkt, även som tumnagel i listan. Knappen med en överstruken bild döljer dem. Filen läses bara, och tidsstämplarna lämnas som de är.
