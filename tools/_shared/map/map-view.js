@@ -368,57 +368,89 @@
         return ctx.getImageData(0, 0, size, size);
     }
 
-    // Nålen är inte redo att visas. Koden finns kvar, men varken kryssrutan eller nålarna syns.
-    var PIN_ENABLED = false;
+    // Nål i Google Maps-stil: droppform i källans färg, mörkare kant, och numret eller en
+    // prick i huvudet. Varje färg ritas som en egen bild (inte SDF), så att kant och prick
+    // får egna färger. Måtten är i CSS-pixlar vid full storlek, och storleken följer zoomen.
+    var PIN = { w: 34, h: 47, cx: 17, cy: 16, r: 13.5, tip: 44, ratio: 3 };
+    // Utrymmet under spetsen (för skuggan). Bilden förankras i nederkanten och flyttas ned så mycket.
+    var PIN_BELOW = PIN.h - PIN.tip;
+    var PIN_ZOOM = [10, 0.5, 14, 0.75, 17, 1];
 
-    // Huvudet rymmer fyra siffror med luft, och fem om texten blir lite mindre. pixelRatio 2.
-    var PIN_PIXEL_RATIO = 2;
-    var PIN_W = 164;
-    var PIN_H = 168;
-    var PIN_CX = 74;
-    var PIN_CY = 70;
-    var PIN_R = 54;
-    var PIN_TIP = 152;
-    var PIN_HEAD_CSS = (PIN_H - PIN_CY) / PIN_PIXEL_RATIO;
-    var PIN_TOP_CSS = (PIN_H - (PIN_CY - PIN_R)) / PIN_PIXEL_RATIO;
+    // Samma kurva som icon-size, för bubblor och linjer som ritas utanför MapLibre.
+    function pinScale(zoom) {
+        var z = PIN_ZOOM;
+        if (zoom <= z[0]) return z[1];
+        for (var i = 2; i < z.length; i += 2) {
+            if (zoom <= z[i]) return z[i - 1] + (z[i + 1] - z[i - 1]) * (zoom - z[i - 2]) / (z[i] - z[i - 2]);
+        }
+        return z[z.length - 1];
+    }
 
-    // Avståndsfält så att MapLibre kan färga nålen med källans färg. Spetsen sitter i nederkanten.
-    function pinImage() {
-        var w = PIN_W;
-        var h = PIN_H;
-        function inside(x, y) {
-            var dx = x - PIN_CX;
-            var dy = y - PIN_CY;
-            if (dx * dx + dy * dy <= PIN_R * PIN_R) return true;
-            if (y < PIN_CY || y > PIN_TIP) return false;
-            var half = PIN_R * (1 - (y - PIN_CY) / (PIN_TIP - PIN_CY));
-            return Math.abs(x - PIN_CX) <= half;
+    function pinZoom(at) {
+        var out = ['interpolate', ['linear'], ['zoom']];
+        for (var i = 0; i < PIN_ZOOM.length; i += 2) out.push(PIN_ZOOM[i], at(PIN_ZOOM[i + 1]));
+        return out;
+    }
+
+    function darker(hex, amount) {
+        var m = /^#?([0-9a-f]{6})$/i.exec(hex || '');
+        var n = m ? parseInt(m[1], 16) : 0x8e8e93;
+        var f = 1 - amount;
+        var r = Math.round(((n >> 16) & 255) * f);
+        var g = Math.round(((n >> 8) & 255) * f);
+        var b = Math.round((n & 255) * f);
+        return 'rgb(' + r + ',' + g + ',' + b + ')';
+    }
+
+    function pinImage(color, dot) {
+        var k = PIN.ratio;
+        var canvas = document.createElement('canvas');
+        canvas.width = PIN.w * k;
+        canvas.height = PIN.h * k;
+        var ctx = canvas.getContext('2d');
+        ctx.scale(k, k);
+        var d = PIN.tip - PIN.cy;
+        var beta = Math.acos(PIN.r / d);
+        var left = { x: PIN.cx + PIN.r * Math.cos(Math.PI / 2 + beta), y: PIN.cy + PIN.r * Math.sin(Math.PI / 2 + beta) };
+        function shape() {
+            ctx.beginPath();
+            ctx.arc(PIN.cx, PIN.cy, PIN.r, Math.PI / 2 + beta, Math.PI / 2 - beta, false);
+            ctx.quadraticCurveTo(PIN.cx + PIN.r * 0.3, PIN.cy + d * 0.72, PIN.cx, PIN.tip);
+            ctx.quadraticCurveTo(PIN.cx - PIN.r * 0.3, PIN.cy + d * 0.72, left.x, left.y);
+            ctx.closePath();
         }
-        var data = new Uint8Array(w * h * 4);
-        var range = 8;
-        for (var y = 0; y < h; y++) {
-            for (var x = 0; x < w; x++) {
-                var on = inside(x + 0.5, y + 0.5);
-                var min = range;
-                for (var oy = -range; oy <= range; oy++) {
-                    for (var ox = -range; ox <= range; ox++) {
-                        var nx = x + ox;
-                        var ny = y + oy;
-                        if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue;
-                        if (inside(nx + 0.5, ny + 0.5) !== on) {
-                            var d = Math.sqrt(ox * ox + oy * oy);
-                            if (d < min) min = d;
-                        }
-                    }
-                }
-                // MapLibre ritar konturen där alpha är 192. Högre värde är inuti formen.
-                var alpha = Math.max(0, Math.min(255, Math.round(192 + (on ? min : -min) * 16)));
-                var i = (y * w + x) * 4;
-                data[i] = data[i + 1] = data[i + 2] = 255;
-                data[i + 3] = alpha;
-            }
+        // Skugga på marken under spetsen.
+        ctx.beginPath();
+        ctx.ellipse(PIN.cx, PIN.tip, 5, 1.8, 0, 0, Math.PI * 2);
+        ctx.fillStyle = 'rgba(0,0,0,0.28)';
+        ctx.fill();
+        ctx.save();
+        ctx.shadowColor = 'rgba(0,0,0,0.35)';
+        ctx.shadowBlur = 3;
+        ctx.shadowOffsetY = 1;
+        shape();
+        ctx.fillStyle = color;
+        ctx.fill();
+        ctx.restore();
+        shape();
+        ctx.lineWidth = 1.2;
+        ctx.strokeStyle = darker(color, 0.35);
+        ctx.stroke();
+        if (dot) {
+            ctx.beginPath();
+            ctx.arc(PIN.cx, PIN.cy, PIN.r * 0.36, 0, Math.PI * 2);
+            ctx.fillStyle = darker(color, 0.55);
+            ctx.fill();
         }
-        return { width: w, height: h, data: data };
+        return ctx.getImageData(0, 0, canvas.width, canvas.height);
+    }
+
+    // Bild-id:t bär färgen och om huvudet har prick, t.ex. ft-pin-d-#0a84ff.
+    function addPinImage(map, id) {
+        var m = /^ft-pin-([nd])-(#[0-9a-fA-F]{6})$/.exec(id);
+        if (!m || map.hasImage(id)) return !!m;
+        map.addImage(id, pinImage(m[2], m[1] === 'd'), { pixelRatio: PIN.ratio });
+        return true;
     }
 
     function kind(mime) {
@@ -747,6 +779,19 @@
             return f;
         }
 
+        function pointColorExpr() {
+            return ['case', ['!=', ['get', 'color'], ''], ['get', 'color'],
+                ['match', ['get', 'kind'], 'image', COLORS.image, 'video', COLORS.video, COLORS.other]];
+        }
+
+        // Nålen har numret i huvudet när numret visas, annars en prick.
+        function pinIcon() {
+            var mode = el.numbers.value;
+            var numbered = mode === 'none' ? false
+                : mode === 'route' ? ['==', ['get', 'inroute'], 1] : ['>', ['get', 'step'], 0];
+            return ['concat', 'ft-pin-', ['case', numbered, 'n', 'd'], '-', pointColorExpr()];
+        }
+
         function badgeVisibility() {
             return el.numbers.value === 'none' ? 'none' : 'visible';
         }
@@ -762,20 +807,11 @@
 
         function bubbleOf(p) {
             var custom = bubbleCfg[p.id];
-            if (!custom) {
-                if (PIN_ENABLED || !standardCfg.pin) return standardCfg;
-                var plain = cloneBubble(standardCfg);
-                plain.pin = false;
-                return plain;
-            }
+            if (!custom) return standardCfg;
             var cfg = cloneBubble(custom);
             if (!Object.prototype.hasOwnProperty.call(custom, 'leader')) cfg.leader = !!standardCfg.leader;
             if (!Object.prototype.hasOwnProperty.call(custom, 'ring')) cfg.ring = !!standardCfg.ring;
-            if (!Object.prototype.hasOwnProperty.call(custom, 'pin')) cfg.pin = !!standardCfg.pin;
-            if (!PIN_ENABLED && cfg.pin) {
-                cfg = cloneBubble(cfg);
-                cfg.pin = false;
-            }
+            if (custom.pin === undefined) cfg.pin = !!standardCfg.pin;
             return cfg;
         }
 
@@ -902,8 +938,6 @@
 
         function addDataLayers() {
             if (!map.hasImage('route-arrow')) map.addImage('route-arrow', arrowImage(), { pixelRatio: 2 });
-            if (map.hasImage('ft-pin')) map.removeImage('ft-pin');
-            map.addImage('ft-pin', pinImage(), { sdf: true, pixelRatio: PIN_PIXEL_RATIO });
             map.addSource('route', { type: 'geojson', data: routeGeojson() });
             map.addSource('accuracy', { type: 'geojson', data: accuracyGeojson() });
             map.addSource('measure', { type: 'geojson', data: measureGeojson() });
@@ -971,10 +1005,7 @@
                     ['boolean', ['feature-state', 'selected'], false],
                     ['boolean', ['feature-state', 'picked'], false]];
             }
-            function pointColor() {
-                return ['case', ['!=', ['get', 'color'], ''], ['get', 'color'],
-                    ['match', ['get', 'kind'], 'image', COLORS.image, 'video', COLORS.video, COLORS.other]];
-            }
+            var pointColor = pointColorExpr;
             map.addLayer({
                 id: 'points', type: 'circle', source: 'files',
                 filter: ['all', ['!', ['has', 'point_count']], ['!=', ['get', 'pin'], 1]],
@@ -983,19 +1014,6 @@
                     'circle-radius': ['case', marked(), 10, 7],
                     'circle-stroke-color': ['case', marked(), '#ff9f0a', '#ffffff'],
                     'circle-stroke-width': ['case', marked(), 3, 2],
-                },
-            });
-            map.addLayer({
-                id: 'pins', type: 'symbol', source: 'files',
-                filter: ['all', ['!', ['has', 'point_count']], ['==', ['get', 'pin'], 1]],
-                layout: {
-                    'icon-image': 'ft-pin', 'icon-anchor': 'bottom', 'icon-allow-overlap': true,
-                    'icon-ignore-placement': true, 'icon-size': 1,
-                },
-                paint: {
-                    'icon-color': pointColor(),
-                    'icon-halo-color': '#ff9f0a',
-                    'icon-halo-width': ['case', marked(), 2, 0],
                 },
             });
             // Mörk bricka för punkter i rutten, ljus för övriga.
@@ -1024,26 +1042,52 @@
                     'text-halo-width': 1.2,
                 },
             });
+            // Nålarna ritas ovanför prickarna, eftersom de är högre och sticker upp över dem.
+            var pinFilter = ['all', ['!', ['has', 'point_count']], ['==', ['get', 'pin'], 1]];
+            var headAbove = PIN.tip - PIN.cy;
+            // Markeringen är en orange ring bakom nålens huvud.
+            map.addLayer({
+                id: 'pin-mark', type: 'circle', source: 'files', filter: pinFilter,
+                paint: {
+                    'circle-radius': pinZoom(function (v) { return (PIN.r + 3) * v; }),
+                    'circle-translate': pinZoom(function (v) { return ['literal', [0, -headAbove * v]]; }),
+                    'circle-color': 'rgba(0,0,0,0)',
+                    'circle-stroke-color': '#ff9f0a',
+                    'circle-stroke-width': 3,
+                    'circle-stroke-opacity': ['case', marked(), 1, 0],
+                },
+            });
+            map.addLayer({
+                id: 'pins', type: 'symbol', source: 'files', filter: pinFilter,
+                layout: {
+                    'icon-image': pinIcon(), 'icon-anchor': 'bottom', 'icon-offset': [0, PIN_BELOW],
+                    'icon-allow-overlap': true, 'icon-ignore-placement': true,
+                    'icon-size': pinZoom(function (v) { return v; }),
+                },
+            });
             map.addSource('time-marker', { type: 'geojson', data: timeMarkerGeojson() });
             map.addLayer({
                 id: 'pin-step', type: 'symbol', source: 'files',
                 filter: pinBadgeFilter(),
                 layout: {
                     'text-field': ['to-string', ['get', 'step']], 'text-font': FONT,
-                    'text-size': ['case',
-                        ['>=', ['length', ['to-string', ['get', 'step']]], 5], 10,
-                        ['>=', ['length', ['to-string', ['get', 'step']]], 4], 13,
-                        15],
+                    // Texten växer med nålen. Förskjutningen är i em, så den följer textstorleken.
+                    'text-size': pinZoom(function (v) {
+                        return ['case',
+                            ['>=', ['length', ['to-string', ['get', 'step']]], 5], 9 * v,
+                            ['>=', ['length', ['to-string', ['get', 'step']]], 4], 11 * v,
+                            13 * v];
+                    }),
                     'text-offset': ['case',
-                        ['>=', ['length', ['to-string', ['get', 'step']]], 5], ['literal', [0, -PIN_HEAD_CSS / 10]],
-                        ['>=', ['length', ['to-string', ['get', 'step']]], 4], ['literal', [0, -PIN_HEAD_CSS / 13]],
-                        ['literal', [0, -PIN_HEAD_CSS / 15]]],
+                        ['>=', ['length', ['to-string', ['get', 'step']]], 5], ['literal', [0, -headAbove / 9]],
+                        ['>=', ['length', ['to-string', ['get', 'step']]], 4], ['literal', [0, -headAbove / 11]],
+                        ['literal', [0, -headAbove / 13]]],
                     'text-allow-overlap': true, visibility: badgeVisibility(),
                 },
                 paint: {
                     'text-color': '#ffffff',
-                    'text-halo-color': '#1c1c1e',
-                    'text-halo-width': 1.2,
+                    'text-halo-color': 'rgba(0,0,0,0.35)',
+                    'text-halo-width': 0.8,
                 },
             });
             // Positionen vid tid T, en per rutt. Egen källa, så att den aldrig klustras med punkterna.
@@ -1080,7 +1124,7 @@
 
         // Punktens radie i pixlar, med vit kant. Med rutt är det den mörka sifferbrickan.
         function pointRadius(p) {
-            if (bubbleOf(p).pin) return PIN_HEAD_CSS;
+            if (bubbleOf(p).pin) return (PIN.r + 2) * pinScale(map.getZoom());
             if (badgeShown(p)) return 15;
             return p.id === selectedId ? 13 : 9;
         }
@@ -1093,6 +1137,8 @@
         // Den är neutral så att den inte förväxlas med rutten, som har källans färg.
         function leaderSegment(item, origin) {
             var pt = map.project([item.point.lon, item.point.lat]);
+            // För en nål utgår linjen från huvudet, inte från spetsen.
+            if (bubbleOf(item.point).pin) pt = { x: pt.x, y: pt.y - (PIN.tip - PIN.cy) * pinScale(map.getZoom()) };
             var rect = item.card.getBoundingClientRect();
             var end = edgeToward({
                 left: rect.left - origin.left, top: rect.top - origin.top,
@@ -1191,6 +1237,12 @@
             })]);
         }
 
+        // Bubblan sitter ovanför nålens huvud. Nålen växer med zoomen, så avståndet räknas om.
+        function bubbleLift(p) {
+            if (!bubbleOf(p).pin) return -10;
+            return -Math.round((PIN.tip - PIN.cy + PIN.r) * pinScale(map.getZoom()) + 8);
+        }
+
         function placeBubble(item) {
             var off = bubbleOffset[item.point.id] || { x: 0, y: -12 };
             item.card.style.transform = 'translate(' + off.x + 'px, ' + off.y + 'px)';
@@ -1252,8 +1304,7 @@
                 window.addEventListener('pointermove', move);
                 window.addEventListener('pointerup', up);
             });
-            var lift = bubbleOf(p).pin ? -Math.round(PIN_TOP_CSS + 8) : -10;
-            item.marker = new root.maplibregl.Marker({ element: anchor, anchor: 'bottom', offset: [0, lift] })
+            item.marker = new root.maplibregl.Marker({ element: anchor, anchor: 'bottom', offset: [0, bubbleLift(p)] })
                 .setLngLat([p.lon, p.lat]).addTo(map);
             return item;
         }
@@ -1305,6 +1356,7 @@
                 map.setFilter('pin-step', pinBadgeFilter());
                 map.setLayoutProperty('pin-step', 'visibility', badgeVisibility());
             }
+            if (map.getLayer('pins')) map.setLayoutProperty('pins', 'icon-image', pinIcon());
             paintStates();
             if (map.getSource('accuracy')) map.getSource('accuracy').setData(accuracyGeojson());
             refreshMeasure();
@@ -1441,6 +1493,22 @@
             return box;
         }
 
+        // En nål sticker upp ovanför punkten. Popupen ska inte täcka huvudet.
+        function popupOffset(id) {
+            var p = id !== undefined ? byId[id] : null;
+            if (!p || !bubbleOf(p).pin) return 12;
+            var k = pinScale(map.getZoom());
+            var head = (PIN.tip - PIN.cy) * k;
+            var side = PIN.r * k + 6;
+            return {
+                top: [0, 8], bottom: [0, -(head + PIN.r * k + 6)],
+                left: [side, -head], right: [-side, -head],
+                'top-left': [side * 0.7, 8], 'top-right': [-side * 0.7, 8],
+                'bottom-left': [side * 0.7, -head], 'bottom-right': [-side * 0.7, -head],
+                center: [0, -head],
+            };
+        }
+
         // Kartpanelen ligger ovanpå kartans vänstra del. Hamnar popupen under den flyttas
         // kartan åt höger, så att både punkten och popupen syns.
         // Popupen byter ibland förankring efter första ritningen, så läget kontrolleras igen
@@ -1463,7 +1531,7 @@
         function showPopup(lngLat, content, id) {
             var url = thumbUrl;
             thumbUrl = null;
-            popup = new root.maplibregl.Popup({ maxWidth: '300px', offset: 12, focusAfterOpen: false })
+            popup = new root.maplibregl.Popup({ maxWidth: '300px', offset: popupOffset(id), focusAfterOpen: false })
                 .setLngLat(lngLat).setDOMContent(content).addTo(map);
             var opened = popup;
             setTimeout(function () { clearPanel(opened, 1); }, 30);
@@ -1524,6 +1592,11 @@
                 var canvas = map.getCanvas();
                 canvas.parentNode.insertBefore(leaderSvg, canvas.nextSibling);
                 map.on('move', updateLeaders);
+                map.on('zoom', function () {
+                    bubbleMarkers.forEach(function (item) {
+                        if (bubbleOf(item.point).pin) item.marker.setOffset([0, bubbleLift(item.point)]);
+                    });
+                });
                 map.on('resize', updateLeaders);
                 map.on('moveend', function () {
                     if (candidateCount > BUBBLE_CAP) syncBubbles();
@@ -1588,8 +1661,8 @@
             });
             map.on('styleimagemissing', function (e) {
                 if (map.hasImage(e.id)) return;
-                if (e.id === 'ft-pin') map.addImage('ft-pin', pinImage(), { sdf: true, pixelRatio: PIN_PIXEL_RATIO });
-                else if (e.id === 'route-arrow') map.addImage('route-arrow', arrowImage(), { pixelRatio: 2 });
+                if (addPinImage(map, e.id)) return;
+                if (e.id === 'route-arrow') map.addImage('route-arrow', arrowImage(), { pixelRatio: 2 });
                 else map.addImage(e.id, { width: 1, height: 1, data: new Uint8Array(4) });
             });
             map.on('click', function (e) {
@@ -1749,7 +1822,8 @@
                 titles: !!cfg.titles,
                 leader: !!cfg.leader,
                 ring: !!cfg.ring,
-                pin: !!cfg.pin,
+                // Utan eget val följer punkten standarden (nål eller prick).
+                pin: cfg.pin === undefined ? undefined : !!cfg.pin,
                 items: (cfg.items || []).map(function (i) { return Object.assign({}, i); }),
             };
         }
@@ -1779,6 +1853,9 @@
                 notesBefore[id] = notes[id] || (byId[id] && byId[id].note) || '';
             });
             editing = { ids: ids, title: title || '', before: before, notesBefore: notesBefore, cfg: cloneBubble(bubbleOf(byId[ids[0]])) };
+            // Nål eller prick sparas bara om den ändras här, annars följer punkten standarden.
+            var own = bubbleCfg[ids[0]];
+            if (!own || own.pin === undefined) editing.cfg.pin = undefined;
             renderEditor();
             el.editor.classList.remove('display-none');
         }
@@ -1849,13 +1926,11 @@
             ring.input.checked = !!editing.cfg.ring;
             ring.input.addEventListener('change', function () { editing.cfg.ring = ring.input.checked; applyEditing(); });
             box.append(leader.label, ring.label);
-            if (PIN_ENABLED) {
-                var pinToggle = labeledToggle('Nål istället för punkt');
-                pinToggle.label.title = 'Visar en kartnål i stället för den runda punkten';
-                pinToggle.input.checked = !!editing.cfg.pin;
-                pinToggle.input.addEventListener('change', function () { editing.cfg.pin = pinToggle.input.checked; applyEditing(); });
-                box.append(pinToggle.label);
-            }
+            var pinToggle = labeledToggle('Nål istället för punkt');
+            pinToggle.label.title = 'Visar en kartnål i stället för den runda punkten';
+            pinToggle.input.checked = editing.cfg.pin === undefined ? !!standardCfg.pin : !!editing.cfg.pin;
+            pinToggle.input.addEventListener('change', function () { editing.cfg.pin = pinToggle.input.checked; applyEditing(); });
+            box.append(pinToggle.label);
             box.append(make('h4', '', 'I bubblan'));
             if (editing.standard) {
                 box.append(make('p', 'map-note', 'Händelsetexten skrivs när du anpassar en punkt, en källa eller en rutt. Här väljer du bara om den ska synas.'));
