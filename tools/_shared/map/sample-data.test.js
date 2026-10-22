@@ -10,7 +10,7 @@ const core = require('../../exif-viewer/exif-core.js');
 test('testdata har två rutter och filer utan giltig position', () => {
     const map = require('./map-core.js');
     const points = sample.positionPoints();
-    assert.strictEqual(points.length, 20);
+    assert.strictEqual(points.length, 23);
     assert.strictEqual(points[0].name, 'IMG_4101.JPG');
     assert.strictEqual(points[0].accuracy, 8);
     assert.strictEqual(points[0].note, 'Anna lämnar Centralstationen');
@@ -19,14 +19,14 @@ test('testdata har två rutter och filer utan giltig position', () => {
     assert.ok(points.filter((p) => p.accuracy > 0).length >= 6);
     const scenario = sample.positionScenario();
     assert.strictEqual(scenario.layers.length, 2);
-    assert.strictEqual(scenario.layers[0].points.length, 15);
-    assert.strictEqual(scenario.layers[1].points.length, 5);
+    assert.strictEqual(scenario.layers[0].points.length, 17);
+    assert.strictEqual(scenario.layers[1].points.length, 6);
     const meeting = scenario.layers[1].points.find((p) => p.name === '20240601_160510.jpg');
     const waiting = scenario.layers[0].points.find((p) => p.name === 'IMG_4105.JPG');
     assert.ok(map.haversine(meeting, waiting) < 40);
     assert.ok(scenario.bubbles.some((b) => b.file === '20240601_160510.jpg' && b.ring));
     assert.deepStrictEqual(scenario.routes.map((r) => r.name), [
-        'Till mötet, Anna', 'Till mötet, Erik', 'Taxi till Fotografiska', 'Djurgården',
+        'Till mötet, Anna', 'Till mötet, Erik', 'Taxi till Fotografiska', 'Kväll på Södermalm',
     ]);
     const routes = map.routesBy(points, 'device');
     assert.strictEqual(routes.length, 2);
@@ -39,9 +39,30 @@ test('testdata har två rutter och filer utan giltig position', () => {
         ) > 800, g.name);
     });
     const files = sample.exifFiles();
-    assert.strictEqual(files.length, 22);
+    assert.strictEqual(files.length, 25);
     assert.strictEqual(files[0].bytes[0], 0xFF);
     assert.strictEqual(files[0].bytes[1], 0xD8);
+});
+
+test('testdata: varje namngiven rutt är sammanhängande och i rimlig fart', () => {
+    const map = require('./map-core.js');
+    const scenario = sample.positionScenario();
+    const byName = {};
+    scenario.layers.forEach((l) => l.points.forEach((p) => { byName[p.name] = p; }));
+    scenario.routes.forEach((r) => {
+        const route = map.route(r.files.map((name) => byName[name]));
+        assert.strictEqual(route.steps.length, r.files.length, r.name);
+        assert.deepStrictEqual(route.steps.map((s) => s.point.name), r.files, r.name);
+        assert.strictEqual(route.implausible, 0, r.name);
+        route.steps.slice(1).forEach((s) => {
+            assert.ok(s.fromPrev.meters < 900, r.name + ' ' + s.point.name);
+            assert.ok(s.fromPrev.kmh < 40, r.name + ' ' + s.point.name);
+        });
+    });
+    // Samsung-filnamnen följer tiden i bilden.
+    sample.files.filter((f) => f.make === 'samsung').forEach((f) => {
+        assert.strictEqual(f.name, f.time.replace(/:/g, '').replace(' ', '_') + '.jpg');
+    });
 });
 
 test('ExifTool läser den påhittade testdatan', { timeout: 60000 }, async () => {

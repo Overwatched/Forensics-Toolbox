@@ -185,6 +185,9 @@ vektorkartor i PMTiles-format.
   Nodes `crypto` för längder runt varje blockgräns, och verifierar att resultatet
   är oberoende av hur indata delas upp i bitar
 - Testdata ligger i `tools/**/fixtures/` och tas inte med i bygget
+- "Fyll med testdata" i kartverktygen kommer från `tools/_shared/map/sample-data.js`. Positionerna
+  ligger på gator i offlinekartan (rutterna korsar vatten bara på broar). Ändras filerna där, kör
+  `node scripts/generate-sample-jpegs.js` så att bildmotiven (`sample-jpegs.js`) följer med
 
 ## Versionering
 
