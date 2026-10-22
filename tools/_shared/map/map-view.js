@@ -1146,114 +1146,147 @@
             });
         }
 
-        var bubbleUrls = [];
         var bubbleLimited = false;
         var BUBBLE_CAP = 200;
+        // Bubblorna som finns på kartan, per punkt. En bubbla vars innehåll inte ändrats får
+        // ligga kvar, så att miniatyrer inte avkodas om och redigeringen inte bygger om allt.
+        var bubbleById = {};
+        var candidateCount = 0;
 
         function bubbleCandidates() {
             var list = [];
             points.forEach(function (p) {
                 if (hidden[p.id]) return;
-                if (bubbleContent(p).length) list.push(p);
+                var parts = bubbleContent(p);
+                if (parts.length) list.push({ point: p, parts: parts });
             });
+            candidateCount = list.length;
             return list;
         }
 
         // Få punkter ritas alla. Blir det fler ritas bara de som syns, så att kartan
         // inte skapar ett kort per punkt.
-        function bubblesToDraw() {
-            var list = bubbleCandidates();
+        function bubblesToDraw(list) {
             if (list.length <= BUBBLE_CAP || !map) return list;
             var box = map.getContainer().getBoundingClientRect();
             var margin = 80;
-            var inside = [];
-            list.forEach(function (p) {
-                var pt = map.project([p.lon, p.lat]);
-                if (pt.x >= -margin && pt.y >= -margin && pt.x <= box.width + margin && pt.y <= box.height + margin) inside.push(p);
-            });
-            if (inside.length <= BUBBLE_CAP) return inside;
             var cx = box.width / 2;
             var cy = box.height / 2;
-            inside.sort(function (a, b) {
-                var pa = map.project([a.lon, a.lat]);
-                var pb = map.project([b.lon, b.lat]);
-                var da = (pa.x - cx) * (pa.x - cx) + (pa.y - cy) * (pa.y - cy);
-                var db = (pb.x - cx) * (pb.x - cx) + (pb.y - cy) * (pb.y - cy);
-                return da - db;
+            var inside = [];
+            list.forEach(function (c) {
+                var pt = map.project([c.point.lon, c.point.lat]);
+                if (pt.x >= -margin && pt.y >= -margin && pt.x <= box.width + margin && pt.y <= box.height + margin) {
+                    c.dist = (pt.x - cx) * (pt.x - cx) + (pt.y - cy) * (pt.y - cy);
+                    inside.push(c);
+                }
             });
+            if (inside.length <= BUBBLE_CAP) return inside;
+            inside.sort(function (a, b) { return a.dist - b.dist; });
             return inside.slice(0, BUBBLE_CAP);
         }
 
-        function syncBubbles() {
-            bubbleUrls.forEach(function (url) { URL.revokeObjectURL(url); });
-            bubbleUrls = [];
-            bubbleMarkers.forEach(function (item) { item.marker.remove(); });
-            bubbleMarkers = [];
-            if (!map) return;
-            var wanted = bubbleCandidates();
-            var draw = bubblesToDraw();
-            bubbleLimited = draw.length < wanted.length;
-            var drawIds = {};
-            draw.forEach(function (p) { drawIds[p.id] = true; });
-            points.forEach(function (p) {
-                if (!drawIds[p.id]) return;
-                var parts = bubbleContent(p);
-                if (!parts.length) return;
-                var off = bubbleOffset[p.id] || { x: 0, y: -12 };
-                var anchor = make('div', 'ft-bubble-anchor');
-                var card = make('div', 'ft-bubble' + (bubbleCfg[p.id] ? ' is-custom' : ''));
-                parts.forEach(function (part) {
-                    if (part.thumb) {
-                        var img = make('img', 'ft-bubble-thumb');
-                        var url = URL.createObjectURL(part.thumb);
-                        bubbleUrls.push(url);
-                        img.src = url;
-                        img.alt = '';
-                        card.append(img);
-                        return;
-                    }
-                    card.append(make('div', 'ft-bubble-line' + (part.heading ? ' ft-bubble-heading' : ''), part.text));
-                });
-                card.style.fontSize = Math.round(13 * bubbleScale) + 'px';
-                card.style.transform = 'translate(' + off.x + 'px, ' + off.y + 'px)';
-                card.title = 'Dra för att flytta bubblan. Dubbelklicka för att anpassa den.';
-                anchor.append(card);
-                card.addEventListener('click', function (e) { e.stopPropagation(); });
-                card.addEventListener('dblclick', function (e) {
-                    e.stopPropagation();
-                    e.preventDefault();
-                    picked = {};
-                    picked[p.id] = true;
-                    applyPick(listOpen);
-                    openEditor([p.id]);
-                });
-                card.addEventListener('pointerdown', function (e) {
-                    if (e.button !== 0) return;
-                    e.preventDefault();
-                    e.stopPropagation();
-                    map.dragPan.disable();
-                    var startX = e.clientX;
-                    var startY = e.clientY;
-                    var origin = { x: off.x, y: off.y };
-                    function move(ev) {
-                        off = { x: origin.x + ev.clientX - startX, y: origin.y + ev.clientY - startY };
-                        bubbleOffset[p.id] = off;
-                        card.style.transform = 'translate(' + off.x + 'px, ' + off.y + 'px)';
-                        updateLeaders();
-                    }
-                    function up() {
-                        map.dragPan.enable();
-                        window.removeEventListener('pointermove', move);
-                        window.removeEventListener('pointerup', up);
-                    }
-                    window.addEventListener('pointermove', move);
-                    window.addEventListener('pointerup', up);
-                });
-                var lift = bubbleOf(p).pin ? -Math.round(PIN_TOP_CSS + 8) : -10;
-                var marker = new root.maplibregl.Marker({ element: anchor, anchor: 'bottom', offset: [0, lift] })
-                    .setLngLat([p.lon, p.lat]).addTo(map);
-                bubbleMarkers.push({ marker: marker, card: card, point: p });
+        function bubbleKey(p, parts) {
+            return JSON.stringify([p.lon, p.lat, !!bubbleCfg[p.id], bubbleScale, bubbleOf(p).pin, parts.map(function (x) {
+                return x.thumb ? ['thumb', x.thumb.name, x.thumb.size, x.thumb.lastModified] : [x.text, !!x.heading];
+            })]);
+        }
+
+        function placeBubble(item) {
+            var off = bubbleOffset[item.point.id] || { x: 0, y: -12 };
+            item.card.style.transform = 'translate(' + off.x + 'px, ' + off.y + 'px)';
+        }
+
+        function removeBubble(item) {
+            item.urls.forEach(function (url) { URL.revokeObjectURL(url); });
+            item.marker.remove();
+        }
+
+        function buildBubble(p, parts) {
+            var item = { point: p, urls: [] };
+            var anchor = make('div', 'ft-bubble-anchor');
+            var card = make('div', 'ft-bubble' + (bubbleCfg[p.id] ? ' is-custom' : ''));
+            item.card = card;
+            parts.forEach(function (part) {
+                if (part.thumb) {
+                    var img = make('img', 'ft-bubble-thumb');
+                    var url = URL.createObjectURL(part.thumb);
+                    item.urls.push(url);
+                    img.src = url;
+                    img.alt = '';
+                    card.append(img);
+                    return;
+                }
+                card.append(make('div', 'ft-bubble-line' + (part.heading ? ' ft-bubble-heading' : ''), part.text));
             });
+            card.style.fontSize = Math.round(13 * bubbleScale) + 'px';
+            card.title = 'Dra för att flytta bubblan. Dubbelklicka för att anpassa den.';
+            anchor.append(card);
+            card.addEventListener('click', function (e) { e.stopPropagation(); });
+            card.addEventListener('dblclick', function (e) {
+                e.stopPropagation();
+                e.preventDefault();
+                picked = {};
+                picked[item.point.id] = true;
+                applyPick(listOpen);
+                openEditor([item.point.id]);
+            });
+            card.addEventListener('pointerdown', function (e) {
+                if (e.button !== 0) return;
+                e.preventDefault();
+                e.stopPropagation();
+                map.dragPan.disable();
+                var id = item.point.id;
+                var startX = e.clientX;
+                var startY = e.clientY;
+                var origin = bubbleOffset[id] || { x: 0, y: -12 };
+                function move(ev) {
+                    bubbleOffset[id] = { x: origin.x + ev.clientX - startX, y: origin.y + ev.clientY - startY };
+                    placeBubble(item);
+                    updateLeaders();
+                }
+                function up() {
+                    map.dragPan.enable();
+                    window.removeEventListener('pointermove', move);
+                    window.removeEventListener('pointerup', up);
+                }
+                window.addEventListener('pointermove', move);
+                window.addEventListener('pointerup', up);
+            });
+            var lift = bubbleOf(p).pin ? -Math.round(PIN_TOP_CSS + 8) : -10;
+            item.marker = new root.maplibregl.Marker({ element: anchor, anchor: 'bottom', offset: [0, lift] })
+                .setLngLat([p.lon, p.lat]).addTo(map);
+            return item;
+        }
+
+        function syncBubbles() {
+            if (!map) {
+                Object.keys(bubbleById).forEach(function (id) { removeBubble(bubbleById[id]); });
+                bubbleById = {};
+                bubbleMarkers = [];
+                return;
+            }
+            var wanted = bubbleCandidates();
+            var draw = bubblesToDraw(wanted);
+            bubbleLimited = draw.length < wanted.length;
+            var next = {};
+            bubbleMarkers = [];
+            draw.forEach(function (c) {
+                var p = c.point;
+                var key = bubbleKey(p, c.parts);
+                var item = bubbleById[p.id];
+                if (item && item.key === key) delete bubbleById[p.id];
+                else item = null;
+                if (!item) {
+                    item = buildBubble(p, c.parts);
+                    item.key = key;
+                }
+                item.point = p;
+                placeBubble(item);
+                next[p.id] = item;
+                bubbleMarkers.push(item);
+            });
+            Object.keys(bubbleById).forEach(function (id) { removeBubble(bubbleById[id]); });
+            bubbleById = next;
             requestAnimationFrame(updateLeaders);
             updateBubbleNote();
         }
@@ -1311,6 +1344,7 @@
             map.once('style.load', function () {
                 if (online) addOnlineImagery();
                 addDataLayers();
+                painted = {};
                 paintStates();
             });
             updateStatus();
@@ -1325,15 +1359,24 @@
         }
 
         var selectedId = null;
+        // Punkter som har markering i kartan just nu. Bara de och de nya behöver ändras,
+        // så att ett klick inte går igenom alla punkter.
+        var painted = {};
 
         function paintStates() {
             if (!map || !map.getSource('files')) return;
-            points.forEach(function (p) {
+            var want = {};
+            Object.keys(picked).forEach(function (id) { if (byId[id]) want[id] = true; });
+            if (selectedId !== null && byId[selectedId]) want[selectedId] = true;
+            Object.keys(painted).concat(Object.keys(want)).forEach(function (id) {
+                var p = byId[id];
+                if (!p) return;
                 map.setFeatureState({ source: 'files', id: p.id }, {
                     picked: !!picked[p.id],
                     selected: p.id === selectedId,
                 });
             });
+            painted = want;
         }
 
         function select(id) {
@@ -1462,7 +1505,7 @@
                 map.on('move', updateLeaders);
                 map.on('resize', updateLeaders);
                 map.on('moveend', function () {
-                    if (bubbleCandidates().length > BUBBLE_CAP) syncBubbles();
+                    if (candidateCount > BUBBLE_CAP) syncBubbles();
                     if (listInView && listOpen) renderList();
                 });
             }
