@@ -59,7 +59,7 @@ test('läsning på en skrivskyddad fil fungerar', async () => {
     await withFile('skyddad.jpg', Buffer.from('skrivskydd'), async (file) => {
         fs.chmodSync(file, 0o444);
         const before = stat(file);
-        const body = await media.readRange(file, 0, 10, { noatime: false });
+        const body = await media.readRange(file, 0, 10);
         assert.strictEqual(body.toString(), 'skrivskydd');
         sameTimes(file, before);
         fs.chmodSync(file, 0o644);

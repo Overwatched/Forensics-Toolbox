@@ -80,7 +80,7 @@ test('en trasig ram stoppar inläsningen, och ramar utan commit räknas inte', {
 
     // Ny omgång: nytt salt i huvudet gör att alla ramar räknas som äldre.
     const older = Buffer.from(files.wal);
-    older.writeUInt32BE(older.readUInt32BE(16) ^ 1, 16);
+    older.writeUInt32BE((older.readUInt32BE(16) ^ 1) >>> 0, 16);
     const sum = [0, 0];
     for (let i = 0; i < 24; i += 8) {
         const le = older.readUInt32BE(0) === 0x377f0682;
