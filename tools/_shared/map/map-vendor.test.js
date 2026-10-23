@@ -92,7 +92,8 @@ test('kartservern: Range, CORS och bara filer i maps/', async () => {
     assert.deepStrictEqual(await res.json(), { ok: true });
 
     for (const bad of ['ftmaps://data/..%2Fhemlig.json', 'ftmaps://data/sub/world.pmtiles', 'ftmaps://other/world.pmtiles',
-        'ftmaps://data/world.exe', 'ftmaps://data/.hidden.json', 'ftmaps://data/saknas.pmtiles']) {
+        'ftmaps://data/world.exe', 'ftmaps://data/.hidden.json', 'ftmaps://data/saknas.pmtiles',
+        'ftmaps://data/%E0%A4%A.pmtiles']) {
         assert.strictEqual((await req(bad)).status, 404, bad);
     }
 

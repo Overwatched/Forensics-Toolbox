@@ -13,6 +13,7 @@ const CATALOGS = [
     { dir: 'queries/ios/photos-sqlite', global: 'PHOTOS_SQLITE_CATALOG', name: 'photos-sqlite/catalog.json' },
     { dir: 'queries/app-usage', global: 'APP_USAGE_CATALOG', name: 'app-usage/catalog.json' },
     { dir: 'queries/android', global: 'ANDROID_QUERIES_CATALOG', name: 'android/catalog.json' },
+    { dir: 'queries/ios/routined', global: 'ROUTINED_CATALOG', name: 'routined/catalog.json' },
 ];
 
 function render(catalog) {

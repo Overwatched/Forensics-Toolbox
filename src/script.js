@@ -46,6 +46,14 @@ function initToolNav() {
         }
     }
 
+    // Meddelanden tas bara emot från verktygens egna ramar, inte från sidor de kan ha öppnat.
+    function fromToolFrame(event) {
+        for (const frame of frames.values()) {
+            if (frame.contentWindow && event.source === frame.contentWindow) return true;
+        }
+        return false;
+    }
+
     function broadcastTheme(theme) {
         const payload = { source: 'forensics-toolbox', type: 'theme', theme: theme };
         frames.forEach((frame) => postToFrame(frame, payload));
@@ -120,6 +128,7 @@ function initToolNav() {
     });
 
     window.addEventListener('message', (event) => {
+        if (!fromToolFrame(event)) return;
         const data = event.data;
         if (!data || (data.source !== 'forensics-toolbox' && data.source !== 'verktygslada')) return;
         if (data.type === 'positions' && Array.isArray(data.points)) {
@@ -127,7 +136,7 @@ function initToolNav() {
             const frame = frames.get('tools/positions/index.html');
             const send = () => postToFrame(frame, {
                 source: 'forensics-toolbox', type: 'positions', points: data.points,
-                layerKey: data.layerKey, layerName: data.layerName, focusExifId: data.focusExifId,
+                layerKey: data.layerKey, layerName: data.layerName, focusExifId: data.focusExifId, noun: data.noun,
             });
             if (frame && frame.dataset.ready) send();
             else if (frame) frame.addEventListener('load', send, { once: true });
@@ -302,6 +311,9 @@ function initExternalLinkConfirm() {
     });
 
     window.addEventListener('message', (event) => {
+        const fromTool = Array.from(document.querySelectorAll('iframe.tool-frame'))
+            .some((frame) => frame.contentWindow === event.source);
+        if (!fromTool) return;
         const data = event.data;
         if (!data || (data.source !== 'forensics-toolbox' && data.source !== 'verktygslada')) return;
         if (data.type !== 'open-external' || typeof data.href !== 'string') return;

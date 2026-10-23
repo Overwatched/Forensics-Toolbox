@@ -13,7 +13,7 @@
     <div id="container">
         <header class="page-header">
             <h1>Queries</h1>
-            <p>Välj databasen du har hittat i utvinningen. Du får färdig SQL att köra i DB Browser for SQLite.</p>
+            <p>Välj databasen du har hittat i utvinningen. Du får färdig SQL att köra här i appen eller i DB Browser for SQLite.</p>
         </header>
 
         <div id="load-error" class="banner error display-none"></div>
@@ -61,6 +61,26 @@
                 <pre id="sql-view" class="sql-view" hidden></pre>
                 <textarea id="sql-out" class="display-none" spellcheck="false" placeholder="SQL visas här…"></textarea>
 
+                <section class="run-box" id="run-box">
+                    <div class="step-label">Kör i appen</div>
+                    <p class="muted">Välj databasen och dess <code>-wal</code> samtidigt. Filerna läses bara. Ramarna i
+                        <code>-wal</code> läggs på en kopia i minnet, fram till sista giltiga commit.</p>
+                    <div class="button-row">
+                        <button type="button" class="secondary" id="run-pick">Välj databas och -wal…</button>
+                        <input type="file" id="run-input" multiple hidden>
+                    </div>
+                    <div id="run-file-list" class="run-file-list"></div>
+                    <label class="run-nowal display-none" id="run-nowal-label"><input type="checkbox" id="run-nowal">
+                        Det finns ingen -wal för den här databasen</label>
+                    <div class="button-row">
+                        <button type="button" id="run-button" disabled>Kör query</button>
+                        <button type="button" class="secondary" id="run-csv" disabled>Spara CSV</button>
+                        <button type="button" class="secondary" id="run-map" disabled>Visa på karta</button>
+                    </div>
+                    <div id="run-status" class="run-status"></div>
+                    <div id="run-result" class="result-scroll run-result"></div>
+                </section>
+
                 <div class="step-label">Så kan resultatet se ut</div>
                 <div id="result-preview" class="result-preview"></div>
             </div>
@@ -72,8 +92,16 @@
     <script src="../../queries/ios/photos-sqlite/catalog.js"></script>
     <script src="../../queries/android/catalog.js"></script>
     <script src="../../queries/app-usage/catalog.js"></script>
+    <script src="../../queries/ios/routined/catalog.js"></script>
     <script src="preview.js"></script>
+    <script src="time-sql.js"></script>
     <script src="script.js"></script>
+    <script src="../ios-keychain/vendor/sqljs/sql-wasm-binary.js"></script>
+    <script src="../ios-keychain/vendor/sqljs/sql-wasm.js"></script>
+    <script src="../_shared/map/import-core.js"></script>
+    <script src="wal.js"></script>
+    <script src="run-core.js"></script>
+    <script src="run.js"></script>
 </body>
 
 </html>

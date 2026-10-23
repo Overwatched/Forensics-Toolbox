@@ -902,12 +902,13 @@
         function accuracyGeojson() {
             var features = [];
             if (root.MapCore.circlePolygon) {
+                // Ett besök är ett område, så dess cirkel ritas alltid, i källans färg.
                 drawnPoints().forEach(function (p) {
-                    if (!bubbleOf(p).ring || !(p.accuracy > 0)) return;
+                    if (!(p.accuracy > 0) || (!p.visit && !bubbleOf(p).ring)) return;
                     features.push({
                         type: 'Feature',
                         geometry: { type: 'Polygon', coordinates: [root.MapCore.circlePolygon(p.lon, p.lat, p.accuracy)] },
-                        properties: {},
+                        properties: { color: p.visit && p.color ? p.color : '#0a84ff', visit: p.visit ? 1 : 0 },
                     });
                 });
             }
@@ -977,11 +978,17 @@
             });
             map.addLayer({
                 id: 'accuracy-fill', type: 'fill', source: 'accuracy',
-                paint: { 'fill-color': '#0a84ff', 'fill-opacity': 0.15 },
+                paint: { 'fill-color': ['get', 'color'], 'fill-opacity': ['case', ['==', ['get', 'visit'], 1], 0.22, 0.15] },
             });
             map.addLayer({
                 id: 'accuracy-line', type: 'line', source: 'accuracy',
-                paint: { 'line-color': '#0a84ff', 'line-width': 1.5, 'line-opacity': 0.85 },
+                filter: ['!=', ['get', 'visit'], 1],
+                paint: { 'line-color': ['get', 'color'], 'line-width': 1.5, 'line-opacity': 0.85 },
+            });
+            map.addLayer({
+                id: 'visit-line', type: 'line', source: 'accuracy',
+                filter: ['==', ['get', 'visit'], 1],
+                paint: { 'line-color': ['get', 'color'], 'line-width': 2, 'line-opacity': 0.9, 'line-dasharray': [2, 1] },
             });
             map.addLayer({
                 id: 'measure-line', type: 'line', source: 'measure',
@@ -1421,11 +1428,23 @@
             });
         }
 
+        // Bara en väntande hanterare åt gången. Två stilbyten innan stilen hunnit laddas
+        // (Satellit → Hybrid, eller temabyte under start) lade annars till lagren två gånger.
+        var pendingStyleLoad = null;
+        function onNextStyleLoad(fn) {
+            if (pendingStyleLoad) map.off('style.load', pendingStyleLoad);
+            pendingStyleLoad = function () {
+                pendingStyleLoad = null;
+                fn();
+            };
+            map.once('style.load', pendingStyleLoad);
+        }
+
         function applyStyle() {
             styleError = '';
             var style = currentStyle();
             map.setStyle(style, { diff: false });
-            map.once('style.load', function () {
+            onNextStyleLoad(function () {
                 if (online) addOnlineImagery();
                 addDataLayers();
                 painted = {};
@@ -1493,10 +1512,19 @@
                 dl.append(make('dt', '', label));
                 dl.append(make('dd', '', value));
             }
-            row(p.taken ? p.taken.kind : 'Tid', p.taken ? p.taken.text : 'Ingen tid i filen');
+            if (p.visit) {
+                row('Ankomst', p.taken ? p.taken.text : 'Okänd');
+                row('Avfärd', p.until ? p.until.text : 'Pågår eller saknas');
+                if (p.taken && p.until && root.MapCore.visitMinutes) {
+                    var minutes = root.MapCore.visitMinutes(p.taken, p.until);
+                    if (minutes != null) row('Varaktighet', minutes + ' min');
+                }
+            } else {
+                row(p.taken ? p.taken.kind : 'Tid', p.taken ? p.taken.text : 'Ingen tid i filen');
+            }
             row('Enhet', p.device);
             row('Position', p.lat + ', ' + p.lon);
-            if (p.accuracy > 0) row('Horisontell noggrannhet', Math.round(p.accuracy) + ' m');
+            if (p.accuracy > 0) row(p.visit ? 'Osäkerhet' : 'Horisontell noggrannhet', Math.round(p.accuracy) + ' m');
             row('Händelse', notes[p.id] || p.note);
             var stepAt = inRouteById[p.id] ? routeInfo.steps.map(function (s) { return s.point.id; }).indexOf(p.id) : -1;
             var step = stepAt >= 0 ? routeInfo.steps[stepAt] : null;
@@ -1764,7 +1792,7 @@
                 }, 'top-right');
                 map.addControl(new root.maplibregl.ScaleControl({ unit: 'metric' }), 'bottom-left');
                 map.addControl(new root.maplibregl.AttributionControl({ compact: true }), 'bottom-right');
-                map.once('style.load', addDataLayers);
+                onNextStyleLoad(addDataLayers);
                 bindEvents();
                 updateStatus();
                 new MutationObserver(function () { if (map) applyStyle(); })
@@ -1772,6 +1800,8 @@
                 return new Promise(function (resolve) { map.once('load', resolve); });
             }).catch(function (err) {
                 setStatus('Kartan kunde inte starta: ' + (err && err.message ? err.message : err), 'missing');
+                // Blev kartan aldrig skapad kan nästa anrop försöka igen.
+                if (!map) ready = null;
                 throw err;
             });
             return ready;
@@ -2456,6 +2486,7 @@
                 if (!pos) return;
                 var colorAt = r.colorIndex != null ? r.colorIndex : group;
                 pos.color = TRIP_COLORS[colorAt % TRIP_COLORS.length];
+                pos.route = r;
                 out.push(pos);
             });
             return out;
@@ -2475,10 +2506,19 @@
         }
 
         // Tiden visas i zonen för punkten före T, så att den går att jämföra med källan.
+        // Har ingen punkt i rutten tidszon visas tiden som den står i filerna, utan zon:
+        // den är då varken känd som UTC eller som lokal tid.
         function zoneAt(pos) {
             var step = pos.before;
             if (step && !step.assumed && step.point.taken && step.point.taken.zone) return { zone: step.point.taken.zone, assumed: false };
-            return { zone: routeInfo.assumedZone || 'UTC', assumed: !!routeInfo.assumedZone };
+            var assumedZone = (pos.route && pos.route.assumedZone) || (routeInfo && routeInfo.assumedZone);
+            if (assumedZone) return { zone: assumedZone, assumed: true };
+            return { zone: '', assumed: false, none: true };
+        }
+
+        function zoneLabel(t, z) {
+            if (z.none) return root.MapCore.formatInstant(t, 'UTC').replace(/ UTC$/, '') + ' (tid utan zon, som i filerna)';
+            return root.MapCore.formatInstant(t, z.zone) + (z.assumed ? ' (antagen zon)' : '');
         }
 
         function showTime(t) {
@@ -2487,7 +2527,7 @@
             if (list.length) {
                 var pos = list[0];
                 var z = zoneAt(pos);
-                var label = root.MapCore.formatInstant(t, z.zone) + (z.assumed ? ' (antagen zon)' : '');
+                var label = zoneLabel(t, z);
                 if (list.length > 1) label += ' · ' + list.length + ' rutter';
                 else if (pos.interpolated) label += ' · uppskattad mellan två punkter, inte uppmätt';
                 else if (pos.before) label += ' · ' + (pos.before.point.name || 'punkt ' + (numberById[pos.before.point.id] || ''));

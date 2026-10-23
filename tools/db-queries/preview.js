@@ -96,8 +96,11 @@
         [/timezonename/i, function () { return 'Europe/Stockholm'; }],
         [/timezoneoffset/i, function () { return '7200'; }],
         [/exiftimestampstring/i, function (i) { return '2024:06:01 ' + clock(i); }],
-        [/(enddate|^end_?time$)/i, function (i) { return '2024-06-01 ' + clock(i, true); }],
-        [/(date|time|creation|modif|start|end|last_?used|added|taken|tillagd)/i, function (i) {
+        [/(enddate|^end_?time$|^avfard_|^exit_)/i, function (i) { return '2024-06-01 ' + clock(i, true); }],
+        [/(accuracy|noggrannhet|osakerhet|uncertainty)/i, function (i) { return String(5 + (i % 4) * 3); }],
+        [/(confidence|konfidens|placetype|usertype|referenceframe|^zsource$|^ztype$)/i, function () { return '1'; }],
+        [/mapitemidentifier/i, function (i) { return String(4800123456789 + i); }],
+        [/(date|time|creation|modif|start|end|last_?used|added|taken|tillagd|^tid_|^ankomst_|^upptackt_|_utc$|_lokal$)/i, function (i) {
             return '2024-06-01 ' + clock(i);
         }],
         [/relative_path/i, function () { return 'DCIM/Camera/'; }],
@@ -108,7 +111,7 @@
         [/^(zfullname|zdisplayname)$/i, pick(['Anna Svensson', 'Erik Lind', 'Sara Nilsson'])],
         [/^ztitle$/i, pick(['Semester 2024', 'WhatsApp', 'Skärmdumpar'])],
         [/streamname/i, pick(['/app/usage', '/app/inFocus', '/display/isBacklit', '/device/isLocked'])],
-        [/^tabell$/i, pick(['Z_33ASSETS', 'Z_34ASSETS'])],
+        [/^tabell$/i, function (i, ctx) { return ctx.schema === 'columns' ? 'ZASSET' : pick(['Z_33ASSETS', 'Z_34ASSETS'])(i); }],
         [/^kolumner$/i, function () { return 'Z_33ALBUMS, Z_3ASSETS, Z_FOK_3ASSETS'; }],
         [/^name$/i, function (i, ctx) {
             if (ctx.schema === 'tables') return pick(ctx.ios ? ['ZASSET', 'ZADDITIONALASSETATTRIBUTES', 'ZGENERICALBUM'] : ['files', 'thumbnails', 'log'])(i);
@@ -132,7 +135,7 @@
         [/(lat)/i, function () { return '59.3293'; }],
         [/(lon|lng)/i, function () { return '18.0686'; }],
         [/(bucket|album)/i, function () { return 'Camera'; }],
-        [/(duration|seconds|count|size|antal|^n$)/i, function (i) { return String(12 + i * 3); }],
+        [/(duration|seconds|count|size|antal|minuter|datapunkter|^n$)/i, function (i) { return String(12 + i * 3); }],
         [/valueinteger/i, function (i) { return i % 2 ? '0' : '1'; }],
         [/cloudlocalstate/i, function () { return '1'; }],
         [/savedassettype/i, function () { return '3'; }],

@@ -7,7 +7,7 @@ test('kolumnerna läses ur SELECT, med alias och utan CASE-innehåll', () => {
     const q = android.categories[0].queries.find((x) => x.id === 'by-filename-files');
     const cols = preview.columns(q.sql);
     assert.deepStrictEqual(cols.slice(0, 3), ['_id', '_data', '_display_name']);
-    assert.ok(cols.includes('date_taken'));
+    assert.ok(cols.includes('datetaken'));
     assert.ok(cols.includes('owner_package_name'));
     assert.ok(!cols.some((c) => /WHEN|THEN/i.test(c)));
 });
@@ -62,6 +62,7 @@ test('inga kolumner i någon katalog saknar exempelvärde', () => {
     const catalogs = [
         ['iOS', require('../../queries/ios/photos-sqlite/catalog.json')],
         ['iOS', require('../../queries/app-usage/catalog.json')],
+        ['iOS', require('../../queries/ios/routined/catalog.json')],
         ['Android', android],
     ];
     const missing = [];

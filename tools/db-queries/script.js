@@ -19,10 +19,9 @@ const sqlStepLabel = document.getElementById('sql-step-label');
 const dbPicker = document.getElementById('db-picker');
 const backBtn = document.getElementById('back-btn');
 
-const COCOA_EPOCH = 978307200;
-const MAX_UNIX = 4102444800;
 const TIME_NAMES = new Set(['timeStart', 'timeEnd', 'unixStart', 'unixEnd']);
 const LIST_NAMES = new Set(['filename', 'bundleId', 'packageName']);
+const NUMBER_NAMES = new Set(['maxAccuracy']);
 const KW_RE = /\b(SELECT|FROM|WHERE|AND|OR|JOIN|LEFT|INNER|ON|AS|CASE|WHEN|THEN|ELSE|END|ORDER|BY|GROUP|LIMIT|LIKE|IFNULL|BETWEEN|IN|NOT|NULL|DISTINCT|UNION|ALL|DESC|ASC|PRAGMA)\b/g;
 
 const ALIASES = {
@@ -35,10 +34,13 @@ const ALIASES = {
     mediastore: 'android-mediastore',
     'app-usage': 'knowledgec',
     'android-wellbeing': 'wellbeing',
+    routined: 'routined-cache',
+    'cache-sqlite': 'routined-cache',
 };
 
 let databases = [];
 let paramLabels = {};
+let paramDefaults = {};
 let showQueries = false;
 let sqlDirty = false;
 let editing = false;
@@ -75,21 +77,6 @@ function currentQuery() {
     return (db.queries || []).find((q) => q.id === querySelect.value) || db.queries[0];
 }
 
-function unixFromUserTime(value) {
-    if (value == null) return null;
-    const t = String(value).trim();
-    if (!t) return null;
-    if (/^\d{10}$/.test(t)) return Number(t);
-    if (/^\d{13}$/.test(t)) return Math.floor(Number(t) / 1000);
-    let s = t.replace(/\//g, '-');
-    if (/^\d{4}-\d{2}-\d{2}$/.test(s)) s += 'T00:00:00';
-    s = s.replace(' ', 'T');
-    if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(s)) s += ':00';
-    const ms = new Date(s).getTime();
-    if (Number.isNaN(ms)) return null;
-    return Math.floor(ms / 1000);
-}
-
 function looksLikeEpoch(raw) {
     const t = String(raw || '').trim();
     return /^\d{10}$/.test(t) || /^\d{13}$/.test(t);
@@ -103,21 +90,6 @@ function localZoneName() {
     } catch (e) {
         return '';
     }
-}
-
-function zoneNote(unixSeconds) {
-    let zone = '';
-    try {
-        zone = Intl.DateTimeFormat().resolvedOptions().timeZone || '';
-    } catch (e) {
-        zone = '';
-    }
-    const pad2 = (n) => String(n).padStart(2, '0');
-    const offsetMin = -new Date((unixSeconds || 0) * 1000).getTimezoneOffset();
-    const sign = offsetMin < 0 ? '-' : '+';
-    const abs = Math.abs(offsetMin);
-    const offset = `UTC${sign}${pad2(Math.floor(abs / 60))}:${pad2(abs % 60)}`;
-    return zone ? `${zone}, ${offset}` : offset;
 }
 
 function splitTerms(raw) {
@@ -232,24 +204,20 @@ function takePart(parts, value, user) {
     return '\u0001U' + i + '\u0001';
 }
 
+// Tiderna skrivs som datum med zon i SQL:en (se time-sql.js), inte som sekunder.
 function fillTimePlaceholders(sql, parts) {
-    const startRaw = paramValue('timeStart');
-    const endRaw = paramValue('timeEnd');
-    const startUnix = unixFromUserTime(startRaw);
-    const endUnix = unixFromUserTime(endRaw);
-
-    const cocoaStart = startUnix == null ? 0 : (startUnix - COCOA_EPOCH);
-    const cocoaEnd = endUnix == null ? (MAX_UNIX - COCOA_EPOCH) : (endUnix - COCOA_EPOCH);
-    const unixStart = startUnix == null ? 0 : startUnix;
-    const unixEnd = endUnix == null ? MAX_UNIX : endUnix;
+    const start = TimeSql.parse(paramValue('timeStart'), false);
+    const end = TimeSql.parse(paramValue('timeEnd'), true);
+    const startLit = TimeSql.literal(start, false);
+    const endLit = TimeSql.literal(end, true);
 
     const pairs = [
-        ['{{cocoaStart}}', cocoaStart, !!startRaw && startUnix != null],
-        ['{{cocoaEnd}}', cocoaEnd, !!endRaw && endUnix != null],
-        ['{{unixStart}}', unixStart, !!startRaw && startUnix != null],
-        ['{{unixEnd}}', unixEnd, !!endRaw && endUnix != null],
-        ['{{unixMsStart}}', unixStart * 1000, !!startRaw && startUnix != null],
-        ['{{unixMsEnd}}', unixEnd * 1000, !!endRaw && endUnix != null],
+        ['{{cocoaStart}}', TimeSql.expr('cocoa', startLit), !!start],
+        ['{{cocoaEnd}}', TimeSql.expr('cocoa', endLit), !!end],
+        ['{{unixStart}}', TimeSql.expr('unix', startLit), !!start],
+        ['{{unixEnd}}', TimeSql.expr('unix', endLit), !!end],
+        ['{{unixMsStart}}', TimeSql.expr('unixMs', startLit), !!start],
+        ['{{unixMsEnd}}', TimeSql.expr('unixMs', endLit), !!end],
     ];
     let out = sql;
     for (const [token, value, user] of pairs) {
@@ -270,7 +238,10 @@ function applyTextParams(sql, params, parts) {
             const token = '{{' + name + '}}';
             if (!out.includes(token)) continue;
             let v = raw.replace(/'/g, "''");
-            const user = !!raw;
+            // Talfält hamnar utan citattecken i SQL:en, så bara siffror släpps igenom.
+            if (NUMBER_NAMES.has(name)) v = /^\d+(\.\d+)?$/.test(raw.replace(',', '.')) ? raw.replace(',', '.') : '';
+            const user = !!v;
+            if (!v && paramDefaults[name] != null) v = String(paramDefaults[name]);
             out = replaceToken(out, token, takePart(parts, v, user));
         }
     }
@@ -326,7 +297,7 @@ function renderFlow() {
         'Läs in databasen + <code>-wal</code> + <code>-shm</code>',
         'Använd den rekommenderade queryn, eller välj en annan',
         'Fyll i värden (tid, filnamn, app)',
-        'Kopiera SQL och kör i DB Browser',
+        'Kör queryn här med databasen och <code>-wal</code>, eller kopiera SQL:en till DB Browser',
     ];
     flowBox.innerHTML = '<h2>Så här gör du</h2><ol class="flow-steps">' +
         steps.map((s) => '<li><span>' + s + '</span></li>').join('') + '</ol>' +
@@ -342,7 +313,8 @@ function renderRecommended() {
         : (q.group === 'advanced' ? '<span class="badge muted">Hjälp</span>' : '');
     recommendedBox.innerHTML =
         '<div class="q-title">' + badge + '<span>' + escapeHtml(q.title) + '</span></div>' +
-        (q.subtitle ? '<div class="q-sub"><strong>Vad den gör:</strong> ' + escapeHtml(q.subtitle) + '</div>' : '');
+        (q.subtitle ? '<div class="q-sub"><strong>Vad den gör:</strong> ' + escapeHtml(q.subtitle) + '</div>' : '') +
+        (q.returns ? '<div class="q-sub"><strong>Visar:</strong> ' + escapeHtml(q.returns) + '</div>' : '');
 }
 
 function fillQuerySelect() {
@@ -388,7 +360,8 @@ function renderParams() {
           <div class="param-block">
             <label class="field-label" for="param-${escapeHtml(name)}">${escapeHtml(paramLabels[name] || name)}</label>
             <input type="text" id="param-${escapeHtml(name)}" data-param="${escapeHtml(name)}"
-              spellcheck="false" autocomplete="off" placeholder="${escapeHtml(paramLabels[name] || name)}">
+              spellcheck="false" autocomplete="off" placeholder="${escapeHtml(paramDefaults[name] != null
+                ? 'Tomt = ' + paramDefaults[name] : (paramLabels[name] || name))}">
           </div>`).join('');
         step += 1;
     }
@@ -415,26 +388,23 @@ function updateTimePreview() {
         el.textContent = 'Ingen tidsgräns — tomt fält = hela databasen.';
         return;
     }
-    const startUnix = unixFromUserTime(startRaw);
-    const endUnix = unixFromUserTime(endRaw);
+    const start = TimeSql.parse(startRaw, false);
+    const end = TimeSql.parse(endRaw, true);
     const bad = [];
-    if (startRaw && startUnix == null) bad.push('Från');
-    if (endRaw && endUnix == null) bad.push('Till');
+    if (startRaw && !start) bad.push('Från');
+    if (endRaw && !end) bad.push('Till');
     if (bad.length) {
         el.textContent = 'Ogiltigt datum i ' + bad.join(' och ')
-            + '. Använd ÅÅÅÅ-MM-DD TT:MM, eller klistra in unixtid (10 eller 13 siffror).';
+            + '. Använd ÅÅÅÅ-MM-DD eller ÅÅÅÅ-MM-DD TT:MM, eller klistra in unixtid (10 eller 13 siffror).';
         return;
     }
 
-    const from = startUnix == null ? 0 : startUnix;
-    const to = endUnix == null ? MAX_UNIX : endUnix;
-    let text = 'Unix ' + from + '–' + to
-        + ' · Cocoa ' + (from - COCOA_EPOCH) + '–' + (to - COCOA_EPOCH) + '.';
-
+    const show = (t, open) => (t ? t.text + ' (UTC' + t.offset + ')' : open);
+    let text = 'Söker från ' + show(start, 'början') + ' till ' + show(end, 'slutet') + '.';
     const typedDate = (startRaw && !looksLikeEpoch(startRaw)) || (endRaw && !looksLikeEpoch(endRaw));
     if (typedDate) {
-        text += ' Datum tolkas i din lokala tidszon (' + zoneNote(startUnix == null ? endUnix : startUnix)
-            + ') — klistra in unixtid direkt om databasen lagrar UTC.';
+        text += ' Datum tolkas i din tidszon (' + (localZoneName() || 'datorns tid')
+            + '). Ett datum utan klockslag tar med hela dagen. Unixtid räknas som UTC.';
     }
     el.textContent = text;
 }
@@ -485,6 +455,7 @@ function renderResultPreview(sql) {
 
 function onDbChange() {
     const db = currentDb();
+    document.dispatchEvent(new CustomEvent('queries:db-change'));
     workspace.classList.toggle('display-none', !db);
     if (dbOverview) dbOverview.classList.toggle('display-none', !!db);
     dbPicker.classList.toggle('display-none', !db);
@@ -507,7 +478,8 @@ function onDbChange() {
     generateSql();
 }
 
-function buildDatabases(photos, android, appUsage) {
+function buildDatabases(photos, android, appUsage, routined) {
+    routined = routined || {};
     const out = [];
     paramLabels = Object.assign(
         {
@@ -516,8 +488,10 @@ function buildDatabases(photos, android, appUsage) {
         },
         photos.paramLabels || {},
         android.paramLabels || {},
-        appUsage.paramLabels || {}
+        appUsage.paramLabels || {},
+        routined.paramLabels || {}
     );
+    paramDefaults = Object.assign({}, routined.paramDefaults || {});
 
     (photos.bands || []).forEach((band) => {
         const sqlById = {};
@@ -532,6 +506,7 @@ function buildDatabases(photos, android, appUsage) {
             recommended: !!q.recommended,
             params: q.params || [],
             group: q.group,
+            returns: q.returns || '',
             sql: sqlById[q.id],
         }));
         out.push({
@@ -549,7 +524,7 @@ function buildDatabases(photos, android, appUsage) {
                 'Läs in <code>Photos.sqlite</code> + <code>-wal</code> + <code>-shm</code>',
                 'Använd den rekommenderade queryn, eller välj en annan',
                 'Ange filnamn, tidsspann eller app',
-                'Kopiera SQL och kör i DB Browser',
+                'Kör queryn här med databasen och <code>-wal</code>, eller kopiera SQL:en till DB Browser',
             ],
             queries: queries,
         });
@@ -561,7 +536,7 @@ function buildDatabases(photos, android, appUsage) {
         wellbeing: 'App i förgrund (ACTIVITY_RESUMED) med tidsstämpel. Digital Wellbeing / UsageEvents.',
     };
     const ANDROID_BLURB = {
-        mediastore: 'Bilder och video på delad lagring: sökväg, MIME, date_taken, ägar-app (owner_package_name).',
+        mediastore: 'Bilder och video på delad lagring: sökväg, MIME, datetaken, ägar-app (owner_package_name).',
         camera: 'Media under DCIM/Camera och filer ägda av kameraappar. Komplement till MediaStore.',
         usage: 'UsageStats är oftast XML, inte SQL. Här finns mallar och ALEAPP-tips.',
     };
@@ -581,7 +556,7 @@ function buildDatabases(photos, android, appUsage) {
                 'Läs in databasen + <code>-wal</code> + <code>-shm</code>',
                 'Använd den rekommenderade queryn, eller välj en annan',
                 'Ange tidsspann som <code>ÅÅÅÅ-MM-DD TT:MM</code>',
-                'Kopiera SQL och kör i DB Browser',
+                'Kör queryn här med databasen och <code>-wal</code>, eller kopiera SQL:en till DB Browser',
             ],
             footerHtml: db.id === 'knowledgec'
                 ? '<p style="margin-top:8px">Biome <code>App.InFocus</code> är SEGB/protobuf, inte SQL — använd iLEAPP.</p>'
@@ -592,6 +567,39 @@ function buildDatabases(photos, android, appUsage) {
                 subtitle: q.subtitle || '',
                 recommended: !!q.recommended,
                 group: q.group,
+            returns: q.returns || '',
+                params: q.params || [],
+                sql: q.sql,
+            })),
+        });
+    });
+
+    (routined.databases || []).forEach((db) => {
+        const label = db.label.replace(/^iOS — /, '');
+        out.push({
+            id: db.id,
+            os: 'iOS',
+            family: db.id,
+            familyTitle: label,
+            label: label,
+            blurb: db.blurb || '',
+            dbPathHint: db.dbPathHint,
+            source: db.source,
+            note: routined.sourceNote,
+            runnable: true,
+            flow: [
+                'Välj databasen och dess <code>-wal</code> under <em>Kör i appen</em>, eller kör SQL:en i DB Browser',
+                'Använd den rekommenderade queryn, eller välj en annan',
+                'Ange tidsspann som <code>ÅÅÅÅ-MM-DD TT:MM</code>',
+                'Visa resultatet på kartan i Positioner',
+            ],
+            queries: (db.queries || []).map((q) => ({
+                id: q.id,
+                title: q.title,
+                subtitle: q.subtitle || '',
+                recommended: !!q.recommended,
+                group: q.group,
+                returns: q.returns || '',
                 params: q.params || [],
                 sql: q.sql,
             })),
@@ -605,6 +613,7 @@ function buildDatabases(photos, android, appUsage) {
             subtitle: q.description || '',
             recommended: !!q.recommended,
             group: q.group,
+            returns: q.returns || '',
             params: q.params || [],
             sql: q.sql,
         }));
@@ -623,7 +632,7 @@ function buildDatabases(photos, android, appUsage) {
                 'Läs in databasen + <code>-wal</code> + <code>-shm</code>',
                 'Använd den rekommenderade queryn, eller välj en annan',
                 'Fyll i filnamn / tid / paket om queryn frågar efter det',
-                'Kopiera SQL och kör i DB Browser',
+                'Kör queryn här med databasen och <code>-wal</code>, eller kopiera SQL:en till DB Browser',
             ],
             queries: queries,
         });
@@ -631,7 +640,7 @@ function buildDatabases(photos, android, appUsage) {
 
     const order = [
         'photos-ios10-13', 'photos-ios14', 'photos-ios15-16', 'photos-ios17-plus',
-        'knowledgec', 'interactionc',
+        'routined-cache', 'knowledgec', 'interactionc',
         'android-mediastore', 'android-camera', 'wellbeing', 'android-usage',
     ];
     out.sort((a, b) => {
@@ -759,12 +768,13 @@ function applyDeepLink() {
 
 async function init() {
     try {
-        const [photos, android, appUsage] = await Promise.all([
+        const [photos, android, appUsage, routined] = await Promise.all([
             loadLocalJson('../../queries/ios/photos-sqlite/catalog.json', 'PHOTOS_SQLITE_CATALOG'),
             loadLocalJson('../../queries/android/catalog.json', 'ANDROID_QUERIES_CATALOG'),
             loadLocalJson('../../queries/app-usage/catalog.json', 'APP_USAGE_CATALOG'),
+            loadLocalJson('../../queries/ios/routined/catalog.json', 'ROUTINED_CATALOG'),
         ]);
-        databases = buildDatabases(photos, android, appUsage);
+        databases = buildDatabases(photos, android, appUsage, routined);
         fillDbSelect();
         renderOverview();
         applyDeepLink();
@@ -852,5 +862,11 @@ window.addEventListener('message', function (event) {
         }
     }
 });
+
+window.QueriesApp = {
+    currentSql: () => (editing ? sqlOut.value : plainSql),
+    currentDb: currentDb,
+    currentQuery: currentQuery,
+};
 
 init();

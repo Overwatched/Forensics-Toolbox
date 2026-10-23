@@ -59,7 +59,9 @@ function mapRequestHandler(dir) {
         if (request.method === 'OPTIONS') return reply(204, null);
         const url = new URL(request.url);
         if (url.host === 'list') return listMaps(dir);
-        const name = decodeURIComponent(url.pathname.replace(/^\/+/, ''));
+        let name = '';
+        try { name = decodeURIComponent(url.pathname.replace(/^\/+/, '')); }
+        catch (err) { return reply(404, 'Okänd kartfil'); }
         if (url.host !== 'data' || !NAME.test(name)) return reply(404, 'Okänd kartfil');
         const file = path.join(dir, name);
         let stat;

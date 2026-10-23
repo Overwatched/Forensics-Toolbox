@@ -69,6 +69,8 @@ runt 1,5 GB, och en portabel `.exe` packar upp allt till en tempmapp vid varje s
 CI skapar releasen som utkast, låter varje byggjobb ladda upp sina filer direkt (alla
 filer får inte plats på ett enda jobbs disk) och publicerar när alla jobb är klara.
 Releasetexten kommer från `.github/release-notes.md`.
+En release som redan är publicerad rörs inte: en push utan ny version bygger inget.
+Två körningar åt gången köas (`concurrency`).
 
 Versionen läses från texten `Version X.Y` i `Toolbox.html`.
 
@@ -77,6 +79,9 @@ Versionen läses från texten `Version X.Y` i `Toolbox.html`.
 ```text
 Toolbox.html          # Hub / sidopanel
 electron/main.js      # Electron-shell
+electron/preload.js   # Brygga till verktygen (bara file://-ramar): forensicsDesktop, forensicsMedia
+electron/map-protocol.js    # ftmaps:// — kartfiler i maps/
+electron/media-protocol.js  # ftmedia:// — bild och video i EXIF-visaren
 src/                  # Delad UI (tema, navigation)
 tools/_shared/        # Delat verktygs-skal (toolkit.js: temahantering)
 tools/<namn>/         # Ett verktyg per mapp (HTML/JS/CSS)
@@ -166,6 +171,19 @@ vektorkartor i PMTiles-format.
   En dubbelklickad `Toolbox.html` får inte läsa den mappen själv, så användaren
   väljer mappen `maps` i kartan. Webbläsaren läser då filerna i bitar, utan server.
   Onlinekartan fungerar som i skrivbordsappen.
+
+### Bild och video i EXIF-visaren (`ftmedia://`)
+
+EXIF-visaren visar innehållet via `ftmedia://view/?p=<sökväg>`. Bara filer som en sida i
+appen först har öppnat med `forensicsMedia.allow()` lämnas ut, och bara till `file://`-sidor.
+Filen öppnas skrivskyddat och skrivs aldrig, inte heller tidsstämplarna (ingen `utimes()`).
+På Linux läses den med `O_NOATIME`, så att åtkomsttiden står kvar. På macOS och Windows kan
+operativsystemet uppdatera åtkomsttiden; mtime och ctime påverkas inte. Hela filer skickas
+som ström, utan storleksgräns, och `Range` ger högst 8 MB per svar.
+`tools/exif-viewer/media-times.test.js` kontrollerar mtime och ctime på nanosekunden.
+
+Iframes får inte navigera till webbsidor (`will-frame-navigate`); en länk öppnas i stället
+i webbläsaren.
 
 ### Lägga till ett verktyg
 

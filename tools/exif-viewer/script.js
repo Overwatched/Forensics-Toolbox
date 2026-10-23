@@ -910,7 +910,7 @@
             host.append(make('p', 'media-note', 'Den här filen är inte en bild eller video.'));
             return;
         }
-        host.append(make('p', 'media-note', 'Källfilen skrivs inte. Tidsstämplarna lämnas som de är.'));
+        host.append(make('p', 'media-note', 'Källfilen skrivs inte och ändringstiden står kvar. Åtkomsttiden kan uppdateras av operativsystemet när innehållet visas (utom i Linux). Stäng av visningen om åtkomsttiden ska bevaras.'));
         var path = filePath(row.file);
         var ready = path && forensicsMedia.allow
             ? forensicsMedia.allow(path).then(function (ok) {

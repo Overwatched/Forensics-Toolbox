@@ -581,9 +581,11 @@
         layer.points = data.points.map(function (src) { return placeOnLayer(layer, src, kept); });
         refresh();
         var n = layer.points.length;
+        var noun = Array.isArray(data.noun) && data.noun.length === 2 ? data.noun : ['bild', 'bilder'];
+        var word = n === 1 ? noun[0] : noun[1];
         setStatus(created
-            ? n + (n === 1 ? ' bild lades till' : ' bilder lades till') + ' som källan ' + name + '.'
-            : 'Källan ' + name + ' uppdaterades: ' + n + (n === 1 ? ' bild.' : ' bilder.'));
+            ? n + ' ' + word + ' lades till som källan ' + name + '.'
+            : 'Källan ' + name + ' uppdaterades: ' + n + ' ' + word + '.');
         if (data.focusExifId != null) {
             var hit = layer.points.filter(function (p) { return p.exifId === data.focusExifId; })[0];
             if (hit) ensureMap().focus(hit.id);

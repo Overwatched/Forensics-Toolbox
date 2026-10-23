@@ -693,6 +693,15 @@
         };
     }
 
+    // Minuter mellan ankomst och avfärd. Tiderna jämförs bara om de har samma zon.
+    function visitMinutes(from, to) {
+        if (!from || !to || from.zone !== to.zone) return null;
+        var a = Date.parse(from.sort.replace(' ', 'T') + 'Z');
+        var b = Date.parse(to.sort.replace(' ', 'T') + 'Z');
+        if (isNaN(a) || isNaN(b) || b < a) return null;
+        return Math.round((b - a) / 60000);
+    }
+
     var api = {
         numberPoints: numberPoints,
         parseRanges: parseRanges,
@@ -719,6 +728,7 @@
         formatInstant: formatInstant,
         haversine: haversine,
         circlePolygon: circlePolygon,
+        visitMinutes: visitMinutes,
         simplify: simplify,
         formatDistance: formatDistance,
         formatDuration: formatDuration,

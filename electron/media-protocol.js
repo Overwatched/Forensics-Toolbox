@@ -1,11 +1,13 @@
-// Visning av bild och video. Filen läses, men skrivs inte. Åtkomsttiden och
-// ändringstiden ställs tillbaka om operativsystemet hann ändra dem.
+// Visning av bild och video. Filen öppnas bara för läsning och skrivs aldrig,
+// inte heller tidsstämplarna. På Linux läses den med O_NOATIME så att åtkomsttiden
+// står kvar. På macOS och Windows kan operativsystemet uppdatera åtkomsttiden;
+// ändringstiden och ctime påverkas inte av en läsning.
 
 const fs = require('node:fs');
 const path = require('node:path');
+const { Readable } = require('node:stream');
 
 const SCHEME = 'ftmedia';
-const MAX_FULL = 80 * 1024 * 1024;
 const MAX_RANGE = 8 * 1024 * 1024;
 const MAX_FILE = 4 * 1024 * 1024 * 1024;
 
@@ -23,8 +25,6 @@ const CORS = {
 };
 
 const allowed = new Set();
-const originalTimes = new Map();
-const chains = new Map();
 
 function extOf(file) {
     return path.extname(file).slice(1).toLowerCase();
@@ -34,51 +34,53 @@ function reply(status, body, headers) {
     return new Response(body, { status: status, headers: Object.assign({ 'Cache-Control': 'no-store' }, CORS, headers) });
 }
 
-function exclusive(file, fn) {
-    const prev = chains.get(file) || Promise.resolve();
-    const run = prev.then(fn, fn);
-    chains.set(file, run.then(function () {}, function () {}));
-    return run;
+async function statFile(file) {
+    const real = await fs.promises.realpath(file);
+    const st = await fs.promises.stat(real);
+    if (!st.isFile()) {
+        const err = new Error('Inte en fil');
+        err.code = 'EISDIR';
+        throw err;
+    }
+    return { real: real, st: st };
 }
 
-// start/length är byte. noatime: false tvingar vägen som läser och ställer tillbaka tiden.
-async function readPreservingTimes(file, start, length, opts) {
-    opts = opts || {};
-    const real = await fs.promises.realpath(file);
-    return exclusive(real, async function () {
-        const st = await fs.promises.stat(real);
-        if (!st.isFile()) {
-            const err = new Error('Inte en fil');
-            err.code = 'EISDIR';
-            throw err;
-        }
-        if (!originalTimes.has(real)) originalTimes.set(real, { atime: st.atime, mtime: st.mtime });
-        const times = originalTimes.get(real);
-        const startAt = Math.max(0, start);
-        const len = Math.max(0, Math.min(length, st.size - startAt));
-        const flags = fs.constants.O_RDONLY;
-        const noatime = opts.noatime !== false && fs.constants.O_NOATIME;
-        let handle = null;
-        let restore = true;
-        if (noatime) {
-            try {
-                handle = await fs.promises.open(real, flags | noatime);
-                restore = false;
-            } catch (err) {
-                if (err.code !== 'EPERM' && err.code !== 'EINVAL' && err.code !== 'ENOTSUP') throw err;
-            }
-        }
-        if (!handle) handle = await fs.promises.open(real, flags);
+// Öppnar bara för läsning. O_NOATIME finns bara på Linux och kräver att man äger filen;
+// annars öppnas filen vanligt. Tiderna ställs aldrig tillbaka med utimes(): det skulle
+// skriva till filen, tappa nanosekunder, ändra ctime och misslyckas på skrivskyddade diskar.
+async function openForRead(real, opts) {
+    const flags = fs.constants.O_RDONLY;
+    const noatime = (opts || {}).noatime !== false && fs.constants.O_NOATIME;
+    if (noatime) {
         try {
-            const buf = Buffer.alloc(len);
-            if (!len) return buf;
-            const read = await handle.read(buf, 0, len, startAt);
-            return buf.subarray(0, read.bytesRead);
-        } finally {
-            await handle.close();
-            if (restore) await fs.promises.utimes(real, times.atime, times.mtime);
+            return await fs.promises.open(real, flags | noatime);
+        } catch (err) {
+            if (err.code !== 'EPERM' && err.code !== 'EINVAL' && err.code !== 'ENOTSUP') throw err;
         }
-    });
+    }
+    return fs.promises.open(real, flags);
+}
+
+// start/length är byte.
+async function readRange(file, start, length, opts) {
+    const { real, st } = await statFile(file);
+    const startAt = Math.max(0, start);
+    const len = Math.max(0, Math.min(length, st.size - startAt));
+    const handle = await openForRead(real, opts);
+    try {
+        const buf = Buffer.alloc(len);
+        if (!len) return buf;
+        const read = await handle.read(buf, 0, len, startAt);
+        return buf.subarray(0, read.bytesRead);
+    } finally {
+        await handle.close();
+    }
+}
+
+// Hela filen som ström, så att stora bilder (TIFF, HEIC) inte läses in i minnet på en gång.
+async function streamFile(real, opts) {
+    const handle = await openForRead(real, opts);
+    return Readable.toWeb(handle.createReadStream({ autoClose: true }));
 }
 
 async function allow(filePath) {
@@ -98,7 +100,6 @@ async function revoke(filePath) {
     try {
         const real = await fs.promises.realpath(filePath);
         allowed.delete(real);
-        originalTimes.delete(real);
         return true;
     } catch (err) {
         return false;
@@ -121,13 +122,10 @@ async function mediaRequestHandler(request) {
     catch (err) { return reply(404, 'Filen saknas'); }
     const range = /^bytes=(\d+)-(\d*)$/.exec(request.headers.get('Range') || '');
     if (!range) {
-        if (st.size > MAX_FULL) {
-            return reply(416, 'För stor för en hel läsning', { 'Content-Range': 'bytes */' + st.size });
-        }
-        const body = await readPreservingTimes(real, 0, st.size);
+        const body = await streamFile(real);
         return reply(200, body, {
             'Content-Type': type,
-            'Content-Length': String(body.length),
+            'Content-Length': String(st.size),
             'Accept-Ranges': 'bytes',
         });
     }
@@ -137,7 +135,7 @@ async function mediaRequestHandler(request) {
     if (!(start <= end) || start >= st.size) {
         return reply(416, 'Utanför filen', { 'Content-Range': 'bytes */' + st.size });
     }
-    const body = await readPreservingTimes(real, start, end - start + 1);
+    const body = await readRange(real, start, end - start + 1);
     return reply(206, body, {
         'Content-Type': type,
         'Content-Range': 'bytes ' + start + '-' + (start + body.length - 1) + '/' + st.size,
@@ -154,7 +152,7 @@ module.exports = {
     SCHEME: SCHEME,
     allow: allow,
     revoke: revoke,
-    readPreservingTimes: readPreservingTimes,
+    readRange: readRange,
     mediaRequestHandler: mediaRequestHandler,
     handleMediaProtocol: handleMediaProtocol,
 };

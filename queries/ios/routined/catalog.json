@@ -1,0 +1,61 @@
+{
+  "id": "routined",
+  "title": "Positioner Queries",
+  "sourceNote": "Tiderna lagras som Cocoa-tid (sekunder sedan 2001-01-01 UTC). Tidsspannet filtreras på råvärdet, och varje tid visas både i lokal tid och UTC. Lokal tid är datorns tidszon, inte telefonens.",
+  "paramLabels": {
+    "timeStart": "Från (ÅÅÅÅ-MM-DD TT:MM)",
+    "timeEnd": "Till (ÅÅÅÅ-MM-DD TT:MM)",
+    "maxAccuracy": "Största noggrannhet i meter"
+  },
+  "paramDefaults": {
+    "maxAccuracy": "20"
+  },
+  "databases": [
+    {
+      "id": "routined-cache",
+      "label": "iOS — Cache.sqlite (routined)",
+      "blurb": "Telefonens egna positioner från GNSS och Wi-Fi, med noggrannhet, och besök med ankomst och avfärd. Sparas oftast några dagar bakåt.",
+      "dbPathHint": "/private/var/mobile/Library/Caches/com.apple.routined/Cache.sqlite (+ -wal, -shm)",
+      "source": "https://github.com/abrignoni/iLEAPP",
+      "queries": [
+        {
+          "id": "locations",
+          "title": "Positioner i tidsspann",
+          "subtitle": "Visar telefonens positioner inom tidsspannet, med noggrannhet och om de kom från GNSS eller Wi-Fi. Bara positioner med noggrannhet inom gränsen tas med.",
+          "recommended": true,
+          "timeEpoch": "cocoa",
+          "params": ["timeStart", "timeEnd", "maxAccuracy"],
+          "returns": "lokal tid, UTC, latitud, longitud, noggrannhet, typ",
+          "sql": "SELECT\n  datetime(ZRTCLLOCATIONMO.ZTIMESTAMP + 978307200, 'unixepoch', 'localtime') AS tid_lokal,\n  datetime(ZRTCLLOCATIONMO.ZTIMESTAMP + 978307200, 'unixepoch') AS tid_utc,\n  ZRTCLLOCATIONMO.ZLATITUDE AS latitud,\n  ZRTCLLOCATIONMO.ZLONGITUDE AS longitud,\n  ZRTCLLOCATIONMO.ZHORIZONTALACCURACY AS noggrannhet_m,\n  CASE ZRTCLLOCATIONMO.ZTYPE\n    WHEN 1 THEN 'GNSS'\n    WHEN 4 THEN 'Wi-Fi'\n  END AS typ\nFROM ZRTCLLOCATIONMO\nWHERE ZRTCLLOCATIONMO.ZTIMESTAMP BETWEEN {{cocoaStart}} AND {{cocoaEnd}}\n  AND ZRTCLLOCATIONMO.ZHORIZONTALACCURACY BETWEEN 0 AND {{maxAccuracy}}\n  AND ZRTCLLOCATIONMO.ZTYPE IN (1, 4)\nORDER BY ZRTCLLOCATIONMO.ZTIMESTAMP;"
+        },
+        {
+          "id": "visits",
+          "title": "Besök",
+          "subtitle": "Visar platser där telefonen stannade, med ankomst, avfärd och hur länge. Ett besök som pågår när databasen sparades har ingen avfärd.",
+          "timeEpoch": "cocoa",
+          "params": ["timeStart", "timeEnd"],
+          "returns": "ankomst, avfärd, minuter, latitud, longitud, osäkerhet, datapunkter, konfidens",
+          "sql": "SELECT\n  datetime(ZRTVISITMO.ZENTRYDATE + 978307200, 'unixepoch', 'localtime') AS ankomst_lokal,\n  CASE WHEN ZRTVISITMO.ZEXITDATE IS NULL OR ZRTVISITMO.ZEXITDATE >= 63113904000 THEN NULL\n    ELSE datetime(ZRTVISITMO.ZEXITDATE + 978307200, 'unixepoch', 'localtime') END AS avfard_lokal,\n  CASE WHEN ZRTVISITMO.ZEXITDATE IS NULL OR ZRTVISITMO.ZEXITDATE >= 63113904000 THEN 'Pågår'\n    ELSE ROUND((ZRTVISITMO.ZEXITDATE - ZRTVISITMO.ZENTRYDATE) / 60.0, 1) END AS minuter,\n  ZRTVISITMO.ZLOCATIONLATITUDE AS latitud,\n  ZRTVISITMO.ZLOCATIONLONGITUDE AS longitud,\n  ZRTVISITMO.ZLOCATIONUNCERTAINTY AS osakerhet_m,\n  ZRTVISITMO.ZDATAPOINTCOUNT AS datapunkter,\n  ZRTVISITMO.ZCONFIDENCE AS konfidens,\n  datetime(ZRTVISITMO.ZENTRYDATE + 978307200, 'unixepoch') AS ankomst_utc,\n  CASE WHEN ZRTVISITMO.ZEXITDATE IS NULL OR ZRTVISITMO.ZEXITDATE >= 63113904000 THEN NULL\n    ELSE datetime(ZRTVISITMO.ZEXITDATE + 978307200, 'unixepoch') END AS avfard_utc,\n  datetime(ZRTVISITMO.ZDETECTIONDATE + 978307200, 'unixepoch') AS upptackt_utc,\n  ZRTVISITMO.Z_PK\nFROM ZRTVISITMO\nWHERE ZRTVISITMO.ZENTRYDATE <= {{cocoaEnd}}\n  AND IFNULL(ZRTVISITMO.ZEXITDATE, 63113904000) >= {{cocoaStart}}\nORDER BY ZRTVISITMO.ZENTRYDATE, ZRTVISITMO.ZEXITDATE;"
+        },
+        {
+          "id": "visits-all",
+          "title": "Besök med alla kolumner",
+          "subtitle": "Samma besök med platsgissningen (typ av plats, kartobjekt och konfidens), källa och rå Cocoa-tider. Använd när du vill se exakt vad som finns lagrat.",
+          "timeEpoch": "cocoa",
+          "params": ["timeStart", "timeEnd"],
+          "returns": "alla kolumner i ZRTVISITMO med tider i UTC",
+          "sql": "SELECT\n  Z_PK,\n  ZDATAPOINTCOUNT,\n  datetime(ZDETECTIONDATE + 978307200, 'unixepoch') AS detection_utc,\n  datetime(ZENTRYDATE + 978307200, 'unixepoch') AS entry_utc,\n  datetime(ZEXITDATE + 978307200, 'unixepoch') AS exit_utc,\n  (ZEXITDATE - ZENTRYDATE) / 60 AS duration_minutes,\n  ZLOCATIONLATITUDE AS latitude,\n  ZLOCATIONLONGITUDE AS longitude,\n  ZLOCATIONUNCERTAINTY AS location_uncertainty,\n  ZTYPE,\n  ZCONFIDENCE,\n  ZPLACEINFERENCECONFIDENCE,\n  ZPLACEINFERENCEMAPITEMIDENTIFIER,\n  ZLOCATIONREFERENCEFRAME,\n  ZPLACEINFERENCEPLACETYPE,\n  ZPLACEINFERENCEUSERTYPE,\n  ZPLACEINFERENCEUSERTYPESOURCE,\n  ZSOURCE,\n  datetime(ZLOCATIONDATE + 978307200, 'unixepoch') AS location_utc,\n  ZENTRYDATE,\n  ZEXITDATE,\n  ZDETECTIONDATE,\n  ZLOCATIONDATE\nFROM ZRTVISITMO\nWHERE ZENTRYDATE <= {{cocoaEnd}}\n  AND IFNULL(ZEXITDATE, 63113904000) >= {{cocoaStart}}\nORDER BY ZENTRYDATE, ZEXITDATE, ZDETECTIONDATE;"
+        },
+        {
+          "id": "tables",
+          "title": "Hjälp: tabeller och antal rader",
+          "subtitle": "Listar tabellerna i databasen. Bra för att se om ZRTCLLOCATIONMO och ZRTVISITMO finns i den här iOS-versionen.",
+          "group": "advanced",
+          "params": [],
+          "returns": "tabellnamn",
+          "sql": "SELECT name AS tabell\nFROM sqlite_master\nWHERE type = 'table'\nORDER BY name;"
+        }
+      ]
+    }
+  ]
+}

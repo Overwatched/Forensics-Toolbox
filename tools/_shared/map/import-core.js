@@ -16,7 +16,8 @@
         return lat !== null && lon !== null && Math.abs(lat) <= 90 && Math.abs(lon) <= 180 && !(lat === 0 && lon === 0);
     }
 
-    function takenFrom(value) {
+    // zoneHint gäller tider utan egen zon, t.ex. 'UTC' för en kolumn som heter entry_utc.
+    function takenFrom(value, zoneHint) {
         if (value === undefined || value === null || value === '') return null;
         var raw = str(value);
         if (/^\d{10,13}$/.test(raw)) {
@@ -29,7 +30,7 @@
         }
         var m = /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2}))?(?:\.\d+)?(Z|[+\-]\d{2}:?\d{2})?/.exec(raw);
         if (!m) return null;
-        var zone = '';
+        var zone = zoneHint || '';
         if (m[7] === 'Z') zone = 'UTC';
         else if (m[7]) zone = m[7].replace(/([+\-]\d{2})(\d{2})$/, '$1:$2').replace(/([+\-]\d{2})$/, '$1:00');
         var sort = m[1] + '-' + m[2] + '-' + m[3] + ' ' + m[4] + ':' + m[5] + ':' + (m[6] || '00');
@@ -42,6 +43,7 @@
             lat: part.lat, lon: part.lon, source: part.source || 'import',
             taken: part.taken || null, device: part.device || '', software: '',
             type: part.type || '', mime: '', layer: part.layer || '', accuracy: part.accuracy || null,
+            until: part.until || null,
         };
     }
 
@@ -228,41 +230,77 @@
         return { points: [], skipped: 0, error: 'Okänt JSON-format' };
     }
 
+    // Fält inom citattecken kan innehålla avgränsaren, radbrytningar och "" för ett ".
     function splitRows(text) {
-        var lines = String(text).replace(/^\uFEFF/, '').split(/\r?\n/).filter(function (l) { return str(l); });
-        if (!lines.length) return { delim: ',', rows: [] };
-        var sample = lines[0];
+        var body = String(text).replace(/^\uFEFF/, '');
+        var sample = body.split(/\r?\n/).filter(function (l) { return str(l); })[0];
+        if (!sample) return { delim: ',', rows: [] };
         var delim = '\t';
         if ((sample.match(/\t/g) || []).length === 0) {
             var commas = (sample.match(/,/g) || []).length;
             var semis = (sample.match(/;/g) || []).length;
             delim = semis > commas ? ';' : ',';
         }
-        return {
-            delim: delim,
-            rows: lines.map(function (l) { return l.split(delim).map(function (c) { return c.trim().replace(/^"|"$/g, ''); }); }),
-        };
+        var rows = [];
+        var row = [];
+        var cell = '';
+        var quoted = false;
+        for (var i = 0; i < body.length; i++) {
+            var ch = body[i];
+            if (quoted) {
+                if (ch === '"' && body[i + 1] === '"') { cell += '"'; i++; }
+                else if (ch === '"') quoted = false;
+                else cell += ch;
+            } else if (ch === '"' && !str(cell)) {
+                quoted = true;
+                cell = '';
+            } else if (ch === delim) {
+                row.push(cell.trim());
+                cell = '';
+            } else if (ch === '\n' || ch === '\r') {
+                if (ch === '\r' && body[i + 1] === '\n') i++;
+                row.push(cell.trim());
+                if (row.some(function (c) { return c; })) rows.push(row);
+                row = [];
+                cell = '';
+            } else {
+                cell += ch;
+            }
+        }
+        row.push(cell.trim());
+        if (row.some(function (c) { return c; })) rows.push(row);
+        return { delim: delim, rows: rows };
     }
 
     var COLUMN_NAMES = {
         lat: [/^lat/i, /bredd/i, /latitude/i],
         lon: [/^lon/i, /^lng/i, /langd/i, /längd/i, /longitude/i],
-        time: [/time/i, /timestamp/i, /datetime/i, /^tid$/i, /^date$/i],
+        time: [/time/i, /timestamp/i, /datetime/i, /^tid$/i, /^tid_/i, /^date$/i, /^ankomst/i, /^entry/i],
+        end: [/^avf[aä]rd/i, /^exit/i, /^end_?(time|date)?$/i],
         name: [/^name$/i, /label/i, /^namn$/i],
-        accuracy: [/accur/i, /noggrann/i],
+        accuracy: [/accur/i, /noggrann/i, /uncertain/i, /os[aä]kerhet/i],
     };
 
+    var UTC_NAME = /utc/i;
+
+    // En tidskolumn i UTC väljs före en i lokal tid, eftersom datorns tidszon inte
+    // behöver vara telefonens.
     function guessColumns(headers) {
         var out = {};
         Object.keys(COLUMN_NAMES).forEach(function (key) {
-            out[key] = headers.findIndex(function (h) {
-                return COLUMN_NAMES[key].some(function (re) { return re.test(h); });
-            });
+            var hit = function (h) { return COLUMN_NAMES[key].some(function (re) { return re.test(h); }); };
+            var utc = (key === 'time' || key === 'end')
+                ? headers.findIndex(function (h) { return hit(h) && UTC_NAME.test(h); }) : -1;
+            out[key] = utc >= 0 ? utc : headers.findIndex(hit);
         });
         return out;
     }
 
-    function parseCsv(text, columns) {
+    function zoneOf(headers, index) {
+        return index >= 0 && UTC_NAME.test(headers[index] || '') ? 'UTC' : '';
+    }
+
+    function parseCsv(text, columns, source) {
         var table = splitRows(text);
         if (!table.rows.length) return { points: [], skipped: 0 };
         var headers = table.rows[0];
@@ -289,9 +327,10 @@
             points.push(makePoint({
                 id: points.length + 1, lat: lat, lon: lon,
                 name: guessed.name >= 0 ? row[guessed.name] || 'Punkt' : 'Punkt',
-                taken: guessed.time >= 0 ? takenFrom(row[guessed.time]) : null,
+                taken: guessed.time >= 0 ? takenFrom(row[guessed.time], zoneOf(headers, guessed.time)) : null,
+                until: guessed.end >= 0 ? takenFrom(row[guessed.end], zoneOf(headers, guessed.end)) : null,
                 accuracy: guessed.accuracy >= 0 ? num(row[guessed.accuracy]) : null,
-                source: 'CSV',
+                source: source || 'CSV',
             }));
         });
         return { points: points, skipped: skipped, headers: headers, columns: guessed, swapped: swapped };
@@ -329,7 +368,7 @@
         return parsePasted(body);
     }
 
-    var api = { parse: parse, parseCsv: parseCsv, takenFrom: takenFrom, guessColumns: guessColumns };
+    var api = { parse: parse, parseCsv: parseCsv, splitRows: splitRows, takenFrom: takenFrom, guessColumns: guessColumns };
     if (typeof module !== 'undefined' && module.exports) module.exports = api;
     else root.MapImport = api;
 })(typeof window !== 'undefined' ? window : this);

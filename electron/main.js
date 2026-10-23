@@ -26,6 +26,20 @@ function isHttpUrl(url) {
     }
 }
 
+function isFileUrl(url) {
+    try {
+        return new URL(url).protocol === 'file:';
+    } catch (err) {
+        return false;
+    }
+}
+
+// Bara appens egna sidor (file://) får öppna filer för visning.
+function fromAppPage(event) {
+    const frame = event.senderFrame;
+    return !!frame && isFileUrl(frame.url);
+}
+
 function createWindow() {
     const windowOptions = {
         width: 1440,
@@ -82,6 +96,18 @@ function createWindow() {
         if (isHttpUrl(url)) {
             event.preventDefault();
             shell.openExternal(url);
+        }
+    });
+
+    // Samma skydd för verktygens iframes: en länk i t.ex. CyberChef får inte ladda en
+    // webbsida i ramen, där den skulle hamna bredvid appens egna sidor.
+    mainWindow.webContents.on('will-frame-navigate', (event) => {
+        if (event.isMainFrame) return;
+        if (isHttpUrl(event.url)) {
+            event.preventDefault();
+            shell.openExternal(event.url);
+        } else if (!isFileUrl(event.url) && !/^(about|blob|data):/.test(event.url)) {
+            event.preventDefault();
         }
     });
 
@@ -148,8 +174,12 @@ app.whenReady().then(() => {
     });
     maps.handleMapProtocol(MAPS_DIR);
     media.handleMediaProtocol();
-    ipcMain.handle('media-allow', function (_event, filePath) { return media.allow(filePath); });
-    ipcMain.handle('media-revoke', function (_event, filePath) { return media.revoke(filePath); });
+    ipcMain.handle('media-allow', function (event, filePath) {
+        return fromAppPage(event) ? media.allow(filePath) : false;
+    });
+    ipcMain.handle('media-revoke', function (event, filePath) {
+        return fromAppPage(event) ? media.revoke(filePath) : false;
+    });
     maps.stripIdentifyingHeaders(session.defaultSession);
 
     buildMenu();

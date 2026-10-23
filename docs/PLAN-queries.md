@@ -31,3 +31,55 @@ användbara queryn ska vara förvald. Ingen commit eller push utan att användar
    tider, ägar-app"). Lägg i så fall till ett fält `returns` i katalogen hellre än att
    tolka SQL:en.
 2. `columns-asset` i Photos.sqlite har två `PRAGMA`; förhandsvisningen visar bara den första.
+
+---
+
+# Plan 1.24: buggfixar, routined och queries som körs i appen
+
+**Status:** allt nedan är byggt och testat (`npm test`, och körning i Electron mot en
+påhittad Cache.sqlite med rader som bara finns i `-wal`). Inte committat.
+
+Beslut: `ZTYPE` i `ZRTCLLOCATIONMO` tar bara med kända värden, 1 (GNSS) och 4 (Wi-Fi).
+`-wal` ska alltid läsas med när en query körs i appen.
+
+## Del A: buggar
+
+1. **Tidsstämplar** (`electron/media-protocol.js`): ingen `utimes()`. `O_NOATIME` där det finns,
+   annars en rad i EXIF-visaren om att åtkomsttiden kan ändras. Inget fel på skrivskyddade diskar.
+2. **Iframes** (`electron/main.js`, `preload.js`): läsbryggan bara i `file://`-ramar,
+   `media-allow` kontrollerar avsändarramen, `will-frame-navigate` stoppar http(s) i iframes.
+   Ingen CSP ännu.
+3. **Kartlager** (`map-view.js`): en enda väntande `style.load`, inga dubbla lager.
+4. **Tidszon**: tider utan zon visas som "antagen zon", inte UTC.
+5. **Release-bygget**: `concurrency`, och en publicerad release görs inte om till utkast.
+6. **Småfel**: stora bilder (> 80 MB) via blob, `%`-fel ger 404, kartan kan startas om.
+7. **`postMessage`**: kontrollera `event.source`.
+8. **Städning**: ta bort gamla `script.js`/`style.css` i `android-queries`, `app-usage-queries`,
+   `photos-sqlite-queries` (bara omdirigering kvar). Uppdatera `docs/DEVELOPMENT.md`.
+
+## Del B: Queries
+
+1. **routined `Cache.sqlite`**: ny katalog `queries/ios/routined/`. Queries: positioner i
+   tidsspann (rekommenderad, sökvärden för tid och noggrannhet, `ZTYPE IN (1, 4)`), besök
+   (`ZRTVISITMO`, pågående besök hanteras). Filtret på råvärdet, inte på `localtime`-text.
+2. **Kör i appen**: välj databasen och dess `-wal`. WAL-ramarna fram till sista giltiga commit
+   läggs på databasen i minnet (salt och checksumma kontrolleras), sedan sql.js. Visar antal
+   ramar som lades på. Källfilerna läses bara. Resultat som tabell och CSV.
+3. **Visa på karta**: resultat med latitud/longitud skickas till Positioner som egen källa,
+   med noggrannhet som cirkel.
+4. **CSV-import**: citattecken, tidskolumner `*_utc`/`*date*`, `uncertainty` som noggrannhet,
+   kolumnnamn som slutar på `utc` ger zonen UTC.
+5. **Besök på kartan**: område med in- och uttid och varaktighet.
+6. **Rester från förra planen**: fältet `returns` och båda `PRAGMA` i `columns-asset`.
+
+Ingen commit eller push utan att användaren ber om det.
+
+## Efter 1.24
+
+- **Tider som datum i SQL:en** (byggt): tidsspannet står som
+  `CAST(strftime('%s', '2026-03-04 00:00:00+01:00') AS INTEGER)`, minus 978307200 för Cocoa-tid,
+  gånger 1000 för millisekunder. Datum utan klockslag tar med hela dagen. Provkört mot
+  iOS 18.7.7 (FFS) och Pixel 9 (full fil) i K123456-26: alla queries går igenom.
+- **MediaStore** (byggt): kolumnen heter `datetaken`, inte `date_taken`.
+- **Senare, behöver egen plan:** peka på en extraktion (mapp eller zip) och låt appen hitta
+  databaserna och deras `-wal` själv.

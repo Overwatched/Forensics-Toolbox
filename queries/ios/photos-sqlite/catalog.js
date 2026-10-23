@@ -286,7 +286,7 @@ window.PHOTOS_SQLITE_CATALOG = {
         },
         {
           "id": "columns-asset",
-          "sql": "PRAGMA table_info(ZGENERICASSET);\nPRAGMA table_info(ZADDITIONALASSETATTRIBUTES);"
+          "sql": "SELECT 'ZGENERICASSET' AS tabell, name, type\nFROM pragma_table_info('ZGENERICASSET')\nUNION ALL\nSELECT 'ZADDITIONALASSETATTRIBUTES', name, type\nFROM pragma_table_info('ZADDITIONALASSETATTRIBUTES');"
         },
         {
           "id": "album-join-tables",
@@ -375,7 +375,7 @@ window.PHOTOS_SQLITE_CATALOG = {
         },
         {
           "id": "columns-asset",
-          "sql": "PRAGMA table_info(ZASSET);\nPRAGMA table_info(ZADDITIONALASSETATTRIBUTES);"
+          "sql": "SELECT 'ZASSET' AS tabell, name, type\nFROM pragma_table_info('ZASSET')\nUNION ALL\nSELECT 'ZADDITIONALASSETATTRIBUTES', name, type\nFROM pragma_table_info('ZADDITIONALASSETATTRIBUTES');"
         },
         {
           "id": "album-join-tables",
@@ -472,7 +472,7 @@ window.PHOTOS_SQLITE_CATALOG = {
         },
         {
           "id": "columns-asset",
-          "sql": "PRAGMA table_info(ZASSET);\nPRAGMA table_info(ZADDITIONALASSETATTRIBUTES);"
+          "sql": "SELECT 'ZASSET' AS tabell, name, type\nFROM pragma_table_info('ZASSET')\nUNION ALL\nSELECT 'ZADDITIONALASSETATTRIBUTES', name, type\nFROM pragma_table_info('ZADDITIONALASSETATTRIBUTES');"
         },
         {
           "id": "album-join-tables",
@@ -569,7 +569,7 @@ window.PHOTOS_SQLITE_CATALOG = {
         },
         {
           "id": "columns-asset",
-          "sql": "PRAGMA table_info(ZASSET);\nPRAGMA table_info(ZADDITIONALASSETATTRIBUTES);"
+          "sql": "SELECT 'ZASSET' AS tabell, name, type\nFROM pragma_table_info('ZASSET')\nUNION ALL\nSELECT 'ZADDITIONALASSETATTRIBUTES', name, type\nFROM pragma_table_info('ZADDITIONALASSETATTRIBUTES');"
         },
         {
           "id": "album-join-tables",

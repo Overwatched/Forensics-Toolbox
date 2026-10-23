@@ -364,3 +364,10 @@ test('tid T skrivs i bevisets zon, inte datorns', () => {
     assert.strictEqual(map.formatInstant(t, ''), '2024-06-01 12:30:05 UTC');
     assert.strictEqual(map.formatInstant(t, '-05:00'), '2024-06-01 07:30:05 -05:00');
 });
+
+test('visitMinutes: minuter mellan ankomst och avfärd, bara inom samma zon', () => {
+    const t = (sort, zone) => ({ sort, zone });
+    assert.strictEqual(map.visitMinutes(t('2026-03-11 16:10:00', 'UTC'), t('2026-03-11 16:40:30', 'UTC')), 31);
+    assert.strictEqual(map.visitMinutes(t('2026-03-11 16:10:00', 'UTC'), t('2026-03-11 17:40:00', '')), null);
+    assert.strictEqual(map.visitMinutes(t('2026-03-11 16:10:00', ''), null), null);
+});

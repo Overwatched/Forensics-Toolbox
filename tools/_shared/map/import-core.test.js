@@ -66,3 +66,23 @@ test('epoch i sekunder och millisekunder', () => {
     assert.strictEqual(imp.takenFrom('1717243200').zone, 'UTC');
     assert.strictEqual(imp.takenFrom('1717243200000').sort, imp.takenFrom('1717243200').sort);
 });
+
+test('CSV: citerade fält får innehålla avgränsare, radbrytning och ""', () => {
+    const text = 'name;lat;lon\n"Hörnet; Sveavägen";59,3301;18,0601\n"Rad\nett ""två""";59,3302;18,0602\n';
+    const r = imp.parseCsv(text);
+    assert.strictEqual(r.points.length, 2);
+    assert.strictEqual(r.points[0].name, 'Hörnet; Sveavägen');
+    assert.strictEqual(r.points[1].name, 'Rad\nett "två"');
+    assert.strictEqual(r.points[1].lon, 18.0602);
+});
+
+test('CSV från routined: UTC-kolumnen väljs, osäkerhet blir noggrannhet och avfärden följer med', () => {
+    const text = 'ankomst_lokal,avfard_lokal,latitud,longitud,osakerhet_m,ankomst_utc,avfard_utc\n'
+        + '2026-03-11 17:10:00,2026-03-11 17:40:00,59.33,18.06,35,2026-03-11 16:10:00,2026-03-11 16:40:00\n';
+    const r = imp.parseCsv(text);
+    assert.strictEqual(r.points.length, 1);
+    const p = r.points[0];
+    assert.strictEqual(p.taken.text, '2026-03-11 16:10:00 UTC');
+    assert.strictEqual(p.until.text, '2026-03-11 16:40:00 UTC');
+    assert.strictEqual(p.accuracy, 35);
+});

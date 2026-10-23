@@ -1,5 +1,18 @@
 Automatiskt byggd från commit `{{SHA}}`.
 
+## Nytt i 1.24
+
+- **Kör queryn i appen.** Välj databasen och dess `-wal` under **Kör i appen**. Filerna läses bara. Ramarna i `-wal` läggs på en kopia i minnet fram till sista giltiga commit, och appen visar hur många ramar som lades på och SHA-256 för båda filerna. Fungerar för alla databaser i Queries.
+- **Spara CSV** ger alla rader. Överst står filnamn, hash, vad som hände med `-wal` och SQL:en.
+- **Visa på karta** skickar resultatet till Positioner som en egen källa, med noggrannheten som cirkel.
+- **Ny databas: Cache.sqlite (routined).** Telefonens positioner från GNSS och Wi-Fi i ett tidsspann, med valbar noggrannhet, och besök med ankomst, avfärd och hur länge. Besök ritas som områden på kartan.
+- **Tidsspannet står som datum och tid i SQL:en**, med tidszon, i stället för sekunder. Ett datum utan klockslag tar med hela dagen.
+- **Android MediaStore:** kolumnen heter `datetaken`. Filsökningarna gav tidigare felet "no such column" på nyare Android.
+- **EXIF** skriver aldrig till källfilen, inte heller tidsstämplarna. Tidigare ställdes tiderna tillbaka efter läsning på macOS och Windows, vilket ändrade ctime och tappade nanosekunder. På macOS och Windows kan systemet fortfarande uppdatera åtkomsttiden. Stora bilder visas nu också.
+- **Positioner:** CSV-importen klarar fält inom citattecken, kolumner som slutar på `_utc` räknas som UTC, och osäkerhet läses som noggrannhet.
+- **Kartan:** lagren läggs inte längre till två gånger vid snabba byten av bakgrund, och tider utan zon kallas inte längre UTC i tidsreglaget.
+- **Säkerhet:** en webbsida kan inte längre laddas i ett verktygs ram och få tillgång till filer.
+
 ## Nytt i 1.23
 
 - **Bakgrund: Karta, Satellit och Hybrid.** Lägg en bildkarta (flygfoton eller satellitbilder i `.pmtiles`-format) i mappen `maps`, eller välj den med **Lägg till bildkarta…**. Bilderna läses lokalt och ingenting hämtas från nätet. Hybrid lägger vägar och namn ovanpå bilden.
