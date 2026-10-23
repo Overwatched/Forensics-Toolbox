@@ -13,18 +13,42 @@
     <div id="container">
         <header class="page-header">
             <h1>Queries</h1>
-            <p>Välj databasen du har hittat i utvinningen. Du får färdig SQL att köra här i appen eller i DB Browser for SQLite.</p>
+            <p>Öppna en extraktion så hittar appen databaserna själv, eller välj en databas nedan och läs in filerna. Du får färdig SQL att köra här i appen eller i DB Browser for SQLite.</p>
         </header>
 
         <div id="load-error" class="banner error display-none"></div>
+
+        <section class="run-box ex-box" id="ex-box">
+            <div id="ex-full">
+                <div class="ex-head">
+                    <div>
+                        <div class="step-label">Öppna en extraktion</div>
+                        <p class="muted">Välj extraktionens zip-fil, så letar appen upp databaserna och deras
+                            <code>-wal</code>. Zippen läses bara. Inget packas upp eller sparas på disk.</p>
+                    </div>
+                    <div class="button-row">
+                        <button type="button" id="ex-pick">Öppna extraktion (zip)…</button>
+                        <button type="button" class="secondary display-none" id="ex-close">Stäng extraktionen</button>
+                    </div>
+                </div>
+                <div id="ex-status" class="run-status"></div>
+                <div id="ex-list" class="ex-list"></div>
+            </div>
+            <input type="file" id="ex-input" accept=".zip,application/zip" hidden>
+        </section>
 
         <div id="db-picker" class="display-none">
             <div class="step-label">1. Databas</div>
             <div class="db-picker-row">
                 <button type="button" class="secondary back-btn" id="back-btn">← Alla databaser</button>
+                <select id="ex-switch" class="display-none" aria-label="Databas i extraktionen"></select>
                 <select id="db-select" disabled>
                     <option value="">Välj databas…</option>
                 </select>
+            </div>
+            <div id="ex-compact" class="ex-compact display-none">
+                Ur <span id="ex-compact-name"></span>
+                <button type="button" class="link-btn" id="ex-close-compact">Stäng extraktionen</button>
             </div>
         </div>
         <div id="db-overview" class="db-overview"></div>
@@ -63,13 +87,13 @@
 
                 <section class="run-box" id="run-box">
                     <div class="step-label">Kör i appen</div>
-                    <p class="muted">Välj databasen och dess <code>-wal</code> samtidigt. Filerna läses bara. Ramarna i
+                    <p class="muted" id="run-intro">Välj databasen och dess <code>-wal</code> samtidigt. Filerna läses bara. Ramarna i
                         <code>-wal</code> läggs på en kopia i minnet, fram till sista giltiga commit.</p>
+                    <div id="run-file-list" class="run-file-list"></div>
                     <div class="button-row">
                         <button type="button" class="secondary" id="run-pick">Välj databas och -wal…</button>
                         <input type="file" id="run-input" multiple hidden>
                     </div>
-                    <div id="run-file-list" class="run-file-list"></div>
                     <label class="run-nowal display-none" id="run-nowal-label"><input type="checkbox" id="run-nowal">
                         Det finns ingen -wal för den här databasen</label>
                     <div class="button-row">
@@ -81,7 +105,7 @@
                     <div id="run-result" class="result-scroll run-result"></div>
                 </section>
 
-                <div class="step-label">Så kan resultatet se ut</div>
+                <div class="step-label" id="preview-label">Så kan resultatet se ut</div>
                 <div id="result-preview" class="result-preview"></div>
             </div>
         </div>
@@ -102,6 +126,9 @@
     <script src="wal.js"></script>
     <script src="run-core.js"></script>
     <script src="run.js"></script>
+    <script src="zip.js"></script>
+    <script src="locate.js"></script>
+    <script src="extraction.js"></script>
 </body>
 
 </html>

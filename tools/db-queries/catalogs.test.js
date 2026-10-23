@@ -58,3 +58,25 @@ test('hjälpfrågor heter "Hjälp: …" eller "Tips: …"', () => {
         if (/^(Hjälp|Tips):/.test(title)) assert.strictEqual(group, 'advanced', id + ': hjälpfråga utan group advanced');
     }
 });
+
+// Extraktion: databaserna hittas i en zip på sökvägarna i "paths". De skrivs utan inledande /
+// och utan prefix, så att de kan jämföras bakifrån mot namnen i zippen.
+test('sökvägar för extraktion: alla SQL-databaser har dem, och de är skrivna utan prefix', () => {
+    const groups = [
+        ['photos', photos.paths],
+        ...appUsage.databases.map((d) => [d.id, d.paths]),
+        ...routined.databases.map((d) => [d.id, d.paths]),
+        ...android.categories.filter((c) => c.id !== 'usage').map((c) => ['android-' + c.id, c.paths]),
+    ];
+    for (const [name, paths] of groups) {
+        assert.ok(Array.isArray(paths) && paths.length, name + ': paths saknas');
+        for (const p of paths) {
+            assert.ok(!/^\//.test(p) && !/\s|\(|…/.test(p), name + ': ' + p + ' ska vara en ren sökväg utan inledande /');
+        }
+    }
+    const bands = photos.bands.map((b) => b.ios);
+    assert.ok(bands.every((r) => Array.isArray(r) && r.length === 2), 'Photos: varje band behöver ios: [från, till]');
+    for (let v = 10; v <= 26; v++) {
+        assert.strictEqual(bands.filter((r) => v >= r[0] && v <= r[1]).length, 1, 'Photos: iOS ' + v + ' ska höra till exakt ett band');
+    }
+});

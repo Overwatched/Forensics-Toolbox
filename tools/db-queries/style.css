@@ -493,3 +493,55 @@ button.db-chip {
     color: var(--text-muted);
 }
 .run-result td.null { color: var(--text-muted); }
+
+/* Extraktion: databaser som hittades i en zip */
+.ex-box { margin-bottom: 16px; }
+.ex-list { margin-top: 8px; }
+.ex-table { border-collapse: collapse; font-size: 12.5px; margin-top: 8px; width: 100%; }
+.ex-table th, .ex-table td {
+    border-bottom: 1px solid var(--border);
+    padding: 6px 8px;
+    text-align: left;
+    vertical-align: top;
+}
+.ex-table th { color: var(--text-muted); font-weight: 600; white-space: nowrap; }
+.ex-table td { white-space: nowrap; }
+.ex-table td.ex-path {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    white-space: normal;
+    word-break: break-all;
+    min-width: 260px;
+}
+.ex-table tr.ex-chosen td { background: var(--accent-soft); }
+.ex-table .run-warn, .ex-table .ex-note { font-size: 12px; margin-top: 4px; white-space: normal; }
+.ex-note { color: var(--text-muted); }
+
+.ex-head { display: flex; gap: 16px; align-items: flex-start; justify-content: space-between; flex-wrap: wrap; }
+.ex-head .muted { margin-bottom: 0; }
+.ex-head .button-row { margin: 0; }
+.ex-summary { font-weight: 600; margin-top: 4px; }
+.ex-table .ex-use { width: 100%; text-align: left; }
+.ex-head .button-row button { white-space: nowrap; }
+.db-picker-row #ex-switch { flex: 1; }
+.ex-compact { color: var(--text-muted); font-size: 13px; margin: -6px 0 14px; word-break: break-all; }
+button.link-btn {
+    flex: none;
+    min-width: 0;
+    padding: 0;
+    margin-left: 8px;
+    background: none;
+    border: none;
+    color: var(--accent);
+    font: inherit;
+    cursor: pointer;
+}
+button.link-btn:hover { background: none; text-decoration: underline; }
+.run-trace { margin-top: 6px; }
+.run-trace summary { cursor: pointer; color: var(--text-muted); }
+.run-trace[open] summary { margin-bottom: 4px; }
+
+.db-card-ex { margin-bottom: 6px; }
+.db-card-ex-missing { font-size: 12px; color: var(--text-muted); }
+.db-card-found { border-color: var(--ok); }
+.db-card-missing { opacity: 0.55; }
+.db-card-missing:hover, .db-card-missing:focus-visible { opacity: 1; }

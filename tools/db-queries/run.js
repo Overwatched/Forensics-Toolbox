@@ -42,11 +42,27 @@
         return Array.prototype.map.call(new Uint8Array(digest), function (b) { return (b < 16 ? '0' : '') + b.toString(16); }).join('');
     }
 
+    // En källa är en vald fil eller en post i en zip. read() ger { bytes, lines }, där lines
+    // beskriver var bytena kom ifrån (till status och CSV-huvudet).
+    function fileSource(file) {
+        return {
+            name: file.name,
+            read: async function () {
+                return { bytes: new Uint8Array(await file.arrayBuffer()), lines: [] };
+            },
+        };
+    }
+
     function closeOpened() {
         opened = null;
     }
 
-    function setResult(html) { result.innerHTML = html; }
+    // Exempelbilden "Så kan resultatet se ut" behövs inte när det finns ett riktigt resultat.
+    function setResult(html) {
+        result.innerHTML = html;
+        $('result-preview').classList.toggle('display-none', !!html);
+        $('preview-label').classList.toggle('display-none', !!html);
+    }
 
     function clearResult() {
         last = null;
@@ -58,10 +74,14 @@
     function updateState() {
         var ready = !!files.db && (!!files.wal || noWal.checked);
         runButton.disabled = !ready;
-        noWalLabel.classList.toggle('display-none', !files.db || !!files.wal);
+        noWalLabel.classList.toggle('display-none', !files.db || !!files.wal || !!files.zip);
+        $('run-intro').classList.toggle('display-none', !!files.zip);
+        $('run-pick').textContent = files.zip ? 'Använd andra filer i stället…' : 'Välj databas och -wal…';
         var html = '';
-        if (files.db) html += '<div><strong>Databas:</strong> ' + escapeHtml(files.db.name) + '</div>';
-        if (files.wal) html += '<div><strong>-wal:</strong> ' + escapeHtml(files.wal.name) + '</div>';
+        var from = files.zip ? ' <span class="muted">ur ' + escapeHtml(files.zip) + '</span>' : '';
+        if (files.db) html += '<div><strong>Databas:</strong> ' + escapeHtml(files.db.name) + from + '</div>';
+        if (files.wal) html += '<div><strong>-wal:</strong> ' + escapeHtml(files.wal.name) + from + '</div>';
+        else if (files.zip && files.db) html += '<div class="run-warn">Extraktionen har ingen -wal för databasen. Allt som finns i databasfilen kommer med.</div>';
         else if (files.db) html += '<div class="run-warn">Ingen -wal vald. Poster som bara finns i -wal kommer att saknas.</div>';
         if (files.mismatch) html += '<div class="run-warn">-wal-filen har inte samma namn som databasen. Kontrollera att de hör ihop.</div>';
         fileList.innerHTML = html;
@@ -84,13 +104,13 @@
         if (!list.length) return;
         var pair = QueryRunCore.pairFiles(list.map(function (f) { return f.name; }));
         // Bara en -wal vald: behåll databasen som redan är vald.
-        if (pair.db === null && pair.wal !== null && files.db) {
-            files.wal = list[pair.wal];
+        if (pair.db === null && pair.wal !== null && files.db && !files.zip) {
+            files.wal = fileSource(list[pair.wal]);
             files.mismatch = list[pair.wal].name.replace(/-wal$/i, '') !== files.db.name;
         } else {
             files = {
-                db: pair.db === null ? null : list[pair.db],
-                wal: pair.wal === null ? null : list[pair.wal],
+                db: pair.db === null ? null : fileSource(list[pair.db]),
+                wal: pair.wal === null ? null : fileSource(list[pair.wal]),
                 mismatch: pair.mismatch,
             };
         }
@@ -108,12 +128,15 @@
         closeOpened();
         status.textContent = 'Läser in…';
         var SQL = await loadSqlJs();
-        var dbBuf = await files.db.arrayBuffer();
-        var walBuf = files.wal ? await files.wal.arrayBuffer() : null;
-        var hashes = await Promise.all([sha256(dbBuf), walBuf ? sha256(walBuf) : Promise.resolve('')]);
-        var merged = SqliteWal.apply(new Uint8Array(dbBuf), walBuf ? new Uint8Array(walBuf) : new Uint8Array(0));
-        if (walBuf && merged.stats.error) throw new Error(merged.stats.error);
-        opened = { SQL: SQL, dbFile: files.db, walFile: files.wal, stats: merged.stats, hashes: hashes, bytes: merged.bytes };
+        var dbRead = await files.db.read();
+        var walRead = files.wal ? await files.wal.read() : null;
+        var hashes = await Promise.all([sha256(dbRead.bytes), walRead ? sha256(walRead.bytes) : Promise.resolve('')]);
+        var merged = SqliteWal.apply(dbRead.bytes, walRead ? walRead.bytes : new Uint8Array(0));
+        if (walRead && merged.stats.error) throw new Error(merged.stats.error);
+        opened = {
+            SQL: SQL, dbFile: files.db, walFile: files.wal, stats: merged.stats, hashes: hashes, bytes: merged.bytes,
+            origin: dbRead.lines.concat(walRead ? walRead.lines : []),
+        };
         return opened;
     }
 
@@ -128,7 +151,7 @@
     }
 
     function hashLines(o) {
-        var out = [];
+        var out = o.origin.slice();
         if (o.hashes[0]) out.push('SHA-256 ' + o.dbFile.name + ': ' + o.hashes[0]);
         if (o.hashes[1]) out.push('SHA-256 ' + o.walFile.name + ': ' + o.hashes[1]);
         return out;
@@ -169,8 +192,12 @@
                 count + (count === 1 ? ' rad' : ' rader') + ' på ' + ms + ' ms'
                     + (count > MAX_SHOWN ? ', de första ' + MAX_SHOWN + ' visas. CSV-filen får alla.' : '.'),
                 walSummary(o),
-            ].concat(hashLines(o));
-            status.innerHTML = lines.map(escapeHtml).join('<br>');
+            ];
+            var warn = o.origin.some(function (l) { return /STÄMMER INTE/.test(l); });
+            status.innerHTML = lines.map(escapeHtml).join('<br>') +
+                '<details class="run-trace"' + (warn ? ' open' : '') + '><summary>' +
+                (warn ? '<span class="run-warn">Spårbarhet: CRC stämmer inte, se nedan</span>' : 'Spårbarhet: källa, CRC32 och SHA-256') +
+                '</summary>' + hashLines(o).map(escapeHtml).join('<br>') + '</details>';
             if (res.columns.length) renderTable(res);
             csvButton.disabled = !res.columns.length;
             var geo = MapImport.guessColumns(res.columns.map(String));
@@ -231,6 +258,21 @@
         if (window.parent === window) text = 'Öppna Queries inifrån Forensics Toolbox för att visa resultatet i Positioner.';
         status.textContent = text;
     });
+
+    // Extraktion: databasen och -wal kommer ur en zip. Anropas efter att rätt databas valts,
+    // eftersom bytet av databas tömmer rutan.
+    function useSources(src) {
+        files = { db: src.db, wal: src.wal || null, mismatch: false, zip: src.zip };
+        noWal.checked = !src.wal;
+        input.value = '';
+        closeOpened();
+        clearResult();
+        status.textContent = '';
+        updateState();
+        $('run-box').scrollIntoView({ block: 'nearest' });
+    }
+
+    window.QueriesRun = { useSources: useSources };
 
     document.addEventListener('queries:db-change', reset);
     updateState();

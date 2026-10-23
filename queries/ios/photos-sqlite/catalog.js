@@ -3,6 +3,10 @@ window.PHOTOS_SQLITE_CATALOG = {
   "id": "photos-sqlite",
   "title": "iOS Queries",
   "dbPathHint": "Media/PhotoData/Photos.sqlite (+ -wal och -shm)",
+  "paths": [
+    "private/var/mobile/Media/PhotoData/Photos.sqlite",
+    "private/var/mobile/Library/Photos/Libraries/Syndication.photoslibrary/database/Photos.sqlite"
+  ],
   "timeNote": "Tiderna konverteras med datetime(..., 'unixepoch', 'localtime'). Kolumnnamnen är desamma som i databasen — döp om i SQL:en om du vill.",
   "source": "https://github.com/abrignoni/iLEAPP",
   "questions": [
@@ -219,6 +223,10 @@ window.PHOTOS_SQLITE_CATALOG = {
   "bands": [
     {
       "id": "ios10-13",
+      "ios": [
+        10,
+        13
+      ],
       "label": "iOS 10–13",
       "versionMin": 10,
       "versionMax": 13,
@@ -296,6 +304,10 @@ window.PHOTOS_SQLITE_CATALOG = {
     },
     {
       "id": "ios14",
+      "ios": [
+        14,
+        14
+      ],
       "label": "iOS 14",
       "versionMin": 14,
       "versionMax": 14,
@@ -389,6 +401,10 @@ window.PHOTOS_SQLITE_CATALOG = {
     },
     {
       "id": "ios15-16",
+      "ios": [
+        15,
+        16
+      ],
       "label": "iOS 15–16",
       "versionMin": 15,
       "versionMax": 16,
@@ -486,6 +502,10 @@ window.PHOTOS_SQLITE_CATALOG = {
     },
     {
       "id": "ios17-plus",
+      "ios": [
+        17,
+        99
+      ],
       "label": "iOS 17 och senare",
       "versionMin": 17,
       "versionMax": 99,

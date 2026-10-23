@@ -14,6 +14,9 @@ window.APP_USAGE_CATALOG = {
       "id": "knowledgec",
       "label": "iOS — knowledgeC.db",
       "dbPathHint": "/private/var/mobile/Library/CoreDuet/Knowledge/knowledgeC.db (+ -wal, -shm)",
+      "paths": [
+        "private/var/mobile/Library/CoreDuet/Knowledge/knowledgeC.db"
+      ],
       "source": "https://github.com/abrignoni/iLEAPP/blob/main/scripts/artifacts/knowledgeC.py",
       "sourceExtra": "https://github.com/mac4n6/APOLLO",
       "queries": [
@@ -78,6 +81,9 @@ window.APP_USAGE_CATALOG = {
       "id": "interactionc",
       "label": "iOS — interactionC.db",
       "dbPathHint": "/private/var/mobile/Library/CoreDuet/People/interactionC.db (+ -wal, -shm)",
+      "paths": [
+        "private/var/mobile/Library/CoreDuet/People/interactionC.db"
+      ],
       "source": "https://github.com/abrignoni/iLEAPP/blob/main/scripts/artifacts/interactionCcontacts.py",
       "queries": [
         {
@@ -99,6 +105,9 @@ window.APP_USAGE_CATALOG = {
       "id": "wellbeing",
       "label": "Android — Digital Wellbeing (app_usage)",
       "dbPathHint": "/data/data/com.google.android.apps.wellbeing/databases/app_usage",
+      "paths": [
+        "data/data/com.google.android.apps.wellbeing/databases/app_usage"
+      ],
       "source": "https://github.com/abrignoni/ALEAPP/blob/main/scripts/artifacts/wellbeing.py",
       "queries": [
         {

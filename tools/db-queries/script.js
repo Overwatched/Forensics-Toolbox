@@ -60,6 +60,11 @@ function showToast(text) {
     setTimeout(() => toast.classList.remove('show'), 1200);
 }
 
+// Satt när databasen kom ur en öppnad extraktion: första steget i "Så här gör du" byts ut,
+// och startsidans kort visar vad som finns i extraktionen.
+let source = null;
+let extraction = null;
+
 function currentDb() {
     return databases.find((d) => d.id === dbSelect.value) || null;
 }
@@ -293,12 +298,13 @@ function renderFlow() {
         flowBox.innerHTML = '';
         return;
     }
-    const steps = db.flow || [
+    let steps = db.flow || [
         'Läs in databasen + <code>-wal</code> + <code>-shm</code>',
         'Använd den rekommenderade queryn, eller välj en annan',
         'Fyll i värden (tid, filnamn, app)',
         'Kör queryn här med databasen och <code>-wal</code>, eller kopiera SQL:en till DB Browser',
     ];
+    if (source) steps = [source.html].concat(steps.slice(1));
     flowBox.innerHTML = '<h2>Så här gör du</h2><ol class="flow-steps">' +
         steps.map((s) => '<li><span>' + s + '</span></li>').join('') + '</ol>' +
         (db.footerHtml || '');
@@ -518,6 +524,8 @@ function buildDatabases(photos, android, appUsage, routined) {
             label: 'Photos.sqlite (' + band.label + ')',
             blurb: 'Fotobiblioteket: filnamn, tider, vilken app som skapade eller redigerade bilden, kamera, position och personer.',
             dbPathHint: photos.dbPathHint,
+            paths: photos.paths || [],
+            ios: band.ios || null,
             source: photos.source,
             note: [band.notes, photos.timeNote].filter(Boolean).join(' '),
             flow: [
@@ -550,6 +558,7 @@ function buildDatabases(photos, android, appUsage, routined) {
             label: db.label.replace(/^iOS — /, '').replace(/^Android — /, ''),
             blurb: APP_USAGE_BLURB[db.id] || '',
             dbPathHint: db.dbPathHint,
+            paths: db.paths || [],
             source: db.source,
             note: appUsage.sourceNote,
             flow: [
@@ -567,7 +576,7 @@ function buildDatabases(photos, android, appUsage, routined) {
                 subtitle: q.subtitle || '',
                 recommended: !!q.recommended,
                 group: q.group,
-            returns: q.returns || '',
+                returns: q.returns || '',
                 params: q.params || [],
                 sql: q.sql,
             })),
@@ -584,6 +593,7 @@ function buildDatabases(photos, android, appUsage, routined) {
             label: label,
             blurb: db.blurb || '',
             dbPathHint: db.dbPathHint,
+            paths: db.paths || [],
             source: db.source,
             note: routined.sourceNote,
             runnable: true,
@@ -626,6 +636,7 @@ function buildDatabases(photos, android, appUsage, routined) {
             blurb: ANDROID_BLURB[cat.id] || '',
             dbPathHint: (cat.dbPathHints && cat.dbPathHints[0]) || '',
             dbPathHints: cat.dbPathHints,
+            paths: cat.paths || [],
             source: android.source,
             note: android.sourceNote,
             flow: [
@@ -687,8 +698,9 @@ function overviewFamilies() {
     return families;
 }
 
-function selectDb(id) {
+function selectDb(id, opts) {
     if (!id || !databases.some((d) => d.id === id)) return;
+    source = (opts && opts.source) || null;
     dbSelect.value = id;
     sqlDirty = false;
     onDbChange();
@@ -718,7 +730,16 @@ function renderOverview() {
             const rec = recommendedQuery(defaultDb);
             const path = String(defaultDb.dbPathHint || '').replace(/\s*\(.*\)\s*$/, '');
             const count = defaultDb.queries.length;
-            html += '<div class="db-card" role="button" tabindex="0" data-db="' + escapeHtml(defaultDb.id) + '">';
+            const key = defaultDb.family || defaultDb.id;
+            const found = extraction && extraction.families.has(key);
+            const state = extraction ? (found ? ' db-card-found' : ' db-card-missing') : '';
+            html += '<div class="db-card' + state + '" role="button" tabindex="0" data-db="' + escapeHtml(defaultDb.id) +
+                '" data-family="' + escapeHtml(key) + '">';
+            if (extraction) {
+                html += '<div class="db-card-ex">' + (found
+                    ? '<span class="badge">I extraktionen</span>'
+                    : '<span class="db-card-ex-missing">Finns inte i extraktionen</span>') + '</div>';
+            }
             html += '<div class="db-card-title"><span>' + escapeHtml(f.title) + '</span>' +
                 '<span class="db-card-count">' + count + (count === 1 ? ' query' : ' queries') + '</span></div>';
             html += '<div class="db-card-blurb">' + escapeHtml(f.blurb) + '</div>';
@@ -745,7 +766,11 @@ function renderOverview() {
         });
     });
     dbOverview.querySelectorAll('.db-card').forEach((card) => {
-        const pick = () => selectDb(card.getAttribute('data-db'));
+        const pick = () => {
+            const family = card.getAttribute('data-family');
+            if (extraction && extraction.families.has(family)) extraction.pick(family);
+            else selectDb(card.getAttribute('data-db'));
+        };
         card.addEventListener('click', pick);
         card.addEventListener('keydown', (e) => {
             if (e.key === 'Enter' || e.key === ' ') {
@@ -786,11 +811,13 @@ async function init() {
 }
 
 dbSelect.addEventListener('change', () => {
+    source = null;
     sqlDirty = false;
     onDbChange();
 });
 
 backBtn.addEventListener('click', () => {
+    source = null;
     dbSelect.value = '';
     sqlDirty = false;
     onDbChange();
@@ -856,6 +883,7 @@ window.addEventListener('message', function (event) {
         let id = String(data.db);
         if (ALIASES[id]) id = ALIASES[id];
         if (databases.some((d) => d.id === id)) {
+            source = null;
             dbSelect.value = id;
             sqlDirty = false;
             onDbChange();
@@ -867,6 +895,15 @@ window.QueriesApp = {
     currentSql: () => (editing ? sqlOut.value : plainSql),
     currentDb: currentDb,
     currentQuery: currentQuery,
+    databases: () => databases,
+    selectDb: selectDb,
+    // { families: Set, pick(family) } när en extraktion är öppen, annars null.
+    setExtraction: (ex) => {
+        extraction = ex;
+        if (!ex) source = null;
+        renderOverview();
+    },
+    fromExtraction: () => !!source,
 };
 
 init();

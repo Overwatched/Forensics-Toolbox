@@ -16,6 +16,7 @@
       "label": "iOS — Cache.sqlite (routined)",
       "blurb": "Telefonens egna positioner från GNSS och Wi-Fi, med noggrannhet, och besök med ankomst och avfärd. Sparas oftast några dagar bakåt.",
       "dbPathHint": "/private/var/mobile/Library/Caches/com.apple.routined/Cache.sqlite (+ -wal, -shm)",
+      "paths": ["private/var/mobile/Library/Caches/com.apple.routined/Cache.sqlite"],
       "source": "https://github.com/abrignoni/iLEAPP",
       "queries": [
         {

@@ -25,7 +25,7 @@ Verktyg för IT-forensik som körs på din egen dator. Inget nätverk behövs. O
 - **EXIF & karta.** Metadata för en hel mapp, utan att filerna ändras. Positionerna ritas på en karta, med en rutt per enhet, tidsfilter och export till KML och GeoJSON.
 - **Positioner.** Samma karta för GPX, KML, CSV, GeoJSON och Google-tidslinje.
 - **App-ID.** Slå upp ett appnamn, eller klistra in ett paket-id och få namnet.
-- **Queries.** Färdiga frågor mot Photos.sqlite, knowledgeC, routined Cache.sqlite och Android. Frågan kan köras direkt i appen, med `-wal` inläst, och positionerna kan visas i Positioner.
+- **Queries.** Färdiga frågor mot Photos.sqlite, knowledgeC, routined Cache.sqlite och Android. Frågan kan köras direkt i appen, med `-wal` inläst, och positionerna kan visas i Positioner. Öppna extraktionens zip-fil, så hittar appen databaserna själv utan att något packas upp.
 - **Övrigt.** Tidskonvertering, nyckelring, hash, filjämförelse, Magic Text, QR, CyberChef, korta checklistor och länkar till externa verktyg.
 
 Kartan kan visa flygfoton eller satellitbilder (Satellit och Hybrid) om du lägger en bildkarta i `.pmtiles`-format i mappen `maps`. Inga bilder hämtas från nätet. Se [utvecklingsdokumentationen](docs/DEVELOPMENT.md).

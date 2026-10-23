@@ -9,9 +9,15 @@ window.ANDROID_QUERIES_CATALOG = {
       "id": "mediastore",
       "label": "MediaStore / filer",
       "apiHint": "API 21+ (Android 5) → latest",
+      "paths": [
+        "data/data/com.android.providers.media/databases/external.db",
+        "data/data/com.google.android.providers.media.module/databases/external.db",
+        "data/data/com.android.providers.media.module/databases/external.db"
+      ],
       "dbPathHints": [
         "/data/data/com.android.providers.media/databases/external.db",
         "/data/data/com.android.providers.media.module/databases/external.db",
+        "/data/data/com.google.android.providers.media.module/databases/external.db (Pixel)",
         "media/0/external.db (vissa extrakt)"
       ],
       "queries": [
@@ -130,6 +136,11 @@ window.ANDROID_QUERIES_CATALOG = {
       "id": "camera",
       "label": "Kameraaktivitet",
       "apiHint": "Beroende på OEM; MediaStore + app-privata DB:er",
+      "paths": [
+        "data/data/com.android.providers.media/databases/external.db",
+        "data/data/com.google.android.providers.media.module/databases/external.db",
+        "data/data/com.android.providers.media.module/databases/external.db"
+      ],
       "dbPathHints": [
         "MediaStore external.db (datetaken nära kameratid)",
         "/data/data/com.google.android.GoogleCamera/…",

@@ -1,5 +1,14 @@
 Automatiskt byggd från commit `{{SHA}}`.
 
+## Nytt i 1.25
+
+- **Öppna en extraktion.** Välj extraktionens zip-fil i Queries, så hittar appen själv databaserna och deras `-wal`: Photos.sqlite, routined Cache.sqlite, knowledgeC, interactionC, MediaStore och Digital Wellbeing. Klicka på en databas och kör queries som vanligt.
+- **Zippen ändras aldrig.** Den läses bara, bit för bit, och inget packas upp eller sparas på disk. Fungerar med stora zippar (Zip64). En zip på 22 GB med 568 000 filer gås igenom på under en sekund.
+- **Ändras zippen efter att den valts** vägrar appen läsa och ber dig välja den igen.
+- **Rätt Photos-queries väljs själv.** iOS-versionen läses ur telefonens `SystemVersion.plist`.
+- **Spårbarhet:** extraktionens namn, storlek och ändringstid, sökvägen i zippen, CRC32 och SHA-256 för databasen och `-wal` står i resultatet och i CSV-filen.
+- **Startsidan i Queries** märker vilka databaser som finns i den öppnade extraktionen.
+
 ## Nytt i 1.24
 
 - **Kör queryn i appen.** Välj databasen och dess `-wal` under **Kör i appen**. Filerna läses bara. Ramarna i `-wal` läggs på en kopia i minnet fram till sista giltiga commit, och appen visar hur många ramar som lades på och SHA-256 för båda filerna. Fungerar för alla databaser i Queries.

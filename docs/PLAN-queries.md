@@ -81,5 +81,4 @@ Ingen commit eller push utan att användaren ber om det.
   gånger 1000 för millisekunder. Datum utan klockslag tar med hela dagen. Provkört mot
   iOS 18.7.7 (FFS) och Pixel 9 (full fil) i K123456-26: alla queries går igenom.
 - **MediaStore** (byggt): kolumnen heter `datetaken`, inte `date_taken`.
-- **Senare, behöver egen plan:** peka på en extraktion (mapp eller zip) och låt appen hitta
-  databaserna och deras `-wal` själv.
+- **Peka på en extraktion:** egen plan i [PLAN-extraktion.md](PLAN-extraktion.md).
