@@ -11,7 +11,11 @@ const android = require(path.join(ROOT, 'queries', 'android', 'catalog.json'));
 const appUsage = require(path.join(ROOT, 'queries', 'app-usage', 'catalog.json'));
 const routined = require(path.join(ROOT, 'queries', 'ios', 'routined', 'catalog.json'));
 
+// Rollqueryer (hidden) hör till Härkomst och visas inte i Queries. De kontrolleras för sig.
+const visible = (list) => list.filter((q) => !q.hidden);
+
 function checkGroup(name, queries, describe) {
+    queries = visible(queries);
     const recommended = queries.filter((q) => q.recommended);
     assert.strictEqual(recommended.length, 1, name + ': ska ha exakt en rekommenderad query');
     assert.notStrictEqual(recommended[0].group, 'advanced', name + ': den rekommenderade får inte vara en hjälpfråga');
@@ -57,6 +61,44 @@ test('hjälpfrågor heter "Hjälp: …" eller "Tips: …"', () => {
     for (const [id, title, group] of all) {
         if (/^(Hjälp|Tips):/.test(title)) assert.strictEqual(group, 'advanced', id + ': hjälpfråga utan group advanced');
     }
+});
+
+// Härkomst hämtar sin SQL ur katalogerna via fältet role. Varje rollquery är dold i Queries,
+// anger epoch för tiderna och har en fältkarta vars kolumner finns i SQL:en.
+test('rollqueryer för Härkomst: dolda, med epoch och fältkarta som stämmer med SQL:en', () => {
+    const groups = [];
+    for (const band of photos.bands) {
+        for (const q of band.queries) {
+            const question = photos.questions.find((x) => x.id === q.id);
+            if (!question || !question.hidden) continue;
+            groups.push(['photos-' + band.id + '/' + q.id, Object.assign({}, question, q)]);
+        }
+    }
+    for (const db of appUsage.databases) for (const q of db.queries) if (q.hidden) groups.push([db.id + '/' + q.id, q]);
+    for (const db of routined.databases) for (const q of db.queries) if (q.hidden) groups.push([db.id + '/' + q.id, q]);
+    for (const cat of android.categories) for (const q of cat.queries) if (q.hidden) groups.push(['android-' + cat.id + '/' + q.id, q]);
+    assert.ok(groups.length >= 12, 'för få rollqueryer: ' + groups.length);
+    for (const [name, q] of groups) {
+        assert.ok(q.role, name + ': role saknas');
+        assert.ok(['cocoa', 'unixS', 'unixMs'].includes(q.epoch), name + ': epoch saknas eller okänd');
+        assert.ok(q.fields && typeof q.fields === 'object' && Object.keys(q.fields).length, name + ': fields saknas');
+        for (const [key, spec] of Object.entries(q.fields)) {
+            const col = typeof spec === 'string' ? spec : spec.col;
+            assert.ok(col, name + ': fältet ' + key + ' saknar kolumn');
+            assert.ok(new RegExp('\\b' + col + '\\b').test(q.sql), name + ': kolumnen ' + col + ' (' + key + ') finns inte i SQL:en');
+            if (typeof spec !== 'string') assert.ok(['cocoa', 'unixS', 'unixMs', 'unixAuto'].includes(spec.epoch), name + ': ' + key + ' har okänd epoch');
+        }
+        assert.doesNotMatch(q.sql, /localtime/, name + ': rollqueryer returnerar råa tider, inte localtime');
+    }
+    const roles = (list) => list.filter((q) => q.hidden).map((q) => q.role).sort();
+    for (const band of photos.bands) {
+        const ids = new Set(band.queries.map((q) => q.id));
+        assert.deepStrictEqual(photos.questions.filter((q) => q.hidden && ids.has(q.id)).map((q) => q.role).sort(), ['file', 'neighbours', 'sequence'], 'photos-' + band.id);
+    }
+    assert.deepStrictEqual(roles(appUsage.databases.find((d) => d.id === 'knowledgec').queries), ['app-infocus', 'app-usage', 'coverage', 'lock', 'screen']);
+    assert.deepStrictEqual(roles(appUsage.databases.find((d) => d.id === 'wellbeing').queries), ['app-events', 'coverage']);
+    assert.deepStrictEqual(roles(routined.databases[0].queries), ['coverage', 'location']);
+    assert.deepStrictEqual(roles(android.categories.find((c) => c.id === 'mediastore').queries), ['file', 'neighbours']);
 });
 
 // Extraktion: databaserna hittas i en zip på sökvägarna i "paths". De skrivs utan inledande /

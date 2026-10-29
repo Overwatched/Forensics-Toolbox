@@ -87,6 +87,59 @@
           "sql": "PRAGMA table_info(files);",
           "group": "advanced",
           "description": "Visar kolumnerna i tabellen files. Använd den om en query ger fel om kolumn som saknas."
+        },
+        {
+          "id": "role-file",
+          "hidden": true,
+          "role": "file",
+          "title": "Härkomst: filens rad",
+          "description": "Används av Härkomst. Raden för ett exakt filnamn med råa tider (datetaken i ms eller s, date_added och date_modified i s).",
+          "params": [
+            "filename"
+          ],
+          "epoch": "unixS",
+          "fields": {
+            "pk": "_id",
+            "path": "_data",
+            "filename": "_display_name",
+            "relativePath": "relative_path",
+            "mime": "mime_type",
+            "importer": "owner_package_name",
+            "created": {
+              "col": "datetaken",
+              "epoch": "unixAuto"
+            },
+            "added": "date_added",
+            "modified": "date_modified",
+            "trashed": "is_trashed",
+            "pending": "is_pending",
+            "size": "_size"
+          },
+          "sql": "SELECT\n  _id,\n  _data,\n  _display_name,\n  relative_path,\n  mime_type,\n  owner_package_name,\n  datetaken,\n  date_added,\n  date_modified,\n  is_trashed,\n  is_pending,\n  _size\nFROM files\nWHERE _display_name = '{{filename}}'\nORDER BY datetaken;"
+        },
+        {
+          "id": "role-neighbours",
+          "hidden": true,
+          "role": "neighbours",
+          "title": "Härkomst: media i tidsfönstret",
+          "description": "Används av Härkomst. Bilder och video under DCIM och Pictures vars datetaken ligger i tidsfönstret.",
+          "params": [
+            "unixStart",
+            "unixEnd"
+          ],
+          "epoch": "unixS",
+          "fields": {
+            "pk": "_id",
+            "filename": "_display_name",
+            "relativePath": "relative_path",
+            "importer": "owner_package_name",
+            "created": {
+              "col": "datetaken",
+              "epoch": "unixAuto"
+            },
+            "added": "date_added"
+          },
+          "sql": "SELECT\n  _id,\n  _display_name,\n  relative_path,\n  owner_package_name,\n  datetaken,\n  date_added\nFROM files\nWHERE (relative_path LIKE 'DCIM/%' OR relative_path LIKE 'Pictures/%')\n  AND (CASE WHEN datetaken > 1000000000000 THEN datetaken / 1000 ELSE datetaken END) BETWEEN {{unixStart}} AND {{unixEnd}}\nORDER BY datetaken\nLIMIT 300;"
         }
       ]
     },

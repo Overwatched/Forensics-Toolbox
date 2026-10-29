@@ -1,5 +1,16 @@
 Automatiskt byggd från commit `{{SHA}}`.
 
+## Nytt i 1.26
+
+- **Nytt verktyg: Härkomst.** Öppna extraktionen och ange ett filnamn, så byggs en tidslinje runt den tid då bilden skapades: skärm tänd, telefonen låst eller olåst, vilka appar som var igång och om kameran var igång, ur Photos.sqlite, knowledgeC, routined och själva bildfilen i zippen (EXIF med ExifTool). `-wal` läses alltid med.
+- **Typ av fil först.** Kamerabild, skärmdump eller sparad ur en app avgörs ur databasen, och faktorerna bedöms därefter. För en Snapchat-bild bedöms om Snapchat var igång, eftersom systemkameran inte syns i loggen då. För en skärmdump är kameran inte tillämplig.
+- **Stöd, motsägelse eller saknas** per faktor, med en sammanfattning som alltid säger "förenligt med" eller "inte förenligt med", aldrig en slutsats. Tystnad i loggarna redovisas som saknas, med strömmens täckning utskriven. Alternativa förklaringar (mottagen, synkad, sparad ur app, skärmdump, redigerad) listas med vad som talar för och emot.
+- **Två exporter för Word.** *Protokoll* med varje rad: databas, sökväg i zippen, CRC32, SHA-256 för databas och `-wal`, antal WAL-ramar och exakt SQL. *Förklaring* i vanlig svenska för den som inte är tekniker: klockslag och vad som hände, inga källor. Båda kopieras till urklipp som Word-tabeller, eller sparas som HTML. Tidslinjen går att spara som bild.
+- **Grannar och två fönster.** Bilderna som togs runt omkring och de närmaste i nummerordning visas. Kom filen till telefonen långt efter att den skapades byggs en andra tidslinje för den tidpunkten.
+- **Fyll med testdata** i Härkomst visar samma promenad i Stockholm som i EXIF & karta, med bilden IMG_4104.JPG tagen mitt i en Snapchat-session.
+- **Queries:** iOS 18 och senare saknar `/app/inFocus` i knowledgeC. Appar och kamera kommer ur `/app/usage`, som finns och loggar kameran. App-ID har fått namn på iOS-systemtjänster som dyker upp där.
+- Android bedöms ur MediaStore och Digital Wellbeing. Skärm och lås saknas där, och Android-delen är oprövad mot en extraktion med bilder.
+
 ## Nytt i 1.25
 
 - **Öppna en extraktion.** Välj extraktionens zip-fil i Queries, så hittar appen själv databaserna och deras `-wal`: Photos.sqlite, routined Cache.sqlite, knowledgeC, interactionC, MediaStore och Digital Wellbeing. Klicka på en databas och kör queries som vanligt.

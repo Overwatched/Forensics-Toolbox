@@ -484,6 +484,11 @@ function onDbChange() {
     generateSql();
 }
 
+// Rollqueryer (hidden) används av Härkomst och visas inte i listan.
+function visibleQueries(list) {
+    return (list || []).filter((q) => !q.hidden);
+}
+
 function buildDatabases(photos, android, appUsage, routined) {
     routined = routined || {};
     const out = [];
@@ -503,6 +508,7 @@ function buildDatabases(photos, android, appUsage, routined) {
         const sqlById = {};
         (band.queries || []).forEach((q) => { sqlById[q.id] = q.sql; });
         const queries = (photos.questions || []).filter((q) => {
+            if (q.hidden) return false;
             if (q.onlyBands && !q.onlyBands.includes(band.id)) return false;
             return !!sqlById[q.id];
         }).map((q) => ({
@@ -570,7 +576,7 @@ function buildDatabases(photos, android, appUsage, routined) {
             footerHtml: db.id === 'knowledgec'
                 ? '<p style="margin-top:8px">Biome <code>App.InFocus</code> är SEGB/protobuf, inte SQL — använd iLEAPP.</p>'
                 : '',
-            queries: (db.queries || []).map((q) => ({
+            queries: visibleQueries(db.queries).map((q) => ({
                 id: q.id,
                 title: q.title,
                 subtitle: q.subtitle || '',
@@ -603,7 +609,7 @@ function buildDatabases(photos, android, appUsage, routined) {
                 'Ange tidsspann som <code>ÅÅÅÅ-MM-DD TT:MM</code>',
                 'Visa resultatet på kartan i Positioner',
             ],
-            queries: (db.queries || []).map((q) => ({
+            queries: visibleQueries(db.queries).map((q) => ({
                 id: q.id,
                 title: q.title,
                 subtitle: q.subtitle || '',
@@ -617,7 +623,7 @@ function buildDatabases(photos, android, appUsage, routined) {
     });
 
     (android.categories || []).forEach((cat) => {
-        const queries = (cat.queries || []).map((q) => ({
+        const queries = visibleQueries(cat.queries).map((q) => ({
             id: q.id,
             title: q.title,
             subtitle: q.description || '',

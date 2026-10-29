@@ -57,6 +57,82 @@
           "group": "advanced",
           "params": [],
           "sql": "SELECT ZSTREAMNAME, COUNT(*) AS n\nFROM ZOBJECT\nGROUP BY ZSTREAMNAME\nORDER BY n DESC;"
+        },
+        {
+          "id": "role-app-usage",
+          "hidden": true,
+          "role": "app-usage",
+          "title": "Härkomst: /app/usage i tidsfönstret",
+          "subtitle": "Används av Härkomst. Råa Cocoa-tider för intervall som överlappar tidsfönstret i strömmen /app/usage.",
+          "params": ["timeStart", "timeEnd"],
+          "epoch": "cocoa",
+          "fields": {
+            "start": "ZSTARTDATE",
+            "end": "ZENDDATE",
+            "value": "ZVALUESTRING"
+          },
+          "sql": "SELECT\n  ZSTARTDATE,\n  ZENDDATE,\n  ZVALUESTRING\nFROM ZOBJECT\nWHERE ZSTREAMNAME = '/app/usage'\n  AND ZENDDATE >= {{cocoaStart}}\n  AND ZSTARTDATE <= {{cocoaEnd}}\nORDER BY ZSTARTDATE;"
+        },
+        {
+          "id": "role-app-infocus",
+          "hidden": true,
+          "role": "app-infocus",
+          "title": "Härkomst: /app/inFocus i tidsfönstret (äldre iOS)",
+          "subtitle": "Används av Härkomst. Råa Cocoa-tider för intervall som överlappar tidsfönstret i strömmen /app/inFocus.",
+          "params": ["timeStart", "timeEnd"],
+          "epoch": "cocoa",
+          "fields": {
+            "start": "ZSTARTDATE",
+            "end": "ZENDDATE",
+            "value": "ZVALUESTRING"
+          },
+          "sql": "SELECT\n  ZSTARTDATE,\n  ZENDDATE,\n  ZVALUESTRING\nFROM ZOBJECT\nWHERE ZSTREAMNAME = '/app/inFocus'\n  AND ZENDDATE >= {{cocoaStart}}\n  AND ZSTARTDATE <= {{cocoaEnd}}\nORDER BY ZSTARTDATE;"
+        },
+        {
+          "id": "role-screen",
+          "hidden": true,
+          "role": "screen",
+          "title": "Härkomst: skärm tänd/släckt i tidsfönstret",
+          "subtitle": "Används av Härkomst. Råa Cocoa-tider för intervall som överlappar tidsfönstret i strömmen /display/isBacklit.",
+          "params": ["timeStart", "timeEnd"],
+          "epoch": "cocoa",
+          "fields": {
+            "start": "ZSTARTDATE",
+            "end": "ZENDDATE",
+            "value": "ZVALUEINTEGER"
+          },
+          "sql": "SELECT\n  ZSTARTDATE,\n  ZENDDATE,\n  ZVALUEINTEGER\nFROM ZOBJECT\nWHERE ZSTREAMNAME = '/display/isBacklit'\n  AND ZENDDATE >= {{cocoaStart}}\n  AND ZSTARTDATE <= {{cocoaEnd}}\nORDER BY ZSTARTDATE;"
+        },
+        {
+          "id": "role-lock",
+          "hidden": true,
+          "role": "lock",
+          "title": "Härkomst: låst/olåst i tidsfönstret",
+          "subtitle": "Används av Härkomst. Råa Cocoa-tider för intervall som överlappar tidsfönstret i strömmen /device/isLocked.",
+          "params": ["timeStart", "timeEnd"],
+          "epoch": "cocoa",
+          "fields": {
+            "start": "ZSTARTDATE",
+            "end": "ZENDDATE",
+            "value": "ZVALUEINTEGER"
+          },
+          "sql": "SELECT\n  ZSTARTDATE,\n  ZENDDATE,\n  ZVALUEINTEGER\nFROM ZOBJECT\nWHERE ZSTREAMNAME = '/device/isLocked'\n  AND ZENDDATE >= {{cocoaStart}}\n  AND ZSTARTDATE <= {{cocoaEnd}}\nORDER BY ZSTARTDATE;"
+        },
+        {
+          "id": "role-coverage",
+          "hidden": true,
+          "role": "coverage",
+          "title": "Härkomst: strömmarnas täckning",
+          "subtitle": "Används av Härkomst. Första och sista starttid samt antal rader per ström, så att \"saknas\" kan skiljas från \"utanför täckningen\".",
+          "params": [],
+          "epoch": "cocoa",
+          "fields": {
+            "stream": "ZSTREAMNAME",
+            "first": "first_start",
+            "last": "last_start",
+            "rows": "n_rows"
+          },
+          "sql": "SELECT\n  ZSTREAMNAME,\n  MIN(ZSTARTDATE) AS first_start,\n  MAX(ZSTARTDATE) AS last_start,\n  COUNT(*) AS n_rows\nFROM ZOBJECT\nWHERE ZSTREAMNAME IN ('/app/usage', '/app/inFocus', '/display/isBacklit', '/device/isLocked')\nGROUP BY ZSTREAMNAME;"
         }
       ]
     },
@@ -101,6 +177,36 @@
           "timeEpoch": "unix-ms",
           "params": ["timeStart", "timeEnd", "packageName"],
           "sql": "SELECT\n  datetime(events.timestamp / 1000, 'unixepoch', 'localtime') AS timestamp,\n  packages.package_name,\n  CASE events.type\n    WHEN 1 THEN 'ACTIVITY_RESUMED'\n    WHEN 2 THEN 'ACTIVITY_PAUSED'\n    WHEN 23 THEN 'ACTIVITY_STOPPED'\n    ELSE events.type\n  END AS type\nFROM events\nINNER JOIN packages ON events.package_id = packages._id\nWHERE events.type IN (1, 2, 23)\n  AND events.timestamp BETWEEN {{unixMsStart}} AND {{unixMsEnd}}\n  AND IFNULL(packages.package_name, '') LIKE '%{{packageName}}%'\nORDER BY events.timestamp;"
+        },
+        {
+          "id": "role-app-events",
+          "hidden": true,
+          "role": "app-events",
+          "title": "Härkomst: app-händelser i tidsfönstret",
+          "subtitle": "Används av Härkomst. Råa millisekundtider för RESUMED, PAUSED, STOPPED samt skärm- och låshändelser (typ 15–18) om de finns.",
+          "params": ["timeStart", "timeEnd"],
+          "epoch": "unixMs",
+          "fields": {
+            "time": "timestamp",
+            "type": "type",
+            "app": "package_name"
+          },
+          "sql": "SELECT\n  events.timestamp,\n  events.type,\n  packages.package_name\nFROM events\nINNER JOIN packages ON events.package_id = packages._id\nWHERE events.type IN (1, 2, 23, 15, 16, 17, 18)\n  AND events.timestamp BETWEEN {{unixMsStart}} AND {{unixMsEnd}}\nORDER BY events.timestamp;"
+        },
+        {
+          "id": "role-coverage",
+          "hidden": true,
+          "role": "coverage",
+          "title": "Härkomst: händelsernas täckning",
+          "subtitle": "Används av Härkomst. Första och sista tid samt antal rader, så att \"saknas\" kan skiljas från \"utanför täckningen\".",
+          "params": [],
+          "epoch": "unixMs",
+          "fields": {
+            "first": "first_start",
+            "last": "last_start",
+            "rows": "n_rows"
+          },
+          "sql": "SELECT\n  MIN(timestamp) AS first_start,\n  MAX(timestamp) AS last_start,\n  COUNT(*) AS n_rows\nFROM events;"
         }
       ]
     }

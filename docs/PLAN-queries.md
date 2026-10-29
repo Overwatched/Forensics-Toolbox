@@ -82,3 +82,4 @@ Ingen commit eller push utan att användaren ber om det.
   iOS 18.7.7 (FFS) och Pixel 9 (full fil) i K123456-26: alla queries går igenom.
 - **MediaStore** (byggt): kolumnen heter `datetaken`, inte `date_taken`.
 - **Peka på en extraktion:** egen plan i [PLAN-extraktion.md](PLAN-extraktion.md).
+- **Härkomst, tidslinje för en bildfil:** egen plan i [PLAN-harkomst.md](PLAN-harkomst.md).

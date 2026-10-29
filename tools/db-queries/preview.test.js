@@ -66,9 +66,12 @@ test('inga kolumner i någon katalog saknar exempelvärde', () => {
         ['Android', android],
     ];
     const missing = [];
+    // Rollqueryer (hidden) visas aldrig i förhandsvisningen. I Photos ligger flaggan på frågan.
+    const hiddenIds = new Set(catalogs[0][1].questions.filter((q) => q.hidden).map((q) => q.id));
     const walk = (o, platform) => {
         if (Array.isArray(o)) return o.forEach((x) => walk(x, platform));
         if (!o || typeof o !== 'object') return;
+        if (o.hidden || hiddenIds.has(o.id)) return;
         if (typeof o.sql === 'string') {
             const cols = preview.columns(o.sql);
             const row = preview.exampleRows(cols, { sql: o.sql, platform, rows: 1 })[0];

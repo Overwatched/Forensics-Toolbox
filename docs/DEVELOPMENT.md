@@ -86,7 +86,7 @@ src/                  # Delad UI (tema, navigation)
 tools/_shared/        # Delat verktygs-skal (toolkit.js: temahantering)
 tools/<namn>/         # Ett verktyg per mapp (HTML/JS/CSS)
 documentation/        # Referens / guider i iframe
-queries/              # SQL-mallar (catalog.json är källan, catalog.js genereras)
+queries/              # SQL-mallar (catalog.json är källan, catalog.js genereras); dolda rollqueryer för Härkomst
 maps/                 # kartdata.json (incheckad) + *.pmtiles (hämtas, gitignorerade)
 scripts/              # sync-version, sync-queries, vendor-exiftool, vendor-maps, kartdata, ensure-electron, finalize-artifacts
 ```
@@ -109,6 +109,26 @@ git clone --depth 1 https://github.com/abrignoni/iLEAPP /tmp/iLEAPP
 node scripts/photos-schema-from-ileapp.js /tmp/iLEAPP/scripts/artifacts
 npm test
 ```
+
+### Härkomst (`tools/provenance/`)
+
+Tidslinje och bedömning för en bildfil. Verktyget har ingen egen SQL: det hämtar dolda
+rollqueryer ur katalogerna (`hidden: true`, `role`, `epoch`, `fields`), kör dem mot databaserna
+i extraktionen med `-wal` pålagd, och bygger en händelselista i UTC.
+
+- `roles.js` samlar rollerna per källa och Photos-band och fyller i platshållarna med tal.
+- `timeline-core.js` avgör typ av fil (kamerabild, skärmdump, sparad ur app), bedömer
+  skapandetid, app igång, kamera igång och skärm som stöd, motsägelse eller saknas, och har
+  förklaringens ordförråd. Allt testas i Node.
+- `timeline-svg.js` ritar tidslinjen, `report.js` bygger protokollet och förklaringen som HTML
+  med inline-stilar för Word.
+- Extraktionen läses med `tools/db-queries/extraction-core.js`, som Queries också använder. Bara
+  läsning: testet i `zip.test.js` grep:ar alla filer i `tools/provenance/` efter skrivande API:er.
+- Bildfilen läses ur zippen och ExifTool-workern från EXIF & karta laddas först när den behövs.
+- På iOS kommer app och kamera ur knowledgeC `/app/usage` (`/app/inFocus` finns inte på iOS 18
+  och senare, bara som reserv). På Android ur Wellbeing; skärm och lås saknas där.
+
+Plan och provkörning: [PLAN-harkomst.md](PLAN-harkomst.md).
 
 ### ExifTool i EXIF-visaren
 
@@ -203,6 +223,8 @@ i webbläsaren.
   Nodes `crypto` för längder runt varje blockgräns, och verifierar att resultatet
   är oberoende av hur indata delas upp i bitar
 - Testdata ligger i `tools/**/fixtures/` och tas inte med i bygget
+- "Fyll med testdata" i Härkomst kommer från `tools/provenance/sample-data.js`: samma promenad,
+  bilden IMG_4104.JPG vid Sergels torg mitt i en Snapchat-session, med påhittade knowledgeC-rader
 - "Fyll med testdata" i kartverktygen kommer från `tools/_shared/map/sample-data.js`. Positionerna
   ligger på gator i offlinekartan (rutterna korsar vatten bara på broar). Ändras filerna där, kör
   `node scripts/generate-sample-jpegs.js` så att bildmotiven (`sample-jpegs.js`) följer med
@@ -219,3 +241,4 @@ i webbläsaren.
 - Offline för lokala verktyg; externa länkar/nedladdningar och onlinekartan kräver nät och bekräftelse
 - Windows-signing är avstängd (`signExecutable: false`). Ikon och metadata skrivs ändå in i exe-filen.
 - `npm audit`-varningar i Electron-kedjan är vanliga; åtgärda inte med `audit fix --force` utan översikt
+- Härkomst: Android-delen är oprövad (ingen extraktion med bilder fanns), skärm och lås saknas på Android (Wellbeing loggar dem inte), bildfiler över 200 MB läses inte för EXIF, och inklistringen i Word är provkörd bara via urklippsstatus, inte i Word självt

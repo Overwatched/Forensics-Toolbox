@@ -1,6 +1,7 @@
 // Extraktion: användaren väljer en zip. Innehållsförteckningen gås igenom, katalogernas
 // databaser och deras -wal listas, och en vald databas läses ut till minnet och läggs i
 // "Kör i appen". Zippen läses bara med File.slice(). Inget packas upp eller sparas på disk.
+// Själva läsningen ligger i extraction-core.js, som Härkomst också använder.
 (function () {
     'use strict';
 
@@ -19,65 +20,15 @@
             .replace(/"/g, '&quot;');
     }
 
-    function sizeText(n) {
-        if (n >= 1073741824) return (n / 1073741824).toFixed(1).replace('.', ',') + ' GB';
-        if (n >= 1048576) return (n / 1048576).toFixed(1).replace('.', ',') + ' MB';
-        if (n >= 1024) return Math.round(n / 1024) + ' kB';
-        return n + ' byte';
-    }
+    var sizeText = ExtractionCore.sizeText;
+    var entryTime = ExtractionCore.entryTime;
 
-    // Unixtid ur zippen är UTC. Saknas den finns bara DOS-tid, som är lokal tid utan zon.
-    function entryTime(e) {
-        if (e.mtime) return new Date(e.mtime * 1000).toISOString().slice(0, 19).replace('T', ' ') + ' UTC';
-        return e.dosTime ? e.dosTime + ' (zon okänd)' : '';
-    }
-
-    function hex(n) { return ('0000000' + n.toString(16)).slice(-8); }
-
-    // Katalogens databaser grupperade per familj. Photos har en databas per iOS-version och
-    // samma sökvägar för alla.
-    function targets() {
-        var app = window.QueriesApp;
-        var out = [];
-        var byKey = {};
-        app.databases().forEach(function (d) {
-            if (!d.paths || !d.paths.length) return;
-            var key = d.family || d.id;
-            if (!byKey[key]) {
-                byKey[key] = { key: key, paths: d.paths, dbs: [], title: d.familyTitle || d.label };
-                out.push(byKey[key]);
-            }
-            byKey[key].dbs.push(d);
-        });
-        return out;
-    }
-
-    function dbForVersion(target, version) {
-        if (target.dbs.length === 1) return { db: target.dbs[0], guessed: false };
-        var major = version ? parseInt(version, 10) : NaN;
-        var hit = target.dbs.find(function (d) { return d.ios && major >= d.ios[0] && major <= d.ios[1]; });
-        return hit ? { db: hit, guessed: false } : { db: target.dbs[target.dbs.length - 1], guessed: true };
-    }
-
-    // lead: rader som ska stå först, t.ex. vilken zip det gäller.
-    function zipSource(read, entry, lead) {
-        var name = entry.name.slice(entry.name.lastIndexOf('/') + 1);
-        return {
-            name: name,
-            read: async function () {
-                var out = await ZipRead.extract(read, entry);
-                var line = 'Ur zippen: ' + entry.name + ' (' + entry.size + ' byte, ändrad ' + entryTime(entry) +
-                    ', CRC32 ' + hex(entry.crc32) + (out.crcOk ? ' stämmer' : ' STÄMMER INTE') + ')';
-                if (!out.crcOk) line += '. Varning: innehållet skiljer sig från det zippen anger.';
-                return { bytes: out.bytes, lines: (lead || []).concat([line]) };
-            },
-        };
-    }
+    function targets() { return ExtractionCore.targets(window.QueriesApp.databases()); }
 
     // Etiketten för en träff: katalogens namn, plus var den ligger om det inte är den vanliga platsen.
     function describe(f) {
         var target = targets().find(function (x) { return x.key === f.key; });
-        var pick = dbForVersion(target, current.version);
+        var pick = ExtractionCore.dbForVersion(target, current.version);
         var notes = [];
         if (!f.primary) notes.push(/Syndication\.photoslibrary/.test(f.db.name) ? 'Delat med dig (Syndication)' : 'annan plats än den vanliga');
         if (f.user) notes.push('användare ' + f.user);
@@ -162,8 +113,8 @@
         var zipLine = 'Extraktion: ' + c.file.name + ' (' + c.file.size + ' byte, ändrad ' +
             new Date(c.file.lastModified).toISOString() + ')';
         window.QueriesRun.useSources({
-            db: zipSource(c.read, f.db, [zipLine]),
-            wal: f.wal ? zipSource(c.read, f.wal) : null,
+            db: ExtractionCore.zipSource(c.read, f.db, [zipLine]),
+            wal: f.wal ? ExtractionCore.zipSource(c.read, f.wal) : null,
             zip: c.file.name,
         });
         render();
@@ -186,22 +137,14 @@
         close();
         status.textContent = 'Läser zippens innehållsförteckning…';
         var read = ZipRead.fileReader(file);
-        var t = targets();
-        var started = performance.now();
-        var scan = await ZipRead.scan(read, file.size, ZipLocate.keeper(t), function (done, total) {
+        var opened = await ExtractionCore.open(read, file.size, targets(), function (done, total) {
             status.textContent = 'Läser zippens innehållsförteckning… ' + Math.round(100 * done / total) + ' %';
         });
-        var loc = ZipLocate.locate(scan.entries, t);
-        var version = null;
-        if (loc.systemVersion) {
-            try { version = ZipLocate.iosVersion((await ZipRead.extract(read, loc.systemVersion)).bytes); }
-            catch (err) { version = null; }
-        }
-        current = { file: file, read: read, scan: scan, found: loc.found, version: version, chosen: -1 };
-        var secs = ((performance.now() - started) / 1000).toFixed(1).replace('.', ',');
-        status.textContent = loc.found.length + (loc.found.length === 1 ? ' databas hittades' : ' databaser hittades') +
-            ' på ' + secs + ' s.' + (loc.found.length ? ' Välj en här eller bland korten nedan.' : '');
-        var families = new Set(loc.found.map(function (f) { return f.key; }));
+        current = { file: file, read: read, scan: opened.scan, found: opened.found, version: opened.version, chosen: -1 };
+        var secs = opened.seconds.toFixed(1).replace('.', ',');
+        status.textContent = opened.found.length + (opened.found.length === 1 ? ' databas hittades' : ' databaser hittades') +
+            ' på ' + secs + ' s.' + (opened.found.length ? ' Välj en här eller bland korten nedan.' : '');
+        var families = new Set(opened.found.map(function (f) { return f.key; }));
         window.QueriesApp.setExtraction({
             families: families,
             pick: function (family) {

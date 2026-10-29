@@ -68,6 +68,41 @@ window.ROUTINED_CATALOG = {
           "params": [],
           "returns": "tabellnamn",
           "sql": "SELECT name AS tabell\nFROM sqlite_master\nWHERE type = 'table'\nORDER BY name;"
+        },
+        {
+          "id": "role-location",
+          "hidden": true,
+          "role": "location",
+          "title": "Härkomst: positioner i tidsfönstret",
+          "subtitle": "Används av Härkomst. Råa Cocoa-tider, GNSS och Wi-Fi, noggrannhet upp till 100 m.",
+          "params": [
+            "timeStart",
+            "timeEnd"
+          ],
+          "epoch": "cocoa",
+          "fields": {
+            "time": "ZTIMESTAMP",
+            "latitude": "ZLATITUDE",
+            "longitude": "ZLONGITUDE",
+            "accuracy": "ZHORIZONTALACCURACY",
+            "type": "ZTYPE"
+          },
+          "sql": "SELECT\n  ZTIMESTAMP,\n  ZLATITUDE,\n  ZLONGITUDE,\n  ZHORIZONTALACCURACY,\n  ZTYPE\nFROM ZRTCLLOCATIONMO\nWHERE ZTIMESTAMP BETWEEN {{cocoaStart}} AND {{cocoaEnd}}\n  AND ZHORIZONTALACCURACY BETWEEN 0 AND 100\n  AND ZTYPE IN (1, 4)\nORDER BY ZTIMESTAMP\nLIMIT 500;"
+        },
+        {
+          "id": "role-coverage",
+          "hidden": true,
+          "role": "coverage",
+          "title": "Härkomst: positionernas täckning",
+          "subtitle": "Används av Härkomst. Första och sista tid samt antal rader i positionstabellen.",
+          "params": [],
+          "epoch": "cocoa",
+          "fields": {
+            "first": "first_start",
+            "last": "last_start",
+            "rows": "n_rows"
+          },
+          "sql": "SELECT\n  MIN(ZTIMESTAMP) AS first_start,\n  MAX(ZTIMESTAMP) AS last_start,\n  COUNT(*) AS n_rows\nFROM ZRTCLLOCATIONMO;"
         }
       ]
     }

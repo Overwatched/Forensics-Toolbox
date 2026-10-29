@@ -111,6 +111,7 @@ Samma ton: korta steg, paths, länkar till queries när de finns. Inga mål/begr
 |-------|-----|-------------------|
 | **Okänd app** | Sideload, APK/IPA, “vad gör den här appen?” — **byggt** (`documentation/playbook-unknown-app.html`) | Identitet (paket/bundle, signerare, version) → behörigheter → privat lagring + WAL → nätverk/konton → residual (KnowledgeC/usagestats, notiser, foton appen skapat) |
 | **Krypto / plånbok** | Misstanke om krypto, seed, exchange — **byggt** (`documentation/playbook-crypto-wallet.html`) | App/plånbok på enheten → seed/QR/address i foton, anteckningar → webbläsarhistorik/exchange → hash/CyberChef på strängar → Crypto Toolbox för seed/BIP39/plånboksfiler, block explorer som OSINT-länk |
+| **Bildfil, härkomst** | Steg 1–3 i bildflödet — **byggt som verktyget Härkomst** (`tools/provenance/`): skapandetid, app igång, kamera igång ur Photos.sqlite, knowledgeC och bildfilen, med protokoll och förklaring |
 | **Position vid tid T** | Utvidgning av steg 4 i bildflödet — **EXIF-delen byggd** (karta, rutt, tidsfilter, KML i EXIF-visaren) | EXIF/DB-GPS → Significant Locations / GMS → cell/Wi-Fi → Maps-appar → jämför oberoende källor mot samma tidsfönster |
 | **Chattbilaga vid tid T** | Mottagen vs skickad vs tagen | Tråd/meddelande-DB → bifogad filhash mot fotobibliotek → app aktiv (steg 3) → molnbackup |
 | **Raderat material** | Saknad bild/fil | Trash/hidden-flaggor → WAL/SHM → unallocated/carve → moln/andra enheter |
@@ -133,6 +134,8 @@ Samma ton: korta steg, paths, länkar till queries när de finns. Inga mål/begr
 10. ~~Photos.sqlite: rätt schema per version + frågor om app, kamera, position, skärmdumpar, redigeringar, Delat med dig, personer, album~~  
 11. ~~Karta i EXIF-visaren: offline världen + Sverige zoom 14, valfri onlinekarta (OpenFreeMap), rutt, tidsfilter, KML/GeoJSON~~  
 12. ~~EXIF & karta i full yta, filnamnsmönster, ta bort ur listan, verktyget Positioner, rutt med turer och fart~~ (`docs/PLAN-karta.md`)  
+13. ~~Queries som körs i appen med `-wal`, routined, och extraktionen som zip~~ (`docs/PLAN-queries.md`, `docs/PLAN-extraktion.md`)  
+14. ~~Härkomst: tidslinje och bedömning för en bildfil, med protokoll och förklaring för Word~~ (`tools/provenance/`, `docs/PLAN-harkomst.md`)  
 
 ### Medvetet senare
 

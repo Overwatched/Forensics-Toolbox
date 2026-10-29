@@ -217,6 +217,41 @@
         "ios15-16",
         "ios17-plus"
       ]
+    },
+    {
+      "id": "role-file",
+      "hidden": true,
+      "role": "file",
+      "label": "Härkomst: filens rad",
+      "subtitle": "Används av Härkomst. Raden för ett exakt filnamn (ZFILENAME eller ZORIGINALFILENAME) med råa Cocoa-tider.",
+      "params": [
+        "filename"
+      ],
+      "epoch": "cocoa"
+    },
+    {
+      "id": "role-neighbours",
+      "hidden": true,
+      "role": "neighbours",
+      "label": "Härkomst: bilder i tidsfönstret",
+      "subtitle": "Används av Härkomst. Bilder vars ZDATECREATED ligger i tidsfönstret, med råa Cocoa-tider.",
+      "params": [
+        "timeStart",
+        "timeEnd"
+      ],
+      "epoch": "cocoa"
+    },
+    {
+      "id": "role-sequence",
+      "hidden": true,
+      "role": "sequence",
+      "label": "Härkomst: grannarna i nummerordning",
+      "subtitle": "Används av Härkomst. Bilderna med filnumret före och efter, oavsett filändelse.",
+      "params": [
+        "prevStem",
+        "nextStem"
+      ],
+      "epoch": "cocoa"
     }
   ],
   "bands": [
@@ -295,6 +330,60 @@
         {
           "id": "album-join-tables",
           "sql": "SELECT m.name AS tabell, group_concat(p.name, ', ') AS kolumner\nFROM sqlite_master m, pragma_table_info(m.name) p\nWHERE m.type = 'table'\n  AND m.name GLOB 'Z_[0-9]*ASSETS'\nGROUP BY m.name\nORDER BY m.name;"
+        },
+        {
+          "id": "role-file",
+          "fields": {
+            "pk": "Z_PK",
+            "directory": "ZDIRECTORY",
+            "filename": "ZFILENAME",
+            "originalFilename": "ZORIGINALFILENAME",
+            "created": "ZDATECREATED",
+            "added": "ZADDEDDATE",
+            "modified": "ZMODIFICATIONDATE",
+            "exifTime": "ZEXIFTIMESTAMPSTRING",
+            "zoneName": "ZTIMEZONENAME",
+            "zoneOffset": "ZTIMEZONEOFFSET",
+            "importedBy": "ZIMPORTEDBY",
+            "importer": "ZCREATORBUNDLEID",
+            "editor": "ZEDITORBUNDLEID",
+            "savedAssetType": "ZSAVEDASSETTYPE",
+            "trashed": "ZTRASHEDSTATE",
+            "hidden": "ZHIDDEN",
+            "latitude": "ZLATITUDE",
+            "longitude": "ZLONGITUDE",
+            "cameraMake": "ZCAMERAMAKE",
+            "cameraModel": "ZCAMERAMODEL"
+          },
+          "sql": "SELECT\n  a.Z_PK,\n  a.ZDIRECTORY,\n  a.ZFILENAME,\n  aa.ZORIGINALFILENAME,\n  a.ZDATECREATED,\n  a.ZADDEDDATE,\n  a.ZMODIFICATIONDATE,\n  aa.ZEXIFTIMESTAMPSTRING,\n  aa.ZTIMEZONENAME,\n  aa.ZTIMEZONEOFFSET,\n  aa.ZIMPORTEDBY,\n  aa.ZCREATORBUNDLEID,\n  aa.ZEDITORBUNDLEID,\n  a.ZSAVEDASSETTYPE,\n  a.ZTRASHEDSTATE,\n  a.ZHIDDEN,\n  a.ZLATITUDE,\n  a.ZLONGITUDE,\n  ext.ZCAMERAMAKE,\n  ext.ZCAMERAMODEL\nFROM ZGENERICASSET a\nLEFT JOIN ZADDITIONALASSETATTRIBUTES aa ON aa.Z_PK = a.ZADDITIONALATTRIBUTES\nLEFT JOIN ZEXTENDEDATTRIBUTES ext ON ext.Z_PK = a.ZEXTENDEDATTRIBUTES\nWHERE a.ZFILENAME = '{{filename}}'\n   OR aa.ZORIGINALFILENAME = '{{filename}}'\nORDER BY a.ZDATECREATED;"
+        },
+        {
+          "id": "role-neighbours",
+          "fields": {
+            "pk": "Z_PK",
+            "directory": "ZDIRECTORY",
+            "filename": "ZFILENAME",
+            "created": "ZDATECREATED",
+            "added": "ZADDEDDATE",
+            "importedBy": "ZIMPORTEDBY",
+            "importer": "ZCREATORBUNDLEID",
+            "trashed": "ZTRASHEDSTATE"
+          },
+          "sql": "SELECT\n  a.Z_PK,\n  a.ZDIRECTORY,\n  a.ZFILENAME,\n  a.ZDATECREATED,\n  a.ZADDEDDATE,\n  aa.ZIMPORTEDBY,\n  aa.ZCREATORBUNDLEID,\n  a.ZTRASHEDSTATE\nFROM ZGENERICASSET a\nLEFT JOIN ZADDITIONALASSETATTRIBUTES aa ON aa.Z_PK = a.ZADDITIONALATTRIBUTES\nWHERE a.ZDATECREATED BETWEEN {{cocoaStart}} AND {{cocoaEnd}}\nORDER BY a.ZDATECREATED\nLIMIT 300;"
+        },
+        {
+          "id": "role-sequence",
+          "fields": {
+            "pk": "Z_PK",
+            "directory": "ZDIRECTORY",
+            "filename": "ZFILENAME",
+            "created": "ZDATECREATED",
+            "added": "ZADDEDDATE",
+            "importedBy": "ZIMPORTEDBY",
+            "importer": "ZCREATORBUNDLEID",
+            "trashed": "ZTRASHEDSTATE"
+          },
+          "sql": "SELECT\n  a.Z_PK,\n  a.ZDIRECTORY,\n  a.ZFILENAME,\n  a.ZDATECREATED,\n  a.ZADDEDDATE,\n  aa.ZIMPORTEDBY,\n  aa.ZCREATORBUNDLEID,\n  a.ZTRASHEDSTATE\nFROM ZGENERICASSET a\nLEFT JOIN ZADDITIONALASSETATTRIBUTES aa ON aa.Z_PK = a.ZADDITIONALATTRIBUTES\nWHERE a.ZFILENAME LIKE '{{prevStem}}.%'\n   OR a.ZFILENAME LIKE '{{nextStem}}.%'\nORDER BY a.ZFILENAME;"
         }
       ]
     },
@@ -389,6 +478,67 @@
         {
           "id": "full-story-alt-join",
           "sql": "SELECT\n  a.Z_PK,\n  a.ZDIRECTORY,\n  a.ZFILENAME,\n  aa.ZORIGINALFILENAME,\n  datetime(a.ZDATECREATED + 978307200, 'unixepoch', 'localtime') AS ZDATECREATED,\n  datetime(a.ZMODIFICATIONDATE + 978307200, 'unixepoch', 'localtime') AS ZMODIFICATIONDATE,\n  datetime(a.ZADDEDDATE + 978307200, 'unixepoch', 'localtime') AS ZADDEDDATE,\n  aa.ZEXIFTIMESTAMPSTRING,\n  aa.ZTIMEZONENAME,\n  aa.ZCREATORBUNDLEID,\n  aa.ZIMPORTEDBYDISPLAYNAME,\n  aa.ZEDITORBUNDLEID,\n  a.ZKIND,\n  a.ZKINDSUBTYPE,\n  a.ZTRASHEDSTATE,\n  a.ZHIDDEN,\n  a.ZFAVORITE,\n  a.ZUNIFORMTYPEIDENTIFIER,\n  a.ZLATITUDE,\n  a.ZLONGITUDE,\n  ext.ZCAMERAMAKE,\n  ext.ZCAMERAMODEL\nFROM ZASSET a\nLEFT JOIN ZADDITIONALASSETATTRIBUTES aa ON aa.ZASSET = a.Z_PK\nLEFT JOIN ZEXTENDEDATTRIBUTES ext ON ext.Z_PK = a.ZEXTENDEDATTRIBUTES\nWHERE a.ZFILENAME LIKE '%{{filename}}%'\nORDER BY a.ZADDEDDATE DESC;"
+        },
+        {
+          "id": "role-file",
+          "fields": {
+            "pk": "Z_PK",
+            "directory": "ZDIRECTORY",
+            "filename": "ZFILENAME",
+            "originalFilename": "ZORIGINALFILENAME",
+            "created": "ZDATECREATED",
+            "added": "ZADDEDDATE",
+            "modified": "ZMODIFICATIONDATE",
+            "exifTime": "ZEXIFTIMESTAMPSTRING",
+            "zoneName": "ZTIMEZONENAME",
+            "zoneOffset": "ZTIMEZONEOFFSET",
+            "importedBy": "ZIMPORTEDBY",
+            "importer": "ZCREATORBUNDLEID",
+            "importerName": "ZIMPORTEDBYDISPLAYNAME",
+            "kind": "ZKIND",
+            "kindSubtype": "ZKINDSUBTYPE",
+            "uti": "ZUNIFORMTYPEIDENTIFIER",
+            "cloudLocalState": "ZCLOUDLOCALSTATE",
+            "editor": "ZEDITORBUNDLEID",
+            "savedAssetType": "ZSAVEDASSETTYPE",
+            "trashed": "ZTRASHEDSTATE",
+            "hidden": "ZHIDDEN",
+            "latitude": "ZLATITUDE",
+            "longitude": "ZLONGITUDE",
+            "cameraMake": "ZCAMERAMAKE",
+            "cameraModel": "ZCAMERAMODEL"
+          },
+          "sql": "SELECT\n  a.Z_PK,\n  a.ZDIRECTORY,\n  a.ZFILENAME,\n  aa.ZORIGINALFILENAME,\n  a.ZDATECREATED,\n  a.ZADDEDDATE,\n  a.ZMODIFICATIONDATE,\n  aa.ZEXIFTIMESTAMPSTRING,\n  aa.ZTIMEZONENAME,\n  aa.ZTIMEZONEOFFSET,\n  aa.ZIMPORTEDBY,\n  aa.ZCREATORBUNDLEID,\n  aa.ZIMPORTEDBYDISPLAYNAME,\n  aa.ZEDITORBUNDLEID,\n  a.ZSAVEDASSETTYPE,\n  a.ZKIND,\n  a.ZKINDSUBTYPE,\n  a.ZUNIFORMTYPEIDENTIFIER,\n  a.ZCLOUDLOCALSTATE,\n  a.ZTRASHEDSTATE,\n  a.ZHIDDEN,\n  a.ZLATITUDE,\n  a.ZLONGITUDE,\n  ext.ZCAMERAMAKE,\n  ext.ZCAMERAMODEL\nFROM ZASSET a\nLEFT JOIN ZADDITIONALASSETATTRIBUTES aa ON aa.Z_PK = a.ZADDITIONALATTRIBUTES\nLEFT JOIN ZEXTENDEDATTRIBUTES ext ON ext.Z_PK = a.ZEXTENDEDATTRIBUTES\nWHERE a.ZFILENAME = '{{filename}}'\n   OR aa.ZORIGINALFILENAME = '{{filename}}'\nORDER BY a.ZDATECREATED;"
+        },
+        {
+          "id": "role-neighbours",
+          "fields": {
+            "pk": "Z_PK",
+            "directory": "ZDIRECTORY",
+            "filename": "ZFILENAME",
+            "created": "ZDATECREATED",
+            "added": "ZADDEDDATE",
+            "importedBy": "ZIMPORTEDBY",
+            "importer": "ZCREATORBUNDLEID",
+            "kindSubtype": "ZKINDSUBTYPE",
+            "trashed": "ZTRASHEDSTATE"
+          },
+          "sql": "SELECT\n  a.Z_PK,\n  a.ZDIRECTORY,\n  a.ZFILENAME,\n  a.ZDATECREATED,\n  a.ZADDEDDATE,\n  aa.ZIMPORTEDBY,\n  aa.ZCREATORBUNDLEID,\n  a.ZKINDSUBTYPE,\n  a.ZTRASHEDSTATE\nFROM ZASSET a\nLEFT JOIN ZADDITIONALASSETATTRIBUTES aa ON aa.Z_PK = a.ZADDITIONALATTRIBUTES\nWHERE a.ZDATECREATED BETWEEN {{cocoaStart}} AND {{cocoaEnd}}\nORDER BY a.ZDATECREATED\nLIMIT 300;"
+        },
+        {
+          "id": "role-sequence",
+          "fields": {
+            "pk": "Z_PK",
+            "directory": "ZDIRECTORY",
+            "filename": "ZFILENAME",
+            "created": "ZDATECREATED",
+            "added": "ZADDEDDATE",
+            "importedBy": "ZIMPORTEDBY",
+            "importer": "ZCREATORBUNDLEID",
+            "kindSubtype": "ZKINDSUBTYPE",
+            "trashed": "ZTRASHEDSTATE"
+          },
+          "sql": "SELECT\n  a.Z_PK,\n  a.ZDIRECTORY,\n  a.ZFILENAME,\n  a.ZDATECREATED,\n  a.ZADDEDDATE,\n  aa.ZIMPORTEDBY,\n  aa.ZCREATORBUNDLEID,\n  a.ZKINDSUBTYPE,\n  a.ZTRASHEDSTATE\nFROM ZASSET a\nLEFT JOIN ZADDITIONALASSETATTRIBUTES aa ON aa.Z_PK = a.ZADDITIONALATTRIBUTES\nWHERE a.ZFILENAME LIKE '{{prevStem}}.%'\n   OR a.ZFILENAME LIKE '{{nextStem}}.%'\nORDER BY a.ZFILENAME;"
         }
       ]
     },
@@ -487,6 +637,67 @@
         {
           "id": "full-story-alt-join",
           "sql": "SELECT\n  a.Z_PK,\n  a.ZDIRECTORY,\n  a.ZFILENAME,\n  aa.ZORIGINALFILENAME,\n  datetime(a.ZDATECREATED + 978307200, 'unixepoch', 'localtime') AS ZDATECREATED,\n  datetime(a.ZMODIFICATIONDATE + 978307200, 'unixepoch', 'localtime') AS ZMODIFICATIONDATE,\n  datetime(a.ZADDEDDATE + 978307200, 'unixepoch', 'localtime') AS ZADDEDDATE,\n  aa.ZEXIFTIMESTAMPSTRING,\n  aa.ZTIMEZONENAME,\n  aa.ZIMPORTEDBYBUNDLEIDENTIFIER,\n  aa.ZIMPORTEDBYDISPLAYNAME,\n  aa.ZEDITORBUNDLEID,\n  a.ZKIND,\n  a.ZKINDSUBTYPE,\n  a.ZTRASHEDSTATE,\n  a.ZHIDDEN,\n  a.ZFAVORITE,\n  a.ZUNIFORMTYPEIDENTIFIER,\n  a.ZLATITUDE,\n  a.ZLONGITUDE,\n  ext.ZCAMERAMAKE,\n  ext.ZCAMERAMODEL\nFROM ZASSET a\nLEFT JOIN ZADDITIONALASSETATTRIBUTES aa ON aa.ZASSET = a.Z_PK\nLEFT JOIN ZEXTENDEDATTRIBUTES ext ON ext.Z_PK = a.ZEXTENDEDATTRIBUTES\nWHERE a.ZFILENAME LIKE '%{{filename}}%'\nORDER BY a.ZADDEDDATE DESC;"
+        },
+        {
+          "id": "role-file",
+          "fields": {
+            "pk": "Z_PK",
+            "directory": "ZDIRECTORY",
+            "filename": "ZFILENAME",
+            "originalFilename": "ZORIGINALFILENAME",
+            "created": "ZDATECREATED",
+            "added": "ZADDEDDATE",
+            "modified": "ZMODIFICATIONDATE",
+            "exifTime": "ZEXIFTIMESTAMPSTRING",
+            "zoneName": "ZTIMEZONENAME",
+            "zoneOffset": "ZTIMEZONEOFFSET",
+            "importedBy": "ZIMPORTEDBY",
+            "importer": "ZIMPORTEDBYBUNDLEIDENTIFIER",
+            "importerName": "ZIMPORTEDBYDISPLAYNAME",
+            "kind": "ZKIND",
+            "kindSubtype": "ZKINDSUBTYPE",
+            "uti": "ZUNIFORMTYPEIDENTIFIER",
+            "cloudLocalState": "ZCLOUDLOCALSTATE",
+            "editor": "ZEDITORBUNDLEID",
+            "savedAssetType": "ZSAVEDASSETTYPE",
+            "trashed": "ZTRASHEDSTATE",
+            "hidden": "ZHIDDEN",
+            "latitude": "ZLATITUDE",
+            "longitude": "ZLONGITUDE",
+            "cameraMake": "ZCAMERAMAKE",
+            "cameraModel": "ZCAMERAMODEL"
+          },
+          "sql": "SELECT\n  a.Z_PK,\n  a.ZDIRECTORY,\n  a.ZFILENAME,\n  aa.ZORIGINALFILENAME,\n  a.ZDATECREATED,\n  a.ZADDEDDATE,\n  a.ZMODIFICATIONDATE,\n  aa.ZEXIFTIMESTAMPSTRING,\n  aa.ZTIMEZONENAME,\n  aa.ZTIMEZONEOFFSET,\n  aa.ZIMPORTEDBY,\n  aa.ZIMPORTEDBYBUNDLEIDENTIFIER,\n  aa.ZIMPORTEDBYDISPLAYNAME,\n  aa.ZEDITORBUNDLEID,\n  a.ZSAVEDASSETTYPE,\n  a.ZKIND,\n  a.ZKINDSUBTYPE,\n  a.ZUNIFORMTYPEIDENTIFIER,\n  a.ZCLOUDLOCALSTATE,\n  a.ZTRASHEDSTATE,\n  a.ZHIDDEN,\n  a.ZLATITUDE,\n  a.ZLONGITUDE,\n  ext.ZCAMERAMAKE,\n  ext.ZCAMERAMODEL\nFROM ZASSET a\nLEFT JOIN ZADDITIONALASSETATTRIBUTES aa ON aa.Z_PK = a.ZADDITIONALATTRIBUTES\nLEFT JOIN ZEXTENDEDATTRIBUTES ext ON ext.Z_PK = a.ZEXTENDEDATTRIBUTES\nWHERE a.ZFILENAME = '{{filename}}'\n   OR aa.ZORIGINALFILENAME = '{{filename}}'\nORDER BY a.ZDATECREATED;"
+        },
+        {
+          "id": "role-neighbours",
+          "fields": {
+            "pk": "Z_PK",
+            "directory": "ZDIRECTORY",
+            "filename": "ZFILENAME",
+            "created": "ZDATECREATED",
+            "added": "ZADDEDDATE",
+            "importedBy": "ZIMPORTEDBY",
+            "importer": "ZIMPORTEDBYBUNDLEIDENTIFIER",
+            "kindSubtype": "ZKINDSUBTYPE",
+            "trashed": "ZTRASHEDSTATE"
+          },
+          "sql": "SELECT\n  a.Z_PK,\n  a.ZDIRECTORY,\n  a.ZFILENAME,\n  a.ZDATECREATED,\n  a.ZADDEDDATE,\n  aa.ZIMPORTEDBY,\n  aa.ZIMPORTEDBYBUNDLEIDENTIFIER,\n  a.ZKINDSUBTYPE,\n  a.ZTRASHEDSTATE\nFROM ZASSET a\nLEFT JOIN ZADDITIONALASSETATTRIBUTES aa ON aa.Z_PK = a.ZADDITIONALATTRIBUTES\nWHERE a.ZDATECREATED BETWEEN {{cocoaStart}} AND {{cocoaEnd}}\nORDER BY a.ZDATECREATED\nLIMIT 300;"
+        },
+        {
+          "id": "role-sequence",
+          "fields": {
+            "pk": "Z_PK",
+            "directory": "ZDIRECTORY",
+            "filename": "ZFILENAME",
+            "created": "ZDATECREATED",
+            "added": "ZADDEDDATE",
+            "importedBy": "ZIMPORTEDBY",
+            "importer": "ZIMPORTEDBYBUNDLEIDENTIFIER",
+            "kindSubtype": "ZKINDSUBTYPE",
+            "trashed": "ZTRASHEDSTATE"
+          },
+          "sql": "SELECT\n  a.Z_PK,\n  a.ZDIRECTORY,\n  a.ZFILENAME,\n  a.ZDATECREATED,\n  a.ZADDEDDATE,\n  aa.ZIMPORTEDBY,\n  aa.ZIMPORTEDBYBUNDLEIDENTIFIER,\n  a.ZKINDSUBTYPE,\n  a.ZTRASHEDSTATE\nFROM ZASSET a\nLEFT JOIN ZADDITIONALASSETATTRIBUTES aa ON aa.Z_PK = a.ZADDITIONALATTRIBUTES\nWHERE a.ZFILENAME LIKE '{{prevStem}}.%'\n   OR a.ZFILENAME LIKE '{{nextStem}}.%'\nORDER BY a.ZFILENAME;"
         }
       ]
     },
@@ -585,6 +796,67 @@
         {
           "id": "full-story-alt-join",
           "sql": "SELECT\n  a.Z_PK,\n  a.ZDIRECTORY,\n  a.ZFILENAME,\n  aa.ZORIGINALFILENAME,\n  datetime(a.ZDATECREATED + 978307200, 'unixepoch', 'localtime') AS ZDATECREATED,\n  datetime(a.ZMODIFICATIONDATE + 978307200, 'unixepoch', 'localtime') AS ZMODIFICATIONDATE,\n  datetime(a.ZADDEDDATE + 978307200, 'unixepoch', 'localtime') AS ZADDEDDATE,\n  aa.ZEXIFTIMESTAMPSTRING,\n  aa.ZTIMEZONENAME,\n  aa.ZIMPORTEDBYBUNDLEIDENTIFIER,\n  aa.ZIMPORTEDBYDISPLAYNAME,\n  aa.ZEDITORBUNDLEID,\n  a.ZKIND,\n  a.ZKINDSUBTYPE,\n  a.ZTRASHEDSTATE,\n  a.ZHIDDEN,\n  a.ZFAVORITE,\n  a.ZUNIFORMTYPEIDENTIFIER,\n  a.ZLATITUDE,\n  a.ZLONGITUDE,\n  ext.ZCAMERAMAKE,\n  ext.ZCAMERAMODEL\nFROM ZASSET a\nLEFT JOIN ZADDITIONALASSETATTRIBUTES aa ON aa.ZASSET = a.Z_PK\nLEFT JOIN ZEXTENDEDATTRIBUTES ext ON ext.Z_PK = a.ZEXTENDEDATTRIBUTES\nWHERE a.ZFILENAME LIKE '%{{filename}}%'\nORDER BY a.ZADDEDDATE DESC;"
+        },
+        {
+          "id": "role-file",
+          "fields": {
+            "pk": "Z_PK",
+            "directory": "ZDIRECTORY",
+            "filename": "ZFILENAME",
+            "originalFilename": "ZORIGINALFILENAME",
+            "created": "ZDATECREATED",
+            "added": "ZADDEDDATE",
+            "modified": "ZMODIFICATIONDATE",
+            "exifTime": "ZEXIFTIMESTAMPSTRING",
+            "zoneName": "ZTIMEZONENAME",
+            "zoneOffset": "ZTIMEZONEOFFSET",
+            "importedBy": "ZIMPORTEDBY",
+            "importer": "ZIMPORTEDBYBUNDLEIDENTIFIER",
+            "importerName": "ZIMPORTEDBYDISPLAYNAME",
+            "kind": "ZKIND",
+            "kindSubtype": "ZKINDSUBTYPE",
+            "uti": "ZUNIFORMTYPEIDENTIFIER",
+            "cloudLocalState": "ZCLOUDLOCALSTATE",
+            "editor": "ZEDITORBUNDLEID",
+            "savedAssetType": "ZSAVEDASSETTYPE",
+            "trashed": "ZTRASHEDSTATE",
+            "hidden": "ZHIDDEN",
+            "latitude": "ZLATITUDE",
+            "longitude": "ZLONGITUDE",
+            "cameraMake": "ZCAMERAMAKE",
+            "cameraModel": "ZCAMERAMODEL"
+          },
+          "sql": "SELECT\n  a.Z_PK,\n  a.ZDIRECTORY,\n  a.ZFILENAME,\n  aa.ZORIGINALFILENAME,\n  a.ZDATECREATED,\n  a.ZADDEDDATE,\n  a.ZMODIFICATIONDATE,\n  aa.ZEXIFTIMESTAMPSTRING,\n  aa.ZTIMEZONENAME,\n  aa.ZTIMEZONEOFFSET,\n  aa.ZIMPORTEDBY,\n  aa.ZIMPORTEDBYBUNDLEIDENTIFIER,\n  aa.ZIMPORTEDBYDISPLAYNAME,\n  aa.ZEDITORBUNDLEID,\n  a.ZSAVEDASSETTYPE,\n  a.ZKIND,\n  a.ZKINDSUBTYPE,\n  a.ZUNIFORMTYPEIDENTIFIER,\n  a.ZCLOUDLOCALSTATE,\n  a.ZTRASHEDSTATE,\n  a.ZHIDDEN,\n  a.ZLATITUDE,\n  a.ZLONGITUDE,\n  ext.ZCAMERAMAKE,\n  ext.ZCAMERAMODEL\nFROM ZASSET a\nLEFT JOIN ZADDITIONALASSETATTRIBUTES aa ON aa.Z_PK = a.ZADDITIONALATTRIBUTES\nLEFT JOIN ZEXTENDEDATTRIBUTES ext ON ext.Z_PK = a.ZEXTENDEDATTRIBUTES\nWHERE a.ZFILENAME = '{{filename}}'\n   OR aa.ZORIGINALFILENAME = '{{filename}}'\nORDER BY a.ZDATECREATED;"
+        },
+        {
+          "id": "role-neighbours",
+          "fields": {
+            "pk": "Z_PK",
+            "directory": "ZDIRECTORY",
+            "filename": "ZFILENAME",
+            "created": "ZDATECREATED",
+            "added": "ZADDEDDATE",
+            "importedBy": "ZIMPORTEDBY",
+            "importer": "ZIMPORTEDBYBUNDLEIDENTIFIER",
+            "kindSubtype": "ZKINDSUBTYPE",
+            "trashed": "ZTRASHEDSTATE"
+          },
+          "sql": "SELECT\n  a.Z_PK,\n  a.ZDIRECTORY,\n  a.ZFILENAME,\n  a.ZDATECREATED,\n  a.ZADDEDDATE,\n  aa.ZIMPORTEDBY,\n  aa.ZIMPORTEDBYBUNDLEIDENTIFIER,\n  a.ZKINDSUBTYPE,\n  a.ZTRASHEDSTATE\nFROM ZASSET a\nLEFT JOIN ZADDITIONALASSETATTRIBUTES aa ON aa.Z_PK = a.ZADDITIONALATTRIBUTES\nWHERE a.ZDATECREATED BETWEEN {{cocoaStart}} AND {{cocoaEnd}}\nORDER BY a.ZDATECREATED\nLIMIT 300;"
+        },
+        {
+          "id": "role-sequence",
+          "fields": {
+            "pk": "Z_PK",
+            "directory": "ZDIRECTORY",
+            "filename": "ZFILENAME",
+            "created": "ZDATECREATED",
+            "added": "ZADDEDDATE",
+            "importedBy": "ZIMPORTEDBY",
+            "importer": "ZIMPORTEDBYBUNDLEIDENTIFIER",
+            "kindSubtype": "ZKINDSUBTYPE",
+            "trashed": "ZTRASHEDSTATE"
+          },
+          "sql": "SELECT\n  a.Z_PK,\n  a.ZDIRECTORY,\n  a.ZFILENAME,\n  a.ZDATECREATED,\n  a.ZADDEDDATE,\n  aa.ZIMPORTEDBY,\n  aa.ZIMPORTEDBYBUNDLEIDENTIFIER,\n  a.ZKINDSUBTYPE,\n  a.ZTRASHEDSTATE\nFROM ZASSET a\nLEFT JOIN ZADDITIONALASSETATTRIBUTES aa ON aa.Z_PK = a.ZADDITIONALATTRIBUTES\nWHERE a.ZFILENAME LIKE '{{prevStem}}.%'\n   OR a.ZFILENAME LIKE '{{nextStem}}.%'\nORDER BY a.ZFILENAME;"
         }
       ]
     }
@@ -592,6 +864,8 @@
   "paramLabels": {
     "filename": "Filnamn (valfritt, tomt = alla). Komma om flera.",
     "bundleId": "App / bundle-ID (valfritt, tomt = alla)",
-    "person": "Personens namn (valfritt, tomt = alla)"
+    "person": "Personens namn (valfritt, tomt = alla)",
+    "prevStem": "Föregående filnamn utan ändelse (Härkomst)",
+    "nextStem": "Nästa filnamn utan ändelse (Härkomst)"
   }
 }

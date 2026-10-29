@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="sv">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Härkomst</title>
+    <script src="../_shared/toolkit.js"></script>
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+    <div id="container">
+        <header class="page-header">
+            <h1>Härkomst</h1>
+            <p>Tidslinje för en bildfil: när den skapades, vilken app som var igång och om kameran var igång.
+                Öppna extraktionen, ange filnamnet och få ett protokoll med alla källor eller en förklaring i vanlig
+                svenska, båda att klistra in i Word. Zippen läses bara, och <code>-wal</code> läses alltid med.</p>
+        </header>
+
+        <div id="load-error" class="banner error display-none"></div>
+
+        <section class="box" id="ex-box">
+            <div class="box-head">
+                <div>
+                    <div class="step-label">1. Extraktion</div>
+                    <p class="muted">Välj extraktionens zip-fil. Appen letar upp Photos.sqlite, knowledgeC, routined, MediaStore och
+                        Wellbeing med deras <code>-wal</code>. Inget packas upp eller skrivs.</p>
+                </div>
+                <div class="button-row">
+                    <button type="button" id="ex-pick">Öppna extraktion (zip)…</button>
+                    <button type="button" class="secondary" id="fill-sample">Fyll med testdata</button>
+                    <button type="button" class="secondary display-none" id="ex-close">Stäng extraktionen</button>
+                </div>
+            </div>
+            <div id="ex-status" class="status"></div>
+            <div id="ex-list"></div>
+            <input type="file" id="ex-input" accept=".zip,application/zip" hidden>
+        </section>
+
+        <section class="box display-none" id="file-box">
+            <div class="step-label">2. Fil</div>
+            <div class="field-row">
+                <div class="param-block grow">
+                    <label class="field-label" for="filename">Filnamn, exakt som i biblioteket</label>
+                    <input type="text" id="filename" spellcheck="false" autocomplete="off" placeholder="IMG_0042.HEIC">
+                </div>
+                <div class="param-block">
+                    <label class="field-label" for="window">Fönster runt tidpunkten</label>
+                    <select id="window">
+                        <option value="5">±5 minuter</option>
+                        <option value="15" selected>±15 minuter</option>
+                        <option value="60">±1 timme</option>
+                        <option value="1440">±24 timmar</option>
+                    </select>
+                </div>
+                <div class="param-block">
+                    <label class="field-label" for="zone">Tidszon i rapporten</label>
+                    <select id="zone"></select>
+                </div>
+                <div class="param-block">
+                    <label class="field-label">&nbsp;</label>
+                    <button type="button" id="run">Bedöm härkomst</button>
+                </div>
+            </div>
+            <div id="run-status" class="status"></div>
+            <div id="hits" class="display-none"></div>
+        </section>
+
+        <section id="result" class="display-none">
+            <div class="box" id="summary-box">
+                <div class="step-label">3. Bedömning</div>
+                <div id="summary"></div>
+                <div id="factors" class="factors"></div>
+            </div>
+
+            <div class="box">
+                <div class="box-head">
+                    <div class="step-label">4. Tidslinje och förklaring</div>
+                    <div class="button-row">
+                        <button type="button" class="secondary" id="copy-explanation">Kopiera förklaring för Word</button>
+                        <button type="button" class="secondary" id="copy-protocol">Kopiera protokoll för Word</button>
+                        <button type="button" class="secondary" id="save-explanation">Spara förklaring som HTML</button>
+                        <button type="button" class="secondary" id="save-protocol">Spara protokoll som HTML</button>
+                    </div>
+                </div>
+                <p class="muted">Förklaringen är för den som inte är tekniker: klockslag och vad som hände, inga källor. Protokollet
+                    har varje rad med databas, sökväg, CRC32, SHA-256 och SQL.</p>
+                <div id="export-status" class="status"></div>
+                <div id="timelines"></div>
+            </div>
+
+            <details class="box" id="details-events">
+                <summary>Händelser med källa</summary>
+                <div id="events" class="result-scroll"></div>
+            </details>
+            <details class="box" id="details-alternatives">
+                <summary>Alternativa förklaringar</summary>
+                <div id="alternatives"></div>
+            </details>
+            <details class="box" id="details-sources">
+                <summary>Spårbarhet: källor, CRC32, SHA-256 och SQL</summary>
+                <div id="sources"></div>
+            </details>
+        </section>
+    </div>
+
+    <div id="toast" class="toast">Kopierat</div>
+    <div id="copy-stage" class="copy-stage" contenteditable="true" aria-hidden="true"></div>
+
+    <script src="../../src/load-local-json.js"></script>
+    <script src="../../queries/ios/photos-sqlite/catalog.js"></script>
+    <script src="../../queries/android/catalog.js"></script>
+    <script src="../../queries/app-usage/catalog.js"></script>
+    <script src="../../queries/ios/routined/catalog.js"></script>
+    <script src="../app-ids/catalog.js"></script>
+    <script src="../exif-viewer/exif-core.js"></script>
+    <script src="../ios-keychain/vendor/sqljs/sql-wasm-binary.js"></script>
+    <script src="../ios-keychain/vendor/sqljs/sql-wasm.js"></script>
+    <script src="../db-queries/zip.js"></script>
+    <script src="../db-queries/locate.js"></script>
+    <script src="../db-queries/wal.js"></script>
+    <script src="../db-queries/extraction-core.js"></script>
+    <script src="roles.js"></script>
+    <script src="timeline-core.js"></script>
+    <script src="timeline-svg.js"></script>
+    <script src="report.js"></script>
+    <script src="sample-data.js"></script>
+    <script src="script.js"></script>
+</body>
+
+</html>

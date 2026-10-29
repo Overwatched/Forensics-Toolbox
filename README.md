@@ -2,11 +2,23 @@
 
 Verktyg för IT-forensik som körs på din egen dator. Inget nätverk behövs. Onlinekartan är valfri och skickar bara kartrutor, aldrig filer eller bilder.
 
-![Positioner med bubblor och noggrannhetscirkel](docs/images/positioner-bubblor.png)
+Öppna extraktionens zip-fil, så hittar appen databaserna själv. Zippen läses bara, inget packas upp, och `-wal` läses alltid med.
 
-![EXIF och karta med positionslista](docs/images/exif-lista.png)
+![Härkomst: bedömning av en bildfil](docs/images/harkomst-bedomning.png)
 
-![Positioner med miniatyrer i bubblorna](docs/images/positioner-miniatyrer.png)
+**Härkomst** (ny i 1.26) bedömer om en bildfil är förenlig med att telefonen skapade den: skapandetid, app igång och kamera igång, var och en som stöd, motsägelse eller saknas.
+
+![Härkomst: tidslinje och förklaring](docs/images/harkomst-tidslinje.png)
+
+Tidslinjen och förklaringen i vanlig svenska. Båda exporterna kopieras rakt in i Word: förklaringen utan källor, för den som inte är tekniker, och protokollet med databas, sökväg, CRC32, SHA-256 och SQL för varje rad.
+
+![EXIF & karta: metadata för en hel mapp](docs/images/exif-tabell.png)
+
+**EXIF & karta** läser metadata för en hel mapp med ExifTool, utan att filerna ändras. Positionerna går vidare till kartan.
+
+![Positioner: rutt på offlinekartan](docs/images/positioner-rutt.png)
+
+**Positioner** ritar rutten på offlinekartan, med tidsspann, bubblor, tidsreglage och export till KML, GPX och GeoJSON.
 
 ## Ladda ner
 
@@ -26,11 +38,12 @@ Verktyg för IT-forensik som körs på din egen dator. Inget nätverk behövs. O
 - **Positioner.** Samma karta för GPX, KML, CSV, GeoJSON och Google-tidslinje.
 - **App-ID.** Slå upp ett appnamn, eller klistra in ett paket-id och få namnet.
 - **Queries.** Färdiga frågor mot Photos.sqlite, knowledgeC, routined Cache.sqlite och Android. Frågan kan köras direkt i appen, med `-wal` inläst, och positionerna kan visas i Positioner. Öppna extraktionens zip-fil, så hittar appen databaserna själv utan att något packas upp.
+- **Härkomst.** Tidslinje för en bildfil: när den skapades, vilken app som var igång och om kameran var igång, ur Photos.sqlite, knowledgeC, routined och själva bildfilen i extraktionen. Typen avgörs först (kamerabild, skärmdump eller sparad ur en app), och varje faktor bedöms som stöd, motsägelse eller saknas. Tystnad i loggarna redovisas som saknas, aldrig som bevis. Två exporter för Word: ett protokoll med alla källor och hashar, och en förklaring i vanlig svenska.
 - **Övrigt.** Tidskonvertering, nyckelring, hash, filjämförelse, Magic Text, QR, CyberChef, korta checklistor och länkar till externa verktyg.
 
 Kartan kan visa flygfoton eller satellitbilder (Satellit och Hybrid) om du lägger en bildkarta i `.pmtiles`-format i mappen `maps`. Inga bilder hämtas från nätet. Se [utvecklingsdokumentationen](docs/DEVELOPMENT.md).
 
-Knappen **Fyll med testdata** i EXIF & karta och Positioner lägger in en påhittad promenad i Stockholm, så att kartan går att prova direkt.
+Knappen **Fyll med testdata** i EXIF & karta, Positioner och Härkomst lägger in en påhittad promenad i Stockholm, så att kartan och tidslinjen går att prova direkt.
 
 ## Köra från källkod
 
