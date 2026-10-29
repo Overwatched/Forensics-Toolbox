@@ -57,6 +57,7 @@
             exif: {
                 read: true, takenMs: T, takenText: '2024-06-01 14:31:30 +02:00', sourceTag: 'ExifIFD:DateTimeOriginal',
                 make: 'Apple', model: 'iPhone 15 Pro', software: '17.5.1',
+                position: { lat: 59.33257, lon: 18.06402, accuracy: 12, source: 'Composite:GPSPosition' },
                 source: { db: 'bildfilen', table: 'IMG_4104.JPG', column: 'ExifIFD:DateTimeOriginal' },
             },
             exifRows: [

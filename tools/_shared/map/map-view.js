@@ -610,14 +610,12 @@
         baseSection.append(basemapRow, basemapNote, imageryRow, online.label);
         var panel = make('div', 'map-panel');
         panel.append(head, baseSection, markerSection, routeSection, bubbles, routeNote, note, fallback);
-        hide.addEventListener('click', function () {
-            panel.classList.add('display-none');
-            show.classList.remove('display-none');
-        });
-        show.addEventListener('click', function () {
-            panel.classList.remove('display-none');
-            show.classList.add('display-none');
-        });
+        function setMenu(open) {
+            panel.classList.toggle('display-none', !open);
+            show.classList.toggle('display-none', !!open);
+        }
+        hide.addEventListener('click', function () { setMenu(false); });
+        show.addEventListener('click', function () { setMenu(true); });
         var list = make('aside', 'map-list display-none');
         list.setAttribute('aria-label', 'Positioner');
 
@@ -652,6 +650,7 @@
             consent: consent, consentOk: consentOk, consentCancel: consentCancel,
             markerButtons: markerButtons, markerNote: markerNote,
             basemapButtons: basemapButtons, basemapNote: basemapNote, addImagery: addImagery, imageryInput: imageryInput,
+            setMenu: setMenu,
         };
     }
 
@@ -1740,6 +1739,8 @@
             });
             map.on('error', function (e) {
                 var msg = e && e.error && e.error.message;
+                // Fel som annars försvinner tyst (worker, kartfil, resurs) syns i konsolen.
+                if (msg && root.console && console.warn) console.warn('Kartan: ' + msg);
                 if (online && msg && !styleError) {
                     styleError = msg;
                     setStatus('Onlinekartan kunde inte hämtas (' + msg + '). Kontrollera nätverket eller slå av onlinekartan.', 'missing');
@@ -1753,15 +1754,17 @@
             });
         }
 
-        function fit() {
+        // maxZoom: hur nära vyn får gå när punkterna ligger tätt. Över 16 löses klungorna upp.
+        function fit(maxZoom) {
             if (!map || !points.length) return;
+            var top = maxZoom || 15;
             if (points.length === 1) {
-                map.jumpTo({ center: [points[0].lon, points[0].lat], zoom: 15 });
+                map.jumpTo({ center: [points[0].lon, points[0].lat], zoom: top });
                 return;
             }
             var b = new root.maplibregl.LngLatBounds();
             points.forEach(function (p) { b.extend([p.lon, p.lat]); });
-            map.fitBounds(b, { padding: 60, maxZoom: 15, duration: 0 });
+            map.fitBounds(b, { padding: 60, maxZoom: top, duration: 0 });
         }
 
         function start() {
@@ -2662,8 +2665,10 @@
             ctx.restore();
         }
 
-        function saveMapImage() {
-            if (!map) return;
+        // Ritar kartan, bubblorna, norrpilen och foten till en PNG. done(dataUrl, now), eller
+        // done(null) utan karta. Används av Spara bild och av Härkomst, som lägger bilden i rapporten.
+        function renderImage(done) {
+            if (!map) return done(null);
             map.triggerRepaint();
             requestAnimationFrame(function () {
                 var glCanvas = map.getCanvas();
@@ -2739,14 +2744,21 @@
                 var now = new Date();
                 drawNorth(ctx, glCanvas.width - 34 * scale, 34 * scale, scale);
                 drawFooter(ctx, glCanvas.height, out.width, scale, now);
+                done(out.toDataURL('image/png'), now);
+            });
+        }
+
+        function saveMapImage() {
+            renderImage(function (dataUrl, now) {
+                if (!dataUrl) return;
                 var a = document.createElement('a');
                 a.download = 'karta-' + stamp(now).replace(/[-:]/g, '').replace(' ', '-') + '.png';
-                a.href = out.toDataURL('image/png');
+                a.href = dataUrl;
                 a.click();
             });
         }
 
-        el.fit.addEventListener('click', fit);
+        el.fit.addEventListener('click', function () { fit(); });
         el.measureBtn.addEventListener('click', function () {
             measuring = !measuring;
             el.measureBtn.classList.toggle('active', measuring);
@@ -2946,11 +2958,11 @@
                 if (map && map.getSource('files')) refreshData();
                 else updateBubbleNote();
             },
-            fitView: function () {
+            fitView: function (opts) {
                 return start().then(function () {
                     map.resize();
                     fittedOnce = true;
-                    fit();
+                    fit(opts && opts.maxZoom);
                     syncBubbles();
                 });
             },
@@ -2967,6 +2979,14 @@
             },
             openList: openList,
             onlineHost: ONLINE.host,
+            // Kartbilden som PNG (data-URL), samma bild som Spara bild ger. null utan karta.
+            toImage: function () {
+                return start().then(function () {
+                    return new Promise(function (resolve) { renderImage(function (dataUrl) { resolve(dataUrl || null); }); });
+                });
+            },
+            setMarker: setMarker,
+            setMenu: el.setMenu,
         };
     }
 

@@ -6,11 +6,11 @@ Verktyg för IT-forensik som körs på din egen dator. Inget nätverk behövs. O
 
 ![Härkomst: bedömning av en bildfil](docs/images/harkomst-bedomning.png)
 
-**Härkomst** (ny i 1.26) bedömer om en bildfil är förenlig med att telefonen skapade den: skapandetid, app igång och kamera igång, var och en som stöd, motsägelse eller saknas.
+**Härkomst** (ny i 1.26, positioner i 1.27) bedömer om en bildfil är förenlig med att telefonen skapade den: skapandetid, app igång och kamera igång, var och en som stöd, motsägelse eller saknas.
 
 ![Härkomst: tidslinje och förklaring](docs/images/harkomst-tidslinje.png)
 
-Tidslinjen och förklaringen i vanlig svenska. Båda exporterna kopieras rakt in i Word: förklaringen utan källor, för den som inte är tekniker, och protokollet med databas, sökväg, CRC32, SHA-256 och SQL för varje rad.
+Tidslinjen och förklaringen i vanlig svenska. Positionerna, bildens egen och telefonens från routined, visas i en tabell och på kartan med nålar, och avståndet mellan dem är en egen faktor. Båda exporterna kopieras rakt in i Word: förklaringen utan källor, för den som inte är tekniker, och protokollet med databas, sökväg, CRC32, SHA-256 och SQL för varje rad.
 
 ![EXIF & karta: metadata för en hel mapp](docs/images/exif-tabell.png)
 

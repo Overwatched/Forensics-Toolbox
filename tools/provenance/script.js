@@ -152,6 +152,7 @@
         state.loaded = {};
         state.zip = null;
         state.model = null;
+        if (mapView) mapView.setPoints([], '');
         $('ex-list').innerHTML = '';
         setStatus('ex-status', '');
         $('ex-close').classList.add('display-none');
@@ -398,8 +399,11 @@
                     });
                 }
                 input.warnings = input.warnings.concat(rtDb.warnings);
+            } else {
+                input.missingDbs.routined = true;
             }
         } else {
+            input.missingDbs.routined = true;
             var wb = hitFor('wellbeing');
             if (wb) {
                 var wbSrc = sourceByKey('wellbeing');
@@ -441,6 +445,7 @@
                     var taken = exifTakenMs(sum.taken, zone.offsetMinutes);
                     input.exif = {
                         read: true, takenMs: taken.ms, takenText: sum.taken ? sum.taken.text + (taken.assumed ? ' (zon antagen: ' + zone.label + ')' : '') : '',
+                        position: sum.position && !sum.position.zero ? { lat: sum.position.lat, lon: sum.position.lon, accuracy: sum.position.accuracy, source: sum.position.source } : null,
                         sourceTag: sum.taken ? sum.taken.source : '', make: tags['IFD0:Make'] || tags['QuickTime:Make'] || '', model: tags['IFD0:Model'] || tags['QuickTime:Model'] || '',
                         software: sum.software ? sum.software.text : '', source: { db: 'bildfilen', table: media.entry.name.slice(media.entry.name.lastIndexOf('/') + 1), column: sum.taken ? sum.taken.source : 'EXIF' },
                     };
@@ -612,6 +617,98 @@
         });
     }
 
+    // ---------- Kartan ----------
+
+    var mapView = null;
+
+    function ensureMap() {
+        if (mapView) return mapView;
+        if (typeof ToolboxMap === 'undefined') return null;
+        mapView = ToolboxMap.create({
+            host: $('map-host'), routeOn: false,
+            openExternal: function (href, title) { window.parent.postMessage({ source: 'forensics-toolbox', type: 'open-external', href: href, title: title }, '*'); },
+        });
+        mapView.setMenu(false);
+        return mapView;
+    }
+
+    // Nålar med noggrannhetsring för alla punkter. Bara bildens nål får en bubbla med vad och när.
+    function applyBubbles(mv, pts) {
+        var standard = MapCore.defaultBubble({});
+        standard.pin = true;
+        standard.ring = true;
+        standard.leader = false;
+        var perPoint = {};
+        pts.forEach(function (p) {
+            if (p.source === 'Telefonen (routined)') return;
+            var cfg = MapCore.defaultBubble({ note: true, time: true });
+            cfg.pin = true;
+            cfg.leader = true;
+            cfg.ring = true;
+            perPoint[p.id] = cfg;
+        });
+        mv.setBubbles(standard, perPoint, {});
+    }
+
+    // Punkterna i samma form som Positioner använder: bilden som röd nål med sin egen källa,
+    // telefonens positioner som egen källa med noggrannhetsring.
+    function mapPoints(model, fmt) {
+        var pts = [];
+        model.positions.forEach(function (q, i) {
+            // EXIF-positionen ritas bara när den skiljer sig från databasens, annars ligger två nålar på varandra.
+            if (q.kind === 'exif' && q.distanceM != null && q.distanceM <= 50) return;
+            var taken = q.ms != null ? { text: fmt(q.ms), sort: ProvenanceCore.formatUtc(q.ms).slice(0, 19), zone: '', kind: 'Tid', source: 'harkomst' } : null;
+            pts.push({
+                id: i + 1, name: q.kind === 'phone' ? 'Telefonen' : model.file.filename, path: q.kind === 'phone' ? 'routined' : model.file.filename,
+                lat: q.lat, lon: q.lon, source: q.kind === 'phone' ? 'Telefonen (routined)' : q.kind === 'exif' ? 'Bilden enligt EXIF' : 'Bilden',
+                taken: taken, until: null, visit: false, accuracy: q.accuracy && q.accuracy > 0 ? q.accuracy : null,
+                type: q.kind === 'phone' ? (q.locType === 1 ? 'GNSS' : 'Wi-Fi') : 'Bild', device: '', software: '', mime: '',
+                note: q.kind === 'phone' ? (q.distanceM != null ? ProvenanceCore.metres(q.distanceM) + ' från bilden' : '') : q.label,
+                color: q.kind === 'phone' ? '#bf5af2' : '#ff3b30',
+            });
+        });
+        return pts;
+    }
+
+    async function showMap(model, fmt) {
+        var box = $('map-box');
+        if (!model.positions.length) { box.classList.add('display-none'); return; }
+        box.classList.remove('display-none');
+        var mv = ensureMap();
+        if (!mv) return;
+        var pts = mapPoints(model, fmt);
+        applyBubbles(mv, pts);
+        mv.setPoints(pts, pts.length + (pts.length === 1 ? ' position' : ' positioner'));
+        // Zoom upp till 18, så att nålar som ligger några meter isär inte slås ihop till en klunga.
+        await withTimeout(mv.fitView({ maxZoom: 18 }), 15000);
+    }
+
+    // Kartbilden hämtas med en tidsgräns: utan kartfiler, eller när fönstret inte ritas, får
+    // exporten gå vidare utan karta i stället för att vänta för evigt.
+    function withTimeout(promise, ms) {
+        return new Promise(function (resolve) {
+            var done = false;
+            var timer = setTimeout(function () { if (!done) { done = true; resolve(null); } }, ms);
+            promise.then(function (v) { if (!done) { done = true; clearTimeout(timer); resolve(v); } }, function () { if (!done) { done = true; clearTimeout(timer); resolve(null); } });
+        });
+    }
+
+    async function mapImage() {
+        if (!mapView || !state.model || !state.model.positions.length) return null;
+        return withTimeout(mapView.toImage(), 10000);
+    }
+
+    function renderPositions(model, fmt) {
+        if (!model.positions.length) { $('positions').innerHTML = ''; return; }
+        $('positions').innerHTML = '<table><thead><tr><th>Tid (' + escapeHtml(state.meta.zoneLabel) + ')</th><th>Vad</th><th>Latitud</th><th>Longitud</th><th>Noggrannhet</th><th>Från bildens position</th><th>Källa</th></tr></thead><tbody>' +
+            model.positions.map(function (q) {
+                var src = q.source || {};
+                return '<tr class="' + (q.kind === 'phone' ? '' : 'pos-file') + '"><td class="num">' + (q.ms != null ? escapeHtml(fmt(q.ms)) : '') + '</td><td>' + escapeHtml(q.label) + '</td>' +
+                    '<td class="num">' + q.lat.toFixed(6) + '</td><td class="num">' + q.lon.toFixed(6) + '</td><td class="num">' + (q.accuracy ? Math.round(q.accuracy) + ' m' : '') + '</td>' +
+                    '<td class="num">' + (q.distanceM != null ? escapeHtml(ProvenanceCore.metres(q.distanceM)) : '') + '</td><td class="path">' + escapeHtml([src.db, src.table, src.column].filter(Boolean).join(' → ')) + '</td></tr>';
+            }).join('') + '</tbody></table>';
+    }
+
     // ---------- Visning ----------
 
     function svgToPng(svgText, scale) {
@@ -695,8 +792,10 @@
                 '<dt>WAL</dt><dd>' + escapeHtml(s.walSummary) + '</dd>' + (s.warnings.length ? '<dt>Varning</dt><dd class="warn">' + escapeHtml(s.warnings.join(' ')) + '</dd>' : '') + '</dl></div>';
         }).join('') + (meta.fileEntry ? '<div class="source-block"><h4>Bildfilen</h4><dl><dt>Sökväg</dt><dd>' + escapeHtml(meta.fileEntry.path) + '</dd><dt>CRC32</dt><dd>' + escapeHtml(meta.fileEntry.crc32) + '</dd><dt>SHA-256</dt><dd>' + escapeHtml(meta.fileEntry.sha256) + '</dd></dl></div>' : '') +
             '<h4>SQL</h4>' + meta.queries.map(function (q) { return '<div><strong>' + escapeHtml(q.id) + '</strong> <span class="muted">' + escapeHtml(q.db) + '</span></div><pre class="sql">' + escapeHtml(q.sql) + '</pre>'; }).join('');
+        renderPositions(m, fmt);
         $('result').classList.remove('display-none');
         $('result').scrollIntoView({ block: 'start', behavior: 'smooth' });
+        await showMap(m, fmt);
     }
 
     // ---------- Exporter ----------
@@ -747,21 +846,23 @@
         return d.getFullYear() + p(d.getMonth() + 1) + p(d.getDate()) + '-' + p(d.getHours()) + p(d.getMinutes());
     }
 
-    function exportHtml(kind) {
+    async function exportHtml(kind) {
+        state.meta.mapPng = await mapImage();
         return kind === 'protocol' ? ProvenanceReport.protocol(state.model, state.meta) : ProvenanceReport.explanation(state.model, state.meta);
     }
 
     async function copyExport(kind) {
         if (!state.model) return;
-        var html = exportHtml(kind);
+        var html = await exportHtml(kind);
         var ok = await copyHtml(html, ProvenanceReport.plainText(html));
-        setStatus('export-status', ok ? (kind === 'protocol' ? 'Protokollet' : 'Förklaringen') + ' ligger på urklipp. Klistra in i Word med Ctrl+V.' : 'Kunde inte kopiera. Spara som HTML i stället.', ok ? '' : 'warn');
+        var withMap = state.meta.mapPng ? ' Tidslinjen och kartbilden följer med.' : (state.model.positions.length ? ' Kartbilden saknas: kartan har inga kartfiler.' : '');
+        setStatus('export-status', ok ? (kind === 'protocol' ? 'Protokollet' : 'Förklaringen') + ' ligger på urklipp. Klistra in i Word med Ctrl+V.' + withMap : 'Kunde inte kopiera. Spara som HTML i stället.', ok ? '' : 'warn');
         if (ok) showToast('Kopierat för Word');
     }
 
-    function saveExport(kind) {
+    async function saveExport(kind) {
         if (!state.model) return;
-        var html = ProvenanceReport.standalone((kind === 'protocol' ? 'Härkomst, protokoll: ' : 'Härkomst, förklaring: ') + state.model.file.filename, exportHtml(kind));
+        var html = ProvenanceReport.standalone((kind === 'protocol' ? 'Härkomst, protokoll: ' : 'Härkomst, förklaring: ') + state.model.file.filename, await exportHtml(kind));
         download(new Blob(['﻿' + html], { type: 'text/html;charset=utf-8' }), 'harkomst-' + state.model.file.filename.replace(/\.[^.]+$/, '') + '-' + (kind === 'protocol' ? 'protokoll' : 'forklaring') + '-' + stamp() + '.html');
     }
 
@@ -813,6 +914,11 @@
     $('copy-explanation').addEventListener('click', function () { copyExport('explanation'); });
     $('save-protocol').addEventListener('click', function () { saveExport('protocol'); });
     $('save-explanation').addEventListener('click', function () { saveExport('explanation'); });
+    $('save-map').addEventListener('click', async function () {
+        var png = await mapImage();
+        if (!png) { setStatus('export-status', 'Ingen kartbild att spara. Kartan behöver kartfiler i mappen maps.', 'warn'); return; }
+        download(dataUrlToBlob(png), 'harkomst-' + state.model.file.filename.replace(/\.[^.]+$/, '') + '-karta.png');
+    });
 
     window.addEventListener('message', function (event) {
         if (event.source !== window.parent) return;

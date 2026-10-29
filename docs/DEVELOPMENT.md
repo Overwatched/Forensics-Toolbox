@@ -125,6 +125,10 @@ i extraktionen med `-wal` pålagd, och bygger en händelselista i UTC.
 - Extraktionen läses med `tools/db-queries/extraction-core.js`, som Queries också använder. Bara
   läsning: testet i `zip.test.js` grep:ar alla filer i `tools/provenance/` efter skrivande API:er.
 - Bildfilen läses ur zippen och ExifTool-workern från EXIF & karta laddas först när den behövs.
+- Positionerna (bildens enligt databasen och EXIF, telefonens enligt routined) visas i en tabell
+  och på den delade kartvyn med nålar. Kartbilden hämtas med `mapView.toImage()` och läggs i
+  båda exporterna. Kartans laddning kräver att fönstret ritas: med låst skärm kommer ingen
+  bildruta, och då går exporten vidare utan kartbild efter tio sekunder.
 - På iOS kommer app och kamera ur knowledgeC `/app/usage` (`/app/inFocus` finns inte på iOS 18
   och senare, bara som reserv). På Android ur Wellbeing; skärm och lås saknas där.
 

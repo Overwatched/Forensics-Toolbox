@@ -17,7 +17,8 @@ function build() {
 test('testdatat ger en kamerabild med stöd på alla faktorer', () => {
     const m = build();
     assert.strictEqual(m.type.type, 'camera');
-    assert.deepStrictEqual(Object.fromEntries(m.factors.map((f) => [f.id, f.state])), { time: 'support', app: 'support', camera: 'support', screen: 'support' });
+    assert.deepStrictEqual(Object.fromEntries(m.factors.map((f) => [f.id, f.state])), { time: 'support', app: 'support', camera: 'support', screen: 'support', position: 'support' });
+    assert.deepStrictEqual(m.positions.map((q) => q.kind), ['file', 'exif', 'phone', 'phone', 'phone', 'phone', 'phone']);
     assert.strictEqual(m.windows.length, 1);
     assert.match(m.summary, /förenligt .* Alla kontrollerade faktorer ger stöd/);
 });

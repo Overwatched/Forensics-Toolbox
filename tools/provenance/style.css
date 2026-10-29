@@ -159,3 +159,9 @@ pre.sql { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 12px; w
 }
 .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
 .copy-stage { position: fixed; left: -10000px; top: 0; width: 600px; height: 1px; overflow: hidden; opacity: 0; }
+
+.prov-map { height: 440px; border-radius: 10px; overflow: hidden; border: 1px solid var(--border); margin-top: 8px; position: relative; }
+.prov-map .map { height: 100%; }
+#positions { max-height: 320px; margin-top: 10px; }
+#positions td.num { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.pos-file td { background: var(--accent-soft); }

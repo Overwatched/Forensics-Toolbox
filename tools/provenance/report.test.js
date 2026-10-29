@@ -14,7 +14,8 @@ const SHA = 'a'.repeat(64);
 function model(over) {
     return core.build(Object.assign({
         platform: 'iOS', appNames: (id) => ({ 'com.apple.camera': 'Kamera' }[id] || null), cameraApps: ['com.apple.camera'],
-        file: { pk: 1, filename: 'IMG_0042.HEIC', directory: 'DCIM/100APPLE', createdMs: T, addedMs: T + 300, modifiedMs: T + 300, importedBy: 1, importer: 'com.apple.camera', zoneName: 'Europe/Stockholm', zoneOffset: 7200, cameraMake: 'Apple', cameraModel: 'iPhone 13' },
+        file: { pk: 1, filename: 'IMG_0042.HEIC', directory: 'DCIM/100APPLE', createdMs: T, addedMs: T + 300, modifiedMs: T + 300, importedBy: 1, importer: 'com.apple.camera', zoneName: 'Europe/Stockholm', zoneOffset: 7200, cameraMake: 'Apple', cameraModel: 'iPhone 13', latitude: 59.33255, longitude: 18.064 },
+        locations: [{ ms: T - 40 * S, lat: 59.33258, lon: 18.06398, accuracy: 8, type: 1, source: { db: 'Cache.sqlite', table: 'ZRTCLLOCATIONMO', column: 'ZTIMESTAMP, ZLATITUDE, ZLONGITUDE', queryId: 'role-location' } }],
         fileSource: { db: 'Photos.sqlite', table: 'ZASSET', column: 'ZDATECREATED', queryId: 'role-file' },
         appIntervals: [{ startMs: T - 20 * S, endMs: T + 12 * S, app: 'com.apple.camera', stream: '/app/usage', source: KC }],
         screen: [{ startMs: T - 60 * S, endMs: T + 60 * S, on: true, stream: '/display/isBacklit', source: Object.assign({}, KC, { stream: '/display/isBacklit', queryId: 'role-screen' }) }],
@@ -36,13 +37,15 @@ const META = {
     queries: [{ id: 'role-app-usage', db: 'knowledgeC.db', title: 'Härkomst: /app/usage i tidsfönstret', sql: "SELECT ZSTARTDATE FROM ZOBJECT WHERE ZSTREAMNAME = '/app/usage'" }],
     coverage: [['/app/usage', '2025-09-04 00:00:00 UTC', '2025-10-01 00:00:00 UTC', 65]],
     timelinePngs: ['data:image/png;base64,AAAA'],
+    mapPng: 'data:image/png;base64,BBBB',
 };
 
 test('protokollet innehåller källor, hashar, sökvägar, kolumnnamn, query-id, SQL och bilden', () => {
     const html = report.protocol(model(), META);
     for (const needle of [SHA, 'b'.repeat(64), 'deadbeef', 'filesystem1/private/var/mobile/Media/DCIM/100APPLE/IMG_0042.HEIC', 'ZDATECREATED', 'role-app-usage', "ZSTREAMNAME = '/app/usage'",
         '12 av 12 ramar', 'utan -wal', 'knowledgeC.db → ZOBJECT /app/usage → ZSTARTDATE, ZENDDATE, ZVALUESTRING', 'data:image/png;base64,AAAA', 'Europe/Stockholm', '2025-09-24 14:31:09', '2025-09-24 12:31:09 UTC',
-        'Kamerabild', 'ZIMPORTEDBY 1', 'Stöd', 'Alternativa förklaringar', 'Strömmarnas täckning', 'iOS 26.0', 'Forensics Toolbox 1.26']) {
+        'Kamerabild', 'ZIMPORTEDBY 1', 'Stöd', 'Alternativa förklaringar', 'Strömmarnas täckning', 'iOS 26.0', 'Forensics Toolbox 1.26',
+        '4. Positioner', 'Bilden enligt databasen', 'Telefonen (GNSS)', '59.332550', 'Cache.sqlite → ZRTCLLOCATIONMO → ZTIMESTAMP, ZLATITUDE, ZLONGITUDE', 'role-location', 'data:image/png;base64,BBBB', 'ZLATITUDE, ZLONGITUDE']) {
         assert.ok(html.includes(needle), 'protokollet saknar: ' + needle);
     }
     assert.match(html, /<table style="border-collapse: collapse/);
@@ -53,10 +56,10 @@ test('protokollet innehåller källor, hashar, sökvägar, kolumnnamn, query-id,
 test('förklaringen har samma fakta i klartext och inget tekniskt', () => {
     const html = report.explanation(model(), META);
     for (const needle of ['Kamera öppnas', 'Bilden IMG_0042.HEIC tas med kameran', 'Kamera lämnas', 'Skärmen tänds', '14:30:49', 'Vad det betyder', 'kamerabild', 'förenligt med att bilden togs', 'Europe/Stockholm',
-        'utan sin senaste loggfil', 'data:image/png;base64,AAAA', 'säger inte vem som höll i telefonen']) {
+        'utan sin senaste loggfil', 'data:image/png;base64,AAAA', 'säger inte vem som höll i telefonen', 'Var telefonen var', 'data:image/png;base64,BBBB', 'Telefonen var på samma plats som bilden togs']) {
         assert.ok(html.includes(needle), 'förklaringen saknar: ' + needle);
     }
-    for (const forbidden of [SHA, 'deadbeef', 'filesystem1', 'ZDATECREATED', 'ZOBJECT', 'role-', 'com.apple', 'SELECT', 'CRC', 'SHA', '/app/usage', 'ZIMPORTEDBY']) {
+    for (const forbidden of [SHA, 'deadbeef', 'filesystem1', 'ZDATECREATED', 'ZOBJECT', 'role-', 'com.apple', 'SELECT', 'CRC', 'SHA', '/app/usage', 'ZIMPORTEDBY', 'ZLATITUDE', '59.33']) {
         assert.ok(!html.includes(forbidden), 'förklaringen innehåller ' + forbidden);
     }
 });

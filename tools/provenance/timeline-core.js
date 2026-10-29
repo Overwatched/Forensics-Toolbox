@@ -323,6 +323,87 @@
         return { id: 'time', title: 'Skapandetid', state: state, items: items, plain: plain };
     }
 
+    // ---------- Positioner ----------
+
+    function validCoord(lat, lon) {
+        lat = Number(lat); lon = Number(lon);
+        // Photos.sqlite skriver -180 när positionen saknas.
+        return isFinite(lat) && isFinite(lon) && Math.abs(lat) <= 90 && Math.abs(lon) <= 180 && !(lat === 0 && lon === 0) && lat !== -180;
+    }
+
+    function distanceM(a, b) {
+        var R = 6371000;
+        var p1 = a.lat * Math.PI / 180, p2 = b.lat * Math.PI / 180;
+        var dp = (b.lat - a.lat) * Math.PI / 180, dl = (b.lon - a.lon) * Math.PI / 180;
+        var h = Math.sin(dp / 2) * Math.sin(dp / 2) + Math.cos(p1) * Math.cos(p2) * Math.sin(dl / 2) * Math.sin(dl / 2);
+        return 2 * R * Math.asin(Math.sqrt(h));
+    }
+
+    function metres(m) { return m < 1000 ? Math.round(m) + ' m' : (m / 1000).toFixed(1).replace('.', ',') + ' km'; }
+
+    // Alla positioner som hör till bedömningen: bildens egen enligt databasen, bildens enligt
+    // EXIF i filen, och telefonens enligt routined. Avståndet räknas från bildens position.
+    function positions(input) {
+        var file = input.file;
+        var out = [];
+        var filePos = null;
+        if (validCoord(file.latitude, file.longitude)) {
+            filePos = { lat: Number(file.latitude), lon: Number(file.longitude) };
+            out.push({ kind: 'file', ms: file.createdMs, lat: filePos.lat, lon: filePos.lon, accuracy: null, label: 'Bilden enligt databasen',
+                source: input.fileSource ? Object.assign({}, input.fileSource, { column: input.platform === 'Android' ? 'latitude, longitude' : 'ZLATITUDE, ZLONGITUDE' }) : null });
+        }
+        var ex = input.exif && input.exif.position;
+        if (ex && validCoord(ex.lat, ex.lon)) {
+            var exPos = { lat: Number(ex.lat), lon: Number(ex.lon) };
+            if (!filePos) filePos = exPos;
+            out.push({ kind: 'exif', ms: file.createdMs, lat: exPos.lat, lon: exPos.lon, accuracy: ex.accuracy || null, label: 'Bilden enligt EXIF i filen',
+                source: { db: 'bildfilen', table: file.filename, column: ex.source || 'GPS' } });
+        }
+        (input.locations || []).forEach(function (l) {
+            out.push({ kind: 'phone', ms: l.ms, lat: l.lat, lon: l.lon, accuracy: l.accuracy, locType: l.type,
+                label: 'Telefonen (' + (l.type === 1 ? 'GNSS' : l.type === 4 ? 'Wi-Fi' : 'typ ' + l.type) + ')', source: l.source || input.locationSource || null });
+        });
+        out.forEach(function (p) {
+            p.distanceM = filePos && p.kind === 'phone' ? distanceM(filePos, p) : (p.kind === 'exif' && out[0].kind === 'file' ? distanceM(out[0], p) : null);
+            p.offsetMs = file.createdMs != null && p.ms != null ? p.ms - file.createdMs : null;
+        });
+        return { list: out, filePos: filePos };
+    }
+
+    function factorPosition(input, pos) {
+        var file = input.file;
+        var phone = pos.list.filter(function (p) { return p.kind === 'phone'; });
+        var items = [];
+        var near = null;
+        phone.forEach(function (p) { if (near === null || Math.abs(p.offsetMs) < Math.abs(near.offsetMs)) near = p; });
+        if (!pos.filePos) {
+            if (!phone.length) {
+                return { id: 'position', title: 'Position', state: 'missing', items: [{ state: 'missing', text: 'Filen har ingen position, och telefonen har inga registrerade positioner i fönstret' + (input.missingDbs && input.missingDbs.routined ? ' (routined Cache.sqlite finns inte i extraktionen)' : '') + '.' }],
+                    plain: 'Det finns ingen positionsuppgift, varken i bilden eller från telefonen.' };
+            }
+            return { id: 'position', title: 'Position', state: 'info', items: [{ state: 'info', text: 'Filen har ingen position. Telefonen registrerade ' + phone.length + (phone.length === 1 ? ' position' : ' positioner') + ' i fönstret, närmast ' + metres(0) .replace('0 m', '') + duration(near.offsetMs) + (near.offsetMs < 0 ? ' före' : ' efter') + ' bilden.' }],
+                plain: 'Bilden saknar positionsuppgift. Telefonen registrerade var den var ' + duration(near.offsetMs) + (near.offsetMs < 0 ? ' före' : ' efter') + ' att bilden togs.' };
+        }
+        var exifRow = pos.list.filter(function (p) { return p.kind === 'exif' && p.distanceM != null; })[0];
+        if (exifRow) items.push({ state: exifRow.distanceM <= 50 ? 'support' : 'contradiction', text: 'Positionen i EXIF i filen ligger ' + metres(exifRow.distanceM) + ' från positionen i databasen.' });
+        if (!phone.length) {
+            items.push({ state: 'missing', text: 'Telefonen har inga registrerade positioner i fönstret' + (input.missingDbs && input.missingDbs.routined ? ': routined Cache.sqlite finns inte i extraktionen' : '') + '.' });
+            return { id: 'position', title: 'Position', state: 'missing', items: items, plain: 'Bilden har en position, men det finns ingen registrering av var telefonen var vid den tiden.' };
+        }
+        var tol = Math.max(100, 2 * (Number(near.accuracy) || 0));
+        var when = duration(near.offsetMs) + (near.offsetMs < 0 ? ' före' : ' efter');
+        var state;
+        if (near.distanceM <= tol) { state = 'support'; items.push({ state: 'support', text: 'Telefonen var ' + metres(near.distanceM) + ' från bildens position ' + when + ' bilden (noggrannhet ' + Math.round(near.accuracy) + ' m).' }); }
+        else if (near.distanceM > 1000) { state = 'contradiction'; items.push({ state: 'contradiction', text: 'Telefonen var ' + metres(near.distanceM) + ' från bildens position ' + when + ' bilden.' }); }
+        else { state = 'info'; items.push({ state: 'info', text: 'Telefonen var ' + metres(near.distanceM) + ' från bildens position ' + when + ' bilden. Avståndet kan bero på GPS-fel.' }); }
+        var within = phone.filter(function (p) { return p.distanceM <= Math.max(100, 2 * (Number(p.accuracy) || 0)); }).length;
+        if (phone.length > 1) items.push({ state: 'info', text: within + ' av ' + phone.length + ' registrerade positioner i fönstret ligger inom noggrannheten från bildens position.' });
+        var plain = state === 'support' ? 'Telefonen var på samma plats som bilden togs, ' + when + '.'
+            : state === 'contradiction' ? 'Telefonen var ' + metres(near.distanceM) + ' från platsen där bilden ska ha tagits, ' + when + '. Det stämmer inte med att den här telefonen tog bilden där.'
+                : 'Telefonen var ' + metres(near.distanceM) + ' från bildens position, ' + when + '. Så stora avstånd kan bero på GPS-fel.';
+        return { id: 'position', title: 'Position', state: state, items: items, plain: plain };
+    }
+
     function appsAt(events, ms, lane) {
         return events.filter(function (e) { return e.kind === 'app' && (!lane || e.lane === lane) && covers(e, ms); });
     }
@@ -426,12 +507,15 @@
         function alt(id, label, fors, againsts) {
             out.push({ id: id, label: label, for: fors.filter(Boolean), against: againsts.filter(Boolean) });
         }
+        var posF = factors.find(function (f) { return f.id === 'position'; });
         alt('received', 'Mottagen från någon annan (chatt, AirDrop, nedladdning)',
             [lateDiff != null && lateDiff > LATE_MS ? 'Filen lades till i biblioteket ' + duration(lateDiff) + ' efter att den skapades.' : null,
-                type.type === 'saved' ? 'Skaparappen är ' + appName(type.importer, names) + '.' : null],
+                type.type === 'saved' ? 'Skaparappen är ' + appName(type.importer, names) + '.' : null,
+                posF && posF.state === 'contradiction' ? posF.items.filter(function (i) { return i.state === 'contradiction'; }).map(function (i) { return i.text; }).join(' ') : null],
             [type.type === 'camera' ? 'Databasen anger kameran som källa (' + type.reasons.join(', ') + ').' : null,
                 lateDiff != null && Math.abs(lateDiff) <= SAME_TIME_MS ? 'Filen hamnade i biblioteket direkt när den skapades.' : null,
-                cam && cam.state === 'support' ? 'Kameran var igång vid tidpunkten.' : null]);
+                cam && cam.state === 'support' ? 'Kameran var igång vid tidpunkten.' : null,
+                posF && posF.state === 'support' ? 'Telefonen var på bildens position vid tidpunkten.' : null]);
         alt('synced', 'Synkad från en annan enhet eller molnet',
             [lateDiff != null && lateDiff > LATE_MS && type.type !== 'saved' ? 'Filen lades till i biblioteket långt efter att den skapades.' : null,
                 file.cloudLocalState != null && Number(file.cloudLocalState) !== 0 ? 'ZCLOUDLOCALSTATE är ' + file.cloudLocalState + '.' : null],
@@ -500,12 +584,14 @@
         var events = built.events;
         var factors = [];
         var warnings = (input.warnings || []).slice();
+        var pos = positions(input);
         if (file.createdMs) {
             var fTime = factorTime(input, type);
             var fApp = factorApp(input, type, events);
             var fCam = factorCamera(input, type, events, fApp);
             var fScreen = factorScreen(input, events);
-            factors = [fTime, fApp, fCam, fScreen];
+            var fPos = factorPosition(input, pos);
+            factors = [fTime, fApp, fCam, fScreen, fPos];
         } else {
             factors = [factorTime(input, type)];
             warnings.push('Skapandetiden saknas, så app, kamera och skärm kan inte bedömas.');
@@ -519,6 +605,7 @@
         return {
             platform: input.platform, file: file, type: type, windows: wins, events: events, outside: built.outside,
             factors: factors, alternatives: alts, narrative: perWindow, warnings: warnings, summary: summary,
+            positions: pos.list, filePosition: pos.filePos,
             stateLabel: STATE_LABEL,
         };
     }
@@ -541,6 +628,7 @@
         classify: classify, windows: windows, intervalsFromEvents: intervalsFromEvents, mergeIntervals: mergeIntervals,
         buildEvents: buildEvents, narrative: narrative, build: build, summaryText: summaryText,
         formatWithOffset: formatWithOffset, formatUtc: formatUtc, duration: duration, appName: appName, isCameraApp: isCameraApp, covers: covers,
+        positions: positions, distanceM: distanceM, metres: metres, validCoord: validCoord,
         STATE_LABEL: STATE_LABEL, TOLERANCE_MS: TOLERANCE_MS, SAME_TIME_MS: SAME_TIME_MS, LATE_MS: LATE_MS,
     };
     if (typeof module !== 'undefined' && module.exports) module.exports = api;

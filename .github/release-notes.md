@@ -1,5 +1,14 @@
 Automatiskt byggd från commit `{{SHA}}`.
 
+## Nytt i 1.27
+
+- **Positioner i Härkomst.** Ny ruta med en tabell över positionerna runt bilden: bildens position enligt Photos.sqlite, bildens position enligt EXIF i själva filen och telefonens positioner ur routined (GNSS och Wi-Fi) i fönstret. Varje rad har tid, latitud, longitud, noggrannhet, avstånd från bildens position och källa med databas, tabell och kolumner.
+- **Karta med nålar.** Samma kartvy som i Positioner, med nålar och noggrannhetsringar. Bildens nål är röd och har en bubbla med tiden. **Spara kartbild** ger en rapportbild med norrpil, skalstock och kartdatakälla. Punkter som ligger några meter från varandra visas som en klunga ("3 st") tills man zoomar in, som i Positioner.
+- **Ny faktor: Position.** Telefonens position närmast i tid jämförs med bildens. Inom 100 m, eller två gånger noggrannheten om den är större, är stöd. Över 1 km är motsägelse. Däremellan en upplysning om möjligt GPS-fel. EXIF-positionen jämförs med databasens. Har filen ingen position står det som upplysning, och saknas routined står faktorn som saknas med orsak. Alternativet "mottagen" får avståndet som skäl.
+- **Kartbilden följer med i båda exporterna**: i protokollet under "Positioner" tillsammans med tabellen, och i förklaringen under "Var telefonen var". Hämtningen har tio sekunders tidsgräns. Hinner kartan inte ritas går exporten vidare utan kartbild, och statusraden säger det.
+- **Fyll med testdata** har fått en EXIF-position, så att tabellen, kartan och positionsfaktorn syns utan extraktion.
+- Kartvyn kan nu lämna ut sin bild till andra verktyg, dölja menyn och zooma in tills nålarna skiljs åt. Kartfel skrivs till konsolen i stället för att försvinna.
+
 ## Nytt i 1.26
 
 - **Nytt verktyg: Härkomst.** Öppna extraktionen och ange ett filnamn, så byggs en tidslinje runt den tid då bilden skapades: skärm tänd, telefonen låst eller olåst, vilka appar som var igång och om kameran var igång, ur Photos.sqlite, knowledgeC, routined och själva bildfilen i zippen (EXIF med ExifTool). `-wal` läses alltid med.

@@ -108,12 +108,23 @@
         });
         if (model.outside) out += p(esc(model.outside + ' registreringar till finns utanför fönstren och visas inte.'));
 
-        out += h(2, '4. Händelser');
+        out += h(2, '4. Positioner');
+        if (model.positions && model.positions.length) {
+            out += table(['Tid (' + meta.zoneLabel + ')', 'UTC', 'Vad', 'Latitud', 'Longitud', 'Noggrannhet', 'Från bildens position', 'Källa'], model.positions.map(function (q) {
+                return [q.ms != null ? fmt(q.ms) : '', q.ms != null ? fmtUtc(q.ms) : '', q.label, q.lat.toFixed(6), q.lon.toFixed(6), q.accuracy ? Math.round(q.accuracy) + ' m' : '',
+                    q.distanceM != null ? (q.distanceM < 1000 ? Math.round(q.distanceM) + ' m' : (q.distanceM / 1000).toFixed(1).replace('.', ',') + ' km') : '', sourceText(q.source)];
+            }));
+            out += imageHtml(meta.mapPng, 'Karta med positionerna');
+        } else {
+            out += p('Ingen position, varken i filen eller från telefonen.');
+        }
+
+        out += h(2, '5. Händelser');
         out += table(['Tid (' + meta.zoneLabel + ')', 'UTC', 'Händelse', 'Värde', 'Till', 'Källa', 'Query'], model.events.map(function (e) {
             return [fmt(e.ms), fmtUtc(e.ms), e.text, eventValue(e), e.endMs != null ? fmt(e.endMs) + (e.openEnded ? ' (pågår)' : '') : '', sourceText(e.source), e.source && e.source.queryId || ''];
         }));
 
-        out += h(2, '5. Källor');
+        out += h(2, '6. Källor');
         (meta.sources || []).forEach(function (s) {
             out += h(3, s.label);
             var rows = [['Sökväg i zippen', s.path], ['Storlek', s.size + ' byte'], ['Ändrad enligt zippen', s.mtime], ['CRC32', s.crc32 + (s.crcOk === false ? ' STÄMMER INTE' : '')], ['SHA-256', s.sha256]];
@@ -160,6 +171,15 @@
             n.notes.forEach(function (note) { out += p(esc(note)); });
             out += imageHtml(meta.timelinePngs && meta.timelinePngs[i], 'Tidslinje');
         });
+
+        if (meta.mapPng) {
+            out += h(2, 'Var telefonen var');
+            out += imageHtml(meta.mapPng, 'Karta med positionerna');
+            var phone = (model.positions || []).filter(function (q) { return q.kind === 'phone'; });
+            if (phone.length || model.filePosition) {
+                out += p(esc((model.filePosition ? 'Nålen för bilden är platsen som står i bilden. ' : '') + (phone.length ? 'De andra nålarna är platser som telefonen själv registrerade i fönstret.' : '')));
+            }
+        }
 
         out += h(2, 'Vad det betyder');
         out += p(esc('Enligt telefonens egen bokföring är det här en ' + model.type.label.toLowerCase() + '.'));

@@ -7,6 +7,8 @@
     <title>Härkomst</title>
     <script src="../_shared/toolkit.js"></script>
     <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="../_shared/map/map.css">
+    <link rel="stylesheet" href="../_shared/map/vendor/maps/maplibre-gl.css">
 </head>
 
 <body>
@@ -90,6 +92,18 @@
                 <div id="timelines"></div>
             </div>
 
+            <div class="box" id="map-box">
+                <div class="box-head">
+                    <div class="step-label">5. Positioner</div>
+                    <div class="button-row">
+                        <button type="button" class="secondary" id="save-map">Spara kartbild</button>
+                    </div>
+                </div>
+                <p class="muted" id="map-intro">Bildens position enligt databasen och EXIF, och telefonens positioner från routined i fönstret. Nålen för bilden är röd. Kartbilden följer med i båda exporterna.</p>
+                <div id="map-host" class="prov-map"></div>
+                <div id="positions" class="result-scroll"></div>
+            </div>
+
             <details class="box" id="details-events">
                 <summary>Händelser med källa</summary>
                 <div id="events" class="result-scroll"></div>
@@ -117,6 +131,10 @@
     <script src="../exif-viewer/exif-core.js"></script>
     <script src="../ios-keychain/vendor/sqljs/sql-wasm-binary.js"></script>
     <script src="../ios-keychain/vendor/sqljs/sql-wasm.js"></script>
+    <script src="../_shared/map/map-core.js"></script>
+    <script src="../_shared/map/vendor/maps/maplibre.js"></script>
+    <script src="../_shared/map/vendor/maps/map-assets.js"></script>
+    <script src="../_shared/map/map-view.js"></script>
     <script src="../db-queries/zip.js"></script>
     <script src="../db-queries/locate.js"></script>
     <script src="../db-queries/wal.js"></script>

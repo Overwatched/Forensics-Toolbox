@@ -244,6 +244,29 @@ Protokollet säger vilken ström som användes. "App igång" är ordet i rapport
   Wellbeing finns dessutom bara på Pixel och vissa andra telefoner, så "app igång" kan också bli
   "saknas" på till exempel Samsung. Det skrivs i hjälptexten.
 
+### Position (byggd 2026-10-29)
+
+En fjärde faktor och en egen del i resultatet. Positionerna samlas från tre håll och visas i en
+tabell med tid, vad, latitud, longitud, noggrannhet, avstånd från bildens position och källa:
+
+- **Bilden enligt databasen:** `ZLATITUDE`/`ZLONGITUDE` i Photos.sqlite (−180 betyder saknas).
+- **Bilden enligt EXIF i filen:** GPS-taggarna ur bildfilen i zippen, via ExifTool.
+- **Telefonen:** routined `ZRTCLLOCATIONMO` i fönstret (GNSS och Wi-Fi), rollen `location`.
+
+Bedömningen tar den position från telefonen som ligger närmast i tid. Stöd om avståndet är inom
+max(100 m, 2 × noggrannheten), motsägelse över 1 km, däremellan en upplysning om möjligt GPS-fel.
+EXIF-positionen jämförs också med databasens. Saknar filen position blir det en upplysning;
+saknas routined blir det "saknas" med orsak. Alternativet "mottagen" får avståndet som skäl.
+
+Kartan är den delade kartvyn (`tools/_shared/map/map-view.js`) med nålar: bilden röd, telefonen
+lila med noggrannhetsring, menyn dold. Kartvyn fick `toImage()`, `setMarker()` och `setMenu()`.
+Kartbilden följer med i båda exporterna, med samma fot som kartans Spara bild. Hämtningen har
+en tidsgräns på tio sekunder, så att exporten inte väntar på en karta som aldrig ritas.
+
+**Provkört:** kärnan och rapporterna i Node (234 tester). Kartan i Electron kunde inte ses, för
+Chromium ritar inga bildrutor när sessionen är låst, och kartans laddning väntar på en ritad
+bildruta. Tabellen, faktorn och exporten utan karta är kontrollerade i appen.
+
 ## Händelselistan och ordförrådet
 
 Allt som visas, både tidslinjen och exporterna, byggs från en enda lista med händelser. Varje
