@@ -507,3 +507,74 @@ sökväg eller ett bundle-id, och att protokollet innehåller allt det.
 - **Inte provkört:** Android (Pixel-zippen saknar bilder), inklistring i Word, HTML-versionen
   (`Toolbox.html`).
 
+
+## Snapchat och "Var finns filen?" (beta, byggd 2026-10-29)
+
+Bakgrund: bildfiler med härkomst från Snapchat saknar ofta rad i Photos.sqlite, eftersom
+Photos bara känner till filer som sparats till bildbiblioteket. Provkörning mot K12345-26
+(iOS 18.5, Snapchat installerat) visade var uppgifterna finns i stället. Allt nedan är
+kontrollerat mot den extraktionen och bara den, därför **beta**: strukturen kan skilja sig
+mellan Snapchat-versioner, och tolkningen av typkoderna är härledd ur en enda telefon.
+
+### Fynd i K12345-26
+
+- Sparade snaps **finns** i Photos.sqlite: `ZIMPORTEDBYBUNDLEIDENTIFIER = com.toyopagroup.picaboo`,
+  `ZSAVEDASSETTYPE = 6`, inget Make/Model, ingen GPS, `ZORIGINALFILENAME = <UUID>.mp4`.
+- Snapchats cache ligger i appens behållare under `Documents/com.snap.file_manager_3_SCContent_<konto>/`
+  med filnamn = cachenyckel, utan ändelse. Registret är `Documents/global_scoped/cachecontroller/cache_controller.db`:
+  `CACHE_FILE_CLAIM` (CACHE_KEY, MEDIA_CONTEXT_TYPE, EXTERNAL_KEY, CREATION/EXPIRATION/DELETED_TIMESTAMP_MILLIS)
+  och `CACHE_FILE_METADATA` (FILE_SIZE_BYTES, LAST_READ_TIMESTAMP_MILLIS). Tider i Unix-millisekunder.
+- `MEDIA_CONTEXT_TYPE` 3 = chattmedia, `EXTERNAL_KEY = 1:<konversations-uuid>:<server_message_id>:0:0`,
+  som matchar `conversation_message` i `Documents/user_scoped/<uid>/arroyo/arroyo.db`
+  (`client_conversation_id`, `server_message_id`, `creation_timestamp`, `read_timestamp`).
+  34 = video inspelad med Snapchats kamera (`<UUID>~1`), samma bytes som
+  `Library/Caches/user_scoped/<uid>/recorded_videos/recorded-<uptid>.mp4`. 16/24 = story-video och
+  första bildruta, 7/13 = bilder från Snapchats CDN, 1/12 = linser.
+- Avsändaren står i protobufen `message_content`: fält 2 → fält 1, 16 byte. Samma id finns i
+  `snapchatter.userId` i `Documents/user_scoped/<uid>/DocObjects/primary.docobjects`, där
+  användarnamnet ligger i kolumnen `p` (en FlatBuffer med längdprefixade strängar). Mediets AES-nyckel (32 B) och IV (16 B) ligger i
+  samma meddelande. Det egna kontots uuid står i mappnamnet `file_manager_3_SCContent_<konto>`.
+- Notiser: `Shared/AppGroup/<GUID>/User/<konto>/databases/nse_db.sqlite` (`ProcessedNotifications`:
+  type, category, timestamp i ms) finns kvar när chatten är tömd.
+- `gallery.encrypteddb` (Memories) är SQLCipher och läses inte.
+- knowledgeC täckte 2026-02-04 → 2026-03-05, Snapchat-aktiviteten var augusti 2025: tystnad
+  i knowledgeC är normalt för äldre filer, Snapchats egna tider får bära tidslinjen då.
+- Zippens innehållsförteckning har storlek och CRC32 för varje post. Dubbletter av en fil
+  hittas på 1,3 s för 494 000 poster utan att läsa en enda fil.
+
+### Vad som byggs
+
+1. **Katalog `queries/ios/snapchat/catalog.json`** (`SNAPCHAT_CATALOG`) med fyra databaser som
+   hittas på suffix: `cache_controller.db`, `arroyo/arroyo.db`, `DocObjects/primary.docobjects`,
+   `databases/nse_db.sqlite`. Synliga queries för manuell kontroll i Queries (med `-wal`), dolda
+   rollqueries för Härkomst: `cache-window`, `cache-key`, `messages`, `friends`, `notifications`,
+   `coverage`. Avsändar-id visas i den synliga SQL:en som hex ur `message_content`, så att
+   tolkningen går att kontrollera för hand.
+2. **`tools/provenance/snapchat.js`**: tolkning av `EXTERNAL_KEY`, typkoderna, protobuf-läsning
+   (avsändare, medienyckel, användarnamn), och händelser till tidslinjen: cachad fil, inspelning,
+   meddelande skickat/mottaget/läst, notis. Alla händelser bär databas, tabell, kolumn och query.
+3. **`tools/provenance/copies.js`**: "Var finns filen?" Alla poster i zippen med samma storlek
+   och CRC32 som filen, bekräftade med SHA-256, med platsens betydelse (DCIM, CPLAssets,
+   Snapchat-cache, SMS-bilaga, bildväljaren, appbehållare …). `ZipRead.scan` ger `keep` även
+   storlek och CRC32, så att bara träffarna sparas.
+4. **Flödet i Härkomst**: filnamnet söks som förut i Photos/MediaStore. Ingen rad → filen söks
+   på namn i hela zippen, och ligger den i Snapchats cache byggs bedömningen på Snapchats
+   register: ny filtyp *Snapchat-media utanför bildbiblioteket*, T = `CREATION_TIMESTAMP_MILLIS`.
+   Man kan också **välja filen från disk**: storlek och CRC32 räknas och zippen söks igenom.
+5. **Faktorerna** för Snapchat-filer: app = Snapchat skrev själv i sitt register vid T (och
+   knowledgeC om det täcker); kamera = inspelning (typ 34) eller mottagen via chatt (typ 3, annan
+   avsändare). Hypotesen formuleras därefter: "skapades med Snapchat på den här telefonen" eller
+   "togs emot i Snapchat på den här telefonen från @konto".
+6. **Spårbarhet** som förut: händelser med källa, källor med CRC32/SHA-256 för databas och
+   `-wal`, och SQL-bilagan längst ned. Protobuf-tolkade värden märks "protobuf, fält 2.1" i
+   källkolumnen. Allt Snapchat-relaterat märks **beta** i gränssnittet och i protokollet.
+
+### Inte med
+
+- Dekryptering av chattmedia med nyckel och IV ur arroyo (möjligt senare steg).
+- Memories (SQLCipher). Android-Snapchat (ingen extraktion att kontrollera mot).
+- Flera Snapchat-konton i samma behållare: första träffen används, det står i statusraden.
+
+### Testdata för Snapchat-flödet (2026-10-29)
+
+Knappen **Testdata: Snapchat (beta)** fyller Härkomst med `snapchatScenario()` ur `sample-data.js`: videon Anna spelar in med Snapchats kamera 14:38:16 (6 min 46 s efter IMG_4104.JPG) och skickar till Erik. Den har ingen rad i Photos.sqlite, så filnamnet är cachenyckeln, T kommer ur `cache_controller.db` (MEDIA_CONTEXT_TYPE 34, EXTERNAL_KEY `<uuid>~1`) och kopiorna ligger i `recorded_videos` och appens `Library/Caches`. Faktorerna blir Skapandetid, Snapchat igång, Snapchats kamera, Skärm och Position, och hypotesen "förenligt med att filen skapades med Snapchat på den här telefonen". Samma telefonlogg och samma Snapchat-register som i kamerascenariot, så de två knapparna berättar en sammanhängande historia. I samma vända: grannbilder ur biblioteket visas även för filer utanför biblioteket, och Snapchats behållar-GUID:er (ur var databaserna hittades) gör att `Library/Caches` i Snapchats behållare märks som Snapchat i "Var finns filen?".

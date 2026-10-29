@@ -17,7 +17,9 @@
             <h1>Härkomst</h1>
             <p>Tidslinje för en bildfil: när den skapades, vilken app som var igång och om kameran var igång.
                 Öppna extraktionen, ange filnamnet och få ett protokoll med alla källor eller en förklaring i vanlig
-                svenska, båda att klistra in i Word. Zippen läses bara, och <code>-wal</code> läses alltid med.</p>
+                svenska, båda att klistra in i Word. Zippen läses bara, och <code>-wal</code> läses alltid med.
+                <span class="badge beta">Beta</span> Filer utanför bildbiblioteket, Snapchats egna register och
+                "Var finns filen?" är nya och kontrollerade mot en enda extraktion: kontrollera mot SQL:en längst ned.</p>
         </header>
 
         <div id="load-error" class="banner error display-none"></div>
@@ -26,12 +28,13 @@
             <div class="box-head">
                 <div>
                     <div class="step-label">1. Extraktion</div>
-                    <p class="muted">Välj extraktionens zip-fil. Appen letar upp Photos.sqlite, knowledgeC, routined, MediaStore och
-                        Wellbeing med deras <code>-wal</code>. Inget packas upp eller skrivs.</p>
+                    <p class="muted">Välj extraktionens zip-fil. Appen letar upp Photos.sqlite, knowledgeC, routined, MediaStore,
+                        Wellbeing och Snapchats databaser med deras <code>-wal</code>. Inget packas upp eller skrivs.</p>
                 </div>
                 <div class="button-row">
                     <button type="button" id="ex-pick">Öppna extraktion (zip)…</button>
                     <button type="button" class="secondary" id="fill-sample">Fyll med testdata</button>
+                    <button type="button" class="secondary" id="fill-sample-snap">Testdata: Snapchat (beta)</button>
                     <button type="button" class="secondary display-none" id="ex-close">Stäng extraktionen</button>
                 </div>
             </div>
@@ -64,9 +67,15 @@
                     <label class="field-label">&nbsp;</label>
                     <button type="button" id="run">Bedöm härkomst</button>
                 </div>
+                <div class="param-block">
+                    <label class="field-label">&nbsp;</label>
+                    <button type="button" class="secondary" id="disk-pick" title="Räknar storlek och CRC32 på filen och letar efter exakt samma innehåll i zippen">Eller välj filen från disk…</button>
+                </div>
             </div>
+            <p class="muted">Finns namnet inte i bildbiblioteket söks hela zippen, till exempel Snapchats cache. <span class="badge beta">Beta</span></p>
             <div id="run-status" class="status"></div>
             <div id="hits" class="display-none"></div>
+            <input type="file" id="disk-input" hidden>
         </section>
 
         <section id="result" class="display-none">
@@ -104,6 +113,14 @@
                 <div id="positions" class="result-scroll"></div>
             </div>
 
+            <div class="box display-none" id="copies-box">
+                <div class="box-head">
+                    <div class="step-label">6. Var filen finns i extraktionen <span class="badge beta">Beta</span></div>
+                </div>
+                <p class="muted">Alla poster i zippen med samma storlek och CRC32 som den bedömda filen, bekräftade med SHA-256. Platsen säger var kopian ligger: bildbiblioteket, en apps lagring, en bilaga.</p>
+                <div id="copies" class="result-scroll"></div>
+            </div>
+
             <details class="box" id="details-events">
                 <summary>Händelser med källa</summary>
                 <div id="events" class="result-scroll"></div>
@@ -127,6 +144,7 @@
     <script src="../../queries/android/catalog.js"></script>
     <script src="../../queries/app-usage/catalog.js"></script>
     <script src="../../queries/ios/routined/catalog.js"></script>
+    <script src="../../queries/ios/snapchat/catalog.js"></script>
     <script src="../app-ids/catalog.js"></script>
     <script src="../exif-viewer/exif-core.js"></script>
     <script src="../ios-keychain/vendor/sqljs/sql-wasm-binary.js"></script>
@@ -140,6 +158,8 @@
     <script src="../db-queries/wal.js"></script>
     <script src="../db-queries/extraction-core.js"></script>
     <script src="roles.js"></script>
+    <script src="snapchat.js"></script>
+    <script src="copies.js"></script>
     <script src="timeline-core.js"></script>
     <script src="timeline-svg.js"></script>
     <script src="report.js"></script>

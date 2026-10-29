@@ -1,5 +1,17 @@
 Automatiskt byggd från commit `{{SHA}}`.
 
+## Nytt i 1.28
+
+- **Härkomst, beta: filer utanför bildbiblioteket.** Finns filnamnet inte i Photos.sqlite söks hela zippen. Ligger filen i Snapchats cache byggs bedömningen på Snapchats egna register: tiden då Snapchat registrerade filen, om den spelades in med Snapchats kamera, skickades till någon eller togs emot från någon, och när den lästes. Avsändare och mottagare visas med användarnamn ur Snapchats kontotabell.
+- **Snapchat i tidslinjen för alla filer (beta).** Cachade snaps, skickade och mottagna meddelanden, lästa snaps och notiser i fönstret, med databas, tabell, kolumn och SQL i protokollet. Fyra Snapchat-databaser läses med `-wal`: `cache_controller.db`, `arroyo.db`, `primary.docobjects` och `nse_db.sqlite`.
+- **Var finns filen? (beta).** Alla poster i zippen med samma storlek och CRC32 som filen, bekräftade med SHA-256, med platsens betydelse: bildbiblioteket, iCloud-original, Snapchats cache, SMS-bilaga, bildväljaren, en apps behållare. Hittas ur innehållsförteckningen på någon sekund även i en zip med en halv miljon poster.
+- **Välj filen från disk.** En fil man fått från annat håll jämförs byte för byte med allt i extraktionen. Träff i bildbiblioteket bedöms som vanligt, träff i Snapchats cache ur Snapchats register.
+- **Testdata: Snapchat.** En andra testdataknapp i Härkomst visar hela Snapchat-flödet utan extraktion: videon som Anna spelar in med Snapchats kamera på samma promenad i Stockholm och skickar till Erik. Filen ligger bara i Snapchats cache, så filnamnet är cachenyckeln, tiden kommer ur `cache_controller.db`, Snapchat-raden i tidslinjen visar inspelningen, sändningen och att mottagaren öppnade den, och "Var filen finns" visar kopiorna i `recorded_videos` och appens `Library/Caches`. Protokollet får Snapchat-queryerna i samma ordning som en riktig körning.
+- **Bilderna i biblioteket runt tidpunkten** visas nu även när den bedömda filen ligger utanför biblioteket, till exempel en bild som sparades i Bilder strax efter en snap.
+- **Snapchats egna behållare känns igen** i "Var finns filen?": en kopia i Snapchats `Library/Caches` märks som Snapchat, inte som en okänd appbehållare, eftersom behållarens GUID är känd från var Snapchats databaser hittades. Saknas bildbibliotekets databas i zippen söks filnamnet direkt i hela zippen.
+- **Queries:** fyra nya Snapchat-databaser (beta) med synliga queries för manuell kontroll. Avsändar-id visas som hex ur protobufen, så att tolkningen går att kontrollera för hand.
+- Allt Snapchat-relaterat är kontrollerat mot en enda extraktion (iOS 18.5) och märkt beta i gränssnittet och protokollet.
+
 ## Nytt i 1.27
 
 - **Positioner i Härkomst.** Ny ruta med en tabell över positionerna runt bilden: bildens position enligt Photos.sqlite, bildens position enligt EXIF i själva filen och telefonens positioner ur routined (GNSS och Wi-Fi) i fönstret. Varje rad har tid, latitud, longitud, noggrannhet, avstånd från bildens position och källa med databas, tabell och kolumner.

@@ -7,6 +7,7 @@
         { id: 'file', label: 'Fil' },
         { id: 'app', label: 'App igång' },
         { id: 'camera', label: 'Kamera' },
+        { id: 'snapchat', label: 'Snapchat' },
         { id: 'screen', label: 'Skärm' },
         { id: 'lock', label: 'Lås' },
         { id: 'location', label: 'Position' },
@@ -14,7 +15,7 @@
     var COLORS = {
         bg: '#ffffff', text: '#1c1c1e', muted: '#6e6e73', grid: '#e5e5ea', lane: '#f7f7f9', t: '#ff3b30',
         app: '#0a84ff', camera: '#30d158', screenOn: '#ffd60a', screenOff: '#8e8e93', locked: '#8e8e93', unlocked: '#64d2ff',
-        file: '#1c1c1e', neighbour: '#a2a2a8', location: '#bf5af2', exif: '#ff9f0a',
+        file: '#1c1c1e', neighbour: '#a2a2a8', location: '#bf5af2', exif: '#ff9f0a', snapchat: '#d4a500',
     };
     var LEFT = 92;
     var RIGHT = 16;
@@ -95,6 +96,16 @@
                         '<g clip-path="url(#c' + e.id + ')">' + text(x1 + 4, mid + 4, label, { size: 10, fill: e.kind === 'screen' && e.on ? COLORS.text : '#ffffff' }) + '</g>';
                 } else if (e.kind === 'location') {
                     out += '<circle cx="' + x(e.ms).toFixed(1) + '" cy="' + mid + '" r="3.5" fill="' + COLORS.location + '"><title>' + esc(e.text + ' ' + fmt(e.ms)) + '</title></circle>';
+                } else if (/^snap-/.test(e.kind)) {
+                    // Snapchat: triangel för meddelanden, cirkel för cacheposter, ring för läst, liten romb för notiser.
+                    var sx = x(e.ms);
+                    var sr = e.isFile ? 7 : 4.5;
+                    var stroke = e.isFile ? ' stroke="' + COLORS.file + '" stroke-width="1.5"' : '';
+                    var title = '<title>' + esc(e.text + ' ' + fmt(e.ms)) + '</title>';
+                    if (e.kind === 'snap-message') out += '<polygon points="' + sx.toFixed(1) + ',' + (mid - sr - 1) + ' ' + (sx + sr + 1).toFixed(1) + ',' + (mid + sr) + ' ' + (sx - sr - 1).toFixed(1) + ',' + (mid + sr) + '" fill="' + COLORS.snapchat + '"' + stroke + '>' + title + '</polygon>';
+                    else if (e.kind === 'snap-read') out += '<circle cx="' + sx.toFixed(1) + '" cy="' + mid + '" r="' + sr + '" fill="none" stroke="' + COLORS.snapchat + '" stroke-width="2">' + title + '</circle>';
+                    else if (e.kind === 'snap-notification') out += '<polygon points="' + sx.toFixed(1) + ',' + (mid - 4) + ' ' + (sx + 4).toFixed(1) + ',' + mid + ' ' + sx.toFixed(1) + ',' + (mid + 4) + ' ' + (sx - 4).toFixed(1) + ',' + mid + '" fill="' + COLORS.snapchat + '" fill-opacity="0.6">' + title + '</polygon>';
+                    else out += '<circle cx="' + sx.toFixed(1) + '" cy="' + mid + '" r="' + sr + '" fill="' + COLORS.snapchat + '"' + stroke + '>' + title + '</circle>';
                 } else {
                     var cx = x(e.ms);
                     var color = e.neighbour ? COLORS.neighbour : e.kind === 'exif' || e.kind === 'fs-mtime' || e.kind === 'paired-video' ? COLORS.exif : COLORS.file;
@@ -118,6 +129,7 @@
         // Förklaring och fot
         var ly = plotBottom + 32;
         var legend = [['◆', 'Skapad', COLORS.file], ['□', 'Tillagd/Ändrad', COLORS.file], ['●', 'EXIF/filsystem', COLORS.exif], ['•', 'Andra bilder', COLORS.neighbour], ['▬', 'App', COLORS.app], ['▬', 'Kamera', COLORS.camera], ['▬', 'Skärm tänd', COLORS.screenOn]];
+        if (events.some(function (e) { return e.lane === 'snapchat'; })) legend.push(['▲', 'Snapchat', COLORS.snapchat]);
         var lx = LEFT;
         legend.forEach(function (item) {
             out += text(lx, ly, item[0], { size: 11, fill: item[2] });

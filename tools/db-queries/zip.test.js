@@ -105,3 +105,12 @@ test('extraktionskoden använder inga skrivande API:er', () => {
         assert.strictEqual(hit, null, f + ' använder ' + (hit && hit[0]));
     }
 });
+
+test('keep får namn, storlek och CRC32 ur innehållsförteckningen', async () => {
+    const buf = buildZip([{ name: 'a/one.bin', data: Buffer.from('hello') }, { name: 'b/two.bin', data: Buffer.from('hello') }, { name: 'c/other.bin', data: Buffer.from('world') }]);
+    const seen = [];
+    const scan = await zip.scan(reader(buf), buf.length, (name, size, crc) => { seen.push([name, size, crc]); return size === 5 && crc === zip.crc32(Buffer.from('hello')); });
+    assert.strictEqual(seen.length, 3);
+    assert.ok(seen.every(([, size, crc]) => size === 5 && typeof crc === 'number'));
+    assert.deepStrictEqual(scan.entries.map((e) => e.name), ['a/one.bin', 'b/two.bin']);
+});

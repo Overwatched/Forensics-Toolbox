@@ -165,3 +165,9 @@ pre.sql { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 12px; w
 #positions { max-height: 320px; margin-top: 10px; }
 #positions td.num { font-variant-numeric: tabular-nums; white-space: nowrap; }
 .pos-file td { background: var(--accent-soft); }
+
+.badge.beta { background: var(--warn-soft); color: var(--warn); vertical-align: middle; margin-left: 4px; }
+.step-label .badge.beta { font-size: 10px; }
+#copies td.path { max-width: 520px; }
+#copies .ok { color: var(--ok); }
+.hit-note { font-size: 12px; color: var(--text-muted); }

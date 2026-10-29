@@ -12,12 +12,15 @@ const catalogs = {
     android: require(path.join(ROOT, 'queries', 'android', 'catalog.json')),
     appUsage: require(path.join(ROOT, 'queries', 'app-usage', 'catalog.json')),
     routined: require(path.join(ROOT, 'queries', 'ios', 'routined', 'catalog.json')),
+    snapchat: require(path.join(ROOT, 'queries', 'ios', 'snapchat', 'catalog.json')),
 };
 
 test('alla källor och roller finns', () => {
     const sources = roles.collect(catalogs);
     const byKey = Object.fromEntries(sources.map((s) => [s.key, s]));
-    assert.deepStrictEqual(Object.keys(byKey).sort(), ['android-mediastore', 'knowledgec', 'photos', 'routined-cache', 'wellbeing']);
+    assert.deepStrictEqual(Object.keys(byKey).sort(), ['android-mediastore', 'knowledgec', 'photos', 'routined-cache', 'snapchat-arroyo', 'snapchat-cache', 'snapchat-friends', 'snapchat-notifications', 'wellbeing']);
+    assert.strictEqual(byKey['snapchat-cache'].beta, true);
+    assert.deepStrictEqual(Object.keys(byKey['snapchat-cache'].roles).sort(), ['cache-key', 'cache-window', 'coverage']);
     assert.strictEqual(byKey.photos.bands.length, 4);
     for (const band of byKey.photos.bands) {
         assert.deepStrictEqual(Object.keys(band.roles).sort(), ['file', 'neighbours', 'sequence'], band.id);

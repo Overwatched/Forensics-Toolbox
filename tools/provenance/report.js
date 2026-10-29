@@ -9,6 +9,17 @@
     var TH = TD + ' background: #e8e8e8; text-align: left; font-weight: bold;';
     var TABLE = 'border-collapse: collapse; margin: 6px 0 12px;';
     var STATE_COLOR = { support: '#1a7f37', contradiction: '#c62828', missing: '#8a6d00', info: '#444', na: '#777' };
+    var BETA_NOTE = 'Snapchats register (cache_controller.db, arroyo.db, primary.docobjects, nse_db.sqlite) och sökningen efter kopior av filen är kontrollerade mot en enda extraktion (iOS 18.5). Typkoder och protobuf-tolkningar är härledda ur den. Varje uppgift går att kontrollera mot SQL:en i bilagan.';
+
+    // En mening om kopiorna, med platsernas betydelse i klartext.
+    function plainCopies(copies) {
+        var seen = {};
+        var places = [];
+        copies.forEach(function (c) { if (c.plain && !seen[c.plain]) { seen[c.plain] = true; places.push(c.plain); } });
+        if (!places.length) return '';
+        var list = places.length === 1 ? places[0] : places.slice(0, -1).join(', ') + ' och ' + places[places.length - 1];
+        return 'Exakt samma fil finns också ' + list + '.';
+    }
 
     function esc(s) {
         return String(s == null ? '' : s)
@@ -47,6 +58,9 @@
 
     function eventValue(e) {
         if (e.kind === 'app') return e.app || '';
+        if (e.kind === 'snap-cache' || e.kind === 'snap-cache-deleted') return 'typ ' + e.context + (e.cacheKey ? ', ' + String(e.cacheKey) : '');
+        if (e.kind === 'snap-message' || e.kind === 'snap-read') return (e.conversation ? String(e.conversation) + ' #' + e.serverId : '') + (e.senderId ? ', avsändare ' + e.senderId : '');
+        if (e.kind === 'snap-notification') return e.notifType || '';
         if (e.kind === 'screen') return e.on ? 'tänd' : 'släckt';
         if (e.kind === 'lock') return e.locked ? 'låst' : 'olåst';
         if (e.kind === 'location') return e.lat.toFixed(5) + ', ' + e.lon.toFixed(5) + ' ±' + Math.round(e.accuracy) + ' m';
@@ -72,6 +86,7 @@
             ['Rapporten skapad', meta.createdText || ''],
         ]);
         if (meta.sampleNote) out += p('<b>' + esc(meta.sampleNote) + '</b>');
+        if (model.beta) out += p('<b>Betafunktion:</b> ' + esc(BETA_NOTE));
         if (model.warnings.length) out += p('<b>Varningar:</b> ' + model.warnings.map(esc).join(' '));
 
         out += h(2, '1. Filen');
@@ -119,12 +134,22 @@
             out += p('Ingen position, varken i filen eller från telefonen.');
         }
 
-        out += h(2, '5. Händelser');
+        out += h(2, '5. Var filen finns i extraktionen');
+        if (meta.fileEntry) out += p('<b>Den bedömda filen:</b> ' + esc(meta.fileEntry.path));
+        if (model.copies && model.copies.length) {
+            out += table(['Sökväg i zippen', 'Plats', 'Storlek', 'Ändrad enligt zippen', 'CRC32', 'SHA-256'], model.copies.map(function (c) {
+                return [c.name, c.label, c.size + ' byte', c.mtime || '', c.crc32 || '', c.shaOk === true ? 'samma som filen' : c.shaOk === false ? 'SKILJER SIG' : 'inte kontrollerad'];
+            }));
+        } else {
+            out += p(meta.copiesNote || 'Ingen annan post i zippen har samma storlek och CRC32.');
+        }
+
+        out += h(2, '6. Händelser');
         out += table(['Tid (' + meta.zoneLabel + ')', 'UTC', 'Händelse', 'Värde', 'Till', 'Källa', 'Query'], model.events.map(function (e) {
             return [fmt(e.ms), fmtUtc(e.ms), e.text, eventValue(e), e.endMs != null ? fmt(e.endMs) + (e.openEnded ? ' (pågår)' : '') : '', sourceText(e.source), e.source && e.source.queryId || ''];
         }));
 
-        out += h(2, '6. Källor');
+        out += h(2, '7. Källor');
         (meta.sources || []).forEach(function (s) {
             out += h(3, s.label);
             var rows = [['Sökväg i zippen', s.path], ['Storlek', s.size + ' byte'], ['Ändrad enligt zippen', s.mtime], ['CRC32', s.crc32 + (s.crcOk === false ? ' STÄMMER INTE' : '')], ['SHA-256', s.sha256]];
@@ -172,6 +197,11 @@
             out += imageHtml(meta.timelinePngs && meta.timelinePngs[i], 'Tidslinje');
         });
 
+        if (model.copies && model.copies.length) {
+            out += h(2, 'Var filen finns');
+            out += p(esc(plainCopies(model.copies)));
+        }
+
         if (meta.mapPng) {
             out += h(2, 'Var telefonen var');
             out += imageHtml(meta.mapPng, 'Karta med positionerna');
@@ -186,6 +216,7 @@
         model.factors.forEach(function (f) { out += p('<b>' + esc(f.title) + '.</b> ' + esc(f.plain)); });
         out += p('<b>' + esc(model.summary) + '</b>');
         out += p(esc('Bedömningen säger vad som är förenligt med telefonens registreringar. Den säger inte vem som höll i telefonen.'));
+        if (model.beta) out += p(esc('Uppgifterna från Snapchats egna register och sökningen efter kopior av filen är nya funktioner som kontrollerats mot ett begränsat material.'));
         var walWarnings = (meta.sources || []).filter(function (s) { return s.warnings && s.warnings.some(function (w) { return /-wal/.test(w); }); });
         if (walWarnings.length) {
             out += p(esc('En del av telefonens registreringar lästes utan sin senaste loggfil, så den senaste tidens registreringar kan saknas.'));
@@ -212,7 +243,7 @@
             '<body style="max-width: 1000px; margin: 24px auto; padding: 0 16px; color: #1c1c1e; background: #fff;">' + bodyHtml + '</body></html>\n';
     }
 
-    var api = { protocol: protocol, explanation: explanation, plainText: plainText, standalone: standalone, esc: esc };
+    var api = { protocol: protocol, explanation: explanation, plainText: plainText, standalone: standalone, esc: esc, plainCopies: plainCopies, BETA_NOTE: BETA_NOTE };
     if (typeof module !== 'undefined' && module.exports) module.exports = api;
     else root.ProvenanceReport = api;
 })(typeof window !== 'undefined' ? window : this);

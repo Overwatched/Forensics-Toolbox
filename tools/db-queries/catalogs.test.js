@@ -10,6 +10,7 @@ const photos = require(path.join(ROOT, 'queries', 'ios', 'photos-sqlite', 'catal
 const android = require(path.join(ROOT, 'queries', 'android', 'catalog.json'));
 const appUsage = require(path.join(ROOT, 'queries', 'app-usage', 'catalog.json'));
 const routined = require(path.join(ROOT, 'queries', 'ios', 'routined', 'catalog.json'));
+const snapchat = require(path.join(ROOT, 'queries', 'ios', 'snapchat', 'catalog.json'));
 
 // Rollqueryer (hidden) hör till Härkomst och visas inte i Queries. De kontrolleras för sig.
 const visible = (list) => list.filter((q) => !q.hidden);
@@ -37,6 +38,18 @@ test('routined: en rekommenderad query per databas och undertext på alla', () =
     for (const db of routined.databases) checkGroup(db.id, db.queries, (q) => q.subtitle);
 });
 
+test('snapchat (beta): en rekommenderad query per databas, undertext på alla, tider i millisekunder', () => {
+    for (const db of snapchat.databases) checkGroup(db.id, db.queries, (q) => q.subtitle);
+    for (const db of snapchat.databases) for (const q of db.queries) {
+        if (/\{\{(cocoa|unix)(Start|End)\}\}/.test(q.sql)) assert.fail(db.id + '/' + q.id + ': Snapchat-tider är millisekunder, använd unixMs-platshållarna');
+        if (!q.hidden && /\{\{unixMs/.test(q.sql)) assert.strictEqual(q.timeEpoch, 'unix-ms', db.id + '/' + q.id + ': timeEpoch');
+    }
+    const cache = snapchat.databases.find((d) => d.id === 'snapchat-cache');
+    assert.match(cache.queries.find((q) => q.id === 'cached-media').sql, /CACHE_FILE_CLAIM[\s\S]*CACHE_FILE_METADATA/);
+    const arroyo = snapchat.databases.find((d) => d.id === 'snapchat-arroyo');
+    assert.match(arroyo.queries.find((q) => q.id === 'messages').sql, /hex\(substr\(message_content, 7, 16\)\)/, 'avsändar-id ska gå att kontrollera för hand');
+});
+
 test('routined: positionerna tar bara med kända ZTYPE (1 GNSS, 4 Wi-Fi) och filtrerar på råtiden', () => {
     const q = routined.databases[0].queries.find((x) => x.id === 'locations');
     assert.match(q.sql, /ZTYPE IN \(1, 4\)/);
@@ -57,6 +70,7 @@ test('hjälpfrågor heter "Hjälp: …" eller "Tips: …"', () => {
         ...android.categories.flatMap((c) => c.queries.map((q) => [q.id, q.title, q.group])),
         ...appUsage.databases.flatMap((d) => d.queries.map((q) => [q.id, q.title, q.group])),
         ...routined.databases.flatMap((d) => d.queries.map((q) => [q.id, q.title, q.group])),
+        ...snapchat.databases.flatMap((d) => d.queries.map((q) => [q.id, q.title, q.group])),
     ];
     for (const [id, title, group] of all) {
         if (/^(Hjälp|Tips):/.test(title)) assert.strictEqual(group, 'advanced', id + ': hjälpfråga utan group advanced');
@@ -76,6 +90,7 @@ test('rollqueryer för Härkomst: dolda, med epoch och fältkarta som stämmer m
     }
     for (const db of appUsage.databases) for (const q of db.queries) if (q.hidden) groups.push([db.id + '/' + q.id, q]);
     for (const db of routined.databases) for (const q of db.queries) if (q.hidden) groups.push([db.id + '/' + q.id, q]);
+    for (const db of snapchat.databases) for (const q of db.queries) if (q.hidden) groups.push([db.id + '/' + q.id, q]);
     for (const cat of android.categories) for (const q of cat.queries) if (q.hidden) groups.push(['android-' + cat.id + '/' + q.id, q]);
     assert.ok(groups.length >= 12, 'för få rollqueryer: ' + groups.length);
     for (const [name, q] of groups) {
@@ -98,6 +113,10 @@ test('rollqueryer för Härkomst: dolda, med epoch och fältkarta som stämmer m
     assert.deepStrictEqual(roles(appUsage.databases.find((d) => d.id === 'knowledgec').queries), ['app-infocus', 'app-usage', 'coverage', 'lock', 'screen']);
     assert.deepStrictEqual(roles(appUsage.databases.find((d) => d.id === 'wellbeing').queries), ['app-events', 'coverage']);
     assert.deepStrictEqual(roles(routined.databases[0].queries), ['coverage', 'location']);
+    assert.deepStrictEqual(roles(snapchat.databases.find((d) => d.id === 'snapchat-cache').queries), ['cache-key', 'cache-window', 'coverage']);
+    assert.deepStrictEqual(roles(snapchat.databases.find((d) => d.id === 'snapchat-arroyo').queries), ['coverage', 'messages']);
+    assert.deepStrictEqual(roles(snapchat.databases.find((d) => d.id === 'snapchat-friends').queries), ['friends']);
+    assert.deepStrictEqual(roles(snapchat.databases.find((d) => d.id === 'snapchat-notifications').queries), ['coverage', 'notifications']);
     assert.deepStrictEqual(roles(android.categories.find((c) => c.id === 'mediastore').queries), ['file', 'neighbours']);
 });
 
@@ -108,6 +127,7 @@ test('sökvägar för extraktion: alla SQL-databaser har dem, och de är skrivna
         ['photos', photos.paths],
         ...appUsage.databases.map((d) => [d.id, d.paths]),
         ...routined.databases.map((d) => [d.id, d.paths]),
+        ...snapchat.databases.map((d) => [d.id, d.paths]),
         ...android.categories.filter((c) => c.id !== 'usage').map((c) => ['android-' + c.id, c.paths]),
     ];
     for (const [name, paths] of groups) {

@@ -38,12 +38,12 @@ Tidslinjen och förklaringen i vanlig svenska. Positionerna, bildens egen och te
 - **Positioner.** Samma karta för GPX, KML, CSV, GeoJSON och Google-tidslinje.
 - **App-ID.** Slå upp ett appnamn, eller klistra in ett paket-id och få namnet.
 - **Queries.** Färdiga frågor mot Photos.sqlite, knowledgeC, routined Cache.sqlite och Android. Frågan kan köras direkt i appen, med `-wal` inläst, och positionerna kan visas i Positioner. Öppna extraktionens zip-fil, så hittar appen databaserna själv utan att något packas upp.
-- **Härkomst.** Tidslinje för en bildfil: när den skapades, vilken app som var igång och om kameran var igång, ur Photos.sqlite, knowledgeC, routined och själva bildfilen i extraktionen. Typen avgörs först (kamerabild, skärmdump eller sparad ur en app), och varje faktor bedöms som stöd, motsägelse eller saknas. Tystnad i loggarna redovisas som saknas, aldrig som bevis. Två exporter för Word: ett protokoll med alla källor och hashar, och en förklaring i vanlig svenska.
+- **Härkomst.** Tidslinje för en bildfil: när den skapades, vilken app som var igång och om kameran var igång, ur Photos.sqlite, knowledgeC, routined och själva bildfilen i extraktionen. Typen avgörs först (kamerabild, skärmdump eller sparad ur en app), och varje faktor bedöms som stöd, motsägelse eller saknas. Tystnad i loggarna redovisas som saknas, aldrig som bevis. Två exporter för Word: ett protokoll med alla källor och hashar, och en förklaring i vanlig svenska. *Beta:* filer utanför bildbiblioteket, till exempel i Snapchats cache, bedöms ur Snapchats egna register (vem som skickade, när den lästes, om Snapchats kamera spelade in), och **Var finns filen?** listar alla kopior av filen i extraktionen via storlek och CRC32.
 - **Övrigt.** Tidskonvertering, nyckelring, hash, filjämförelse, Magic Text, QR, CyberChef, korta checklistor och länkar till externa verktyg.
 
 Kartan kan visa flygfoton eller satellitbilder (Satellit och Hybrid) om du lägger en bildkarta i `.pmtiles`-format i mappen `maps`. Inga bilder hämtas från nätet. Se [utvecklingsdokumentationen](docs/DEVELOPMENT.md).
 
-Knappen **Fyll med testdata** i EXIF & karta, Positioner och Härkomst lägger in en påhittad promenad i Stockholm, så att kartan och tidslinjen går att prova direkt.
+Knappen **Fyll med testdata** i EXIF & karta, Positioner och Härkomst lägger in en påhittad promenad i Stockholm, så att kartan och tidslinjen går att prova direkt. Härkomst har dessutom **Testdata: Snapchat (beta)**: en video som spelas in med Snapchats kamera på samma promenad och bara finns i Snapchats cache, så att Snapchat-flödet, "Var finns filen?" och protokollet går att se utan extraktion.
 
 ## Köra från källkod
 

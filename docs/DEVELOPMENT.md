@@ -134,6 +134,28 @@ i extraktionen med `-wal` pålagd, och bygger en händelselista i UTC.
 
 Plan och provkörning: [PLAN-harkomst.md](PLAN-harkomst.md).
 
+#### Snapchat och "Var finns filen?" (beta)
+
+- `queries/ios/snapchat/catalog.json` har fyra databaser som hittas på **suffix** i appens behållare
+  (GUID:t varierar): `Documents/global_scoped/cachecontroller/cache_controller.db`, `arroyo/arroyo.db`,
+  `DocObjects/primary.docobjects` och `databases/nse_db.sqlite`. Synliga queries för manuell kontroll
+  i Queries, dolda rollqueries för Härkomst. Tiderna är Unix-millisekunder (`{{unixMsStart}}`).
+- `tools/provenance/snapchat.js` tolkar `EXTERNAL_KEY` (`1:<konversation>:<server_message_id>:0:0`
+  = chattmedia, `<UUID>~1` = inspelning med Snapchats kamera, `ANVÄNDARNAMN~<UUID>` = skickad snap),
+  typkoderna i `MEDIA_CONTEXT_TYPE`, och protobufen: avsändaren är fält 2 → fält 1 (16 byte) i
+  `message_content`, samma bytes som `hex(substr(message_content, 7, 16))` i den synliga queryn.
+  Användarnamn läses ur `snapchatter.p`, som är en FlatBuffer (längdprefixade strängar i klartext).
+  Det egna kontot står i mappnamnet `file_manager_3_SCContent_<uuid>`.
+- `tools/provenance/copies.js`: dubbletter på storlek + CRC32 ur innehållsförteckningen
+  (`ZipRead.scan` ger `keep(namn, storlek, crc32)`), bekräftade med SHA-256, och platsens betydelse.
+- Flödet: ingen rad i Photos → filnamnet söks i hela zippen → ligger filen i Snapchats cache blir
+  T `CREATION_TIMESTAMP_MILLIS` och typen *Snapchat-media utanför bildbiblioteket*; annars EXIF-tid
+  eller zippens ändringstid. "Välj filen från disk" räknar CRC32 på filen och söker zippen.
+- Faktorerna för Snapchat-filer: *Snapchat igång* (appens egen registerrad vid T, plus knowledgeC),
+  *Snapchats kamera* (typ 34, eller en inspelning strax före en skickad snap; mottagen = inte tillämplig).
+- Allt är kontrollerat mot **en** extraktion (K12345-26, iOS 18.5). Därför beta: märkt i gränssnittet,
+  i protokollet och i katalogens `sourceNote`.
+
 ### ExifTool i EXIF-visaren
 
 `tools/exif-viewer/vendor/exiftool/` byggs av `node scripts/vendor-exiftool.js` från
@@ -228,7 +250,11 @@ i webbläsaren.
   är oberoende av hur indata delas upp i bitar
 - Testdata ligger i `tools/**/fixtures/` och tas inte med i bygget
 - "Fyll med testdata" i Härkomst kommer från `tools/provenance/sample-data.js`: samma promenad,
-  bilden IMG_4104.JPG vid Sergels torg mitt i en Snapchat-session, med påhittade knowledgeC-rader
+  bilden IMG_4104.JPG vid Sergels torg mitt i en Snapchat-session, med påhittade knowledgeC-rader.
+  "Testdata: Snapchat" är `snapchatScenario()` i samma fil: videon Anna spelar in med Snapchats
+  kamera 14:38:16 och skickar till Erik, utan rad i Photos.sqlite, med cachenyckeln som filnamn
+  och kopior i recorded_videos och Library/Caches. Båda scenarierna delar telefonloggen
+  (`phoneLog()`) och Snapchats register (`snapchatContext()`), så historien hänger ihop
 - "Fyll med testdata" i kartverktygen kommer från `tools/_shared/map/sample-data.js`. Positionerna
   ligger på gator i offlinekartan (rutterna korsar vatten bara på broar). Ändras filerna där, kör
   `node scripts/generate-sample-jpegs.js` så att bildmotiven (`sample-jpegs.js`) följer med
@@ -246,3 +272,7 @@ i webbläsaren.
 - Windows-signing är avstängd (`signExecutable: false`). Ikon och metadata skrivs ändå in i exe-filen.
 - `npm audit`-varningar i Electron-kedjan är vanliga; åtgärda inte med `audit fix --force` utan översikt
 - Härkomst: Android-delen är oprövad (ingen extraktion med bilder fanns), skärm och lås saknas på Android (Wellbeing loggar dem inte), bildfiler över 200 MB läses inte för EXIF, och inklistringen i Word är provkörd bara via urklippsstatus, inte i Word självt
+- **Snapchat (beta):** typkoder och protobuf-tolkning är härledda ur en enda extraktion. Memories
+  (`gallery.encrypteddb`) är SQLCipher och läses inte. Chattmedia är ofta krypterat på disk; nyckel och
+  IV ligger i `message_content` men används inte. Flera Snapchat-konton i samma behållare: första
+  träffen används. Android-Snapchat är inte kontrollerat.

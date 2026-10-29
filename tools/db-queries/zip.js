@@ -81,7 +81,7 @@
         }
     }
 
-    // Går igenom hela innehållsförteckningen i bitar och sparar bara poster där keep(namn) är sant.
+    // Går igenom hela innehållsförteckningen i bitar och sparar bara poster där keep(namn, storlek, crc32) är sant.
     // onProgress(lästa byte, totalt) anropas efter varje bit.
     async function scan(read, size, keep, onProgress) {
         var dir = await readDirectory(read, size);
@@ -103,7 +103,9 @@
                 if (at + total > buf.length) break;
                 count++;
                 var name = utf8.decode(buf.subarray(at + 46, at + 46 + nameLen));
-                if (keep(name)) {
+                // keep får också storlek och CRC32 ur posten, så att dubbletter av en fil kan
+                // hittas utan att alla poster sparas. Zip64-storlekar är 0xFFFFFFFF här.
+                if (keep(name, u32(buf, at + 24), u32(buf, at + 16))) {
                     var e = {
                         name: name,
                         flags: u16(buf, at + 8),
