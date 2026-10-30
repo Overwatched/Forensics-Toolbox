@@ -138,6 +138,33 @@
         return { entries: kept, count: count, expected: dir.entries, zip64: dir.zip64, directorySize: dir.size };
     }
 
+    // Innehållsförteckningen hålls i minnet efter första läsningen, så att varje sökning i zippen
+    // (databaserna, filen, kopior, Snapchats poster) läser den ur minnet i stället för från disk.
+    // Är den större än gränsen läses den från disk vid varje sökning som förut. Posterna själva
+    // läses alltid ur zippen. Ingenting skrivs.
+    var MAX_CACHED_DIRECTORY = 512 * 1024 * 1024;
+    async function cacheDirectory(read, size, opts, onProgress) {
+        opts = opts || {};
+        var max = opts.maxBytes || MAX_CACHED_DIRECTORY;
+        var dir = await readDirectory(read, size);
+        var info = { entries: dir.entries, directorySize: dir.size, zip64: dir.zip64, cached: false, read: read };
+        if (dir.size > max) return info;
+        var bytes = new Uint8Array(dir.size);
+        for (var pos = 0; pos < dir.size; pos += CHUNK) {
+            var len = Math.min(CHUNK, dir.size - pos);
+            bytes.set(await read(dir.offset + pos, len), pos);
+            if (onProgress) onProgress(pos + len, dir.size);
+        }
+        var start = dir.offset;
+        var end = dir.offset + dir.size;
+        info.cached = true;
+        info.read = async function (offset, length) {
+            if (offset >= start && offset + length <= end) return bytes.subarray(offset - start, offset - start + length);
+            return read(offset, length);
+        };
+        return info;
+    }
+
     var CRC_TABLE = (function () {
         var t = new Uint32Array(256);
         for (var n = 0; n < 256; n++) {
@@ -191,7 +218,7 @@
         };
     }
 
-    var api = { scan: scan, extract: extract, crc32: crc32, fileReader: fileReader, readDirectory: readDirectory, MAX_ENTRY: MAX_ENTRY };
+    var api = { scan: scan, extract: extract, crc32: crc32, fileReader: fileReader, readDirectory: readDirectory, cacheDirectory: cacheDirectory, MAX_ENTRY: MAX_ENTRY, MAX_CACHED_DIRECTORY: MAX_CACHED_DIRECTORY };
     if (typeof module !== 'undefined' && module.exports) module.exports = api;
     else root.ZipRead = api;
 })(typeof window !== 'undefined' ? window : this);

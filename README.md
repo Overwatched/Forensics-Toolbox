@@ -10,7 +10,7 @@ Verktyg för IT-forensik som körs på din egen dator. Inget nätverk behövs. O
 
 ![Härkomst: tidslinje och förklaring](docs/images/harkomst-tidslinje.png)
 
-Tidslinjen och förklaringen i vanlig svenska. Positionerna, bildens egen och telefonens från routined, visas i en tabell och på kartan med nålar, och avståndet mellan dem är en egen faktor. Båda exporterna kopieras rakt in i Word: förklaringen utan källor, för den som inte är tekniker, och protokollet med databas, sökväg, CRC32, SHA-256 och SQL för varje rad.
+Tidslinjen är en översikt över hela fönstret och en närbild på sekunderna runt T med händelserna utskrivna, följd av nyckelhändelserna med källa. Programmets sammanvägning är underlag: den slutliga bedömningen gör undersökaren, som skriver sin egen bedömning i en ruta som följer med i båda exporterna. Positionerna, bildens egen och telefonens från routined, visas i en tabell och på kartan med nålar, och avståndet mellan dem är en egen faktor. Båda exporterna kopieras rakt in i Word: förklaringen utan källor, för den som inte är tekniker, och protokollet med databas, sökväg, CRC32, SHA-256 och SQL för varje rad.
 
 ![EXIF & karta: metadata för en hel mapp](docs/images/exif-tabell.png)
 

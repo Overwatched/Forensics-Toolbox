@@ -80,9 +80,14 @@
 
         <section id="result" class="display-none">
             <div class="box" id="summary-box">
-                <div class="step-label">3. Bedömning</div>
+                <div class="step-label">3. Underlag för bedömning</div>
+                <div class="role" id="role-note"></div>
                 <div id="summary"></div>
                 <div id="factors" class="factors"></div>
+                <div class="own">
+                    <label class="field-label" for="own-assessment">Undersökarens bedömning (följer med i protokollet och förklaringen) · <span id="check-count"></span></label>
+                    <textarea id="own-assessment" rows="3" spellcheck="true" placeholder="Din egen bedömning i egna ord. Lämnas rutan tom står det ”Ej ifylld” under rubriken Undersökarens bedömning i exporterna."></textarea>
+                </div>
             </div>
 
             <div class="box">
@@ -95,8 +100,10 @@
                         <button type="button" class="secondary" id="save-protocol">Spara protokoll som HTML</button>
                     </div>
                 </div>
-                <p class="muted">Förklaringen är för den som inte är tekniker: klockslag och vad som hände, inga källor. Protokollet
-                    har varje rad med databas, sökväg, CRC32, SHA-256 och SQL.</p>
+                <p class="muted">Översikten visar hela fönstret, närbilden sekunderna runt T med händelserna utskrivna. Nyckelhändelserna
+                    är raderna inom närbilden, resten ligger under Visa alla. Förklaringen är för den som inte är tekniker: alla rader
+                    med klockslag, inga källor. Protokollet har varje rad med databas, sökväg, CRC32, SHA-256 och SQL. Båda bilderna
+                    följer med i båda exporterna.</p>
                 <div id="export-status" class="status"></div>
                 <div id="timelines"></div>
             </div>

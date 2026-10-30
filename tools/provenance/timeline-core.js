@@ -145,6 +145,9 @@
             if (w.centerMs == null || out.some(function (o) { return Math.abs(o.centerMs - w.centerMs) <= windowMs; })) return;
             out.push({ id: w.id, label: w.label, centerMs: w.centerMs, startMs: w.centerMs - windowMs, endMs: w.centerMs + windowMs });
         });
+        // Närbilden: en tiondel av fönstret åt varje håll, minst 30 s. ±15 min ger ±90 s.
+        var half = Math.max(30000, Math.round(windowMs / 10));
+        out.forEach(function (w) { w.closeup = { id: w.id + '-closeup', label: 'närbild', centerMs: w.centerMs, startMs: w.centerMs - half, endMs: w.centerMs + half }; });
         return out;
     }
 
@@ -648,21 +651,21 @@
         var lines = [];
         var range = unionRange(wins);
         var seen = {};
-        function push(ms, text, bold) {
+        function push(ms, text, bold, e) {
             if (ms == null || text == null) return;
             if (!inRange(ms, range)) return;
             var key = Math.round(ms / 1000) + '|' + text;
             if (seen[key]) return;
             seen[key] = true;
-            lines.push({ ms: ms, text: text, bold: !!bold });
+            lines.push({ ms: ms, text: text, bold: !!bold, source: e && e.source || null, lane: e && e.lane || null, kind: e && e.kind || null });
         }
         var neighbours = [];
         var locations = [];
         events.forEach(function (e) {
             if (e.neighbour) { neighbours.push(e); return; }
             if (e.kind === 'location') { locations.push(e); return; }
-            if (e.plain) push(e.ms, e.plain, e.bold);
-            if (e.plainEnd && e.endMs != null && !e.openEnded) push(e.endMs, e.plainEnd, false);
+            if (e.plain) push(e.ms, e.plain, e.bold, e);
+            if (e.plainEnd && e.endMs != null && !e.openEnded) push(e.endMs, e.plainEnd, false, e);
         });
         lines.sort(function (a, b) { return a.ms - b.ms; });
         var notes = [];
@@ -707,6 +710,8 @@
         var alts = file.createdMs ? alternatives(input, type, factors) : [];
         var perWindow = wins.map(function (w) {
             var n = narrative(events.filter(function (e) { return inRange(e.ms, w) || (e.endMs != null && e.endMs >= w.startMs && e.ms <= w.endMs); }), [w], { centerMs: w.centerMs, format: input.format, extraNotes: input.extraNotes, outside: type.type === 'snapchat' });
+            // Raderna inom närbilden är nyckelhändelserna; resten visas när användaren ber om det.
+            n.lines.forEach(function (l) { l.near = !!(w.closeup && l.ms >= w.closeup.startMs && l.ms <= w.closeup.endMs); });
             return { window: w, lines: n.lines, notes: n.notes };
         });
         var summary = summaryText(type, factors, input.appNames);

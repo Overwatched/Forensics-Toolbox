@@ -15,6 +15,8 @@
         loaded: {},          // zip-postens namn -> laddad databas (bytes, stats, hashes, sqlDb …)
         exif: null,          // ExifTool-motorn
         model: null, meta: null, pngs: [],
+        ownFor: null,        // filnamnet som undersökarens ruta och bockar gäller
+        checked: {},         // faktor-id -> när undersökaren bockade i Kontrollerad (ms)
     };
     var SQL = null;
 
@@ -126,10 +128,13 @@
     async function openZip(file) {
         closeZip();
         setStatus('ex-status', 'Läser zippens innehållsförteckning…');
-        var read = ZipRead.fileReader(file);
-        var opened = await ExtractionCore.open(read, file.size, state.targets, function (done, total) {
+        // Innehållsförteckningen läses från disk en gång och hålls i minnet: varje sökning efter
+        // databaser, filen, kopior och Snapchats poster går sedan mot minnet.
+        var cache = await ZipRead.cacheDirectory(ZipRead.fileReader(file), file.size, null, function (done, total) {
             setStatus('ex-status', 'Läser zippens innehållsförteckning… ' + Math.round(100 * done / total) + ' %');
         });
+        var read = cache.read;
+        var opened = await ExtractionCore.open(read, file.size, state.targets, null);
         var keys = opened.found.map(function (f) { return f.key; });
         var platform = keys.indexOf('photos') >= 0 ? 'iOS' : keys.indexOf('android-mediastore') >= 0 ? 'Android' : null;
         state.zip = {
@@ -137,7 +142,8 @@
             zipLine: 'Extraktion: ' + file.name + ' (' + file.size + ' byte, ändrad ' + new Date(file.lastModified).toISOString() + ')',
         };
         var text = opened.found.length + (opened.found.length === 1 ? ' databas' : ' databaser') + ' hittades på ' + opened.seconds.toFixed(1).replace('.', ',') + ' s. ' +
-            file.name + ' · ' + ExtractionCore.sizeText(file.size) + (opened.version ? ' · iOS ' + opened.version : platform === 'Android' ? ' · Android' : '');
+            file.name + ' · ' + ExtractionCore.sizeText(file.size) + (opened.version ? ' · iOS ' + opened.version : platform === 'Android' ? ' · Android' : '') +
+            ' · innehållsförteckningen: ' + opened.scan.count.toLocaleString('sv-SE') + ' poster, ' + ExtractionCore.sizeText(cache.directorySize) + (cache.cached ? ', hålls i minnet' : ', läses från disk vid varje sökning');
         if (!platform) text += ' Varken Photos.sqlite eller MediaStore hittades, så ingen fil kan bedömas.';
         setStatus('ex-status', escapeHtml(text));
         renderFound();
@@ -1094,36 +1100,76 @@
         return '<span class="badge ' + escapeHtml(stateName) + '">' + escapeHtml(model.stateLabel[stateName] || stateName) + '</span>';
     }
 
+    function updateCheckCount() {
+        var m = state.model;
+        if (!m) return;
+        var n = m.factors.filter(function (f) { return state.checked[f.id]; }).length;
+        $('check-count').textContent = n + ' av ' + m.factors.length + (m.factors.length === 1 ? ' faktor' : ' faktorer') + ' kontrollerade';
+    }
+
+    function shortSource(src) {
+        if (!src || !src.db) return '';
+        return [src.db, src.stream || src.table].filter(Boolean).join(' ');
+    }
+
     async function render() {
         var m = state.model;
         var meta = state.meta;
         var fmt = meta.format;
+        if (state.ownFor !== m.file.filename) { $('own-assessment').value = ''; state.checked = {}; state.ownFor = m.file.filename; }
         $('summary').innerHTML =
             (m.beta ? '<div class="type-line"><span class="badge beta">Beta</span> ' + escapeHtml(ProvenanceReport.BETA_NOTE) + '</div>' : '') +
             '<div class="type-line"><strong>Typ av fil:</strong> ' + escapeHtml(m.type.label) + (m.type.reasons.length ? ' (' + escapeHtml(m.type.reasons.join(', ')) + ')' : '') +
             (m.type.flags.length ? ' · ' + escapeHtml(m.type.flags.join(', ')) : '') + ' · ' + escapeHtml(meta.deviceLabel) + ' · T = ' + escapeHtml(fmt(m.file.createdMs || 0)) + ' (' + escapeHtml(meta.zoneLabel) + ')</div>' +
-            '<div class="summary-text">' + escapeHtml(m.summary) + '</div>' +
+            '<div class="summary-text"><span class="badge">Programmets sammanvägning</span>' + escapeHtml(m.summary) + '</div>' +
             (m.warnings.length ? '<div class="warnings">' + m.warnings.map(escapeHtml).join('<br>') + '</div>' : '');
         $('factors').innerHTML = m.factors.map(function (f) {
-            return '<div class="factor"><h3>' + badge(m, f.state) + escapeHtml(f.title) + '</h3><ul>' +
+            var at = state.checked[f.id];
+            return '<div class="factor' + (at ? ' checked' : '') + '" data-factor="' + escapeHtml(f.id) + '"><h3>' + badge(m, f.state) + escapeHtml(f.title) +
+                '<label class="chk" title="Bocka i när du själv har kontrollerat faktorn mot källan och SQL:en. Följer med i protokollet med klockslag."><input type="checkbox" data-factor="' + escapeHtml(f.id) + '"' + (at ? ' checked' : '') + '>Kontrollerad</label></h3><ul>' +
                 f.items.map(function (i) { return '<li>' + escapeHtml(i.text) + '</li>'; }).join('') + '</ul><div class="plain">' + escapeHtml(f.plain) + '</div></div>';
         }).join('');
+        $('factors').querySelectorAll('input[data-factor]').forEach(function (cb) {
+            cb.addEventListener('change', function () {
+                var id = cb.getAttribute('data-factor');
+                if (cb.checked) state.checked[id] = Date.now(); else delete state.checked[id];
+                cb.closest('.factor').classList.toggle('checked', cb.checked);
+                updateCheckCount();
+            });
+        });
+        updateCheckCount();
 
         var footer = 'Forensics Toolbox ' + state.toolVersion + ' · Härkomst · tidszon ' + meta.zoneLabel + ' · skapad ' + meta.createdText;
+        var appLabel = function (id) { return appName(id) || id; };
         state.pngs = [];
+        meta.timelinePngs = [];
+        meta.closeupPngs = [];
         var html = '';
         for (var i = 0; i < m.windows.length; i++) {
             var w = m.windows[i];
-            var svg = ProvenanceTimeline.svg(m, { window: w, width: 1100, format: fmt, appName: function (id) { return appName(id) || id; }, title: 'Tidslinje ' + w.label + ' · ' + m.file.filename, footer: footer });
-            var png = null;
-            try { png = await svgToPng(svg, 2); } catch (e) { /* bilden saknas i exporten, SVG:n visas ändå */ }
-            state.pngs.push(png);
+            var c = w.closeup;
+            var overview = ProvenanceTimeline.svg(m, { window: w, zoom: c, width: 1100, format: fmt, appName: appLabel, title: 'Tidslinje ' + w.label + ' · ' + m.file.filename, footer: footer });
+            var closeup = ProvenanceTimeline.svg(m, { window: c, labels: true, width: 1100, format: fmt, appName: appLabel, title: 'Närbild ' + fmt(c.startMs).slice(11, 19) + ' till ' + fmt(c.endMs).slice(11, 19) + ' · ' + m.file.filename, footer: footer });
+            var pngs = { overview: null, closeup: null };
+            try { pngs.overview = await svgToPng(overview, 2); pngs.closeup = await svgToPng(closeup, 2); } catch (e) { /* bilden saknas i exporten, SVG:n visas ändå */ }
+            state.pngs.push(pngs);
+            meta.timelinePngs.push(pngs.overview);
+            meta.closeupPngs.push(pngs.closeup);
             var n = m.narrative[i];
-            html += '<div class="timeline"><h3><span>' + escapeHtml(w.label.charAt(0).toUpperCase() + w.label.slice(1)) + ' · ' + escapeHtml(fmt(w.startMs)) + ' till ' + escapeHtml(fmt(w.endMs).slice(11)) + '</span>' +
-                '<button type="button" class="secondary save-png" data-i="' + i + '"' + (png ? '' : ' disabled') + '>Spara bild</button></h3>' +
-                '<div class="timeline-svg">' + svg + '</div>' +
-                '<div class="narrative"><table>' + n.lines.map(function (l) {
-                    return '<tr><td class="time">' + escapeHtml(fmt(l.ms).slice(11)) + '</td><td>' + (l.bold ? '<strong>' + escapeHtml(l.text) + '</strong>' : escapeHtml(l.text)) + '</td></tr>';
+            var near = n.lines.filter(function (l) { return l.near; }).length;
+            html += '<div class="timeline">' +
+                '<h3><span>Översikt · ' + escapeHtml(w.label) + ' · ' + escapeHtml(fmt(w.startMs)) + ' till ' + escapeHtml(fmt(w.endMs).slice(11)) + '</span>' +
+                '<button type="button" class="secondary save-png" data-i="' + i + '" data-kind="overview"' + (pngs.overview ? '' : ' disabled') + '>Spara bild</button></h3>' +
+                '<div class="timeline-svg">' + overview + '</div>' +
+                '<h3 class="closeup-head"><span>Närbild · ' + escapeHtml(fmt(c.startMs).slice(11)) + ' till ' + escapeHtml(fmt(c.endMs).slice(11)) +
+                ' <span class="muted">(' + escapeHtml(ProvenanceCore.duration(c.endMs - c.centerMs)) + ' åt varje håll, den blå rutan i översikten)</span></span>' +
+                '<button type="button" class="secondary save-png" data-i="' + i + '" data-kind="closeup"' + (pngs.closeup ? '' : ' disabled') + '>Spara bild</button></h3>' +
+                '<div class="timeline-svg">' + closeup + '</div>' +
+                '<div class="narrative' + (near ? '' : ' all') + '" data-i="' + i + '">' +
+                '<div class="narrative-head"><span><strong>Nyckelhändelser</strong> · ' + (near ? near + ' av ' + n.lines.length + ' rader ligger inom närbilden' : 'inga rader inom närbilden, alla ' + n.lines.length + ' visas') + '</span>' +
+                (near && near < n.lines.length ? '<button type="button" class="secondary show-all">Visa alla ' + n.lines.length + ' rader</button>' : '') + '</div>' +
+                '<table>' + n.lines.map(function (l) {
+                    return '<tr class="' + (l.near ? 'near' : 'far') + '"><td class="time">' + escapeHtml(fmt(l.ms).slice(11)) + '</td><td>' + (l.bold ? '<strong>' + escapeHtml(l.text) + '</strong>' : escapeHtml(l.text)) + '</td><td class="src">' + escapeHtml(shortSource(l.source)) + '</td></tr>';
                 }).join('') + '</table>' + (n.lines.length ? '' : '<p class="muted">Inga registreringar i fönstret.</p>') +
                 n.notes.map(function (t) { return '<p class="note">' + escapeHtml(t) + '</p>'; }).join('') + '</div></div>';
         }
@@ -1131,10 +1177,17 @@
         $('timelines').querySelectorAll('.save-png').forEach(function (b) {
             b.addEventListener('click', function () {
                 var i = Number(b.getAttribute('data-i'));
-                download(dataUrlToBlob(state.pngs[i]), 'harkomst-' + m.file.filename.replace(/\.[^.]+$/, '') + '-tidslinje' + (m.windows.length > 1 ? '-' + (i + 1) : '') + '.png');
+                var kind = b.getAttribute('data-kind');
+                download(dataUrlToBlob(state.pngs[i][kind]), 'harkomst-' + m.file.filename.replace(/\.[^.]+$/, '') + (kind === 'closeup' ? '-narbild' : '-tidslinje') + (m.windows.length > 1 ? '-' + (i + 1) : '') + '.png');
             });
         });
-        meta.timelinePngs = state.pngs;
+        $('timelines').querySelectorAll('.show-all').forEach(function (b) {
+            b.addEventListener('click', function () {
+                var box = b.closest('.narrative');
+                var all = box.classList.toggle('all');
+                b.textContent = all ? 'Visa bara nyckelhändelserna' : 'Visa alla ' + box.querySelectorAll('tr').length + ' rader';
+            });
+        });
 
         $('events').innerHTML = '<table><thead><tr><th>Tid (' + escapeHtml(meta.zoneLabel) + ')</th><th>UTC</th><th>Händelse</th><th>Till</th><th>Källa</th><th>Query</th></tr></thead><tbody>' +
             m.events.map(function (e) {
@@ -1209,6 +1262,8 @@
     }
 
     async function exportHtml(kind) {
+        state.meta.ownAssessment = $('own-assessment').value.trim();
+        state.meta.checks = Object.assign({}, state.checked);
         state.meta.mapPng = await mapImage();
         return kind === 'protocol' ? ProvenanceReport.protocol(state.model, state.meta) : ProvenanceReport.explanation(state.model, state.meta);
     }
@@ -1252,6 +1307,7 @@
             state.toolVersion = pkg && pkg.version ? String(pkg.version).replace(/\.0$/, '') : '';
         } catch (e) { state.toolVersion = ''; }
         fillZoneSelect(null);
+        $('role-note').innerHTML = '<strong>' + escapeHtml(ProvenanceReport.ROLE_NOTE.split('. ')[0]) + '.</strong> ' + escapeHtml(ProvenanceReport.ROLE_NOTE.split('. ').slice(1).join('. '));
         var params = new URLSearchParams(location.search);
         if (params.get('file')) $('filename').value = params.get('file');
     }

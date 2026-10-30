@@ -114,3 +114,29 @@ test('keep får namn, storlek och CRC32 ur innehållsförteckningen', async () =
     assert.ok(seen.every(([, size, crc]) => size === 5 && typeof crc === 'number'));
     assert.deepStrictEqual(scan.entries.map((e) => e.name), ['a/one.bin', 'b/two.bin']);
 });
+
+test('innehållsförteckningen läses från disk en gång och sedan ur minnet', async () => {
+    const buf = buildZip(FILES, { zip64: true, comment: 'slut' });
+    let diskReads = 0;
+    const raw = reader(buf);
+    const counting = async (o, l) => { diskReads++; return raw(o, l); };
+    const progress = [];
+    const cache = await zip.cacheDirectory(counting, buf.length, null, (done, total) => progress.push([done, total]));
+    assert.strictEqual(cache.cached, true);
+    assert.strictEqual(cache.entries, 3);
+    assert.ok(cache.directorySize > 0 && progress[progress.length - 1][0] === cache.directorySize);
+    const before = diskReads;
+    const a = await zip.scan(cache.read, buf.length, () => true);
+    const b = await zip.scan(cache.read, buf.length, (n) => /routined/.test(n));
+    assert.strictEqual(a.count, 3);
+    assert.deepStrictEqual(b.entries.map((e) => e.name), FILES.slice(0, 2).map((f) => f.name));
+    // Per sökning läses bara zippens svans (EOCD och Zip64-huvudet) från disk, inte förteckningen.
+    assert.ok(diskReads - before <= 4, 'förteckningen lästes från disk igen: ' + (diskReads - before) + ' läsningar');
+    const out = await zip.extract(cache.read, b.entries[1], { inflate });
+    assert.strictEqual(Buffer.from(out.bytes).toString(), FILES[1].data);
+    assert.strictEqual(out.crcOk, true);
+    const tooBig = await zip.cacheDirectory(counting, buf.length, { maxBytes: 10 });
+    assert.strictEqual(tooBig.cached, false);
+    assert.strictEqual(tooBig.read, counting, 'över gränsen används disken som förut');
+    assert.strictEqual(tooBig.entries, 3);
+});

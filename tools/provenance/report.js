@@ -9,6 +9,7 @@
     var TH = TD + ' background: #e8e8e8; text-align: left; font-weight: bold;';
     var TABLE = 'border-collapse: collapse; margin: 6px 0 12px;';
     var STATE_COLOR = { support: '#1a7f37', contradiction: '#c62828', missing: '#8a6d00', info: '#444', na: '#777' };
+    var ROLE_NOTE = 'Programmet sammanställer telefonens registreringar och säger vad de är förenliga med. Den slutliga bedömningen gör undersökaren, efter egen kontroll av källorna.';
     var BETA_NOTE = 'Snapchats register (cache_controller.db, arroyo.db, primary.docobjects, nse_db.sqlite) och sökningen efter kopior av filen är kontrollerade mot en enda extraktion (iOS 18.5). Typkoder och protobuf-tolkningar är härledda ur den. Varje uppgift går att kontrollera mot SQL:en i bilagan.';
 
     // En mening om kopiorna, med platsernas betydelse i klartext.
@@ -42,6 +43,14 @@
 
     function stateTag(model, state) {
         return '<span style="color: ' + (STATE_COLOR[state] || '#444') + '; font-weight: bold;">' + esc(model.stateLabel[state] || state) + '</span>';
+    }
+
+    // "Kontrollerade faktorer: 2 av 5 (Skapandetid, Kamera igång)." Undersökarens egna bockar.
+    function checkedCount(model, checks) { return model.factors.filter(function (f) { return checks && checks[f.id]; }).length; }
+    function checkedText(model, checks) {
+        var done = model.factors.filter(function (f) { return checks && checks[f.id]; });
+        return 'Undersökaren har kontrollerat ' + done.length + ' av ' + model.factors.length + (model.factors.length === 1 ? ' faktor' : ' faktorer') + ' mot källorna' +
+            (done.length ? ': ' + done.map(function (f) { return f.title; }).join(', ') : '') + '.';
     }
 
     function imageHtml(png, alt) {
@@ -99,15 +108,18 @@
             out += p('<b>Bildfilen:</b> ' + esc(meta.fileMissingReason));
         }
 
-        out += h(2, '2. Bedömning');
+        out += h(2, '2. Underlag för bedömning');
+        out += p(esc(ROLE_NOTE));
         out += p('<b>Typ av fil:</b> ' + esc(model.type.label) + (model.type.reasons.length ? ' (' + esc(model.type.reasons.join(', ')) + ')' : '') +
             (model.type.flags.length ? '. Flaggor: ' + esc(model.type.flags.join(', ')) : ''));
-        out += p('<b>Sammanfattning:</b> ' + esc(model.summary));
+        out += p('<b>Programmets sammanvägning:</b> ' + esc(model.summary));
+        var checks = meta.checks || {};
         model.factors.forEach(function (f) {
             out += h(3, f.title + ': ' + model.stateLabel[f.state]);
             out += '<ul style="' + FONT + ' font-size: 10pt; margin: 2px 0 6px 18px;">' + f.items.map(function (i) {
                 return '<li>' + stateTag(model, i.state) + ' ' + esc(i.text) + '</li>';
             }).join('') + '</ul>';
+            out += p('<b>Undersökarens kontroll:</b> ' + (checks[f.id] ? 'kontrollerad ' + esc(fmt(checks[f.id])) : 'ej kontrollerad'));
         });
         if (model.alternatives.length) {
             out += h(3, 'Alternativa förklaringar');
@@ -116,10 +128,18 @@
             }));
         }
 
+        out += h(3, 'Undersökarens bedömning');
+        out += p(esc(meta.ownAssessment || 'Ej ifylld.'));
+        out += p(esc(checkedText(model, checks)));
+
         out += h(2, '3. Tidslinje');
         model.windows.forEach(function (w, i) {
-            out += p('<b>' + esc(w.label.charAt(0).toUpperCase() + w.label.slice(1)) + '</b>');
+            out += p('<b>Översikt ' + esc(w.label) + ':</b> ' + esc(fmt(w.startMs) + ' till ' + fmt(w.endMs)));
             out += imageHtml(meta.timelinePngs && meta.timelinePngs[i], 'Tidslinje ' + w.label);
+            if (w.closeup && meta.closeupPngs && meta.closeupPngs[i]) {
+                out += p('<b>Närbild:</b> ' + esc(fmt(w.closeup.startMs) + ' till ' + fmt(w.closeup.endMs)));
+                out += imageHtml(meta.closeupPngs[i], 'Närbild ' + w.label);
+            }
         });
         if (model.outside) out += p(esc(model.outside + ' registreringar till finns utanför fönstren och visas inte.'));
 
@@ -195,6 +215,10 @@
             }).join('') + '</table>';
             n.notes.forEach(function (note) { out += p(esc(note)); });
             out += imageHtml(meta.timelinePngs && meta.timelinePngs[i], 'Tidslinje');
+            if (meta.closeupPngs && meta.closeupPngs[i]) {
+                out += p(esc('Närbild på tiden närmast ' + noun + ':'));
+                out += imageHtml(meta.closeupPngs[i], 'Närbild');
+            }
         });
 
         if (model.copies && model.copies.length) {
@@ -214,14 +238,17 @@
         out += h(2, 'Vad det betyder');
         out += p(esc('Enligt telefonens egen bokföring är det här en ' + model.type.label.toLowerCase() + '.'));
         model.factors.forEach(function (f) { out += p('<b>' + esc(f.title) + '.</b> ' + esc(f.plain)); });
-        out += p('<b>' + esc(model.summary) + '</b>');
-        out += p(esc('Bedömningen säger vad som är förenligt med telefonens registreringar. Den säger inte vem som höll i telefonen.'));
+        out += p('<b>Programmets sammanvägning:</b> ' + esc(model.summary));
+        out += p(esc('Sammanvägningen säger vad som är förenligt med telefonens registreringar. Den säger inte vem som höll i telefonen. Den slutliga bedömningen gör undersökaren.'));
         if (model.beta) out += p(esc('Uppgifterna från Snapchats egna register och sökningen efter kopior av filen är nya funktioner som kontrollerats mot ett begränsat material.'));
         var walWarnings = (meta.sources || []).filter(function (s) { return s.warnings && s.warnings.some(function (w) { return /-wal/.test(w); }); });
         if (walWarnings.length) {
             out += p(esc('En del av telefonens registreringar lästes utan sin senaste loggfil, så den senaste tidens registreringar kan saknas.'));
         }
         if (meta.zoneNote) out += p(esc('Tidszonen är ' + meta.zoneNote + '.'));
+        out += h(2, 'Undersökarens bedömning');
+        out += p(esc(meta.ownAssessment || 'Ej ifylld.'));
+        if (checkedCount(model, meta.checks)) out += p(esc(checkedText(model, meta.checks)));
         return out + '</div>';
     }
 
@@ -243,7 +270,7 @@
             '<body style="max-width: 1000px; margin: 24px auto; padding: 0 16px; color: #1c1c1e; background: #fff;">' + bodyHtml + '</body></html>\n';
     }
 
-    var api = { protocol: protocol, explanation: explanation, plainText: plainText, standalone: standalone, esc: esc, plainCopies: plainCopies, BETA_NOTE: BETA_NOTE };
+    var api = { protocol: protocol, explanation: explanation, plainText: plainText, standalone: standalone, esc: esc, plainCopies: plainCopies, BETA_NOTE: BETA_NOTE, ROLE_NOTE: ROLE_NOTE };
     if (typeof module !== 'undefined' && module.exports) module.exports = api;
     else root.ProvenanceReport = api;
 })(typeof window !== 'undefined' ? window : this);

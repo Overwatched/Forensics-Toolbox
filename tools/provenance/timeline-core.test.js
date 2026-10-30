@@ -211,3 +211,20 @@ test('position: fil utan position, och ingen routined alls', () => {
     assert.match(none.factors[4].items[0].text, /Cache\.sqlite finns inte i extraktionen/);
     assert.deepStrictEqual(core.build(input({ file: cameraFile({ latitude: -180, longitude: -180 }), locations: [] })).positions, []);
 });
+
+test('varje fönster har en närbild, och förklaringens rader vet sin källa och om de ligger i närbilden', () => {
+    const m = core.build(input());
+    const w = m.windows[0];
+    assert.deepStrictEqual([w.closeup.startMs, w.closeup.centerMs, w.closeup.endMs], [T - 90 * S, T, T + 90 * S]);
+    assert.strictEqual(core.windows({ createdMs: T }, 5 * M)[0].closeup.endMs - T, 30 * S, 'minst 30 s åt varje håll');
+    assert.strictEqual(core.windows({ createdMs: T }, 24 * 60 * M)[0].closeup.endMs - T, 144 * M);
+    const lines = m.narrative[0].lines;
+    const file = lines.find((l) => l.bold);
+    assert.deepStrictEqual(file.source, { db: 'Photos.sqlite', table: 'ZASSET', column: 'ZDATECREATED', queryId: 'role-file' });
+    assert.strictEqual(file.near, true);
+    const cam = lines.find((l) => l.text === 'Kamera öppnas');
+    assert.strictEqual(cam.source, KC);
+    assert.strictEqual(cam.kind, 'app');
+    assert.strictEqual(lines.find((l) => l.text === 'Skärmen tänds').near, false, '3 min före T ligger utanför närbilden');
+    assert.ok(lines.every((l) => typeof l.near === 'boolean'));
+});

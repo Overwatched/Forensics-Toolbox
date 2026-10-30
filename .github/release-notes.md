@@ -1,5 +1,16 @@
 Automatiskt byggd från commit `{{SHA}}`.
 
+## Nytt i 1.29
+
+- **Undersökaren gör bedömningen.** Avsnittet heter nu "Underlag för bedömning". En stående rad säger att programmet sammanställer telefonens registreringar och säger vad de är förenliga med, och att den slutliga bedömningen gör undersökaren. Programmets mening är märkt "Programmets sammanvägning". Ny ruta **Undersökarens bedömning**: texten följer med under egen rubrik i både protokollet och förklaringen, och lämnas rutan tom står det "Ej ifylld". Rutan töms när en ny fil bedöms.
+- **Tidslinjen omarbetad.** Översikten har fem rader i stället för sju: Fil, Appar (kameran grön, andra appar blå), Snapchat, Telefon (skärm och lås hopslagna till ett band med tillståndet i klartext: "tänd, olåst", "släckt, låst") och Position. En blå ruta i översikten visar var närbilden ligger.
+- **Närbild runt T.** En andra bild visar en tiondel av fönstret åt varje håll (±90 s vid ±15 min, minst ±30 s) med händelserna utskrivna direkt på bilden: filens tidpunkter, apparnas start och slut, snappar med användarnamn, telefonens tillstånd och positionen med avstånd från bilden. Texter som inte får plats staplas på två rader eller skrivs till vänster om markören, aldrig ovanpå varandra.
+- **Nyckelhändelser.** Under bilderna visas bara raderna inom närbilden, var och en med sin källa (databas och ström eller tabell). **Visa alla N rader** fäller ut resten. Förklaringen för Word får som förut alla rader.
+- **Båda bilderna i exporterna.** Protokollet och förklaringen får översikten och närbilden för varje fönster, och knappen Spara bild finns för var och en.
+- **Kontrollerad per faktor.** Varje faktorkort har en ruta **Kontrollerad** som undersökaren bockar i efter egen kontroll mot källan och SQL:en. Räknaren vid Undersökarens bedömning visar "2 av 5 faktorer kontrollerade". Protokollet skriver per faktor "Undersökarens kontroll: kontrollerad <klockslag>" eller "ej kontrollerad", och båda exporterna får meningen "Undersökaren har kontrollerat N av M faktorer mot källorna: …". Bockarna nollställs när en ny fil bedöms.
+- **Stora extraktioner.** Zippens innehållsförteckning läses från disk en gång när extraktionen öppnas och hålls sedan i minnet, så att sökningen efter filen, kopiorna och Snapchats poster går mot minnet i stället för att läsa om förteckningen fyra till fem gånger per körning. Statusraden visar antal poster och förteckningens storlek. Förteckningar över 512 MB läses från disk som förut. Själva zippen läses fortfarande aldrig i sin helhet, och ingenting skrivs.
+- Nya färger på tidslinjen, kontrollerade mot varandra för färgblindhet och mot vit bakgrund, med mörkare grön och blå så att texten i staplarna går att läsa.
+
 ## Nytt i 1.28
 
 - **Härkomst, beta: filer utanför bildbiblioteket.** Finns filnamnet inte i Photos.sqlite söks hela zippen. Ligger filen i Snapchats cache byggs bedömningen på Snapchats egna register: tiden då Snapchat registrerade filen, om den spelades in med Snapchats kamera, skickades till någon eller togs emot från någon, och när den lästes. Avsändare och mottagare visas med användarnamn ur Snapchats kontotabell.

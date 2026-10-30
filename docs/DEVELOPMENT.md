@@ -120,10 +120,18 @@ i extraktionen med `-wal` pålagd, och bygger en händelselista i UTC.
 - `timeline-core.js` avgör typ av fil (kamerabild, skärmdump, sparad ur app), bedömer
   skapandetid, app igång, kamera igång och skärm som stöd, motsägelse eller saknas, och har
   förklaringens ordförråd. Allt testas i Node.
-- `timeline-svg.js` ritar tidslinjen, `report.js` bygger protokollet och förklaringen som HTML
-  med inline-stilar för Word.
+- `timeline-svg.js` ritar tidslinjen med fem rader (Fil, Appar, Snapchat, Telefon, Position):
+  översikten över hela fönstret med närbildens ruta (`opts.zoom`) och närbilden runt T med
+  händelserna utskrivna (`opts.labels`). Skärm och lås slås ihop till ett band i
+  `phoneSegments()`, korta texter per händelsetyp i `shortLabel()`. Varje fönster bär sin
+  närbild (`w.closeup`, en tiondel av fönstret åt varje håll, minst 30 s), och förklaringens
+  rader vet sin källa och om de ligger inom närbilden (`near`), vilket styr nyckelhändelserna.
+  `report.js` bygger protokollet och förklaringen som HTML med inline-stilar för Word; båda
+  får översikt, närbild och undersökarens egen bedömning (`meta.ownAssessment`).
 - Extraktionen läses med `tools/db-queries/extraction-core.js`, som Queries också använder. Bara
   läsning: testet i `zip.test.js` grep:ar alla filer i `tools/provenance/` efter skrivande API:er.
+  Härkomst läser zippens innehållsförteckning en gång per öppnad zip (`ZipRead.cacheDirectory`)
+  och söker sedan i minnet; posterna själva läses alltid ur zippen.
 - Bildfilen läses ur zippen och ExifTool-workern från EXIF & karta laddas först när den behövs.
 - Positionerna (bildens enligt databasen och EXIF, telefonens enligt routined) visas i en tabell
   och på den delade kartvyn med nålar. Kartbilden hämtas med `mapView.toImage()` och läggs i
