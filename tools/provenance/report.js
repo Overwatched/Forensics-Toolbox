@@ -174,9 +174,7 @@
         }
 
         out += h(2, '6. Händelser');
-        out += table(['Tid (' + meta.zoneLabel + ')', 'UTC', 'Händelse', 'Värde', 'Till', 'Källa', 'Query'], model.events.map(function (e) {
-            return [fmt(e.ms), fmtUtc(e.ms), e.text, eventValue(e), e.endMs != null ? fmt(e.endMs) + (e.openEnded ? ' (pågår)' : '') : '', sourceText(e.source), e.source && e.source.queryId || ''];
-        }));
+        out += eventsTableHtml(model, meta);
 
         out += h(2, '7. Källor');
         (meta.sources || []).forEach(function (s) {
@@ -201,6 +199,37 @@
     }
 
     function timeOnly(fmt, ms) { return fmt(ms).slice(11, 19); }
+
+    function eventsTableHtml(model, meta) {
+        var fmt = meta.format, fmtUtc = meta.formatUtc;
+        return table(['Tid (' + meta.zoneLabel + ')', 'UTC', 'Händelse', 'Värde', 'Till', 'Källa', 'Query'], model.events.map(function (e) {
+            return [fmt(e.ms), fmtUtc(e.ms), e.text, eventValue(e), e.endMs != null ? fmt(e.endMs) + (e.openEnded ? ' (pågår)' : '') : '', sourceText(e.source), e.source && e.source.queryId || ''];
+        }));
+    }
+
+    // Tabellerna i appen var för sig, att klistra in i en egen rapport: en rubrikrad som säger vad
+    // tabellen gäller, och källan med databas → tabell → kolumn så att läsaren kan kontrollera varje rad.
+    function caption(model, meta, what) {
+        return p('<b>' + esc(what) + '</b> · ' + esc(model.file.filename) + ' · T = ' + esc(meta.format(model.file.createdMs || 0)) + ' · tidszon ' + esc(meta.zoneLabel) +
+            (meta.extraction && meta.extraction.name ? ' · ' + esc(meta.extraction.name) : ''));
+    }
+
+    // i = fönstrets nummer, all = alla rader i fönstret, annars bara de inom närbilden.
+    function keyEventsTable(model, meta, i, all) {
+        var n = model.narrative[i];
+        var lines = n.lines.filter(function (l) { return all || l.near; });
+        if (!lines.length) lines = n.lines;
+        var what = (all || lines.length === n.lines.length ? 'Händelser' : 'Nyckelhändelser') + (model.narrative.length > 1 ? ' ' + n.window.label : '');
+        return '<div style="' + FONT + '">' + caption(model, meta, what) +
+            table(['Tid (' + meta.zoneLabel + ')', 'Händelse', 'Källa'], lines.map(function (l) {
+                return [meta.format(l.ms), l.bold ? { html: '<b>' + esc(l.text) + '</b>' } : l.text, sourceText(l.source)];
+            })) + '</div>';
+    }
+
+    function eventsTable(model, meta) {
+        return '<div style="' + FONT + '">' + caption(model, meta, 'Händelser med källa') + eventsTableHtml(model, meta) +
+            (model.outside ? p(esc(model.outside + ' registreringar till finns utanför fönstren och är inte med.')) : '') + '</div>';
+    }
 
     // Förklaringen: inga hashar, sökvägar, kolumnnamn eller bundle-id.
     function explanation(model, meta) {
@@ -284,7 +313,7 @@
             '<body style="max-width: 1000px; margin: 24px auto; padding: 0 16px; color: #1c1c1e; background: #fff;">' + bodyHtml + '</body></html>\n';
     }
 
-    var api = { protocol: protocol, explanation: explanation, plainText: plainText, standalone: standalone, esc: esc, plainCopies: plainCopies, BETA_NOTE: BETA_NOTE, ROLE_NOTE: ROLE_NOTE };
+    var api = { protocol: protocol, explanation: explanation, keyEventsTable: keyEventsTable, eventsTable: eventsTable, sourceText: sourceText, plainText: plainText, standalone: standalone, esc: esc, plainCopies: plainCopies, BETA_NOTE: BETA_NOTE, ROLE_NOTE: ROLE_NOTE };
     if (typeof module !== 'undefined' && module.exports) module.exports = api;
     else root.ProvenanceReport = api;
 })(typeof window !== 'undefined' ? window : this);

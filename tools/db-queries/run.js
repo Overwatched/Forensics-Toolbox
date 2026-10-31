@@ -170,10 +170,10 @@
             '</tbody></table>');
     }
 
-    runButton.addEventListener('click', async function () {
+    async function runQuery() {
         var app = window.QueriesApp;
         var sql = app ? app.currentSql() : '';
-        if (!sql.trim()) return;
+        if (!sql.trim() || runButton.disabled) return;
         runButton.disabled = true;
         clearResult();
         try {
@@ -185,7 +185,10 @@
             var all;
             try { all = db.exec(sql); } finally { db.close(); }
             var ms = Math.round(performance.now() - started);
-            var res = all.length ? all[all.length - 1] : { columns: [], values: [] };
+            var raw = all.length ? all[all.length - 1] : { columns: [], values: [] };
+            // En query från Härkomst får tiden i UTC bredvid varje tidskolumn, så att raderna går att jämföra.
+            var utc = QueryRunCore.withUtcColumns(raw.columns, raw.values, app.timeColumns ? app.timeColumns() : null);
+            var res = { columns: utc.columns, values: utc.rows };
             last = { columns: res.columns, rows: res.values, sql: sql, opened: o };
             var count = res.values.length;
             var lines = [
@@ -193,6 +196,7 @@
                     + (count > MAX_SHOWN ? ', de första ' + MAX_SHOWN + ' visas. CSV-filen får alla.' : '.'),
                 walSummary(o),
             ];
+            if (utc.added) lines.push('Kolumnerna som slutar på (UTC) är omräknade av Forensics Toolbox på samma sätt som i Härkomst. Råvärdet står i kolumnen till vänster.');
             var warn = o.origin.some(function (l) { return /STÄMMER INTE/.test(l); });
             status.innerHTML = lines.map(escapeHtml).join('<br>') +
                 '<details class="run-trace"' + (warn ? ' open' : '') + '><summary>' +
@@ -207,7 +211,9 @@
         } finally {
             updateState();
         }
-    });
+    }
+
+    runButton.addEventListener('click', runQuery);
 
     function stamp() {
         var d = new Date();
@@ -272,7 +278,28 @@
         $('run-box').scrollIntoView({ block: 'nearest' });
     }
 
-    window.QueriesRun = { useSources: useSources };
+    // Flikarna: filerna, den inlästa databasen och resultatet följer med fliken.
+    function snapshot() {
+        return {
+            files: files, noWal: noWal.checked, opened: opened, last: last,
+            statusHtml: status.innerHTML, resultHtml: result.innerHTML, csv: !csvButton.disabled, map: !mapButton.disabled,
+        };
+    }
+
+    function restore(s) {
+        if (!s) return;
+        files = s.files || { db: null, wal: null };
+        noWal.checked = !!s.noWal;
+        opened = s.opened || null;
+        last = s.last || null;
+        status.innerHTML = s.statusHtml || '';
+        setResult(s.resultHtml || '');
+        csvButton.disabled = !s.csv;
+        mapButton.disabled = !s.map;
+        updateState();
+    }
+
+    window.QueriesRun = { useSources: useSources, run: runQuery, snapshot: snapshot, restore: restore };
 
     document.addEventListener('queries:db-change', reset);
     updateState();

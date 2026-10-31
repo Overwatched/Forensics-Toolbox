@@ -177,7 +177,7 @@
                     <ul>
                         <li><code>uses-permission</code> i manifestet</li>
                         <li><code>/data/system/users/0/runtime-permissions.xml</code></li>
-                        <li><code>/data/system/appops.xml</code></li>
+                        <li><code>/data/system/appops.xml</code> och <code>/data/system/appops/discrete/</code>: vilken app som faktiskt använde kameran (op 26) och mikrofonen, med tid</li>
                     </ul>
                 </div>
             </div>
@@ -246,9 +246,9 @@
                 <div>
                     <h3>iOS</h3>
                     <ul>
-                        <li>KnowledgeC, Biome <code>App.InFocus</code>, interactionC</li>
+                        <li>KnowledgeC <code>/app/usage</code> (<code>/app/inFocus</code> saknas på iOS 18+), Biome <code>App.InFocus</code> (SEGB, iLEAPP), interactionC</li>
                         <li>Notiser: <code>/private/var/mobile/Library/UserNotifications/</code></li>
-                        <li>Foton: <code>ZCREATORBUNDLEID</code> / <code>ZEDITORBUNDLEID</code></li>
+                        <li>Foton: <code>ZIMPORTEDBYBUNDLEIDENTIFIER</code> (iOS 17+, äldre <code>ZCREATORBUNDLEID</code>) / <code>ZEDITORBUNDLEID</code></li>
                     </ul>
                     <p class="tools">
                         <a href="../tools/db-queries/queries.html?db=knowledgec" data-tool="tools/db-queries/queries.html?db=knowledgec">Queries</a>
@@ -259,7 +259,7 @@
                 <div>
                     <h3>Android</h3>
                     <ul>
-                        <li>UsageStats: <code>/data/system/usagestats/</code> (ofta XML)</li>
+                        <li>UsageStats: <code>/data/system_ce/0/usagestats/</code> (protobuf på Android 9+, XML på äldre)</li>
                         <li>Digital Wellbeing: <code>…/com.google.android.apps.wellbeing/databases/app_usage</code></li>
                         <li>MediaStore <code>owner_package_name</code></li>
                         <li>Notiser är OEM-specifika — ALEAPP</li>

@@ -134,7 +134,7 @@
                 <p class="muted">En rad per jämförelse: Fil, App, Kamera, Skärm, Lås, Position och Snapchat. Färg betyder på (kameran igång,
                     skärmen tänd, telefonen olåst), grått av, tomt ingen registrering. T är en kolumn genom alla rader med en prick där den
                     korsar ett band, och kolumnen <strong>Vid T</strong> säger läget per rad med faktorns ord. Översikten visar hela fönstret,
-                    närbilden sekunderna runt T med händelserna utskrivna. Nyckelhändelserna är raderna inom närbilden, resten ligger under
+                    närbilden sekunderna runt T med händelserna utskrivna. <strong>Det viktiga</strong> skriver bara ut det som gäller den bedömda filen och läget vid T, och ritar resten blekt; <strong>Allt</strong> skriver ut varje händelse. Exporterna får det läge som visas. Nyckelhändelserna är raderna inom närbilden, resten ligger under
                     Visa alla. Förklaringen är för den som inte är tekniker: alla rader med klockslag, inga källor. Protokollet har varje rad
                     med databas, sökväg, CRC32, SHA-256 och SQL. Båda bilderna följer med i båda exporterna.</p>
                 <div id="export-status" class="status"></div>
@@ -163,6 +163,12 @@
 
             <details class="box" id="details-events">
                 <summary>Händelser med källa</summary>
+                <div class="box-head events-head">
+                    <p class="muted" id="events-note"></p>
+                    <div class="button-row">
+                        <button type="button" class="secondary" id="copy-events" title="Hela tabellen med tid, UTC, händelse, värde, källa (databas → tabell → kolumn) och query-id">Kopiera tabellen för Word</button>
+                    </div>
+                </div>
                 <div id="events" class="result-scroll"></div>
             </details>
             <details class="box" id="details-alternatives">

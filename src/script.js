@@ -150,6 +150,19 @@ function initToolNav() {
             else if (frame) frame.addEventListener('load', send, { once: true });
             return;
         }
+        // Härkomst → Queries: zippen (File), databasens sökväg och exakt den SQL som kördes.
+        if (data.type === 'open-query' && data.file && typeof data.sql === 'string') {
+            openTool('tools/db-queries/queries.html');
+            const frame = frames.get('tools/db-queries/queries.html');
+            const send = () => postToFrame(frame, {
+                source: 'forensics-toolbox', type: 'open-query', file: data.file, path: data.path, walPath: data.walPath,
+                queryId: data.queryId, title: data.title, db: data.db, sql: data.sql, from: data.from,
+                timeColumns: Array.isArray(data.timeColumns) ? data.timeColumns : null,
+            });
+            if (frame && frame.dataset.ready) send();
+            else if (frame) frame.addEventListener('load', send, { once: true });
+            return;
+        }
         if (data.type !== 'open-tool' || typeof data.src !== 'string') return;
         openTool(data.src);
     });

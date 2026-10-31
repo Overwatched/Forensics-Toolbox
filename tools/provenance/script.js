@@ -23,6 +23,7 @@
         preview: null,       // bilden i filkortet: { source, kind, note, url, mime, name, thumbName }
         showMedia: true,     // bilden visas i appen; av med knappen Dölj bilden
         includePicture: false, // bilden följer med i exporterna bara när rutan är ikryssad
+        detail: 'focus',     // tidslinjen: 'focus' = det viktiga med text, resten blekt; 'all' = allt med text
     };
     var SQL = null;
 
@@ -223,7 +224,10 @@
         var sql = ProvenanceRoles.fill(query.sql, values);
         var all = loaded.sqlDb.exec(sql);
         var res = all.length ? all[all.length - 1] : { columns: [], values: [] };
-        run.queries.push({ id: query.id, db: loaded.label, title: query.title, sql: sql });
+        // Sökvägen i zippen följer med, så att queryn kan öppnas och köras i Queries.
+        var timeColumns = (timeKeys || []).map(function (k) { return ProvenanceRoles.fieldSpec(query, k); })
+            .filter(function (t, i, a) { return t && a.findIndex(function (x) { return x && x.col === t.col; }) === i; });
+        run.queries.push({ id: query.id, db: loaded.label, title: query.title, sql: sql, path: loaded.dbEntry.name, walPath: loaded.walEntry ? loaded.walEntry.name : null, timeColumns: timeColumns });
         return { rows: ProvenanceRoles.mapRows(query, res, timeKeys), result: res, sql: sql };
     }
 
@@ -1675,9 +1679,120 @@
         $('check-count').textContent = n + ' av ' + m.factors.length + (m.factors.length === 1 ? ' faktor' : ' faktorer') + ' kontrollerade';
     }
 
-    function shortSource(src) {
-        if (!src || !src.db) return '';
-        return [src.db, src.stream || src.table].filter(Boolean).join(' ');
+    // ---------- Till Queries ----------
+
+    // Queryn med det id:t som kördes mot en databas i zippen (inte testdata, inte loggfilerna utan SQL).
+    function runnableQuery(id) {
+        if (!id || !state.zip || !state.meta) return null;
+        var list = (state.meta.queries || []).filter(function (q) { return q.id === id && q.path; });
+        return list.length ? list[list.length - 1] : null;
+    }
+
+    // Källan som text (databas → tabell → kolumn), och som länk till Queries när queryn går att köra där.
+    function sourceCell(src) {
+        var text = ProvenanceReport.sourceText(src);
+        var q = src && runnableQuery(src.queryId);
+        if (!q) return escapeHtml(text);
+        return '<button type="button" class="link-btn to-queries" data-q="' + escapeHtml(q.id) + '" title="Kör ' + escapeHtml(q.id) + ' i Queries mot ' + escapeHtml(q.db) + ' i zippen och visa raderna">' + escapeHtml(text) + '</button>';
+    }
+
+    function queryCell(id) {
+        var q = runnableQuery(id);
+        if (!q) return escapeHtml(id || '');
+        return '<button type="button" class="link-btn to-queries" data-q="' + escapeHtml(q.id) + '" title="Kör queryn i Queries och visa raderna">' + escapeHtml(q.id) + ' ↗</button>';
+    }
+
+    function openInQueries(id) {
+        var q = runnableQuery(id);
+        if (!q) return;
+        if (window.parent === window) {
+            showToast('Öppna Härkomst i Forensics Toolbox för att köra queryn i Queries');
+            return;
+        }
+        window.parent.postMessage({
+            source: 'forensics-toolbox', type: 'open-query', file: state.zip.file, path: q.path, walPath: q.walPath,
+            queryId: q.id, title: q.title, db: q.db, sql: q.sql, from: 'Härkomst · ' + state.model.file.filename, timeColumns: q.timeColumns || [],
+        }, '*');
+    }
+
+    // ---------- Tabeller för Word ----------
+
+    async function copyTable(html, what) {
+        var ok = await copyHtml(html, ProvenanceReport.plainText(html));
+        if (ok) showToast(what + ' kopierad för Word');
+        else showToast('Kunde inte kopiera');
+    }
+
+    // Översikt, närbild och nyckelhändelser per fönster. Ritas om när undersökaren byter mellan
+    // Det viktiga och Allt; exporterna får bilderna som de visas.
+    async function renderTimelines() {
+        var m = state.model;
+        var meta = state.meta;
+        var fmt = meta.format;
+        var footer = 'Forensics Toolbox ' + state.toolVersion + ' · Härkomst · tidszon ' + meta.zoneLabel + ' · skapad ' + meta.createdText;
+        var appLabel = function (id) { return appName(id) || id; };
+        state.pngs = [];
+        meta.timelinePngs = [];
+        meta.closeupPngs = [];
+        var html = '';
+        for (var i = 0; i < m.windows.length; i++) {
+            var w = m.windows[i];
+            var c = w.closeup;
+            var overview = ProvenanceTimeline.svg(m, { window: w, zoom: c, detail: state.detail, width: 1100, format: fmt, appName: appLabel, title: 'Tidslinje ' + w.label + ' · ' + m.file.filename, footer: footer });
+            var closeup = ProvenanceTimeline.svg(m, { window: c, labels: true, detail: state.detail, width: 1100, format: fmt, appName: appLabel, title: 'Närbild ' + fmt(c.startMs).slice(11, 19) + ' till ' + fmt(c.endMs).slice(11, 19) + ' · ' + m.file.filename, footer: footer });
+            var pngs = { overview: null, closeup: null };
+            try { pngs.overview = await svgToPng(overview, 2); pngs.closeup = await svgToPng(closeup, 2); } catch (e) { /* bilden saknas i exporten, SVG:n visas ändå */ }
+            state.pngs.push(pngs);
+            meta.timelinePngs.push(pngs.overview);
+            meta.closeupPngs.push(pngs.closeup);
+            var n = m.narrative[i];
+            var near = n.lines.filter(function (l) { return l.near; }).length;
+            html += '<div class="timeline">' +
+                '<h3><span>Översikt · ' + escapeHtml(w.label) + ' · ' + escapeHtml(fmt(w.startMs)) + ' till ' + escapeHtml(fmt(w.endMs).slice(11)) + '</span>' +
+                '<button type="button" class="secondary save-png" data-i="' + i + '" data-kind="overview"' + (pngs.overview ? '' : ' disabled') + '>Spara bild</button></h3>' +
+                '<div class="timeline-svg">' + overview + '</div>' +
+                '<h3 class="closeup-head"><span>Närbild · ' + escapeHtml(fmt(c.startMs).slice(11)) + ' till ' + escapeHtml(fmt(c.endMs).slice(11)) +
+                ' <span class="muted">(' + escapeHtml(ProvenanceCore.duration(c.endMs - c.centerMs)) + ' åt varje håll, den blå rutan i översikten)</span></span>' +
+                '<span class="button-row"><span class="seg" role="group" aria-label="Text i tidslinjen" title="Det viktiga: text bara för den bedömda filen och läget vid T, resten blekt. Allt: text för varje händelse. Exporterna får det som visas.">' +
+                '<button type="button" class="detail' + (state.detail === 'focus' ? ' on' : '') + '" data-detail="focus">Det viktiga</button>' +
+                '<button type="button" class="detail' + (state.detail === 'all' ? ' on' : '') + '" data-detail="all">Allt</button></span>' +
+                '<button type="button" class="secondary save-png" data-i="' + i + '" data-kind="closeup"' + (pngs.closeup ? '' : ' disabled') + '>Spara bild</button></span></h3>' +
+                '<div class="timeline-svg">' + closeup + '</div>' +
+                '<div class="narrative' + (near ? '' : ' all') + '" data-i="' + i + '">' +
+                '<div class="narrative-head"><span><strong>Nyckelhändelser</strong> · ' + (near ? near + ' av ' + n.lines.length + ' rader ligger inom närbilden' : 'inga rader inom närbilden, alla ' + n.lines.length + ' visas') + '</span>' +
+                '<span class="button-row">' + (near && near < n.lines.length ? '<button type="button" class="secondary show-all">Visa alla ' + n.lines.length + ' rader</button>' : '') +
+                (n.lines.length ? '<button type="button" class="secondary copy-key" data-i="' + i + '" title="Tabellen med datum, klockslag, händelse och källa (databas → tabell → kolumn). Bara raderna som visas.">Kopiera tabellen för Word</button>' : '') + '</span></div>' +
+                '<table>' + n.lines.map(function (l) {
+                    return '<tr class="' + (l.near ? 'near' : 'far') + '"><td class="time">' + escapeHtml(fmt(l.ms).slice(11)) + '</td><td>' + (l.bold ? '<strong>' + escapeHtml(l.text) + '</strong>' : escapeHtml(l.text)) + '</td><td class="src">' + sourceCell(l.source) + '</td></tr>';
+                }).join('') + '</table>' + (n.lines.length ? '' : '<p class="muted">Inga registreringar i fönstret.</p>') +
+                n.notes.map(function (t) { return '<p class="note">' + escapeHtml(t) + '</p>'; }).join('') + '</div></div>';
+        }
+        $('timelines').innerHTML = html;
+        $('timelines').querySelectorAll('.save-png').forEach(function (b) {
+            b.addEventListener('click', function () {
+                var i = Number(b.getAttribute('data-i'));
+                var kind = b.getAttribute('data-kind');
+                download(dataUrlToBlob(state.pngs[i][kind]), 'harkomst-' + m.file.filename.replace(/\.[^.]+$/, '') + (kind === 'closeup' ? '-narbild' : '-tidslinje') + (m.windows.length > 1 ? '-' + (i + 1) : '') + '.png');
+            });
+        });
+        $('timelines').querySelectorAll('button.detail').forEach(function (b) {
+            b.addEventListener('click', async function () {
+                var want = b.getAttribute('data-detail');
+                if (want === state.detail) return;
+                state.detail = want;
+                var y = window.scrollY;
+                await renderTimelines();
+                window.scrollTo(0, y);
+            });
+        });
+        $('timelines').querySelectorAll('.show-all').forEach(function (b) {
+            b.addEventListener('click', function () {
+                var box = b.closest('.narrative');
+                var all = box.classList.toggle('all');
+                b.textContent = all ? 'Visa bara nyckelhändelserna' : 'Visa alla ' + box.querySelectorAll('tr').length + ' rader';
+            });
+        });
+
     }
 
     async function render() {
@@ -1708,62 +1823,17 @@
         });
         updateCheckCount();
 
-        var footer = 'Forensics Toolbox ' + state.toolVersion + ' · Härkomst · tidszon ' + meta.zoneLabel + ' · skapad ' + meta.createdText;
-        var appLabel = function (id) { return appName(id) || id; };
-        state.pngs = [];
-        meta.timelinePngs = [];
-        meta.closeupPngs = [];
-        var html = '';
-        for (var i = 0; i < m.windows.length; i++) {
-            var w = m.windows[i];
-            var c = w.closeup;
-            var overview = ProvenanceTimeline.svg(m, { window: w, zoom: c, width: 1100, format: fmt, appName: appLabel, title: 'Tidslinje ' + w.label + ' · ' + m.file.filename, footer: footer });
-            var closeup = ProvenanceTimeline.svg(m, { window: c, labels: true, width: 1100, format: fmt, appName: appLabel, title: 'Närbild ' + fmt(c.startMs).slice(11, 19) + ' till ' + fmt(c.endMs).slice(11, 19) + ' · ' + m.file.filename, footer: footer });
-            var pngs = { overview: null, closeup: null };
-            try { pngs.overview = await svgToPng(overview, 2); pngs.closeup = await svgToPng(closeup, 2); } catch (e) { /* bilden saknas i exporten, SVG:n visas ändå */ }
-            state.pngs.push(pngs);
-            meta.timelinePngs.push(pngs.overview);
-            meta.closeupPngs.push(pngs.closeup);
-            var n = m.narrative[i];
-            var near = n.lines.filter(function (l) { return l.near; }).length;
-            html += '<div class="timeline">' +
-                '<h3><span>Översikt · ' + escapeHtml(w.label) + ' · ' + escapeHtml(fmt(w.startMs)) + ' till ' + escapeHtml(fmt(w.endMs).slice(11)) + '</span>' +
-                '<button type="button" class="secondary save-png" data-i="' + i + '" data-kind="overview"' + (pngs.overview ? '' : ' disabled') + '>Spara bild</button></h3>' +
-                '<div class="timeline-svg">' + overview + '</div>' +
-                '<h3 class="closeup-head"><span>Närbild · ' + escapeHtml(fmt(c.startMs).slice(11)) + ' till ' + escapeHtml(fmt(c.endMs).slice(11)) +
-                ' <span class="muted">(' + escapeHtml(ProvenanceCore.duration(c.endMs - c.centerMs)) + ' åt varje håll, den blå rutan i översikten)</span></span>' +
-                '<button type="button" class="secondary save-png" data-i="' + i + '" data-kind="closeup"' + (pngs.closeup ? '' : ' disabled') + '>Spara bild</button></h3>' +
-                '<div class="timeline-svg">' + closeup + '</div>' +
-                '<div class="narrative' + (near ? '' : ' all') + '" data-i="' + i + '">' +
-                '<div class="narrative-head"><span><strong>Nyckelhändelser</strong> · ' + (near ? near + ' av ' + n.lines.length + ' rader ligger inom närbilden' : 'inga rader inom närbilden, alla ' + n.lines.length + ' visas') + '</span>' +
-                (near && near < n.lines.length ? '<button type="button" class="secondary show-all">Visa alla ' + n.lines.length + ' rader</button>' : '') + '</div>' +
-                '<table>' + n.lines.map(function (l) {
-                    return '<tr class="' + (l.near ? 'near' : 'far') + '"><td class="time">' + escapeHtml(fmt(l.ms).slice(11)) + '</td><td>' + (l.bold ? '<strong>' + escapeHtml(l.text) + '</strong>' : escapeHtml(l.text)) + '</td><td class="src">' + escapeHtml(shortSource(l.source)) + '</td></tr>';
-                }).join('') + '</table>' + (n.lines.length ? '' : '<p class="muted">Inga registreringar i fönstret.</p>') +
-                n.notes.map(function (t) { return '<p class="note">' + escapeHtml(t) + '</p>'; }).join('') + '</div></div>';
-        }
-        $('timelines').innerHTML = html;
-        $('timelines').querySelectorAll('.save-png').forEach(function (b) {
-            b.addEventListener('click', function () {
-                var i = Number(b.getAttribute('data-i'));
-                var kind = b.getAttribute('data-kind');
-                download(dataUrlToBlob(state.pngs[i][kind]), 'harkomst-' + m.file.filename.replace(/\.[^.]+$/, '') + (kind === 'closeup' ? '-narbild' : '-tidslinje') + (m.windows.length > 1 ? '-' + (i + 1) : '') + '.png');
-            });
-        });
-        $('timelines').querySelectorAll('.show-all').forEach(function (b) {
-            b.addEventListener('click', function () {
-                var box = b.closest('.narrative');
-                var all = box.classList.toggle('all');
-                b.textContent = all ? 'Visa bara nyckelhändelserna' : 'Visa alla ' + box.querySelectorAll('tr').length + ' rader';
-            });
-        });
+        await renderTimelines();
 
         $('events').innerHTML = '<table><thead><tr><th>Tid (' + escapeHtml(meta.zoneLabel) + ')</th><th>UTC</th><th>Händelse</th><th>Till</th><th>Källa</th><th>Query</th></tr></thead><tbody>' +
             m.events.map(function (e) {
                 var s = e.source || {};
                 return '<tr><td>' + escapeHtml(fmt(e.ms)) + '</td><td>' + escapeHtml(ProvenanceCore.formatUtc(e.ms)) + '</td><td>' + escapeHtml(e.text) + '</td><td>' +
-                    (e.endMs != null ? escapeHtml(fmt(e.endMs)) + (e.openEnded ? ' (pågår)' : '') : '') + '</td><td class="path">' + escapeHtml([s.db, s.table, s.stream, s.column].filter(Boolean).join(' → ')) + '</td><td>' + escapeHtml(s.queryId || '') + '</td></tr>';
+                    (e.endMs != null ? escapeHtml(fmt(e.endMs)) + (e.openEnded ? ' (pågår)' : '') : '') + '</td><td class="path">' + escapeHtml(ProvenanceReport.sourceText(s)) + '</td><td>' + queryCell(s.queryId) + '</td></tr>';
             }).join('') + '</tbody></table>' + (m.outside ? '<p class="muted">' + m.outside + ' registreringar till finns utanför fönstren.</p>' : '');
+        $('events-note').textContent = state.zip
+            ? 'Klicka på en query för att köra den i Queries mot samma zip och se raderna. Den öppnas i en egen flik.'
+            : 'Testdata: queryerna går att läsa i protokollet men inte köra i Queries, eftersom ingen zip är öppen.';
         $('alternatives').innerHTML = '<table><thead><tr><th>Förklaring</th><th>Talar för</th><th>Talar emot</th></tr></thead><tbody>' +
             m.alternatives.map(function (a) {
                 return '<tr><td>' + escapeHtml(a.label) + '</td><td>' + (a.for.length ? escapeHtml(a.for.join(' ')) : '<span class="muted">Inget i materialet.</span>') + '</td><td>' + (a.against.length ? escapeHtml(a.against.join(' ')) : '<span class="muted">Inget i materialet.</span>') + '</td></tr>';
@@ -1774,7 +1844,10 @@
                 (s.walPath ? '<dt>-wal</dt><dd>' + escapeHtml(s.walPath) + '</dd><dt>-wal SHA-256</dt><dd>' + escapeHtml(s.walSha256) + '</dd>' : '') +
                 '<dt>WAL</dt><dd>' + escapeHtml(s.walSummary) + '</dd>' + (s.warnings.length ? '<dt>Varning</dt><dd class="warn">' + escapeHtml(s.warnings.join(' ')) + '</dd>' : '') + '</dl></div>';
         }).join('') + (meta.fileEntry ? '<div class="source-block"><h4>Bildfilen</h4><dl><dt>Sökväg</dt><dd>' + escapeHtml(meta.fileEntry.path) + '</dd><dt>CRC32</dt><dd>' + escapeHtml(meta.fileEntry.crc32) + '</dd><dt>SHA-256</dt><dd>' + escapeHtml(meta.fileEntry.sha256) + '</dd></dl></div>' : '') +
-            '<h4>SQL</h4>' + meta.queries.map(function (q) { return '<div><strong>' + escapeHtml(q.id) + '</strong> <span class="muted">' + escapeHtml(q.db) + '</span></div><pre class="sql">' + escapeHtml(q.sql) + '</pre>'; }).join('');
+            '<h4>SQL</h4>' + meta.queries.map(function (q) {
+                return '<div class="sql-head"><span><strong>' + escapeHtml(q.id) + '</strong> <span class="muted">' + escapeHtml(q.db) + '</span></span>' +
+                    (state.zip && q.path ? '<button type="button" class="secondary to-queries" data-q="' + escapeHtml(q.id) + '">Kör i Queries</button>' : '') + '</div><pre class="sql">' + escapeHtml(q.sql) + '</pre>';
+            }).join('');
         renderPositions(m, fmt);
         renderCopies(m);
         $('result').classList.remove('display-none');
@@ -1929,6 +2002,19 @@
         renderFileCard();
     });
     $('file-card').addEventListener('change', function (e) { if (e.target.id === 'include-picture') state.includePicture = e.target.checked; });
+    $('result').addEventListener('click', function (e) {
+        var b = e.target.closest('button');
+        if (!b || !state.model) return;
+        if (b.classList.contains('to-queries')) { openInQueries(b.getAttribute('data-q')); return; }
+        if (b.classList.contains('copy-key')) {
+            var i = Number(b.getAttribute('data-i'));
+            var all = b.closest('.narrative').classList.contains('all');
+            copyTable(ProvenanceReport.keyEventsTable(state.model, state.meta, i, all), all ? 'Händelserna' : 'Nyckelhändelserna');
+        }
+    });
+    $('copy-events').addEventListener('click', function () {
+        if (state.model) copyTable(ProvenanceReport.eventsTable(state.model, state.meta), 'Händelserna med källa');
+    });
     $('copy-protocol').addEventListener('click', function () { copyExport('protocol'); });
     $('copy-explanation').addEventListener('click', function () { copyExport('explanation'); });
     $('save-protocol').addEventListener('click', function () { saveExport('protocol'); });

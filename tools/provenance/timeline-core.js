@@ -271,11 +271,11 @@
         add(created);
         if (file.addedMs && Math.abs(file.addedMs - (file.createdMs || 0)) > TOLERANCE_MS) {
             add({ ms: file.addedMs, kind: 'file-added', lane: 'file', text: 'Tillagd i biblioteket (' + (input.platform === 'Android' ? 'date_added' : 'ZADDEDDATE') + ')',
-                plain: noun + ' läggs till i ' + (input.platform === 'Android' ? 'galleriet' : 'Bilder'), source: fileSrc });
+                plain: noun + ' läggs till i ' + (input.platform === 'Android' ? 'galleriet' : 'Bilder'), source: Object.assign({}, fileSrc, { column: input.platform === 'Android' ? 'date_added' : 'ZADDEDDATE' }) });
         }
         if (file.modifiedMs && Math.abs(file.modifiedMs - (file.createdMs || 0)) > TOLERANCE_MS && Math.abs(file.modifiedMs - (file.addedMs || 0)) > TOLERANCE_MS) {
             add({ ms: file.modifiedMs, kind: 'file-modified', lane: 'file', text: 'Ändrad (' + (input.platform === 'Android' ? 'date_modified' : 'ZMODIFICATIONDATE') + ')',
-                plain: noun + ' ändras' + (file.editor ? ' av ' + appName(file.editor, names) : ''), source: fileSrc });
+                plain: noun + ' ändras' + (file.editor ? ' av ' + appName(file.editor, names) : ''), source: Object.assign({}, fileSrc, { column: input.platform === 'Android' ? 'date_modified' : 'ZMODIFICATIONDATE' }) });
         }
         if (input.exif && input.exif.takenMs) {
             add({ ms: input.exif.takenMs, kind: 'exif', lane: 'file', text: 'EXIF i filen: ' + (input.exif.sourceTag || 'DateTimeOriginal') + ' ' + input.exif.takenText,

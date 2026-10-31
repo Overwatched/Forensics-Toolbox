@@ -89,7 +89,7 @@
 <body>
     <div class="wrap">
         <h1>Vanliga artifacts</h1>
-        <p class="lead">Snabbreferens för vanliga IT-forensiska artefaktplatser. Börja här — utöka efter behov.</p>
+        <p class="lead">Snabbreferens för vanliga IT-forensiska artefaktplatser. Börja här — utöka efter behov. Det som Härkomst och Queries läser kör du direkt i appen: öppna extraktionens zip, så hittas databaserna och deras <code>-wal</code>.</p>
 
         <h2>Windows</h2>
         <table>
@@ -168,17 +168,17 @@
                 <tr>
                     <td>Photos.sqlite</td>
                     <td><code>Media/PhotoData/Photos.sqlite</code> (+ <code>-wal</code>, <code>-shm</code>)</td>
-                    <td>Fotobibliotek: tider, filnamn, bundle-ID. Använd Queries.</td>
+                    <td>Fotobibliotek: tider (<code>ZDATECREATED</code>, <code>ZADDEDDATE</code>), filnamn, skaparapp (<code>ZIMPORTEDBY</code>, <code>ZIMPORTEDBYBUNDLEIDENTIFIER</code>), position. Härkomst och Queries.</td>
                 </tr>
                 <tr>
                     <td>KnowledgeC</td>
                     <td><code>/private/var/mobile/Library/CoreDuet/Knowledge/knowledgeC.db</code></td>
-                    <td>App- och enhetsaktivitet (t.ex. i förgrunden). Använd Queries.</td>
+                    <td>App i användning (<code>/app/usage</code>), skärm (<code>/display/isBacklit</code>), lås (<code>/device/isLocked</code>). <code>/app/inFocus</code> finns inte på iOS 18+. Härkomst och Queries.</td>
                 </tr>
                 <tr>
                     <td>Biome</td>
                     <td><code>/private/var/mobile/Library/Biome/</code> (iOS 15+)</td>
-                    <td>Strömmar t.ex. App.InFocus. Fullt filsystemsextrakt, sällan i backup.</td>
+                    <td>Strömmar t.ex. App.InFocus. SEGB/protobuf, inte SQLite: iLEAPP. Fullt filsystemsextrakt, sällan i backup.</td>
                 </tr>
                 <tr>
                     <td>interactionC</td>
@@ -186,9 +186,19 @@
                     <td>Interaktioner med personer (samtal, meddelanden, Siri-förslag). Använd Queries.</td>
                 </tr>
                 <tr>
-                    <td>Significant Locations</td>
-                    <td><code>/private/var/mobile/Library/Caches/com.apple.routined/</code></td>
-                    <td>Rutinerade platser. Jämför med EXIF/Photos GPS.</td>
+                    <td>routined (positioner)</td>
+                    <td><code>/private/var/mobile/Library/Caches/com.apple.routined/Cache.sqlite</code></td>
+                    <td>Telefonens positioner med noggrannhet (<code>ZRTCLLOCATIONMO</code>), oftast några dagar bakåt. Härkomst, Queries och Positioner.</td>
+                </tr>
+                <tr>
+                    <td>Snapchat: cacheregister (beta)</td>
+                    <td><code>…/Containers/Data/Application/&lt;GUID&gt;/Documents/global_scoped/cachecontroller/cache_controller.db</code></td>
+                    <td>Cachenyckel (filnamnet utan ändelse), typ (34 = inspelning med Snapchats kamera, 3 = chattmedia) och tider. Härkomst och Queries.</td>
+                </tr>
+                <tr>
+                    <td>Snapchat: meddelanden (beta)</td>
+                    <td><code>…/Documents/user_scoped/&lt;id&gt;/arroyo/arroyo.db</code></td>
+                    <td>Skickat, mottaget och läst. Nästan allt ligger i <code>-wal</code>. Användarnamn i <code>DocObjects/primary.docobjects</code>, notiser i <code>nse_db.sqlite</code>.</td>
                 </tr>
             </tbody>
         </table>
@@ -202,7 +212,7 @@
                 <tr>
                     <td>MediaStore (external.db)</td>
                     <td><code>/data/data/com.android.providers.media/databases/external.db</code></td>
-                    <td>Bilder/video på delad lagring. Använd Queries.</td>
+                    <td>Bilder och video på delad lagring: <code>datetaken</code>, <code>date_added</code>, <code>owner_package_name</code>. Härkomst och Queries.</td>
                 </tr>
                 <tr>
                     <td>MediaStore module</td>
@@ -216,13 +226,18 @@
                 </tr>
                 <tr>
                     <td>UsageStats</td>
-                    <td><code>/data/system/usagestats/</code></td>
-                    <td>App-användning (ofta XML, inte SQL). ALEAPP rekommenderas. Queries har tips.</td>
+                    <td><code>/data/system_ce/0/usagestats/daily/</code> (äldre: <code>/data/system/usagestats/</code>)</td>
+                    <td>App i förgrunden, skärm och låsskärm. Protobuf på Android 9+ (med <code>mappings</code> på nyare), XML på äldre. Härkomst avkodar den, annars ALEAPP.</td>
+                </tr>
+                <tr>
+                    <td>AppOps</td>
+                    <td><code>/data/system/appops/discrete/</code>, <code>/data/system/appops.xml</code></td>
+                    <td>Vilken app som använde kameran (op 26) och mikrofonen, med start och längd. Binär XML (ABX). Härkomst avkodar den.</td>
                 </tr>
                 <tr>
                     <td>Digital Wellbeing</td>
                     <td><code>/data/data/com.google.android.apps.wellbeing/databases/app_usage</code></td>
-                    <td>App i förgrund (ACTIVITY_RESUMED). Använd Queries.</td>
+                    <td>App i förgrund (ACTIVITY_RESUMED). Loggar inte alltid skärmen. Queries.</td>
                 </tr>
                 <tr>
                     <td>Google Play Services (plats)</td>
@@ -238,6 +253,16 @@
                     <td>Samsung Camera</td>
                     <td><code>/data/data/com.sec.android.app.camera/</code></td>
                     <td>OEM-kamera. Gallery/CMH via ALEAPP.</td>
+                </tr>
+                <tr>
+                    <td>Snapchat (beta)</td>
+                    <td><code>/data/data/com.snapchat.android/databases/</code></td>
+                    <td><code>native_content_manager/cache_controller.db</code> (cache), <code>arroyo.db</code> (meddelanden), <code>main.db</code> (vänner), <code>client_notifications.db</code>, <code>journal.db</code> (filhanterare). Härkomst och Queries.</td>
+                </tr>
+                <tr>
+                    <td>Snapchat Memories (beta)</td>
+                    <td><code>/data/data/com.snapchat.android/databases/memories.db</code></td>
+                    <td>När en sparad snap togs (<code>snap_capture_time</code>), med vilken kamera och var. Filerna i <code>files/file_manager/memories_media/</code> saknar EXIF.</td>
                 </tr>
             </tbody>
         </table>

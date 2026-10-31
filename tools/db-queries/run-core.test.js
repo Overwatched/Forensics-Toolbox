@@ -48,3 +48,16 @@ test('besök: avfärd följer med, och ett pågående besök saknar avfärd', ()
     assert.strictEqual(out.points[1].until, null);
     assert.ok(out.points.every((p) => p.visit && p.accuracy === 40));
 });
+
+test('tiderna från Härkomst räknas om till UTC i en kolumn bredvid råvärdet', () => {
+    const out = run.withUtcColumns(['Z_PK', 'ZDATECREATED', 'ZFILENAME'], [[1, 780995148, 'IMG_0049.HEIC'], [2, null, 'x']], [{ col: 'ZDATECREATED', epoch: 'cocoa' }]);
+    assert.deepStrictEqual(out.columns, ['Z_PK', 'ZDATECREATED', 'ZDATECREATED (UTC)', 'ZFILENAME']);
+    assert.deepStrictEqual(out.rows[0], [1, 780995148, '2025-10-01 07:05:48 UTC', 'IMG_0049.HEIC']);
+    assert.strictEqual(out.rows[1][2], null);
+    assert.strictEqual(out.added, 1);
+    assert.strictEqual(run.epochText(1717245690000, 'unixMs'), '2024-06-01 12:41:30 UTC');
+    assert.strictEqual(run.epochText(1717245690, 'unixAuto'), '2024-06-01 12:41:30 UTC');
+    assert.strictEqual(run.epochText(1717245690, 'unix'), '2024-06-01 12:41:30 UTC');
+    const same = run.withUtcColumns(['a'], [[1]], null);
+    assert.deepStrictEqual(same.columns, ['a']);
+});

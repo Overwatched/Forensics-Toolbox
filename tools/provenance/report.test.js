@@ -138,3 +138,30 @@ test('MD5, telefonens tumnagel och bilden: protokollet får allt, förklaringen 
     assert.ok(report.protocol(model(), quiet).includes('5005.JPG'));
     assert.ok(!report.explanation(model(), quiet).includes('[bilden]'));
 });
+
+test('tabellerna för Word: nyckelhändelserna och händelserna med källa som databas → tabell → kolumn', () => {
+    const m = model();
+    const key = report.keyEventsTable(m, META, 0, false);
+    assert.match(key, /<table style="border-collapse: collapse/);
+    assert.ok(key.includes('Nyckelhändelser') || key.includes('Händelser'), 'rubrikraden saknas');
+    assert.ok(key.includes('IMG_0042.HEIC') && key.includes('tidszon Europe/Stockholm') && key.includes('EXTRACTION_FFS.zip'));
+    assert.ok(key.includes('knowledgeC.db → ZOBJECT /app/usage → ZSTARTDATE, ZENDDATE, ZVALUESTRING'), 'källan saknar kolumnerna');
+    assert.ok(key.includes('2025-09-24 14:31:09'), 'datum och klockslag saknas');
+    const near = m.narrative[0].lines.filter((l) => l.near).length;
+    const rows = (html) => (html.match(/<tr>/g) || []).length - 1;
+    assert.strictEqual(rows(key), near || m.narrative[0].lines.length);
+    assert.strictEqual(rows(report.keyEventsTable(m, META, 0, true)), m.narrative[0].lines.length);
+    const all = report.eventsTable(m, META);
+    assert.ok(all.includes('Händelser med källa') && all.includes('role-app-usage') && all.includes('2025-09-24 12:31:09 UTC'));
+    assert.strictEqual(rows(all), m.events.length);
+    assert.ok(report.protocol(m, META).includes(all.slice(all.indexOf('<table'), all.indexOf('</table>'))), 'protokollets händelsetabell ska vara samma tabell');
+    assert.ok(report.plainText(key).includes('\t'), 'texten på urklippet ska ha tabbar mellan kolumnerna');
+});
+
+test('tillagd och ändrad har sin egen kolumn som källa, inte skapandetidens', () => {
+    const m = model({ file: { pk: 1, filename: 'IMG_0042.HEIC', createdMs: T, addedMs: T + 60 * S, modifiedMs: T + 120 * S, importedBy: 1, importer: 'com.apple.camera' } });
+    const src = (kind) => report.sourceText(m.events.find((e) => e.kind === kind).source);
+    assert.strictEqual(src('file-created'), 'Photos.sqlite → ZASSET → ZDATECREATED');
+    assert.strictEqual(src('file-added'), 'Photos.sqlite → ZASSET → ZADDEDDATE');
+    assert.strictEqual(src('file-modified'), 'Photos.sqlite → ZASSET → ZMODIFICATIONDATE');
+});

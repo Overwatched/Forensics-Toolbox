@@ -71,7 +71,42 @@
         return { points: points, skipped: skipped, columns: col };
     }
 
-    var api = { pairFiles: pairFiles, toCsv: toCsv, cellText: cellText, toPoints: toPoints };
+    // Råa tidsstämplar -> UTC-text, samma regler som Härkomst (roles.js toMs). epoch: cocoa, unix, unixMs, unixAuto.
+    var COCOA_EPOCH = 978307200;
+    function epochText(value, epoch) {
+        if (value === null || value === undefined || value === '') return null;
+        var n = Number(value);
+        if (!isFinite(n) || n === 0) return null;
+        var ms = epoch === 'cocoa' ? (n + COCOA_EPOCH) * 1000
+            : epoch === 'unixMs' ? n
+                : epoch === 'unixAuto' ? (n > 1000000000000 ? n : n * 1000)
+                    : n * 1000;
+        var d = new Date(Math.round(ms));
+        if (isNaN(d.getTime())) return null;
+        return d.toISOString().replace('T', ' ').replace(/\.\d+Z$/, ' UTC').replace(/Z$/, ' UTC');
+    }
+
+    // En kolumn "<namn> (UTC)" direkt efter varje tidskolumn som Härkomst räknade om. specs: [{ col, epoch }].
+    // Råvärdet står kvar, så att den omräknade tiden alltid går att kontrollera.
+    function withUtcColumns(columns, rows, specs) {
+        if (!specs || !specs.length) return { columns: columns, rows: rows, added: 0 };
+        var plan = [];
+        var out = [];
+        columns.forEach(function (c, i) {
+            plan.push({ i: i });
+            out.push(c);
+            var spec = specs.find(function (s) { return s.col === c; });
+            if (spec) { plan.push({ i: i, epoch: spec.epoch }); out.push(c + ' (UTC)'); }
+        });
+        if (out.length === columns.length) return { columns: columns, rows: rows, added: 0 };
+        return {
+            columns: out,
+            rows: rows.map(function (r) { return plan.map(function (p) { return p.epoch ? epochText(r[p.i], p.epoch) : r[p.i]; }); }),
+            added: out.length - columns.length,
+        };
+    }
+
+    var api = { pairFiles: pairFiles, toCsv: toCsv, cellText: cellText, toPoints: toPoints, epochText: epochText, withUtcColumns: withUtcColumns };
     if (typeof module !== 'undefined' && module.exports) module.exports = api;
     else root.QueryRunCore = api;
 })(typeof window !== 'undefined' ? window : this);

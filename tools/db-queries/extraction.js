@@ -156,6 +156,34 @@
         layout();
     }
 
+    // Från Härkomst: samma zip (namn, storlek och ändringstid) öppnas bara en gång.
+    function sameFile(a, b) { return !!a && !!b && a.name === b.name && a.size === b.size && a.lastModified === b.lastModified; }
+
+    async function ensure(file) {
+        if (current && sameFile(current.file, file)) return;
+        await open(file);
+    }
+
+    // Databasen på exakt den sökvägen i zippen. false om Queries inte hittade den.
+    function useByPath(path) {
+        if (!current) return false;
+        var i = current.found.findIndex(function (f) { return f.db.name === path; });
+        if (i < 0) return false;
+        use(i);
+        return true;
+    }
+
+    window.QueriesExtraction = {
+        ensure: ensure,
+        useByPath: useByPath,
+        snapshot: function () { return current ? { file: current.file, chosen: current.chosen } : null; },
+        restore: function (s) {
+            if (!current) return;
+            current.chosen = s && s.file === current.file ? s.chosen : -1;
+            setTimeout(function () { render(); layout(); }, 0);
+        },
+    };
+
     $('ex-pick').addEventListener('click', function () { input.click(); });
     $('ex-close').addEventListener('click', close);
     $('ex-close-compact').addEventListener('click', close);

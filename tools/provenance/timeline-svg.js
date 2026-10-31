@@ -29,6 +29,7 @@
     ];
     var LEFT = 96, RIGHT = 14, GAP = 16, COL = 300, PILL_W = 104, TOP = 44, FOOTER = 56, CHAR_W = 5.9;
     var ROW_H = 36, ROW_H_LABELS = 50;
+    var MAX_LANES = 5, LANE_H = 13, DODGE_MAX = 40, LEGEND_H = 16, FADE = 0.3;
     var SNAP_APPS = { 'com.toyopagroup.picaboo': 1, 'com.snapchat.android': 1 };
 
     function esc(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
@@ -85,10 +86,11 @@
         }).map(function (r) { return { id: r.id, label: r.label, factor: r.factor ? f[r.factor] || null : null }; });
     }
 
-    // Kort text för en Snapchat-händelse i närbilden. null = bara markören med sin tooltip.
+    // Kort text för en Snapchat-händelse i närbilden. null = bara markören med sin tooltip. Meddelanden
+    // och notiser får alltid en text, så att ingen markör i Snapchat-raden står utan förklaring.
     function snapLabel(e) {
         var m;
-        if (!e.plain && !e.isFile && !(e.kind === 'snap-cache' && e.context === 34)) return null;
+        if (!e.plain && !e.isFile && !(e.kind === 'snap-cache' && e.context === 34) && e.kind !== 'snap-message' && e.kind !== 'snap-notification') return null;
         switch (e.kind) {
             case 'snap-message':
                 if (e.isFile) return e.own ? 'Den bedömda filen skickas' : 'Den bedömda filen tas emot';
@@ -125,6 +127,30 @@
             case 'neighbour': m = /^Granne: (\S+)/.exec(e.text || ''); return m ? m[1] : 'Annan bild';
         }
         return null;
+    }
+
+    // Snapchat-händelsen som kolumnen Vid T beskriver: den närmaste som säger något om en snap.
+    function snapAtT(ev, T) {
+        var cands = ev.filter(function (e) { return (/^snap-(message|cache|read)$/.test(e.kind) && (e.isFile || e.own || e.sent || e.context === 34 || e.kind === 'snap-message')) || (e.kind === 'snap-memory' && (e.isFile || e.captured)); });
+        return cands.length ? nearest(cands, T) : null;
+    }
+
+    // Det viktiga för bedömningen: filens egna tidpunkter, allt som Snapchat knyter till den bedömda
+    // filen, inspelningen vid T, den närmaste positionen och Snapchat-händelsen i kolumnen Vid T.
+    // Resten (grannbilder, andra snappar och inspelningar) är sammanhang: blek markör utan text.
+    function focusSet(model, T, positions) {
+        var ev = model.events;
+        var keep = new Set();
+        ev.forEach(function (e) {
+            if (e.isFile) keep.add(e);
+            else if (e.lane === 'file' && !e.neighbour) keep.add(e);
+            else if (isRecording(e, T)) keep.add(e);
+        });
+        var snap = snapAtT(ev, T);
+        if (snap) keep.add(snap);
+        var near = nearest((positions || []).filter(function (p) { return p.kind === 'phone'; }), T);
+        if (near) ev.forEach(function (e) { if (e.kind === 'location' && e.ms === near.ms) keep.add(e); });
+        return keep;
     }
 
     // Läget vid T per rad: faktorns tillstånd (pillen) och två korta rader text.
@@ -189,9 +215,8 @@
                 return { state: st, l1: metres(near.distanceM) + ' från bilden', l2: when(near.ms) + acc };
             }
             case 'snapchat': {
-                var cands = ev.filter(function (e) { return (/^snap-(message|cache|read)$/.test(e.kind) && (e.isFile || e.own || e.sent || e.context === 34 || e.kind === 'snap-message')) || (e.kind === 'snap-memory' && (e.isFile || e.captured)); });
-                if (!cands.length) return { state: null, l1: '–', l2: '' };
-                var n = nearest(cands, T);
+                var n = snapAtT(ev, T);
+                if (!n) return { state: null, l1: '–', l2: '' };
                 return { state: null, l1: snapLabel(n) || 'Snapchat-händelse', l2: Math.abs(n.ms - T) <= 1000 ? 'vid T' : when(n.ms) };
             }
         }
@@ -217,6 +242,7 @@
     // Markörerna: romb för skapad, fyrkant för tillagd/ändrad, cirkel för EXIF och filsystem, liten
     // prick för grannbilder; Snapchat: triangel för meddelanden, cirkel för cacheposter, ring för
     // läst, liten romb för notiser; violett cirkel för position (större för den närmaste).
+    function snapRadius(e) { return e.kind === 'snap-notification' ? 4 : e.isFile ? 7 : 4.5; }
     function marker(e, cx, mid, fmt) {
         var title = '<title>' + esc(e.text + ' ' + fmt(e.ms)) + '</title>';
         if (e.kind === 'location') return '<circle cx="' + cx.toFixed(1) + '" cy="' + mid + '" r="' + (e.near ? 6 : 4) + '" fill="' + COLORS.location + '" stroke="' + COLORS.bg + '" stroke-width="1.5">' + title + '</circle>';
@@ -235,55 +261,40 @@
     }
 
     // Ritar raderna för ett fönster från cfg.y0. cfg: { y0, rowH, labels, plotW, zoom, column, prefix }
+    // I närbilden växer en rad på höjden när texterna behöver fler spår, så att ingen text faller bort.
     function block(ctx, w, rows, cfg) {
         var fmt = ctx.fmt, appName = ctx.appName, model = ctx.model, T = w.centerMs;
         var y0 = cfg.y0, rowH = cfg.rowH, labels = !!cfg.labels, plotW = cfg.plotW;
-        var plotRight = LEFT + plotW, plotBottom = y0 + rows.length * rowH;
+        var plotRight = LEFT + plotW;
         var span = w.endMs - w.startMs;
         var x = function (ms) { return LEFT + (ms - w.startMs) / span * plotW; };
         var cx = function (ms) { return Math.max(LEFT, Math.min(plotRight, x(ms))); };
         var events = model.events.filter(function (e) { return overlaps(e, w); });
         var barH = 18;
         var pre = cfg.prefix || '';
-        var out = '';
-
-        // Bakgrund och radetiketter
-        rows.forEach(function (r, i) {
-            var y = y0 + i * rowH;
-            if (i % 2 === 0) out += '<rect x="' + LEFT + '" y="' + y + '" width="' + plotW + '" height="' + rowH + '" fill="' + COLORS.lane + '"/>';
-            out += text(LEFT - 10, y + rowH / 2 + 4, r.label, { anchor: 'end', size: 11.5, weight: 'bold' });
-        });
-        // Närbildens ruta i översikten
-        if (cfg.zoom && cfg.zoom.endMs > w.startMs && cfg.zoom.startMs < w.endMs) {
-            var zx1 = cx(cfg.zoom.startMs), zx2 = cx(cfg.zoom.endMs);
-            out += '<rect x="' + zx1.toFixed(1) + '" y="' + (y0 - 4) + '" width="' + Math.max(2, zx2 - zx1).toFixed(1) + '" height="' + (plotBottom - y0 + 8) + '" fill="' + COLORS.zoom + '" fill-opacity="0.10" stroke="' + COLORS.zoom + '" stroke-width="1"><title>Närbild ' + esc(fmtTime(fmt, cfg.zoom.startMs) + ' till ' + fmtTime(fmt, cfg.zoom.endMs)) + '</title></rect>';
-        }
-        // Tidsaxeln
-        var step = tickStep(span);
-        for (var t = Math.ceil(w.startMs / step) * step; t <= w.endMs; t += step) {
-            var tx = x(t);
-            out += '<line x1="' + tx.toFixed(1) + '" y1="' + y0 + '" x2="' + tx.toFixed(1) + '" y2="' + plotBottom + '" stroke="' + COLORS.grid + '" stroke-width="1"/>';
-            out += text(tx, plotBottom + 14, step < 60000 ? fmtTime(fmt, t) : fmt(t).slice(11, 16), { anchor: 'middle', size: 10, fill: COLORS.muted });
-        }
-        out += '<line x1="' + LEFT + '" y1="' + plotBottom + '" x2="' + plotRight + '" y2="' + plotBottom + '" stroke="' + COLORS.muted + '" stroke-width="1"/>';
-        // T-kolumnen bakom allt
         var tX = x(T);
-        out += '<rect x="' + (tX - 5).toFixed(1) + '" y="' + (y0 - 4) + '" width="10" height="' + (plotBottom - y0 + 4) + '" fill="' + COLORS.t + '" fill-opacity="0.09"/>';
+        // focus: bara det viktiga får text, sammanhanget ritas blekt. null = allt med full styrka.
+        var focus = cfg.focus ? focusSet(model, T, ctx.positions) : null;
+        var important = function (e) { return !focus || focus.has(e); };
+        var faded = function (svg, e) { return important(e) ? svg : '<g opacity="' + FADE + '">' + svg + '</g>'; };
 
-        // Textplacering i närbilden: två rader per spår, och en text får inte läggas ovanpå en
-        // tidigare på samma rad. Texter som inte får plats till höger om markören skrivs till vänster.
+        // Textplacering i närbilden: spår per rad, och en text får inte läggas ovanpå en tidigare
+        // på samma spår. Texter som inte får plats till höger om markören skrivs till vänster.
+        // Spår 0 ligger i höjd med markören (i kamerans rad ovanför bandet), resten under.
         function placer() {
-            var ends = [-Infinity, -Infinity];
-            return function (l, r) { for (var k = 0; k < 2; k++) if (ends[k] <= l) { ends[k] = r; return k; } return -1; };
+            var ends = [];
+            var place = function (l, r) {
+                for (var k = 0; k < MAX_LANES; k++) {
+                    if (ends[k] == null || ends[k] <= l) { ends[k] = r; return k; }
+                }
+                return -1;
+            };
+            place.lanes = function () { return ends.length; };
+            return place;
         }
-        function label(px, mid, place, short, time, bold) {
-            var s = time ? short + ' ' + time : short, wpx = s.length * CHAR_W;
-            var flip = px + 10 + wpx > plotRight;
-            var r = flip ? place(px - 10 - wpx, px + 6) : place(px + 6, px + 10 + wpx);
-            if (r < 0) return '';
-            var y = r === 0 ? mid - 5 : mid + 15;
-            var raw = (bold ? '<tspan font-weight="bold">' : '<tspan>') + esc(short) + '</tspan> <tspan fill="' + COLORS.muted + '">' + esc(time) + '</tspan>';
-            return text(flip ? px - 10 : px + 10, y, raw, { size: 10.5, raw: true, anchor: flip ? 'end' : null });
+        function laneY(k, mid, overBand) {
+            if (overBand) return k === 0 ? mid - 13 : mid + 22 + LANE_H * (k - 1);
+            return k === 0 ? mid - 5 : mid + 15 + LANE_H * (k - 1);
         }
         function band(x1, x2, mid, fill, title, stroke) {
             var bw = Math.max(2, x2 - x1);
@@ -302,17 +313,32 @@
                 if (!crosses) pick = { s: cands[k], x: x1 + 4 };
                 else if (tX + 10 + wpx <= x2 - 4) pick = { s: cands[k], x: tX + 10 };
             }
-            if (!pick) for (k = 0; k < cands.length && !pick; k++) if (bw >= cands[k].length * CHAR_W + 8) pick = { s: cands[k], x: x1 + 4 };
+            // Får ingen variant plats utan att gå under T-pricken skrivs ingen text: bandet och kolumnen Vid T säger läget.
             if (!pick) return '';
             var id = pre + 'c' + (++uid);
             return '<clipPath id="' + id + '"><rect x="' + x1.toFixed(1) + '" y="' + (mid - barH / 2) + '" width="' + bw.toFixed(1) + '" height="' + barH + '"/></clipPath><g clip-path="url(#' + id + ')">' + text(pick.x, mid + 4, pick.s, { size: 10, fill: fill }) + '</g>';
         }
         var sinceText = function (e, word) { return labels ? (e.ms < w.startMs ? word + ' sedan ' + fmtTime(fmt, e.ms) : word + ' ' + fmtTime(fmt, e.ms) + (e.endMs < w.endMs ? ' → ' + fmtTime(fmt, e.endMs) : '')) : word; };
 
-        rows.forEach(function (r, i) {
-            var y = y0 + i * rowH, mid = y + rowH / 2;
+        // En rad med radens mitt i mid. Ger { svg, lanes }.
+        function renderRow(r, mid) {
             var place = placer();
-            var texts = '';
+            var overBand = r.id === 'camera';
+            var said = [];
+            var out = '', texts = '';
+            function label(px, short, time, bold) {
+                // Samma text inom tio sekunder (en skickad snap i både cachen och meddelandena) skrivs en gång.
+                // "Snap till @x" ur cachen och "Snap skickas" ur meddelandena är samma snap.
+                var topic = /^Snap (till |skickas)/.test(short) ? 'sent' : short;
+                if (said.some(function (s) { return s.topic === topic && Math.abs(s.px - px) <= 10000 * plotW / span; })) return '';
+                var s = time ? short + ' ' + time : short, wpx = s.length * CHAR_W;
+                var flip = px + 10 + wpx > plotRight;
+                var k = flip ? place(px - 10 - wpx, px + 6) : place(px + 6, px + 10 + wpx);
+                if (k < 0) return '';
+                said.push({ topic: topic, px: px });
+                var raw = (bold ? '<tspan font-weight="bold">' : '<tspan>') + esc(short) + '</tspan>' + (time ? ' <tspan fill="' + COLORS.muted + '">' + esc(time) + '</tspan>' : '');
+                return text(flip ? px - 10 : px + 10, laneY(k, mid, overBand), raw, { size: 10.5, raw: true, anchor: flip ? 'end' : null });
+            }
             if (r.id === 'app') {
                 events.filter(foreground).forEach(function (e) {
                     var x1 = cx(e.ms), x2 = cx(e.endMs), name = appName(e.app) || e.app || '';
@@ -335,10 +361,11 @@
                 // Snapchats egen kamera: inspelningsposten (iOS) eller tagningen i Memories (Android).
                 events.filter(function (e) { return (e.kind === 'snap-cache' && e.context === 34) || (e.kind === 'snap-memory' && e.captured); }).forEach(function (e) {
                     var px = x(e.ms);
-                    out += '<circle cx="' + px.toFixed(1) + '" cy="' + mid + '" r="' + (e.isFile ? 7 : 5) + '" fill="' + COLORS.camera + '"' + (e.isFile ? ' stroke="' + COLORS.file + '" stroke-width="1.5"' : '') + '><title>' + esc(e.text + ' ' + fmt(e.ms)) + '</title></circle>';
+                    out += faded('<circle cx="' + px.toFixed(1) + '" cy="' + mid + '" r="' + (e.isFile ? 7 : 5) + '" fill="' + COLORS.camera + '"' + (e.isFile ? ' stroke="' + COLORS.file + '" stroke-width="1.5"' : '') + '><title>' + esc(e.text + ' ' + fmt(e.ms)) + '</title></circle>', e);
                     var what = e.kind === 'snap-memory' ? (e.isFile ? 'Den bedömda ' + (e.video ? 'videon' : 'bilden') + ' tas med Snapchats kamera' : (e.video ? 'Video spelas in' : 'Bild tas') + ' med Snapchats kamera')
                         : (e.isFile ? 'Den bedömda filen spelas in med Snapchats kamera' : 'Inspelning med Snapchats kamera');
-                    if (labels) texts += label(px, mid, place, what, fmtTime(fmt, e.ms), !!e.isFile);
+                    // I det viktiga står meningen i Snapchat-raden; här räcker vilken kamera.
+                    if (labels && important(e)) texts += focus ? label(px, 'Snapchats kamera', fmtTime(fmt, e.ms), false) : label(px, what, fmtTime(fmt, e.ms), !!e.isFile);
                 });
             } else if (r.id === 'screen' || r.id === 'lock') {
                 events.filter(function (e) { return e.kind === r.id && e.endMs != null; }).forEach(function (e) {
@@ -354,16 +381,22 @@
                 events.filter(function (e) { return e.kind === 'location'; }).forEach(function (e) {
                     var p = ps.find(function (q) { return q.ms === e.ms; });
                     var isNear = !!near && e.ms === near.ms;
-                    out += marker(Object.assign({}, e, { near: isNear }), x(e.ms), mid, fmt);
-                    if (labels) {
+                    out += faded(marker(Object.assign({}, e, { near: isNear }), x(e.ms), mid, fmt), e);
+                    if (labels && important(e)) {
                         var s = 'Position' + (e.accuracy ? ' ±' + Math.round(e.accuracy) + ' m' : '') + (p && p.distanceM != null ? ' · ' + metres(p.distanceM) + ' från bilden' : '');
-                        texts += label(x(e.ms), mid, place, s, fmtTime(fmt, e.ms), isNear);
+                        texts += label(x(e.ms), s, fmtTime(fmt, e.ms), isNear);
                     }
                 });
             } else if (r.id === 'snapchat') {
-                events.filter(function (e) { return /^snap-/.test(e.kind); }).forEach(function (e) {
-                    out += marker(e, x(e.ms), mid, fmt);
-                    if (labels) { var s = snapLabel(e); if (s) texts += label(x(e.ms), mid, place, s, fmtTime(fmt, e.ms), !!e.isFile); }
+                // Markörer som skulle hamna på varandra läggs bredvid varandra i tidsordning: den första
+                // står på sin tid, de följande högst DODGE_MAX px till höger. Klockslagen står i texten.
+                var prev = null;
+                events.filter(function (e) { return /^snap-/.test(e.kind); }).sort(function (a, b) { return a.ms - b.ms; }).forEach(function (e) {
+                    var r0 = snapRadius(e), px = x(e.ms);
+                    if (prev && px < prev.px + prev.r + r0 + 2 && prev.px + prev.r + r0 + 2 - px <= DODGE_MAX) px = prev.px + prev.r + r0 + 2;
+                    prev = { px: px, r: r0 };
+                    out += faded(marker(e, px, mid, fmt), e);
+                    if (labels && important(e)) { var s = snapLabel(e); if (s) texts += label(px, s, fmtTime(fmt, e.ms), !!e.isFile); }
                 });
             } else if (r.id === 'file') {
                 // Filens egna tidpunkter inom två sekunder blir en grupp: skapad-raden i fetstil, resten på en andra rad.
@@ -374,19 +407,59 @@
                     if (g) g.items.push(e); else groups.push({ ms: e.ms, neighbour: !!e.neighbour, items: [e] });
                 });
                 groups.forEach(function (g) {
-                    g.items.forEach(function (e) { out += marker(e, x(e.ms), mid, fmt); });
-                    if (labels) {
+                    g.items.forEach(function (e) { out += faded(marker(e, x(e.ms), mid, fmt), e); });
+                    if (labels && g.items.some(important)) {
                         var main = g.items.find(function (e) { return e.kind === 'file-created'; });
                         var rest = g.items.filter(function (e) { return e !== main; }).map(function (e) { return fileLabel(e, model); }).filter(Boolean);
                         if (main) {
-                            texts += label(x(g.ms), mid, place, fileLabel(main, model), fmtTime(fmt, g.ms), true);
-                            if (rest.length) texts += label(x(g.ms), mid, place, rest.join(' · '), '', false);
-                        } else if (rest.length) texts += label(x(g.ms), mid, place, rest.join(' · '), fmtTime(fmt, g.ms), false);
+                            texts += label(x(g.ms), fileLabel(main, model), fmtTime(fmt, g.ms), true);
+                            if (rest.length) texts += label(x(g.ms), rest.join(' · '), '', false);
+                        } else if (rest.length) texts += label(x(g.ms), rest.join(' · '), fmtTime(fmt, g.ms), false);
                     }
                 });
             }
-            out += texts;
+            return { svg: out + texts, lanes: place.lanes(), overBand: overBand };
+        }
+
+        // Först räknas spåren per rad (radens höjd), sedan ritas raderna på sina platser.
+        var layout = [];
+        var yy = y0;
+        rows.forEach(function (r) {
+            var h = rowH;
+            if (labels) {
+                var dry = renderRow(r, rowH / 2);
+                if (dry.lanes) h = Math.max(rowH, Math.ceil(rowH / 2 + laneY(dry.lanes - 1, 0, dry.overBand) + 7));
+            }
+            layout.push({ y: yy, h: h, mid: yy + rowH / 2 });
+            yy += h;
         });
+        var plotBottom = yy;
+        var out = '';
+
+        // Bakgrund och radetiketter
+        rows.forEach(function (r, i) {
+            var L = layout[i];
+            if (i % 2 === 0) out += '<rect x="' + LEFT + '" y="' + L.y + '" width="' + plotW + '" height="' + L.h + '" fill="' + COLORS.lane + '"/>';
+            out += text(LEFT - 10, L.mid + 4, r.label, { anchor: 'end', size: 11.5, weight: 'bold' });
+        });
+        // Närbildens ruta i översikten
+        if (cfg.zoom && cfg.zoom.endMs > w.startMs && cfg.zoom.startMs < w.endMs) {
+            var zx1 = cx(cfg.zoom.startMs), zx2 = cx(cfg.zoom.endMs);
+            out += '<rect x="' + zx1.toFixed(1) + '" y="' + (y0 - 4) + '" width="' + Math.max(2, zx2 - zx1).toFixed(1) + '" height="' + (plotBottom - y0 + 8) + '" fill="' + COLORS.zoom + '" fill-opacity="0.10" stroke="' + COLORS.zoom + '" stroke-width="1"><title>Närbild ' + esc(fmtTime(fmt, cfg.zoom.startMs) + ' till ' + fmtTime(fmt, cfg.zoom.endMs)) + '</title></rect>';
+        }
+        // Tidsaxeln
+        var step = tickStep(span);
+        for (var t = Math.ceil(w.startMs / step) * step; t <= w.endMs; t += step) {
+            var tx = x(t);
+            out += '<line x1="' + tx.toFixed(1) + '" y1="' + y0 + '" x2="' + tx.toFixed(1) + '" y2="' + plotBottom + '" stroke="' + COLORS.grid + '" stroke-width="1"/>';
+            out += text(tx, plotBottom + 14, step < 60000 ? fmtTime(fmt, t) : fmt(t).slice(11, 16), { anchor: 'middle', size: 10, fill: COLORS.muted });
+        }
+        out += '<line x1="' + LEFT + '" y1="' + plotBottom + '" x2="' + plotRight + '" y2="' + plotBottom + '" stroke="' + COLORS.muted + '" stroke-width="1"/>';
+        // T-kolumnen bakom allt
+        out += '<rect x="' + (tX - 5).toFixed(1) + '" y="' + (y0 - 4) + '" width="10" height="' + (plotBottom - y0 + 4) + '" fill="' + COLORS.t + '" fill-opacity="0.09"/>';
+
+        uid = 0;
+        rows.forEach(function (r, i) { out += renderRow(r, layout[i].mid).svg; });
 
         // T: streck, etikett och en prick per rad som har ett band under T
         out += '<line x1="' + tX.toFixed(1) + '" y1="' + (y0 - 6) + '" x2="' + tX.toFixed(1) + '" y2="' + plotBottom + '" stroke="' + COLORS.t + '" stroke-width="1.5" stroke-dasharray="4 3"/>';
@@ -394,8 +467,7 @@
         rows.forEach(function (r, i) {
             var m = tMarker(r, ctx);
             if (!m) return;
-            var mid = y0 + i * rowH + rowH / 2;
-            out += '<circle cx="' + tX.toFixed(1) + '" cy="' + mid + '" r="5.5" fill="' + m.fill + '" stroke="' + (m.stroke || COLORS.bg) + '" stroke-width="2"/>';
+            out += '<circle cx="' + tX.toFixed(1) + '" cy="' + layout[i].mid + '" r="5.5" fill="' + m.fill + '" stroke="' + (m.stroke || COLORS.bg) + '" stroke-width="2"/>';
         });
 
         // Kolumnen "Vid T": pill med faktorns ord, sedan två rader text.
@@ -403,8 +475,8 @@
             var x0 = plotRight + GAP;
             out += text(x0, y0 - 8, 'Vid T · ' + fmtTime(fmt, T), { size: 11, weight: 'bold' });
             rows.forEach(function (r, i) {
-                var y = y0 + i * rowH, mid = y + rowH / 2;
-                if (i % 2 === 0) out += '<rect x="' + (x0 - 6) + '" y="' + y + '" width="' + (COL + 6) + '" height="' + rowH + '" fill="' + COLORS.lane + '"/>';
+                var L = layout[i], mid = L.mid;
+                if (i % 2 === 0) out += '<rect x="' + (x0 - 6) + '" y="' + L.y + '" width="' + (COL + 6) + '" height="' + L.h + '" fill="' + COLORS.lane + '"/>';
                 var s = stateAt(r, ctx);
                 if (s.state) {
                     var lab = STATE_LABEL[s.state] || s.state, pw = lab.length * 6.3 + 14;
@@ -421,25 +493,51 @@
         return { svg: out, bottom: plotBottom };
     }
 
-    function legend(rows, y, hasZoom) {
+    // Teckenförklaringen: bara det som finns i bilden, radbruten så att den ryms i bredden.
+    function legendItems(rows, events, hasZoom) {
         var ids = rows.map(function (r) { return r.id; });
-        var items = [['◆', 'Skapad', COLORS.file], ['□', 'Tillagd/Ändrad', COLORS.file], ['●', 'EXIF/filsystem', COLORS.exif], ['•', 'Andra bilder', COLORS.neighbour], ['▬', 'Kamera', COLORS.camera]];
+        var has = function (f) { return events.some(f); };
+        var kind = function (k) { return function (e) { return e.kind === k; }; };
+        var items = [];
+        if (has(kind('file-created'))) items.push(['◆', 'Skapad', COLORS.file]);
+        if (has(function (e) { return e.kind === 'file-added' || e.kind === 'file-modified'; })) items.push(['□', 'Tillagd/Ändrad', COLORS.file]);
+        if (has(function (e) { return e.kind === 'exif' || e.kind === 'fs-mtime' || e.kind === 'paired-video'; })) items.push(['●', 'EXIF/filsystem', COLORS.exif]);
+        if (has(function (e) { return e.neighbour; })) items.push(['•', 'Andra bilder', COLORS.neighbour]);
+        items.push(['▬', 'Kamera', COLORS.camera]);
         if (ids.indexOf('snapchat') >= 0) items.push(['▬', 'Snapchat', COLORS.snapchat]);
         items.push(['▬', 'Annan app', COLORS.other]);
         if (ids.indexOf('screen') >= 0 || ids.indexOf('lock') >= 0) items.push(['▬', 'Tänd / olåst', COLORS.phone], ['▬', 'Släckt / låst / inte kameran', COLORS.offStroke]);
+        if (has(function (e) { return (e.kind === 'snap-cache' && e.context === 34) || (e.kind === 'snap-memory' && e.captured); })) items.push(['●', 'Snapchats kamera', COLORS.camera]);
         if (ids.indexOf('location') >= 0) items.push(['●', 'Position', COLORS.location]);
+        if (ids.indexOf('snapchat') >= 0) {
+            if (has(kind('snap-message'))) items.push(['▲', 'Snap/meddelande', COLORS.snapchat]);
+            if (has(kind('snap-read'))) items.push(['○', 'Öppnad', COLORS.snapchat]);
+            var regs = [];
+            if (has(function (e) { return /^snap-cache/.test(e.kind); })) regs.push('cache');
+            if (has(kind('snap-memory'))) regs.push('Memories');
+            if (has(kind('snap-journal'))) regs.push('filhanterare');
+            if (regs.length) items.push(['●', 'Snapchats register (' + regs.join(', ') + ')', COLORS.snapchat]);
+            if (has(kind('snap-notification'))) items.push(['◆', 'Notis', COLORS.snapchat]);
+            if (has(function (e) { return /^snap-/.test(e.kind) && e.isFile; })) items.push(['◉', 'Svart kant: den bedömda filen', COLORS.file]);
+        }
         if (hasZoom) items.push(['▭', 'Närbild', COLORS.zoom]);
         items.push(['┆', 'T', COLORS.t]);
-        var out = '', lx = LEFT;
-        items.forEach(function (it) {
-            out += text(lx, y, it[0], { size: 11, fill: it[2] });
-            out += text(lx + 14, y, it[1], { size: 10, fill: COLORS.muted });
-            lx += 14 + it[1].length * 6.2 + 16;
-        });
-        return out;
+        return items;
     }
 
-    // model: från ProvenanceCore.build. opts: { window, zoom, labels, column, width, format(ms) -> text, appName(id), title, footer, positions, prefix }
+    function legend(items, y, maxX) {
+        var out = '', lx = LEFT, lines = 1;
+        items.forEach(function (it) {
+            var wpx = 14 + it[1].length * 5.6 + 16;
+            if (lx > LEFT && lx + wpx - 16 > maxX) { lx = LEFT; y += LEGEND_H; lines++; }
+            out += text(lx, y, it[0], { size: 11, fill: it[2] });
+            out += text(lx + 14, y, it[1], { size: 10, fill: COLORS.muted });
+            lx += wpx;
+        });
+        return { svg: out, lines: lines };
+    }
+
+    // model: från ProvenanceCore.build. opts: { window, zoom, labels, detail ('focus' = standard, 'all'), column, width, format(ms) -> text, appName(id), title, footer, positions, prefix }
     function svg(model, opts) {
         opts = opts || {};
         var w = opts.window || model.windows[0];
@@ -454,18 +552,28 @@
         var rows = rowsFor(model);
         var plotW = width - LEFT - RIGHT - (column ? GAP + COL : 0);
         var rowH = opts.labels ? ROW_H_LABELS : ROW_H;
-        var height = TOP + rows.length * rowH + FOOTER;
+        var focus = opts.detail !== 'all';
+        var b = block(ctx, w, rows, { y0: TOP, rowH: rowH, labels: opts.labels, focus: focus, plotW: plotW, zoom: opts.zoom, column: column, prefix: opts.prefix || (opts.labels ? 'n' : 'o') });
+        var inWindow = model.events.filter(function (e) { return overlaps(e, w); });
+        var items = legendItems(rows, inWindow, !!opts.zoom);
+        if (focus) {
+            var keep = focusSet(model, ctx.T, ctx.positions);
+            var hidden = inWindow.filter(function (e) { return !keep.has(e) && (e.lane === 'file' || e.kind === 'location' || /^snap-/.test(e.kind)); }).length;
+            if (hidden) items.splice(items.length - 1, 0, ['○', 'Blek: annan händelse i fönstret (' + hidden + '), står i tabellen', COLORS.muted]);
+        }
+        var lg = legend(items, b.bottom + 32, width - RIGHT);
+        var extra = (lg.lines - 1) * LEGEND_H;
+        var height = b.bottom + FOOTER + extra;
         var out = '<svg xmlns="http://www.w3.org/2000/svg" width="' + width + '" height="' + height + '" viewBox="0 0 ' + width + ' ' + height + '">' +
             '<rect width="' + width + '" height="' + height + '" fill="' + COLORS.bg + '"/>';
         out += text(LEFT, 18, opts.title || ('Tidslinje ' + w.label), { size: 13, weight: 'bold' });
-        var b = block(ctx, w, rows, { y0: TOP, rowH: rowH, labels: opts.labels, plotW: plotW, zoom: opts.zoom, column: column, prefix: opts.prefix || (opts.labels ? 'n' : 'o') });
         out += b.svg;
-        out += legend(rows, b.bottom + 32, !!opts.zoom);
-        out += text(LEFT, b.bottom + 48, opts.footer || '', { size: 9, fill: COLORS.muted });
+        out += lg.svg;
+        out += text(LEFT, b.bottom + 48 + extra, opts.footer || '', { size: 9, fill: COLORS.muted });
         return out + '</svg>';
     }
 
-    var api = { svg: svg, rowsFor: rowsFor, stateAt: stateAt, tMarker: tMarker, snapLabel: snapLabel, fileLabel: fileLabel, tickStep: tickStep, dur: dur, ROWS: ROWS, COLORS: COLORS, STATE_LABEL: STATE_LABEL };
+    var api = { svg: svg, rowsFor: rowsFor, stateAt: stateAt, tMarker: tMarker, snapLabel: snapLabel, fileLabel: fileLabel, legendItems: legendItems, focusSet: focusSet, tickStep: tickStep, dur: dur, ROWS: ROWS, COLORS: COLORS, STATE_LABEL: STATE_LABEL };
     if (typeof module !== 'undefined' && module.exports) module.exports = api;
     else root.ProvenanceTimeline = api;
 })(typeof window !== 'undefined' ? window : this);

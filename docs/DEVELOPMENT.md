@@ -110,6 +110,18 @@ node scripts/photos-schema-from-ileapp.js /tmp/iLEAPP/scripts/artifacts
 npm test
 ```
 
+### Queries: flikar och SQL från Härkomst (`tools/db-queries/`)
+
+- Startsidan och rullistan grupperas per OS och kategori (`CATEGORIES` i `script.js`: Operativsystemet,
+  Snapchat). En databas utan `category` hör till operativsystemet.
+- `tabs.js`: varje flik är ett sparat läge. Vid byte sparas `QueriesApp.snapshot()`,
+  `QueriesRun.snapshot()` (filer, inläst databas, resultat) och `QueriesExtraction.snapshot()`, och
+  den andra flikens läge läggs tillbaka med `restore()`. Extraktionen är gemensam.
+- `openFromProvenance()`: samma zip, sökväg och SQL visar den flik som redan finns, annars används
+  en tom flik eller öppnas en ny. `QueriesApp.showCustom()` visar SQL:en utan fält,
+  `QueriesRun.run()` kör den, och `QueryRunCore.withUtcColumns()` lägger en kolumn `<namn> (UTC)`
+  efter varje tidskolumn (samma epoker som `roles.js`).
+
 ### Härkomst (`tools/provenance/`)
 
 Tidslinje och bedömning för en bildfil. Verktyget har ingen egen SQL: det hämtar dolda
@@ -120,14 +132,27 @@ i extraktionen med `-wal` pålagd, och bygger en händelselista i UTC.
 - `timeline-core.js` avgör typ av fil (kamerabild, skärmdump, sparad ur app), bedömer
   skapandetid, app igång, kamera igång och skärm som stöd, motsägelse eller saknas, och har
   förklaringens ordförråd. Allt testas i Node.
-- `timeline-svg.js` ritar tidslinjen med fem rader (Fil, Appar, Snapchat, Telefon, Position):
-  översikten över hela fönstret med närbildens ruta (`opts.zoom`) och närbilden runt T med
-  händelserna utskrivna (`opts.labels`). Skärm och lås slås ihop till ett band i
-  `phoneSegments()`, korta texter per händelsetyp i `shortLabel()`. Varje fönster bär sin
+- `timeline-svg.js` ritar tidslinjen med en rad per jämförelse (Fil, App, Kamera, Skärm, Lås,
+  Position, Snapchat): översikten över hela fönstret med närbildens ruta (`opts.zoom`) och
+  närbilden runt T med händelserna utskrivna (`opts.labels`). `block()` ritar varje rad två gånger:
+  först för att räkna textspåren (högst `MAX_LANES`), sedan på sin plats, så att en rad med många
+  texter blir högre i stället för att tappa text. Snapchat-markörer som skulle hamna på varandra
+  flyttas högst `DODGE_MAX` px åt höger i tidsordning. Korta texter i `snapLabel()`/`fileLabel()`,
+  teckenförklaringen i `legendItems()` (bara det som finns i fönstret, radbruten).
+  `opts.detail` är `'focus'` som standard: `focusSet()` väljer det som gäller den bedömda filen och
+  läget vid T, och resten ritas med `opacity` `FADE` utan text. `'all'` skriver ut allt. Härkomst
+  ritar om tidslinjerna med `renderTimelines()` när reglaget byts; exporterna får bilderna som visas. Varje fönster bär sin
   närbild (`w.closeup`, en tiondel av fönstret åt varje håll, minst 30 s), och förklaringens
   rader vet sin källa och om de ligger inom närbilden (`near`), vilket styr nyckelhändelserna.
   `report.js` bygger protokollet och förklaringen som HTML med inline-stilar för Word; båda
   får översikt, närbild och undersökarens egen bedömning (`meta.ownAssessment`).
+  `keyEventsTable()` och `eventsTable()` ger nyckelhändelserna och händelserna med källa som egna
+  tabeller för Word (knapparna Kopiera tabellen för Word); protokollets händelsetabell är samma.
+- Från Härkomst till Queries: `runRole()` sparar zip-sökvägen och tidskolumnerna med varje query
+  (`meta.queries[].path`, `walPath`, `timeColumns`). En klick på en källa skickar
+  `{ type: 'open-query', file, path, sql, queryId, timeColumns }` till huvudfönstret
+  (`src/script.js`), som öppnar Queries och skickar vidare. Filen (File-objektet för zippen) går
+  med i `postMessage`; Queries öppnar den bara om den inte redan är öppen (namn, storlek, ändringstid).
 - Extraktionen läses med `tools/db-queries/extraction-core.js`, som Queries också använder. Bara
   läsning: testet i `zip.test.js` grep:ar alla filer i `tools/provenance/` efter skrivande API:er.
   Härkomst läser zippens innehållsförteckning en gång per öppnad zip (`ZipRead.cacheDirectory`)

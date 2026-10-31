@@ -110,6 +110,7 @@
         }
         .shared { margin: 0 0 8px; font-size: 14px; }
         .shared ul { margin-top: 4px; }
+        .intro { font-size: 14px; color: var(--text-muted); margin: -8px 0 16px; }
         .tools {
             margin-top: 8px;
             font-size: 13px;
@@ -121,94 +122,71 @@
 <body>
     <div class="wrap">
         <h1>Bildfil — härkomst</h1>
+        <p class="intro">Frågan är om bilden är förenlig med att telefonen skapade den, och i så fall hur: med kameran, som skärmdump eller sparad ur en app. <strong>Härkomst</strong> gör steg 1–6 automatiskt ur extraktionens zip och visar varje uppgift med sin källa. Stegen nedan är vad programmet läser och vad du kontrollerar själv. Den slutliga bedömningen gör du.</p>
 
         <section class="step" id="step-1">
             <div class="step-head">
                 <span class="step-num">1</span>
-                <h2>Filen: EXIF, tider, sökväg</h2>
+                <h2>Öppna extraktionen i Härkomst</h2>
             </div>
-            <div class="shared">
-                <ul>
-                    <li>EXIF: DateTimeOriginal, Make/Model/Software, GPS</li>
-                    <li>Filtider (skapad/ändrad) mot EXIF-tid</li>
-                    <li>Sökväg — DCIM/Camera, Screenshots, WhatsApp/Media, nedladdningar…?</li>
-                </ul>
-            </div>
-            <div class="cols">
-                <div>
-                    <h3>iOS</h3>
-                    <ul>
-                        <li>Katalog + filnamn i extraktet</li>
-                        <li>Bundle-ID om det syns i sökvägen</li>
-                    </ul>
-                </div>
-                <div>
-                    <h3>Android</h3>
-                    <ul>
-                        <li><code>_data</code> / mappnamn i extraktet</li>
-                        <li><code>owner_package_name</code> om det finns</li>
-                    </ul>
-                </div>
-            </div>
-            <p class="tools">
-                <a href="../tools/exif-viewer/index.html" data-tool="tools/exif-viewer/index.html">EXIF-visare</a>
-                ·
-                <a href="https://exiftool.org/" target="_blank" rel="noopener noreferrer">ExifTool</a>
-                ·
-                <a href="../tools/time-converter/time.html" data-tool="tools/time-converter/time.html">Time Converter</a>
-            </p>
+            <ul>
+                <li>Välj extraktionens zip. Inget packas upp, och databasernas <code>-wal</code> läses alltid med.</li>
+                <li>Skriv filnamnet, eller sök på en tidpunkt när du inte vet namnet och välj ur listan med tumnaglar.</li>
+                <li>Har du filen men inte namnet i telefonen: <em>Eller välj filen från disk…</em> letar efter exakt samma innehåll i zippen.</li>
+                <li>Typen avgörs först: kamerabild, skärmdump eller sparad ur en app. Varje faktor bedöms som stöd, motsägelse eller saknas.</li>
+                <li>Tystnad i loggarna redovisas som saknas, aldrig som bevis. Kontrollera täckningen (första och sista posten per ström) i protokollet.</li>
+            </ul>
+            <p class="tools"><a href="../tools/provenance/index.html" data-tool="tools/provenance/index.html">Härkomst</a></p>
         </section>
 
         <section class="step" id="step-2">
             <div class="step-head">
                 <span class="step-num">2</span>
-                <h2>Kameraloggar</h2>
+                <h2>Filen: EXIF, tider, sökväg och hash</h2>
             </div>
-            <div class="cols">
-                <div>
-                    <h3>iOS</h3>
-                    <ul>
-                        <li><code>Media/PhotoData/Photos.sqlite</code> (+ <code>-wal</code>, <code>-shm</code>)</li>
-                        <li>Filnamn, tider, <code>ZCREATORBUNDLEID</code> (iOS 15+: <code>ZIMPORTEDBYBUNDLEIDENTIFIER</code>) / <code>ZEDITORBUNDLEID</code></li>
-                        <li>Slå upp bundle-id:n i App-ID → Omvänd uppslagning</li>
-                    </ul>
-                    <p class="tools"><a href="../tools/db-queries/queries.html?db=photos-ios17-plus" data-tool="tools/db-queries/queries.html?db=photos-ios17-plus">Queries</a>
-                        · <a href="../tools/app-ids/index.html" data-tool="tools/app-ids/index.html">App-ID</a></p>
-                </div>
-                <div>
-                    <h3>Android</h3>
-                    <ul>
-                        <li><code>/data/data/com.android.providers.media/databases/external.db</code></li>
-                        <li>eller <code>…/com.android.providers.media.module/databases/external.db</code></li>
-                        <li>DCIM/Camera, <code>datetaken</code>, <code>owner_package_name</code></li>
-                    </ul>
-                    <p class="tools"><a href="../tools/db-queries/queries.html?db=android-mediastore" data-tool="tools/db-queries/queries.html?db=android-mediastore">Queries</a></p>
-                </div>
-            </div>
+            <p class="shared">Filkortet i Härkomst visar sökväg, storlek, CRC32, MD5, SHA-256 och EXIF i korthet. HEIC och video visas via telefonens egen tumnagel, märkt och med egen hash.</p>
+            <ul>
+                <li>EXIF: DateTimeOriginal, Make/Model/Software, GPS. Saknad kamera-EXIF talar för skärmdump eller sparad bild.</li>
+                <li>Skapandetiden i databasen mot EXIF-tiden och filsystemets ändringstid i zippen (raden Fil i tidslinjen).</li>
+                <li><strong>Var finns filen?</strong> listar alla kopior i zippen via storlek och CRC32, bekräftade med SHA-256: bildbiblioteket, en apps lagring, en bilaga.</li>
+            </ul>
+            <p class="tools">
+                <a href="../tools/provenance/index.html" data-tool="tools/provenance/index.html">Härkomst</a>
+                ·
+                <a href="../tools/exif-viewer/index.html" data-tool="tools/exif-viewer/index.html">EXIF &amp; karta</a>
+                ·
+                <a href="../tools/hash-calculator/hash.html" data-tool="tools/hash-calculator/hash.html">Hash Calculator</a>
+                ·
+                <a href="../tools/time-converter/time.html" data-tool="tools/time-converter/time.html">Time Converter</a>
+            </p>
         </section>
 
         <section class="step" id="step-3">
             <div class="step-head">
                 <span class="step-num">3</span>
-                <h2>Var appen aktiv?</h2>
+                <h2>Fotobiblioteket: vem skapade filen?</h2>
             </div>
             <div class="cols">
                 <div>
                     <h3>iOS</h3>
                     <ul>
-                        <li>KnowledgeC: <code>/private/var/mobile/Library/CoreDuet/Knowledge/knowledgeC.db</code></li>
-                        <li>Biome (iOS 15+): <code>/private/var/mobile/Library/Biome/</code> — t.ex. App.InFocus</li>
-                        <li>interactionC: <code>/private/var/mobile/Library/CoreDuet/People/interactionC.db</code></li>
+                        <li><code>Media/PhotoData/Photos.sqlite</code> (+ <code>-wal</code>)</li>
+                        <li><code>ZDATECREATED</code>, <code>ZADDEDDATE</code>, <code>ZMODIFICATIONDATE</code></li>
+                        <li><code>ZIMPORTEDBY</code> (1 = bakre kameran, 2 = främre, 8 = skärmdump, enligt iLEAPP) och <code>ZIMPORTEDBYBUNDLEIDENTIFIER</code> (iOS 17+)</li>
+                        <li><code>ZSAVEDASSETTYPE</code> och skaparappen: filer sparade ur Snapchat har typ 6 och <code>com.toyopagroup.picaboo</code> i provmaterialet</li>
+                        <li>Bundle-id slås upp i App-ID</li>
                     </ul>
-                    <p class="tools"><a href="../tools/db-queries/queries.html?db=knowledgec" data-tool="tools/db-queries/queries.html?db=knowledgec">Queries</a></p>
+                    <p class="tools"><a href="../tools/db-queries/queries.html?db=photos-ios17-plus" data-tool="tools/db-queries/queries.html?db=photos-ios17-plus">Queries</a> · <a href="../tools/app-ids/index.html" data-tool="tools/app-ids/index.html">App-ID</a></p>
                 </div>
                 <div>
                     <h3>Android</h3>
                     <ul>
-                        <li>UsageStats: <code>/data/system/usagestats/</code> (ofta XML — ALEAPP)</li>
-                        <li>Digital Wellbeing: <code>/data/data/com.google.android.apps.wellbeing/databases/app_usage</code></li>
+                        <li><code>/data/data/com.android.providers.media.module/databases/external.db</code> (äldre: <code>…providers.media/…</code>)</li>
+                        <li><code>datetaken</code>, <code>date_added</code>, <code>date_modified</code>, <code>relative_path</code></li>
+                        <li><code>owner_package_name</code>: appen som skrev filen</li>
+                        <li>Saknas <code>datetaken</code> är T <code>date_added</code>, och det står i protokollet</li>
                     </ul>
-                    <p class="tools"><a href="../tools/db-queries/queries.html?db=wellbeing" data-tool="tools/db-queries/queries.html?db=wellbeing">Queries</a></p>
+                    <p class="tools"><a href="../tools/db-queries/queries.html?db=android-mediastore" data-tool="tools/db-queries/queries.html?db=android-mediastore">Queries</a></p>
                 </div>
             </div>
         </section>
@@ -216,27 +194,27 @@
         <section class="step" id="step-4">
             <div class="step-head">
                 <span class="step-num">4</span>
-                <h2>Positionsinformation — är den pålitlig?</h2>
+                <h2>Var appen, kameran och skärmen igång?</h2>
             </div>
-            <p class="shared">Jämför flera, helst oberoende, källor för var telefonen var.</p>
             <div class="cols">
                 <div>
                     <h3>iOS</h3>
                     <ul>
-                        <li>EXIF GPS</li>
-                        <li>Photos.sqlite (lat/long om kolumnerna finns)</li>
-                        <li>Significant Locations: <code>/private/var/mobile/Library/Caches/com.apple.routined/</code></li>
-                        <li>locationd: <code>/private/var/root/Library/Caches/locationd/</code></li>
+                        <li>knowledgeC: <code>/private/var/mobile/Library/CoreDuet/Knowledge/knowledgeC.db</code></li>
+                        <li><code>/app/usage</code> (app och kamera), <code>/display/isBacklit</code> (skärm), <code>/device/isLocked</code> (lås)</li>
+                        <li><code>/app/inFocus</code> finns inte på iOS 18 och senare, bara som reserv</li>
+                        <li>Biome <code>App.InFocus</code> är SEGB/protobuf, inte SQLite: iLEAPP</li>
                     </ul>
+                    <p class="tools"><a href="../tools/db-queries/queries.html?db=knowledgec" data-tool="tools/db-queries/queries.html?db=knowledgec">Queries</a></p>
                 </div>
                 <div>
                     <h3>Android</h3>
                     <ul>
-                        <li>EXIF GPS</li>
-                        <li>MediaStore lat/long</li>
-                        <li>Google Play Services / Maps-appdata</li>
-                        <li>cell / Wi-Fi-historik</li>
+                        <li>usagestats: <code>/data/system_ce/0/usagestats/daily/&lt;ms&gt;</code>, protobuf (Android 9+), med <code>mappings</code> på nyare versioner. App i förgrunden, skärm och låsskärm</li>
+                        <li>appops: <code>/data/system/appops/discrete/</code>, binär XML. Op 26 är kameran, per app med start och längd</li>
+                        <li>Digital Wellbeing (<code>app_usage</code>) är reserv, och loggar inte alltid skärmen</li>
                     </ul>
+                    <p class="tools"><a href="../tools/provenance/index.html" data-tool="tools/provenance/index.html">Härkomst</a> avkodar usagestats och appops · <a href="../tools/db-queries/queries.html?db=wellbeing" data-tool="tools/db-queries/queries.html?db=wellbeing">Queries</a></p>
                 </div>
             </div>
         </section>
@@ -244,15 +222,83 @@
         <section class="step" id="step-5">
             <div class="step-head">
                 <span class="step-num">5</span>
-                <h2>Andra faktorer</h2>
+                <h2>Position: bildens och telefonens</h2>
+            </div>
+            <p class="shared">Avståndet mellan bildens position och telefonens närmaste position är en egen faktor i Härkomst, med tabell och karta.</p>
+            <div class="cols">
+                <div>
+                    <h3>iOS</h3>
+                    <ul>
+                        <li>EXIF GPS och <code>ZLATITUDE</code>, <code>ZLONGITUDE</code> i Photos.sqlite (−180 = saknas)</li>
+                        <li>routined: <code>/private/var/mobile/Library/Caches/com.apple.routined/Cache.sqlite</code>, <code>ZRTCLLOCATIONMO</code> med noggrannhet. Sparas oftast några dagar bakåt</li>
+                    </ul>
+                    <p class="tools"><a href="../tools/db-queries/queries.html?db=routined-cache" data-tool="tools/db-queries/queries.html?db=routined-cache">Queries</a> · <a href="../tools/positions/index.html" data-tool="tools/positions/index.html">Positioner</a></p>
+                </div>
+                <div>
+                    <h3>Android</h3>
+                    <ul>
+                        <li>EXIF GPS och MediaStore <code>latitude</code>, <code>longitude</code> (tomt på nyare Android)</li>
+                        <li>Snapchats Memories: <code>latitude</code>, <code>longitude</code> för sparade snaps</li>
+                        <li>Google Play-tjänsterna och kartappar: ALEAPP</li>
+                    </ul>
+                </div>
+            </div>
+        </section>
+
+        <section class="step" id="step-6">
+            <div class="step-head">
+                <span class="step-num">6</span>
+                <h2>Appens egna register: Snapchat (beta)</h2>
+            </div>
+            <p class="shared">En fil i Snapchats cache saknar ändelse och EXIF. Härkomst bedömer den ur Snapchats egna databaser: vem som skickade, när den lästes och om Snapchats kamera spelade in.</p>
+            <div class="cols">
+                <div>
+                    <h3>iOS</h3>
+                    <ul>
+                        <li><code>Documents/global_scoped/cachecontroller/cache_controller.db</code>: cachenyckel, typ (34 = inspelning med Snapchats kamera, 3 = chattmedia) och tider</li>
+                        <li><code>Documents/user_scoped/&lt;id&gt;/arroyo/arroyo.db</code>: meddelanden, nästan allt i <code>-wal</code></li>
+                        <li><code>DocObjects/primary.docobjects</code>: användarnamn. <code>nse_db.sqlite</code>: notiser</li>
+                    </ul>
+                </div>
+                <div>
+                    <h3>Android</h3>
+                    <ul>
+                        <li><code>/data/data/com.snapchat.android/databases/</code>: <code>native_content_manager/cache_controller.db</code>, <code>arroyo.db</code>, <code>main.db</code>, <code>client_notifications.db</code></li>
+                        <li><code>memories.db</code>: när en sparad snap togs (<code>snap_capture_time</code>) och med vilken kamera</li>
+                        <li><code>journal.db</code>: Snapchats filhanterare</li>
+                    </ul>
+                </div>
+            </div>
+            <p class="tools"><a href="../tools/db-queries/queries.html?db=snapchat-cache" data-tool="tools/db-queries/queries.html?db=snapchat-cache">Queries</a> (under Snapchat på startsidan)</p>
+        </section>
+
+        <section class="step" id="step-7">
+            <div class="step-head">
+                <span class="step-num">7</span>
+                <h2>Kontrollera källorna och dokumentera</h2>
             </div>
             <ul>
-                <li>Chattbilaga vs tagen bild (WhatsApp, Signal, SMS/MMS)</li>
-                <li>Moln/sync (iCloud Photos, Google Photos, OneDrive)</li>
-                <li>AirDrop / Nearby Share / USB-MTP / SD-kort</li>
-                <li>Skärmdump (filnamn, upplösning, saknad kamera-EXIF)</li>
-                <li>Hash mot andra enheter/medier</li>
-                <li>Papperskorg / hidden / favorit i Photos eller MediaStore</li>
+                <li>Varje rad under Nyckelhändelser och Händelser med källa anger databas → tabell → kolumn. Klicka på källan eller query-id:t: Queries öppnar samma zip och kör exakt samma SQL med <code>-wal</code> pålagd, i en egen flik, med tiden i UTC bredvid råvärdet.</li>
+                <li>Bocka i <strong>Kontrollerad</strong> per faktor när du själv har gått igenom källan. Klockslaget följer med i protokollet.</li>
+                <li>Skriv din egen bedömning i rutan. Den står under rubriken Undersökarens bedömning i båda exporterna.</li>
+                <li><strong>Kopiera tabellen för Word</strong> under Nyckelhändelser och Händelser med källa ger en tabell med tid, händelse och källa att klistra in i din egen rapport.</li>
+                <li>Protokollet har allt (sökvägar, CRC32, SHA-256, SQL). Förklaringen är för den som inte är tekniker. Spara CSV i Queries får SQL och hashar överst.</li>
+            </ul>
+            <p class="tools"><a href="../tools/provenance/index.html" data-tool="tools/provenance/index.html">Härkomst</a> · <a href="../tools/db-queries/queries.html" data-tool="tools/db-queries/queries.html">Queries</a></p>
+        </section>
+
+        <section class="step" id="step-8">
+            <div class="step-head">
+                <span class="step-num">8</span>
+                <h2>Andra förklaringar</h2>
+            </div>
+            <p class="shared">Härkomst listar alternativa förklaringar med vad som talar för och emot. Gå också igenom:</p>
+            <ul>
+                <li>Chattbilaga eller tagen bild (WhatsApp, Signal, SMS/MMS, Snapchat)</li>
+                <li>Moln och synk (iCloud-bilder, Google Foto, OneDrive): filen kan vara skapad på en annan enhet</li>
+                <li>AirDrop, Närdelning, USB/MTP, SD-kort</li>
+                <li>Hash mot andra enheter och medier</li>
+                <li>Papperskorg, dold eller favorit i Bilder eller MediaStore</li>
             </ul>
             <p class="tools">
                 <a href="../tools/hash-calculator/hash.html" data-tool="tools/hash-calculator/hash.html">Hash Calculator</a>
@@ -261,7 +307,6 @@
             </p>
         </section>
     </div>
-
     <script>
         window.addEventListener('message', function (event) {
             if (event.source !== window.parent) return;

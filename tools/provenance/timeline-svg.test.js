@@ -128,7 +128,8 @@ test('korta texter per händelsetyp', () => {
     assert.strictEqual(tl.snapLabel({ kind: 'snap-message', own: false, plain: 'En snap eller bild skickas till den här telefonen i Snapchat från @erik.lind' }), 'Snap från @erik.lind');
     assert.strictEqual(tl.snapLabel({ kind: 'snap-message', own: true, plain: 'En snap eller bild skickas till @erik.lind från den här telefonen' }), 'Snap till @erik.lind');
     assert.strictEqual(tl.snapLabel({ kind: 'snap-read', own: true, plain: 'Mottagaren öppnar den' }), 'Mottagaren öppnar den');
-    assert.strictEqual(tl.snapLabel({ kind: 'snap-message', own: true, plain: null }), null, 'meddelandet som cacheraden redan berättar om får ingen text');
+    assert.strictEqual(tl.snapLabel({ kind: 'snap-message', own: true, plain: null }), 'Snap skickas', 'meddelandet får en kort text, närbilden skriver den inte bredvid cacheradens "Snap till"');
+    assert.strictEqual(tl.snapLabel({ kind: 'snap-notification', notifType: '' }), 'Notis från Snapchat');
     assert.strictEqual(tl.snapLabel({ kind: 'snap-cache', context: 3, sent: true, plain: null }), null, 'en skickad cachepost utan egen mening får ingen text');
     assert.strictEqual(tl.snapLabel({ kind: 'snap-cache', context: 34, isFile: true }), 'Den bedömda filen spelas in');
     assert.strictEqual(tl.snapLabel({ kind: 'snap-cache', context: 3, sent: true, plain: 'En snap eller bild skickas till @erik.lind från den här telefonen' }), 'Snap till @erik.lind');
@@ -188,5 +189,67 @@ test('testdatat: kamerabilden och Snapchat-videon får rätt rader, läge vid T 
         }
         assert.ok(out.includes(m.type.type === 'snapchat' ? 'Den bedömda filen spelas in' : m.file.filename + ' skapas'), 'filens text saknas');
         assert.ok(out.includes('>Snapchat<') && out.includes('>Lås<'));
+    }
+});
+
+test('närbilden: Snapchat-markörerna ligger inte på varandra, har text och förklaras, och kamerans text ligger ovanför bandet', () => {
+    const sample = require('./sample-data');
+    const snapchat = require('./snapchat');
+    const copies = require('./copies');
+    const NAMES = { 'com.snapchat.android': 'Snapchat', 'com.toyopagroup.picaboo': 'Snapchat', 'com.apple.camera': 'Kamera' };
+    const appName = (id) => NAMES[id] || id;
+    const scenarios = { ios: sample.snapchatScenario({ snapchat, copies }), android: sample.androidScenario({ snapchat, copies }) };
+    for (const [name, s] of Object.entries(scenarios)) {
+        const m = core.build(Object.assign({}, s, { appNames: (id) => NAMES[id] || null, cameraApps: ['com.apple.camera'], windowMs: 15 * 60000, format: fmt }));
+        const out = tl.svg(m, { window: m.windows[0].closeup, labels: true, detail: 'all', width: 1100, format: fmt, appName });
+        // Snapchat-radens markörer: alla med titel som börjar på Snapchat eller Den bedömda filen, på radens mitt (största cy).
+        const marks = [];
+        const re = /<(circle|polygon) (?:cx="([\d.]+)" cy="([\d.]+)" r="([\d.]+)"|points="([\d.]+),([\d.]+)[^"]*")[^>]*><title>(Snapchat|Den bedömda filen)/g;
+        let mm;
+        while ((mm = re.exec(out))) {
+            if (mm[1] === 'circle') marks.push({ x: Number(mm[2]), y: Number(mm[3]), r: Number(mm[4]) });
+            else marks.push({ x: Number(mm[5]), y: Number(mm[6]) + 5, r: 5 });
+        }
+        const rowY = Math.max(...marks.map((k) => Math.round(k.y)));
+        const row = marks.filter((k) => Math.abs(k.y - rowY) <= 8).sort((a, b) => a.x - b.x);
+        assert.ok(row.length >= 3, name + ': för få markörer i Snapchat-raden');
+        for (let i = 1; i < row.length; i++) assert.ok(row[i].x - row[i - 1].x >= Math.min(row[i].r, row[i - 1].r) + 4, name + ': markörerna vid x=' + row[i - 1].x + ' och ' + row[i].x + ' ligger på varandra');
+        assert.ok(out.includes('Snap/meddelande') && out.includes('Öppnad'), name + ': Snapchat-markörerna saknas i teckenförklaringen');
+        assert.ok(out.includes('Mottagaren öppnar den'), name + ': den lästa snappen saknar text');
+        // Kamerans text står ovanför det gråa bandet, inte i det.
+        const camText = /<text x="[\d.]+" y="([\d.]+)"[^>]*><tspan font-weight="bold">Den bedömda (?:filen spelas in|bilden tas) med Snapchats kamera/.exec(out);
+        assert.ok(camText, name + ': kamerans text saknas');
+        const camBand = /<rect x="[\d.]+" y="([\d.]+)" width="[\d.]+" height="18" rx="3" fill="#e5e5ea"[^>]*><title>Inte kameran/.exec(out);
+        assert.ok(Number(camText[1]) <= Number(camBand[1]), name + ': kamerans text ligger i bandet');
+    }
+    const android = core.build(Object.assign({}, scenarios.android, { appNames: (id) => NAMES[id] || null, cameraApps: [], windowMs: 15 * 60000, format: fmt }));
+    const labels = tl.legendItems(tl.rowsFor(android), android.events, false).map((it) => it[1]);
+    assert.ok(labels.includes('Snapchats register (cache, Memories, filhanterare)'), labels.join(' | '));
+});
+
+test('närbilden visar som standard det viktiga: filens händelser med text, sammanhanget blekt och utan text', () => {
+    const sample = require('./sample-data');
+    const snapchat = require('./snapchat');
+    const copies = require('./copies');
+    const NAMES = { 'com.snapchat.android': 'Snapchat', 'com.toyopagroup.picaboo': 'Snapchat', 'com.apple.camera': 'Kamera' };
+    const appName = (id) => NAMES[id] || id;
+    for (const s of [sample.scenario({ snapchat, copies }), sample.androidScenario({ snapchat, copies })]) {
+        const m = core.build(Object.assign({}, s, { appNames: (id) => NAMES[id] || null, cameraApps: ['com.apple.camera'], windowMs: 15 * 60000, format: fmt }));
+        const opts = { window: m.windows[0].closeup, labels: true, width: 1100, format: fmt, appName };
+        const focus = tl.svg(m, opts);
+        const all = tl.svg(m, Object.assign({ detail: 'all' }, opts));
+        const texts = (out) => (out.match(/<tspan[^>]*>[^<]+<\/tspan> <tspan/g) || []).length;
+        assert.ok(texts(focus) < texts(all), 'det viktiga ska ha färre texter än allt');
+        assert.ok(focus.includes(m.file.filename.slice(0, 20)), 'filens egen text saknas');
+        assert.ok(focus.includes('opacity="0.3"'), 'sammanhanget ska vara blekt');
+        assert.ok(/Blek: annan händelse i fönstret \(\d+\)/.test(focus), 'teckenförklaringen ska säga vad blekt betyder');
+        assert.ok(!all.includes('opacity="0.3"') && !all.includes('Blek:'));
+        // Den bedömda filens Snapchat-händelser och kolumnen Vid T har alltid text.
+        m.events.filter((e) => e.isFile && /^snap-/.test(e.kind) && e.ms >= opts.window.startMs && e.ms <= opts.window.endMs).forEach((e) => {
+            const l = tl.snapLabel(e);
+            if (l) assert.ok(focus.includes(l), 'saknar text för den bedömda filen: ' + l);
+        });
+        const keep = tl.focusSet(m, opts.window.centerMs, m.positions);
+        assert.ok(![...keep].some((e) => e.neighbour), 'grannbilder är sammanhang');
     }
 });

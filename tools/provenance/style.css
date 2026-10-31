@@ -158,7 +158,9 @@ tr.chosen td { background: var(--accent-soft); }
 .narrative td { border: none; padding: 1px 12px 1px 0; }
 .narrative td.time { color: var(--text-muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .narrative .note { color: var(--text-muted); font-size: 13px; margin-top: 4px; }
-.narrative td.src { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 11.5px; color: var(--text-muted); white-space: nowrap; padding-left: 16px; }
+.narrative td.src { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 11.5px; color: var(--text-muted); padding-left: 16px; max-width: 680px; }
+.narrative td.src button.link-btn, td.path + td button.link-btn { font: inherit; color: var(--accent); text-align: left; cursor: pointer; }
+.narrative td.src button.link-btn:hover, td button.link-btn:hover, .sql-head button:hover { text-decoration: underline; }
 .narrative:not(.all) tr.far { display: none; }
 .narrative-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; margin: 12px 0 4px; font-size: 13px; color: var(--text-muted); }
 .timeline h3.closeup-head { margin-top: 12px; }
@@ -211,3 +213,14 @@ pre.sql { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 12px; w
 .row-thumb { width: 40px; height: 40px; display: block; object-fit: cover; border-radius: 6px; background: var(--bg); border: 1px solid var(--border); }
 #hits-entries { margin-top: 10px; }
 #hits-entries .hit-note { margin-bottom: 4px; }
+
+.sql-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-top: 10px; }
+.sql-head button { padding: 4px 10px; font-size: 12px; }
+.events-head { align-items: center; margin: 8px 0; }
+.events-head p { margin: 0; flex: 1; min-width: 260px; }
+.narrative-head .button-row button { padding: 5px 10px; font-size: 12.5px; }
+.seg { display: inline-flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+.seg button.detail { background: transparent; color: var(--text-muted); border: none; border-radius: 0; padding: 5px 11px; font-size: 12.5px; font-weight: 600; }
+.seg button.detail + button.detail { border-left: 1px solid var(--border); }
+.seg button.detail.on { background: var(--accent); color: #fff; }
+.seg button.detail:not(.on):hover { background: var(--surface-hover); color: var(--text); }
