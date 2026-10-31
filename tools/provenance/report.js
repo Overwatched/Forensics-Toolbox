@@ -10,7 +10,7 @@
     var TABLE = 'border-collapse: collapse; margin: 6px 0 12px;';
     var STATE_COLOR = { support: '#1a7f37', contradiction: '#c62828', missing: '#8a6d00', info: '#444', na: '#777' };
     var ROLE_NOTE = 'Programmet sammanställer telefonens registreringar och säger vad de är förenliga med. Den slutliga bedömningen gör undersökaren, efter egen kontroll av källorna.';
-    var BETA_NOTE = 'Snapchats register (cache_controller.db, arroyo.db, primary.docobjects, nse_db.sqlite) och sökningen efter kopior av filen är kontrollerade mot en enda extraktion (iOS 18.5). Typkoder och protobuf-tolkningar är härledda ur den. Varje uppgift går att kontrollera mot SQL:en i bilagan.';
+    var BETA_NOTE = 'Snapchats register (iOS: cache_controller.db, arroyo.db, primary.docobjects, nse_db.sqlite; Android: cache_controller.db, arroyo.db, main.db, client_notifications.db, memories.db, journal.db), Androids systemloggar usagestats och appops, och sökningen efter kopior av filen är kontrollerade mot en extraktion per plattform (iOS 18.5; en labbtelefon med Android 13 och Snapchat 14.30). Typkoder och protobuf-tolkningar är härledda ur dem. Varje uppgift går att kontrollera mot SQL:en och filerna i bilagan.';
 
     // En mening om kopiorna, med platsernas betydelse i klartext.
     function plainCopies(copies) {
@@ -53,9 +53,10 @@
             (done.length ? ': ' + done.map(function (f) { return f.title; }).join(', ') : '') + '.';
     }
 
-    function imageHtml(png, alt) {
+    // maxWidth i px för en mindre bild (filens egen bild), annars hela bredden (tidslinjen, kartan).
+    function imageHtml(png, alt, maxWidth) {
         if (!png) return '';
-        return '<p style="margin: 8px 0;"><img src="' + png + '" alt="' + esc(alt) + '" style="max-width: 100%; height: auto;"></p>';
+        return '<p style="margin: 8px 0;"><img src="' + png + '" alt="' + esc(alt) + '" style="max-width: ' + (maxWidth ? maxWidth + 'px' : '100%') + '; height: auto;"></p>';
     }
 
     function sourceText(src) {
@@ -101,8 +102,16 @@
         out += h(2, '1. Filen');
         out += table(['Kolumn', 'Värde'], meta.fileRows || []);
         if (meta.fileEntry) {
-            out += p('<b>Bildfilen i zippen:</b> ' + esc(meta.fileEntry.path) + ' (' + esc(meta.fileEntry.size) + ' byte, ändrad ' + esc(meta.fileEntry.mtime) +
-                ', CRC32 ' + esc(meta.fileEntry.crc32) + (meta.fileEntry.crcOk === false ? ' STÄMMER INTE' : '') + (meta.fileEntry.sha256 ? ', SHA-256 ' + esc(meta.fileEntry.sha256) : '') + ')');
+            var fe = meta.fileEntry;
+            out += p('<b>Bildfilen i zippen:</b> ' + esc(fe.path) + ' (' + esc(fe.size) + ' byte, ändrad ' + esc(fe.mtime) +
+                ', CRC32 ' + esc(fe.crc32) + (fe.crcOk === false ? ' STÄMMER INTE' : '') + (fe.md5 ? ', MD5 ' + esc(fe.md5) : '') + (fe.sha256 ? ', SHA-256 ' + esc(fe.sha256) : '') + ')');
+            // Telefonens egen tumnagel (iOS: PhotoData/Thumbnails/V2/…/5005.JPG) med egen hash, så att den inte tas för originalet.
+            if (meta.thumbnail) {
+                out += p('<b>Telefonens egen tumnagel i zippen:</b> ' + esc(meta.thumbnail.path) + ' (' + esc(meta.thumbnail.size) + ' byte' + (meta.thumbnail.crc32 ? ', CRC32 ' + esc(meta.thumbnail.crc32) : '') +
+                    (meta.thumbnail.sha256 ? ', SHA-256 ' + esc(meta.thumbnail.sha256) : '') + ')');
+            }
+            // Bilden bara när undersökaren bett om det (meta.previewPng), förminskad.
+            if (meta.previewPng) out += imageHtml(meta.previewPng, 'Bilden', 360) + p('<i>' + esc(meta.previewNote || '') + '</i>');
             if (meta.exifRows && meta.exifRows.length) out += table(['EXIF-tagg i filen', 'Värde'], meta.exifRows);
         } else if (meta.fileMissingReason) {
             out += p('<b>Bildfilen:</b> ' + esc(meta.fileMissingReason));
@@ -203,6 +212,10 @@
         var minutes = model.windows.length ? Math.round((model.windows[0].endMs - model.windows[0].centerMs) / 60000) : 0;
         if (meta.sampleNote) out += p('<b>' + esc(meta.sampleNote) + '</b>');
         out += p(esc('Här är ' + noun + ' ' + name + ' på telefonen, och vad telefonen själv registrerade ' + minutes + ' minuter före och efter. Klockslagen är i ' + meta.zoneLabel + '.'));
+        if (meta.previewPng) {
+            out += imageHtml(meta.previewPng, 'Bilden', 360);
+            if (meta.previewNote) out += p(esc(meta.previewNote));
+        }
 
         model.narrative.forEach(function (n, i) {
             if (model.narrative.length > 1) out += h(2, (i + 1) + '. ' + n.window.label.charAt(0).toUpperCase() + n.window.label.slice(1) + ', ' + fmt(n.window.centerMs).slice(0, 10));
@@ -258,7 +271,8 @@
             .replace(/<\/(h[1-6]|p|tr|li|pre|div)>/gi, '\n')
             .replace(/<br\s*\/?>/gi, '\n')
             .replace(/<\/t[dh]>/gi, '\t')
-            .replace(/<img[^>]*>/gi, '[tidslinje]')
+            .replace(/<img[^>]*\salt="([^"]*)"[^>]*>/gi, function (m, alt) { return '[' + alt.toLowerCase() + ']'; })
+            .replace(/<img[^>]*>/gi, '[bild]')
             .replace(/<[^>]+>/g, '')
             .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"')
             .replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();

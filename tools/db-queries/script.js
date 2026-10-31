@@ -489,9 +489,10 @@ function visibleQueries(list) {
     return (list || []).filter((q) => !q.hidden);
 }
 
-function buildDatabases(photos, android, appUsage, routined, snapchat) {
+function buildDatabases(photos, android, appUsage, routined, snapchat, snapchatAndroid) {
     routined = routined || {};
     snapchat = snapchat || {};
+    snapchatAndroid = snapchatAndroid || {};
     const out = [];
     paramLabels = Object.assign(
         {
@@ -502,7 +503,8 @@ function buildDatabases(photos, android, appUsage, routined, snapchat) {
         android.paramLabels || {},
         appUsage.paramLabels || {},
         routined.paramLabels || {},
-        snapchat.paramLabels || {}
+        snapchat.paramLabels || {},
+        snapchatAndroid.paramLabels || {}
     );
     paramDefaults = Object.assign({}, routined.paramDefaults || {});
 
@@ -624,37 +626,40 @@ function buildDatabases(photos, android, appUsage, routined, snapchat) {
         });
     });
 
-    // Snapchat (beta): databaserna hittas på suffix i appens behållare och körs med -wal som de andra.
-    (snapchat.databases || []).forEach((db) => {
-        const label = db.label.replace(/^iOS — /, '');
-        out.push({
-            id: db.id,
-            os: 'iOS',
-            family: db.id,
-            familyTitle: label + ' · beta',
-            label: label + ' (beta)',
-            blurb: db.blurb || '',
-            dbPathHint: db.dbPathHint,
-            paths: db.paths || [],
-            source: db.source,
-            note: snapchat.sourceNote,
-            runnable: true,
-            flow: [
-                'Öppna extraktionen, eller välj databasen och dess <code>-wal</code> under <em>Kör i appen</em>',
-                'Använd den rekommenderade queryn, eller välj en annan',
-                'Ange tidsspann som <code>ÅÅÅÅ-MM-DD TT:MM</code>, eller cachenyckeln (filnamnet i file_manager-mappen)',
-                'Jämför med Härkomst: samma SQL ligger i protokollets bilaga',
-            ],
-            queries: visibleQueries(db.queries).map((q) => ({
-                id: q.id,
-                title: q.title,
-                subtitle: q.subtitle || '',
-                recommended: !!q.recommended,
-                group: q.group,
-                returns: q.returns || '',
-                params: q.params || [],
-                sql: q.sql,
-            })),
+    // Snapchat (beta): på iOS hittas databaserna på suffix i appens behållare, på Android under
+    // data/data/com.snapchat.android. Båda körs med -wal som de andra.
+    [[snapchat, 'iOS'], [snapchatAndroid, 'Android']].forEach(([cat, os]) => {
+        (cat.databases || []).forEach((db) => {
+            const label = db.label.replace(/^(iOS|Android) — /, '');
+            out.push({
+                id: db.id,
+                os: os,
+                family: db.id,
+                familyTitle: label + ' · beta',
+                label: label + ' (beta)',
+                blurb: db.blurb || '',
+                dbPathHint: db.dbPathHint,
+                paths: db.paths || [],
+                source: db.source,
+                note: cat.sourceNote,
+                runnable: true,
+                flow: [
+                    'Öppna extraktionen, eller välj databasen och dess <code>-wal</code> under <em>Kör i appen</em>',
+                    'Använd den rekommenderade queryn, eller välj en annan',
+                    'Ange tidsspann som <code>ÅÅÅÅ-MM-DD TT:MM</code>, eller cachenyckeln (filnamnet i ' + (os === 'iOS' ? 'file_manager' : 'native_content_manager') + '-mappen)',
+                    'Jämför med Härkomst: samma SQL ligger i protokollets bilaga',
+                ],
+                queries: visibleQueries(db.queries).map((q) => ({
+                    id: q.id,
+                    title: q.title,
+                    subtitle: q.subtitle || '',
+                    recommended: !!q.recommended,
+                    group: q.group,
+                    returns: q.returns || '',
+                    params: q.params || [],
+                    sql: q.sql,
+                })),
+            });
         });
     });
 
@@ -696,6 +701,7 @@ function buildDatabases(photos, android, appUsage, routined, snapchat) {
         'routined-cache', 'knowledgec', 'interactionc',
         'snapchat-cache', 'snapchat-arroyo', 'snapchat-friends', 'snapchat-notifications',
         'android-mediastore', 'android-camera', 'wellbeing', 'android-usage',
+        'snapchat-android-cache', 'snapchat-android-arroyo', 'snapchat-android-memories', 'snapchat-android-journal', 'snapchat-android-friends', 'snapchat-android-notifications',
     ];
     out.sort((a, b) => {
         const ia = order.indexOf(a.id);
@@ -836,14 +842,15 @@ function applyDeepLink() {
 
 async function init() {
     try {
-        const [photos, android, appUsage, routined, snapchat] = await Promise.all([
+        const [photos, android, appUsage, routined, snapchat, snapchatAndroid] = await Promise.all([
             loadLocalJson('../../queries/ios/photos-sqlite/catalog.json', 'PHOTOS_SQLITE_CATALOG'),
             loadLocalJson('../../queries/android/catalog.json', 'ANDROID_QUERIES_CATALOG'),
             loadLocalJson('../../queries/app-usage/catalog.json', 'APP_USAGE_CATALOG'),
             loadLocalJson('../../queries/ios/routined/catalog.json', 'ROUTINED_CATALOG'),
             loadLocalJson('../../queries/ios/snapchat/catalog.json', 'SNAPCHAT_CATALOG'),
+            loadLocalJson('../../queries/android/snapchat/catalog.json', 'SNAPCHAT_ANDROID_CATALOG'),
         ]);
-        databases = buildDatabases(photos, android, appUsage, routined, snapchat);
+        databases = buildDatabases(photos, android, appUsage, routined, snapchat, snapchatAndroid);
         fillDbSelect();
         renderOverview();
         applyDeepLink();

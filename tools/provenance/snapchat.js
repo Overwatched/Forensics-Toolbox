@@ -1,14 +1,20 @@
-// Snapchat (iOS) som källa i Härkomst. Betafunktion: tolkningarna är kontrollerade mot en
-// extraktion (iOS 18.5, Snapchat 2025) och kan skilja sig mellan versioner, därför bär varje
-// händelse databas, tabell, kolumn och query så att den går att kontrollera för hand.
-// Här tolkas cacheregistrets nycklar och typkoder, protobufen i chattmeddelandena (avsändare,
-// medienyckel), FlatBuffern i kontotabellen (användarnamn), och det hela blir händelser till
-// tidslinjen. Ingen DOM, ingen SQL. Testas i Node.
+// Snapchat som källa i Härkomst. Betafunktion: tolkningarna är kontrollerade mot en iOS-extraktion
+// (iOS 18.5, Snapchat 2025) och en Android-labbtelefon (Android 13, Snapchat 14.30) och kan skilja
+// sig mellan versioner, därför bär varje händelse databas, tabell, kolumn och query så att den går
+// att kontrollera för hand. Här tolkas cacheregistrets nycklar och typkoder, protobufen i
+// chattmeddelandena (avsändare, medienyckel), FlatBuffern i kontotabellen (användarnamn), Androids
+// Memories (när en snap togs, med vilken kamera) och filhanterarens journal, och det hela blir
+// händelser till tidslinjen. Ingen DOM, ingen SQL. Testas i Node.
 (function (root) {
     'use strict';
 
     var PICABOO = 'com.toyopagroup.picaboo';
+    var ANDROID = 'com.snapchat.android';
     var MAX_EVENTS = 40;
+    var MEMORY_LINK_MS = 5000;    // en sparad snap hör till en fil i galleriet som lades till inom så här lång tid (sett: under en sekund)
+
+    function appId(platform) { return platform === 'Android' ? ANDROID : PICABOO; }
+    function isSnapchatApp(id) { return id === PICABOO || id === ANDROID; }
 
     // MEDIA_CONTEXT_TYPE i cache_controller.db. Bara koder med belägg får ett namn; övriga
     // visas som "typ N" och tas med i tidslinjen utan tolkning.
@@ -24,6 +30,20 @@
         4: { label: 'Team Snapchat', plain: null, show: false },
         6: { label: 'Team Snapchat', plain: null, show: false },
         25: { label: 'resurs', plain: null, show: false },
+        // Sedda på Android (Snapchat 14.30): bildcache för appens egna vyer, kreativa verktyg, kartan,
+        // och typ 5 utan attribution, som bland annat är media som laddas upp strax före ett skickat meddelande.
+        11: { label: 'bildcache (composer)', plain: null, show: false },
+        2: { label: 'kreativa verktyg', plain: null, show: false },
+        29: { label: 'karta', plain: null, show: false },
+        5: { label: 'ej attribuerad', plain: null, show: false },
+    };
+
+    // Mapparna i Androids files/file_manager som säger något om vad användaren gjorde. Övriga
+    // (tumnaglar, linsmodeller, bitmoji …) räknas bara.
+    var JOURNAL = {
+        posted_story_snap: { text: 'en story-snap lagras (posted_story_snap)', plain: 'En story-snap lagras av Snapchat på den här telefonen' },
+        memories_media: { text: 'media sparas lokalt för Memories (memories_media)', plain: null },
+        memories_overlay: { text: 'överlägg med text eller klotter sparas (memories_overlay)', plain: null },
     };
 
     function contextInfo(n) {
@@ -48,6 +68,11 @@
         }
         m = /^(firstframe|video|overlay)~(.+)$/.exec(s);
         if (m) return { kind: 'story', part: m[1], storyKey: m[2] };
+        // Android: chattmedia har nyckeln chat_snap.chat_snap-<snap-id>; riktningen står i arroyo.db.
+        m = /^chat_snap\.chat_snap-([A-Za-z0-9_-]+)$/.exec(s);
+        if (m) return { kind: 'chat', snapId: m[1] };
+        m = /^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i.exec(s);
+        if (m) return { kind: 'uuid', id: m[1].toLowerCase() };
         if (/^https?:\/\//.test(s)) return { kind: 'url', url: s };
         if (/^lens\./.test(s)) return { kind: 'lens' };
         return { kind: 'other' };
@@ -218,38 +243,72 @@
 
     function isOwn(id, ctx) { return !!(id && ctx.accountId && id === ctx.accountId.replace(/-/g, '')); }
 
+    function hexId(v) { return v == null ? null : String(v).replace(/-/g, '').toLowerCase() || null; }
+
+    // Den sparade snap i Memories som hör till en fil i galleriet: samma sort (bild eller video)
+    // och sparad inom MEMORY_LINK_MS från att filen lades till (Snapchat exporterar direkt när
+    // användaren sparar). file: { addedMs, createdMs, video }. Närmast i tid vinner.
+    function linkMemory(memories, file) {
+        if (!file || !(memories || []).length) return null;
+        var anchor = file.addedMs != null ? file.addedMs : file.createdMs;
+        if (anchor == null) return null;
+        var best = null;
+        memories.forEach(function (m) {
+            if (m.createdMs == null) return;
+            if (file.video != null && (Number(m.mediaType) === 1) !== !!file.video) return;
+            var d = Math.abs(m.createdMs - anchor);
+            if (d > MEMORY_LINK_MS) return;
+            if (!best || d < best.deltaMs) best = { row: m, deltaMs: d };
+        });
+        return best;
+    }
+
     // ctx: { cacheRows, messages, friends: { idHex: { username, displayName } }, notifications,
-    //        accountId, fileKey, sources: { cache, messages, notifications } }
-    // Rader har tider som UTC-millisekunder (createdMs, readMs, lastReadMs, deletedMs, ms).
-    // Returnerar { events, link, notes, hidden }.
+    //        memories, journal, file, accountId, app, fileKey, sources: { cache, messages, notifications, memories, journal } }
+    // Rader har tider som UTC-millisekunder (createdMs, readMs, lastReadMs, deletedMs, ms, capturedMs, timeMs).
+    // Meddelanden från Android har dessutom senderId (text), createdOnDevice, remoteMediaCount, isSaved.
+    // Returnerar { events, link, memory, notes, hidden }.
     function build(ctx) {
         ctx = ctx || {};
         var events = [];
         var notes = [];
         var hidden = 0;
         var hiddenTypes = {};
+        var app = ctx.app || PICABOO;
         var srcCache = ctx.sources && ctx.sources.cache || { db: 'cache_controller.db', table: 'CACHE_FILE_CLAIM' };
         var srcMsg = ctx.sources && ctx.sources.messages || { db: 'arroyo.db', table: 'conversation_message' };
         var srcNotif = ctx.sources && ctx.sources.notifications || { db: 'nse_db.sqlite', table: 'ProcessedNotifications' };
+        var srcMem = ctx.sources && ctx.sources.memories || { db: 'memories.db', table: 'memories_snap' };
+        var srcJournal = ctx.sources && ctx.sources.journal || { db: 'journal.db', table: 'journal_entry + journal' };
         var fileKey = ctx.fileKey ? String(ctx.fileKey).toLowerCase() : null;
         var link = null;
+        var memory = linkMemory(ctx.memories, ctx.file);
 
         var byMessage = {};
+        var snapIds = [];
         (ctx.messages || []).forEach(function (m) {
             if (m.conversation != null && m.serverId != null) byMessage[String(m.conversation).toLowerCase() + ':' + Number(m.serverId)] = m;
+            // Android: chattmediets nyckel (chat_snap-<id>) står som sträng i meddelandets protobuf, med ett suffix.
+            strings(m.content).forEach(function (str) { if (str.length >= 15 && /^[A-Za-z0-9_-]+$/.test(str)) snapIds.push({ id: str, message: m }); });
         });
+        var messageForSnap = function (snapId) {
+            var hit = snapIds.find(function (x) { return x.id.indexOf(snapId) === 0; });
+            return hit ? hit.message : null;
+        };
 
         (ctx.cacheRows || []).forEach(function (r) {
             var info = contextInfo(r.context);
             var ext = parseExternalKey(r.external);
             var isFile = fileKey && String(r.key).toLowerCase() === fileKey;
+            var linkedMessage = ext.kind === 'message' ? byMessage[ext.conversationId + ':' + ext.serverMessageId] || null : ext.kind === 'chat' ? messageForSnap(ext.snapId) : null;
             if (isFile) {
-                link = { row: r, context: info, external: ext, message: ext.kind === 'message' ? byMessage[ext.conversationId + ':' + ext.serverMessageId] || null : null };
+                link = { row: r, context: info, external: ext, message: linkedMessage };
             }
             if (!info.show && !isFile) { hidden++; hiddenTypes[info.code] = (hiddenTypes[info.code] || 0) + 1; return; }
             if (r.createdMs == null) return;
             var what = 'Snapchat cachar media: typ ' + info.code + (info.known ? ' (' + info.label + ')' : '');
             if (ext.kind === 'message') what += ', konversation ' + ext.conversationId.slice(0, 8) + '…, meddelande ' + ext.serverMessageId;
+            else if (ext.kind === 'chat') what += ', chattsnap ' + ext.snapId.slice(0, 8) + '…' + (linkedMessage ? ', meddelande ' + linkedMessage.serverId : '');
             else if (ext.kind === 'recording') what += ', inspelning ' + ext.recordingId.slice(0, 8) + '…';
             else if (ext.kind === 'sent') what += ', skickad till @' + ext.recipient + (ext.aux ? ' (' + ext.aux + ')' : '');
             else if (ext.kind === 'story') what += ', ' + ext.part;
@@ -264,12 +323,12 @@
                         : 'Den bedömda filen läggs i Snapchats cache';
             }
             events.push({
-                ms: r.createdMs, kind: 'snap-cache', lane: 'snapchat', bold: !!isFile, isFile: !!isFile, context: info.code, cacheKey: r.key, app: PICABOO, sent: ext.kind === 'sent' && !ext.aux,
+                ms: r.createdMs, kind: 'snap-cache', lane: 'snapchat', bold: !!isFile, isFile: !!isFile, context: info.code, cacheKey: r.key, app: app, sent: ext.kind === 'sent' && !ext.aux,
                 text: what + ', nyckel ' + String(r.key).slice(0, 12) + '…', plain: plain,
                 source: Object.assign({}, srcCache, { column: 'CREATION_TIMESTAMP_MILLIS (MEDIA_CONTEXT_TYPE ' + info.code + ', EXTERNAL_KEY)' }),
             });
             if (r.deletedMs) {
-                events.push({ ms: r.deletedMs, kind: 'snap-cache-deleted', lane: 'snapchat', context: info.code, cacheKey: r.key, app: PICABOO,
+                events.push({ ms: r.deletedMs, kind: 'snap-cache-deleted', lane: 'snapchat', context: info.code, cacheKey: r.key, app: app,
                     text: (isFile ? 'Den bedömda filen: ' : '') + 'raderad ur Snapchats cache, nyckel ' + String(r.key).slice(0, 12) + '…', plain: isFile ? 'Den bedömda filen tas bort ur Snapchats cache' : null,
                     source: Object.assign({}, srcCache, { column: 'DELETED_TIMESTAMP_MILLIS' }) });
             }
@@ -278,23 +337,27 @@
         var sentAt = events.filter(function (e) { return e.kind === 'snap-cache' && e.sent; }).map(function (e) { return e.ms; });
         (ctx.messages || []).forEach(function (m) {
             var info = messageInfo(m.content);
-            var own = isOwn(info.senderId, ctx);
-            var who = whoText(info.senderId, ctx);
+            // Android har avsändaren i klartext (sender_id) och flaggan created_on_device; iOS bara protobufen.
+            var senderId = hexId(m.senderId) || info.senderId;
+            var own = m.createdOnDevice != null ? Number(m.createdOnDevice) === 1 : isOwn(senderId, ctx);
+            var who = whoText(senderId, ctx);
             var isFile = !!(link && link.message === m);
             var conv = String(m.conversation || '').slice(0, 8) + '…';
-            var kindText = info.hasMediaKey ? 'snap eller bild' : 'meddelande';
-            var text = 'Snapchat: ' + kindText + ' ' + m.serverId + ' i konversation ' + conv + ', avsändare ' + who + (own ? ' (den här telefonen)' : '');
+            var isMedia = info.hasMediaKey || (m.remoteMediaCount != null && Number(m.remoteMediaCount) > 0);
+            var kindText = isMedia ? 'snap eller bild' : 'meddelande';
+            var saved = m.isSaved != null && Number(m.isSaved) === 1;
+            var text = 'Snapchat: ' + kindText + ' ' + m.serverId + ' i konversation ' + conv + ', avsändare ' + who + (own ? ' (den här telefonen)' : '') + (saved ? ', sparad i chatten' : '');
             var plain = own
-                ? (info.hasMediaKey ? 'En snap eller bild skickas från den här telefonen i Snapchat' : 'Ett meddelande skickas från den här telefonen i Snapchat')
-                : (info.hasMediaKey ? 'En snap eller bild skickas till den här telefonen i Snapchat från ' + who : 'Ett meddelande skickas till den här telefonen i Snapchat från ' + who);
+                ? (isMedia ? 'En snap eller bild skickas från den här telefonen i Snapchat' : 'Ett meddelande skickas från den här telefonen i Snapchat')
+                : (isMedia ? 'En snap eller bild skickas till den här telefonen i Snapchat från ' + who : 'Ett meddelande skickas till den här telefonen i Snapchat från ' + who);
             if (isFile) { text = 'Den bedömda filen: ' + text; plain = own ? 'Den bedömda filen skickas från den här telefonen i Snapchat' : 'Den bedömda filen skickas till den här telefonen i Snapchat från ' + who; }
             // En skickad snap ger både en cacherad (med mottagaren) och ett meddelande inom några sekunder: en mening räcker.
             else if (own && m.createdMs != null && sentAt.some(function (t) { return Math.abs(t - m.createdMs) <= 5000; })) plain = null;
-            var senderSource = Object.assign({}, srcMsg, { column: 'creation_timestamp; avsändare ur message_content (protobuf, fält 2 → 1)' });
-            if (m.createdMs != null) events.push({ ms: m.createdMs, kind: 'snap-message', lane: 'snapchat', bold: isFile, isFile: isFile, own: own, senderId: info.senderId, hasMediaKey: info.hasMediaKey,
-                conversation: m.conversation, serverId: m.serverId, app: PICABOO, text: text, plain: plain, source: senderSource });
+            var senderSource = Object.assign({}, srcMsg, { column: m.senderId ? 'creation_timestamp; avsändare ur sender_id, created_on_device' : 'creation_timestamp; avsändare ur message_content (protobuf, fält 2 → 1)' });
+            if (m.createdMs != null) events.push({ ms: m.createdMs, kind: 'snap-message', lane: 'snapchat', bold: isFile, isFile: isFile, own: own, senderId: senderId, hasMediaKey: isMedia, saved: saved,
+                conversation: m.conversation, serverId: m.serverId, app: app, text: text, plain: plain, source: senderSource });
             if (m.readMs != null) {
-                events.push({ ms: m.readMs, kind: 'snap-read', lane: 'snapchat', isFile: isFile, own: own, conversation: m.conversation, serverId: m.serverId, app: PICABOO,
+                events.push({ ms: m.readMs, kind: 'snap-read', lane: 'snapchat', isFile: isFile, own: own, conversation: m.conversation, serverId: m.serverId, app: app,
                     text: (isFile ? 'Den bedömda filen: ' : 'Snapchat: ') + kindText + ' ' + m.serverId + ' läst' + (own ? ' av mottagaren' : ' på den här telefonen'),
                     plain: own ? 'Mottagaren öppnar den' : 'Den öppnas på den här telefonen',
                     source: Object.assign({}, srcMsg, { column: 'read_timestamp' }) });
@@ -304,11 +367,47 @@
         (ctx.notifications || []).forEach(function (n) {
             if (n.ms == null) return;
             var t = String(n.type || '');
-            events.push({ ms: n.ms, kind: 'snap-notification', lane: 'snapchat', app: PICABOO, notifType: t,
-                text: 'Snapchat-notis: ' + t + ' (kategori ' + n.category + ')',
-                plain: t === 'snap' ? 'Telefonen får en notis om en ny snap' : t === 'chat' ? 'Telefonen får en notis om ett nytt meddelande i Snapchat' : null,
+            events.push({ ms: n.ms, kind: 'snap-notification', lane: 'snapchat', app: app, notifType: t,
+                text: 'Snapchat-notis: ' + t + (n.category != null ? ' (kategori ' + n.category + ')' : ''),
+                plain: t === 'snap' ? 'Telefonen får en notis om en ny snap' : t === 'chat' ? 'Telefonen får en notis om ett nytt meddelande i Snapchat' : t === 'addfriend' ? 'Telefonen får en notis om en vänförfrågan i Snapchat' : null,
                 source: Object.assign({}, srcNotif, { column: 'timestamp, type' }) });
         });
+
+        // Android: Memories säger när en snap togs (snap_capture_time), med vilken kamera, och när
+        // den sparades (create_time). Den som hör till den bedömda filen blir fet.
+        (ctx.memories || []).forEach(function (m) {
+            var video = Number(m.mediaType) === 1;
+            var front = Number(m.front) === 1;
+            var cam = front ? 'frontkamera' : 'bakre kamera';
+            var isFile = !!(memory && memory.row === m);
+            var noun = video ? 'video' : 'bild';
+            var common = { kind: 'snap-memory', lane: 'snapchat', app: app, isFile: isFile, bold: isFile, video: video, front: front, memoryId: m.id, latitude: m.latitude, longitude: m.longitude };
+            if (m.capturedMs != null) {
+                events.push(Object.assign({}, common, { ms: m.capturedMs, captured: true,
+                    text: 'Snapchat Memories: ' + noun + ' tagen med ' + cam + 'n (snap_capture_time' + (video ? ', inspelningens slut' : '') + ')' + (m.width && m.height ? ', ' + m.width + '×' + m.height : '') + (video && m.duration ? ', ' + Number(m.duration).toFixed(1).replace('.', ',') + ' s' : '') + (Number(m.hasLocation) === 1 ? ', med position' : ''),
+                    plain: (isFile ? 'Den bedömda ' + noun + 'en ' : 'En ' + noun + ' ') + (video ? 'spelas in' : 'tas') + ' med Snapchats ' + cam + ' på den här telefonen',
+                    source: Object.assign({}, srcMem, { column: 'snap_capture_time, front_facing, media_type' }) }));
+            }
+            if (m.createdMs != null) {
+                events.push(Object.assign({}, common, { ms: m.createdMs, captured: false,
+                    text: 'Snapchat Memories: ' + noun + 'en sparas i Memories (create_time)' + (m.zone ? ', tidszon ' + m.zone : ''),
+                    plain: isFile ? 'Den sparas i Snapchats Memories' : 'Den sparas i Snapchats Memories',
+                    source: Object.assign({}, srcMem, { column: 'create_time' }) }));
+            }
+        });
+
+        // Android: filhanterarens journal, bara mapparna som säger något om vad användaren gjorde.
+        var hiddenJournal = 0;
+        (ctx.journal || []).forEach(function (j) {
+            if (j.timeMs == null) return;
+            var folder = String(j.path || '').replace(/\/+$/, '').split('/').pop();
+            var info = JOURNAL[folder];
+            if (!info) { hiddenJournal++; return; }
+            events.push({ ms: j.timeMs, kind: 'snap-journal', lane: 'snapchat', app: app, folder: folder, journalKey: j.key,
+                text: 'Snapchats filhanterare: ' + info.text + ', nyckel ' + String(j.key || '').slice(0, 12) + '…' + (j.size ? ', ' + j.size + ' byte' : ''),
+                plain: info.plain, source: Object.assign({}, srcJournal, { column: 'last_update_time, journal.path' }) });
+        });
+        if (hiddenJournal) notes.push(hiddenJournal + ' poster i Snapchats filhanterare (tumnaglar, modeller, bitmoji …) i fönstret visas inte.');
 
         events.sort(function (a, b) { return a.ms - b.ms; });
         if (events.length > MAX_EVENTS) {
@@ -321,13 +420,15 @@
             events = kept.sort(function (a, b) { return a.ms - b.ms; });
         }
         if (hidden) notes.push(hidden + ' cacheposter för linser, resurser och andra typer (' + Object.keys(hiddenTypes).sort(function (a, b) { return a - b; }).join(', ') + ') i fönstret visas inte.');
-        return { events: events, link: link, notes: notes, hidden: hidden };
+        return { events: events, link: link, memory: memory, notes: notes, hidden: hidden };
     }
 
     var api = {
-        PICABOO: PICABOO, CONTEXT: CONTEXT, contextInfo: contextInfo, parseExternalKey: parseExternalKey,
+        PICABOO: PICABOO, ANDROID: ANDROID, appId: appId, isSnapchatApp: isSnapchatApp, JOURNAL: JOURNAL, linkMemory: linkMemory, hexId: hexId,
+        CONTEXT: CONTEXT, contextInfo: contextInfo, parseExternalKey: parseExternalKey,
         fields: fields, senderId: senderId, hasMediaKey: hasMediaKey, strings: strings, flatStrings: flatStrings, friendNames: friendNames, messageInfo: messageInfo,
         accountId: accountId, cacheKeyFromPath: cacheKeyFromPath, isRecordingPath: isRecordingPath, uuidText: uuidText, hex: hex, build: build,
+        messageForSnapId: function (messages, snapId) { for (var i = 0; i < (messages || []).length; i++) { if (strings(messages[i].content).some(function (str) { return str.indexOf(snapId) === 0; })) return messages[i]; } return null; },
     };
     if (typeof module !== 'undefined' && module.exports) module.exports = api;
     else root.ProvenanceSnapchat = api;

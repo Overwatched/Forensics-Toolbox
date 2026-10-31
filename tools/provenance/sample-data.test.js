@@ -140,3 +140,33 @@ test('kamerascenariot och Snapchat-scenariot delar samma telefonlogg och Snapcha
     assert.strictEqual(a.extraEvents.filter((e) => e.isFile).length, 0, 'i kamerascenariot är ingen Snapchat-rad den bedömda filen');
     assert.strictEqual(b.extraEvents.filter((e) => e.isFile).length, 1);
 });
+
+test('Android-scenariot: selfie med Snapchats frontkamera, T ur date_added, Memories, usagestats och appops', () => {
+    const s = sample.androidScenario({ snapchat, copies });
+    const names = { 'com.snapchat.android': 'Snapchat', 'com.google.android.GoogleCamera': 'Pixel-kamera' };
+    const m = core.build(Object.assign({}, s, { appNames: (id) => names[id] || null, cameraApps: ['com.google.android.GoogleCamera'], windowMs: 15 * 60000, format: (ms) => core.formatWithOffset(ms, 120) }));
+    assert.strictEqual(m.platform, 'Android');
+    assert.strictEqual(m.type.type, 'saved');
+    assert.ok(m.type.memory && m.type.memory.front);
+    assert.ok(m.type.reasons.some((r) => /datetaken saknas/.test(r)));
+    const st = Object.fromEntries(m.factors.map((f) => [f.id, f.state]));
+    assert.deepStrictEqual(st, { time: 'support', app: 'support', camera: 'support', screen: 'support', position: 'info' });
+    assert.match(m.summary, /frontkamera/);
+    assert.match(m.factors.find((f) => f.id === 'camera').items[0].text, /appops/);
+    assert.ok(m.events.some((e) => e.kind === 'file-captured'));
+    assert.ok(m.events.some((e) => e.kind === 'app' && e.cameraOp && e.app === 'com.snapchat.android' && e.merged === 2), 'de två kameraoperationerna i följd slås ihop');
+    assert.ok(m.events.some((e) => e.kind === 'snap-memory' && e.isFile && e.captured));
+    assert.ok(m.events.some((e) => e.kind === 'snap-message' && e.own === false && /@erik\.lind/.test(e.text)));
+    assert.ok(m.events.some((e) => e.kind === 'snap-journal'));
+    assert.ok(m.positions.some((p) => p.kind === 'memory'));
+    assert.strictEqual(core.logInfo(s).label, 'usagestats');
+    assert.ok(m.beta);
+    const proto = report.protocol(m, metaFor(s));
+    assert.match(proto, /date_added/);
+    assert.match(proto, /Memories/);
+    assert.match(proto, /Android 14/);
+    const expl = report.explanation(m, metaFor(s));
+    assert.doesNotMatch(expl, /usagestats|appops|memories_snap/);
+    assert.match(expl, /frontkamera/);
+    assert.ok(s.exifRows.some((r) => r[0] === 'ExifIFD:UserComment' && r[1].length > 40));
+});

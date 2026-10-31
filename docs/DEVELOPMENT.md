@@ -138,7 +138,20 @@ i extraktionen med `-wal` pålagd, och bygger en händelselista i UTC.
   båda exporterna. Kartans laddning kräver att fönstret ritas: med låst skärm kommer ingen
   bildruta, och då går exporten vidare utan kartbild efter tio sekunder.
 - På iOS kommer app och kamera ur knowledgeC `/app/usage` (`/app/inFocus` finns inte på iOS 18
-  och senare, bara som reserv). På Android ur Wellbeing; skärm och lås saknas där.
+  och senare, bara som reserv). På Android ur `usagestats` (app, skärm, lås) och `appops`
+  (kameran per app), lästa som filer ur zippen av `android-logs.js`; Wellbeing är reserv.
+- `android-logs.js` (UMD `ProvenanceAndroidLogs`): `abxParse` för Androids binära XML (ABX,
+  magic `ABX\0`, internerade strängar, samma utskrift som `abx2xml`), `discreteOps`/`opIntervals`
+  för `appops/discrete/<ms>tl` (op 26 = kamera; startraden och slutraden med `nd` har samma `nt`,
+  slutraden kan ligga i en senare fil), och `usageMappings`/`usageDaily` för
+  `usagestats/daily/<beginMs>` (version 5 `IntervalStatsObfuscatedProto` med `mappings`:
+  token → [paket, klasser…], klasstoken t = strängar[t − 1]; version 4 med strängpool i filen).
+  Händelserna går genom `ProvenanceCore.intervalsFromEvents` som Wellbeing. Kontrollerat mot
+  `dumpsys usagestats` och `abx2xml` på labbtelefonen (Android 13).
+- Android-filer utan `datetaken` (det Snapchat sparar till galleriet) får T = `date_added`
+  (`androidCreatedFallback`, `file.createdFrom`). Är skaparappen Snapchat kopplas raden i
+  `memories.db` som sparades inom fem sekunder (`linkSnapMemory` → `file.memory`, `file.capturedMs`):
+  tagningstid, kamera, position, tidszon. Kamerafaktorn bedöms då vid tagningstiden.
 
 Plan och provkörning: [PLAN-harkomst.md](PLAN-harkomst.md).
 
@@ -148,6 +161,15 @@ Plan och provkörning: [PLAN-harkomst.md](PLAN-harkomst.md).
   (GUID:t varierar): `Documents/global_scoped/cachecontroller/cache_controller.db`, `arroyo/arroyo.db`,
   `DocObjects/primary.docobjects` och `databases/nse_db.sqlite`. Synliga queries för manuell kontroll
   i Queries, dolda rollqueries för Härkomst. Tiderna är Unix-millisekunder (`{{unixMsStart}}`).
+- `queries/android/snapchat/catalog.json` (1.31) har sex databaser under
+  `data/data/com.snapchat.android/databases/` (`data/user/0/` normaliseras till samma): `native_content_manager/cache_controller.db`
+  och `arroyo.db` med samma tabeller som iOS (plus `sender_id`, `created_on_device`, `remote_media_count`, `is_saved`),
+  `main.db` (`Friend`), `client_notifications.db` (`Notifications`), `memories.db` (`memories_snap`:
+  `snap_capture_time`, `create_time`, `front_facing`, `time_zone_id`, `latitude`/`longitude`) och `journal.db`
+  (`journal_entry` + `journal.path`: mappen säger vad filen är, t.ex. `posted_story_snap`). Samma rollnamn som
+  iOS så att `snapchat.js` läser båda; `script.js` väljer nyckeluppsättning per plattform (`snapKeys()`).
+  Androids chattmedia har nyckeln `chat_snap.chat_snap-<id>`; id:t står som sträng i meddelandets protobuf
+  (`messageForSnapId`). Cachefilerna ligger i `files/native_content_manager/com.snap.file_manager_3_SCContent_<konto>/`.
 - `tools/provenance/snapchat.js` tolkar `EXTERNAL_KEY` (`1:<konversation>:<server_message_id>:0:0`
   = chattmedia, `<UUID>~1` = inspelning med Snapchats kamera, `ANVÄNDARNAMN~<UUID>` = skickad snap),
   typkoderna i `MEDIA_CONTEXT_TYPE`, och protobufen: avsändaren är fält 2 → fält 1 (16 byte) i
@@ -279,8 +301,10 @@ i webbläsaren.
 - Offline för lokala verktyg; externa länkar/nedladdningar och onlinekartan kräver nät och bekräftelse
 - Windows-signing är avstängd (`signExecutable: false`). Ikon och metadata skrivs ändå in i exe-filen.
 - `npm audit`-varningar i Electron-kedjan är vanliga; åtgärda inte med `audit fix --force` utan översikt
-- Härkomst: Android-delen är oprövad (ingen extraktion med bilder fanns), skärm och lås saknas på Android (Wellbeing loggar dem inte), bildfiler över 200 MB läses inte för EXIF, och inklistringen i Word är provkörd bara via urklippsstatus, inte i Word självt
+- Härkomst: Android är provkört mot en labbtelefon (Android 13, LineageOS), inte mot en kommersiell extraktion; `usagestats` i XML (version 3, Android 9 och äldre) läses inte, batterihistoriken läses inte, ingen positionslogg läses på Android, bildfiler över 200 MB läses inte för EXIF, och inklistringen i Word är provkörd bara via urklippsstatus, inte i Word självt
 - **Snapchat (beta):** typkoder och protobuf-tolkning är härledda ur en enda extraktion. Memories
   (`gallery.encrypteddb`) är SQLCipher och läses inte. Chattmedia är ofta krypterat på disk; nyckel och
   IV ligger i `message_content` men används inte. Flera Snapchat-konton i samma behållare: första
-  träffen används. Android-Snapchat är inte kontrollerat.
+  träffen används. Android-Snapchat är kontrollerat mot en labbtelefon (Snapchat 14.30): typ 34
+  (inspelning) sågs inte där, typ 5 utan attribution är bland annat media som laddas upp före ett skickat
+  meddelande, och `memories.db` är okrypterat.

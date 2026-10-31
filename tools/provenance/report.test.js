@@ -115,3 +115,26 @@ test('undersökarens bockar per faktor skrivs ut med klockslag i protokollet och
     assert.ok(!none.includes('har kontrollerat'), 'utan bockar sägs inget i förklaringen');
     assert.ok(report.protocol(model(), META).includes('Undersökaren har kontrollerat 0 av 5 faktorer mot källorna.'));
 });
+
+test('MD5, telefonens tumnagel och bilden: protokollet får allt, förklaringen bara bilden, och bara när den begärts', () => {
+    const meta = Object.assign({}, META, {
+        fileEntry: Object.assign({}, META.fileEntry, { md5: 'd'.repeat(32) }),
+        thumbnail: { path: 'filesystem1/private/var/mobile/Media/PhotoData/Thumbnails/V2/DCIM/100APPLE/IMG_0042.HEIC/5005.JPG', size: 48213, crc32: 'cafe0001', sha256: 'e'.repeat(64) },
+        previewPng: 'data:image/jpeg;base64,PPPP', previewNote: 'Telefonens egen miniatyr av bilden.',
+    });
+    const p = report.protocol(model(), meta);
+    for (const needle of ['MD5 ' + 'd'.repeat(32), 'Telefonens egen tumnagel i zippen', 'Thumbnails/V2/DCIM/100APPLE/IMG_0042.HEIC/5005.JPG', '48213 byte', 'cafe0001', 'e'.repeat(64), 'data:image/jpeg;base64,PPPP', 'Telefonens egen miniatyr av bilden.', 'max-width: 360px']) {
+        assert.ok(p.includes(needle), 'protokollet saknar: ' + needle);
+    }
+    assert.ok(p.indexOf('data:image/jpeg;base64,PPPP') < p.indexOf('2. Underlag för bedömning'), 'bilden står under 1. Filen');
+    const e = report.explanation(model(), meta);
+    assert.ok(e.includes('data:image/jpeg;base64,PPPP') && e.includes('Telefonens egen miniatyr av bilden.'));
+    assert.ok(e.indexOf('data:image/jpeg;base64,PPPP') < e.indexOf('data:image/png;base64,AAAA'), 'bilden kommer före tidslinjen');
+    for (const forbidden of ['Thumbnails', 'MD5', 'd'.repeat(32), 'e'.repeat(64), '5005.JPG']) assert.ok(!e.includes(forbidden), 'förklaringen innehåller ' + forbidden);
+    assert.ok(report.plainText(e).includes('[bilden]'));
+    // Utan begäran: ingen bild, men hashar och tumnagelns sökväg står kvar i protokollet.
+    const quiet = Object.assign({}, meta, { previewPng: null });
+    assert.ok(!report.protocol(model(), quiet).includes('PPPP') && !report.explanation(model(), quiet).includes('PPPP'));
+    assert.ok(report.protocol(model(), quiet).includes('5005.JPG'));
+    assert.ok(!report.explanation(model(), quiet).includes('[bilden]'));
+});

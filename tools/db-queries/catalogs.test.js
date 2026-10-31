@@ -11,6 +11,7 @@ const android = require(path.join(ROOT, 'queries', 'android', 'catalog.json'));
 const appUsage = require(path.join(ROOT, 'queries', 'app-usage', 'catalog.json'));
 const routined = require(path.join(ROOT, 'queries', 'ios', 'routined', 'catalog.json'));
 const snapchat = require(path.join(ROOT, 'queries', 'ios', 'snapchat', 'catalog.json'));
+const snapchatAndroid = require(path.join(ROOT, 'queries', 'android', 'snapchat', 'catalog.json'));
 
 // Rollqueryer (hidden) hör till Härkomst och visas inte i Queries. De kontrolleras för sig.
 const visible = (list) => list.filter((q) => !q.hidden);
@@ -48,6 +49,33 @@ test('snapchat (beta): en rekommenderad query per databas, undertext på alla, t
     assert.match(cache.queries.find((q) => q.id === 'cached-media').sql, /CACHE_FILE_CLAIM[\s\S]*CACHE_FILE_METADATA/);
     const arroyo = snapchat.databases.find((d) => d.id === 'snapchat-arroyo');
     assert.match(arroyo.queries.find((q) => q.id === 'messages').sql, /hex\(substr\(message_content, 7, 16\)\)/, 'avsändar-id ska gå att kontrollera för hand');
+});
+
+test('snapchat på Android (beta): en rekommenderad query per databas, undertext på alla, tider i millisekunder, sökvägar under appens datamapp', () => {
+    assert.deepStrictEqual(snapchatAndroid.databases.map((d) => d.id), ['snapchat-android-cache', 'snapchat-android-arroyo', 'snapchat-android-friends', 'snapchat-android-notifications', 'snapchat-android-memories', 'snapchat-android-journal']);
+    for (const db of snapchatAndroid.databases) {
+        checkGroup(db.id, db.queries, (q) => q.subtitle);
+        assert.ok(db.paths.every((p) => p.startsWith('data/data/com.snapchat.android/databases/')), db.id + ': sökvägarna');
+        for (const q of db.queries) {
+            if (/\{\{(cocoa|unix)(Start|End)\}\}/.test(q.sql)) assert.fail(db.id + '/' + q.id + ': Snapchat-tider är millisekunder, använd unixMs-platshållarna');
+            if (!q.hidden && /\{\{unixMs/.test(q.sql)) assert.strictEqual(q.timeEpoch, 'unix-ms', db.id + '/' + q.id + ': timeEpoch');
+            if (q.hidden) { assert.strictEqual(q.epoch, 'unixMs', db.id + '/' + q.id + ': epoch'); assert.ok(q.fields, db.id + '/' + q.id + ': fields'); }
+        }
+    }
+    const roles = (id) => snapchatAndroid.databases.find((d) => d.id === id).queries.filter((q) => q.hidden).map((q) => q.role).sort();
+    assert.deepStrictEqual(roles('snapchat-android-cache'), ['cache-key', 'cache-window', 'coverage']);
+    assert.deepStrictEqual(roles('snapchat-android-arroyo'), ['coverage', 'messages']);
+    assert.deepStrictEqual(roles('snapchat-android-memories'), ['coverage', 'memories']);
+    // Samma fältkarta som iOS för cache och meddelanden, så att snapchat.js kan läsa båda.
+    const iosCache = snapchat.databases.find((d) => d.id === 'snapchat-cache').queries.find((q) => q.role === 'cache-window');
+    const andCache = snapchatAndroid.databases.find((d) => d.id === 'snapchat-android-cache').queries.find((q) => q.role === 'cache-window');
+    assert.deepStrictEqual(andCache.fields, iosCache.fields);
+    const msg = snapchatAndroid.databases.find((d) => d.id === 'snapchat-android-arroyo').queries.find((q) => q.role === 'messages');
+    assert.strictEqual(msg.fields.senderId, 'sender_id');
+    assert.strictEqual(msg.fields.createdOnDevice, 'created_on_device');
+    const mem = snapchatAndroid.databases.find((d) => d.id === 'snapchat-android-memories').queries.find((q) => q.role === 'memories');
+    assert.strictEqual(mem.fields.captured, 'snap_capture_time');
+    assert.strictEqual(mem.fields.front, 'front_facing');
 });
 
 test('routined: positionerna tar bara med kända ZTYPE (1 GNSS, 4 Wi-Fi) och filtrerar på råtiden', () => {

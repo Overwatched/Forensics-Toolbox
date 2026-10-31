@@ -14,6 +14,17 @@
     var IOS_CAMERA = 'com.apple.camera';
     var IOS_SPRINGBOARD = 'com.apple.springboard';
     var SNAPCHAT = 'com.toyopagroup.picaboo';
+    var SNAPCHAT_ANDROID = 'com.snapchat.android';
+
+    function isSnapchatApp(id) { return id === SNAPCHAT || id === SNAPCHAT_ANDROID; }
+
+    // Loggen för app, skärm och lås: knowledgeC på iOS; på Android usagestats när den finns i
+    // extraktionen, annars Wellbeing. Etiketten står i faktorernas texter, nyckeln i täckningen.
+    function logInfo(input) {
+        if (input.platform !== 'Android') return { label: 'knowledgeC', key: '/app/usage', screenKey: '/display/isBacklit' };
+        var stream = input.androidLog || ((input.appIntervals || [])[0] || (input.screen || [])[0] || {}).stream || 'wellbeing';
+        return stream === 'usagestats' ? { label: 'usagestats', key: 'usagestats', screenKey: 'usagestats' } : { label: 'Wellbeing', key: 'wellbeing', screenKey: 'wellbeing' };
+    }
 
     var STATE_LABEL = { support: 'Stöd', contradiction: 'Motsägelse', missing: 'Saknas', info: 'Upplysning', na: 'Inte tillämplig' };
 
@@ -67,7 +78,8 @@
         if (Number(sc.context) === 34) return 'recorded';
         var ext = sc.external || {};
         if (ext.kind === 'sent') return 'sent';
-        if (ext.kind === 'message') return sc.own ? 'sent' : 'received';
+        if ((ext.kind === 'message' || ext.kind === 'chat') && sc.own != null) return sc.own ? 'sent' : 'received';
+        if (ext.kind === 'message') return 'received';
         return 'unknown';
     }
 
@@ -92,6 +104,7 @@
             var ext = sc.external || {};
             if (ext.kind === 'recording') reasons.push('EXTERNAL_KEY är ett inspelnings-id');
             if (ext.kind === 'message') reasons.push('EXTERNAL_KEY pekar på meddelande ' + ext.serverMessageId + ' i chatten' + (sc.who ? ', avsändare ' + sc.who : ''));
+            if (ext.kind === 'chat') reasons.push('EXTERNAL_KEY är chattmediets id (chat_snap-' + ext.snapId + ')' + (sc.messageCreatedMs ? ', samma id står i meddelandet i arroyo.db' : '') + (sc.who ? ', avsändare ' + sc.who : ''));
             if (ext.kind === 'sent') reasons.push('EXTERNAL_KEY anger mottagaren @' + ext.recipient);
             if (sc.recordingCopy) reasons.push('samma bytes finns i recorded_videos');
         } else if (platform === 'Android') {
@@ -104,6 +117,12 @@
             } else if (importer) {
                 type = 'saved';
                 reasons.push('owner_package_name är ' + importer);
+            }
+            if (file.createdFrom === 'date_added') reasons.push('datetaken saknas i MediaStore, så T är date_added');
+            if (file.memory) {
+                var mem = file.memory;
+                reasons.push('Snapchats Memories har en ' + (mem.video ? 'video' : 'bild') + ' tagen med ' + (mem.front ? 'frontkameran' : 'bakre kameran') + ' ' + formatUtc(mem.capturedMs) +
+                    ' och sparad ' + duration(Math.abs((file.addedMs || file.createdMs) - mem.createdMs)) + ' ' + (mem.createdMs <= (file.addedMs || file.createdMs) ? 'före' : 'efter') + ' filen (snap_capture_time, create_time, front_facing)');
             }
         } else {
             if (importedBy === 1 || importedBy === 2 || importer === IOS_CAMERA) {
@@ -128,7 +147,8 @@
         if (Number(file.hidden) === 1) flags.push('hidden');
         var labels = { camera: 'Kamerabild', screenshot: 'Skärmdump', saved: 'Sparad ur en app', snapchat: 'Snapchat-media utanför bildbiblioteket', unknown: 'Okänd typ' };
         return { type: type, label: labels[type], reasons: reasons, flags: flags, importer: importer, importedBy: importedBy,
-            snapchat: type === 'snapchat' || importer === SNAPCHAT, origin: snapOrigin(sc), who: sc && sc.who || null, recipient: sc && sc.external && sc.external.recipient || null };
+            snapchat: type === 'snapchat' || isSnapchatApp(importer), origin: snapOrigin(sc), who: sc && sc.who || null, recipient: sc && sc.external && sc.external.recipient || null,
+            memory: file.memory || null };
     }
 
     // ---------- Fönster ----------
@@ -269,6 +289,12 @@
             add({ ms: input.pairedVideo.takenMs, kind: 'paired-video', lane: 'file', text: 'Live Photo-videon ' + input.pairedVideo.name + ' (QuickTime CreateDate, UTC)',
                 plain: null, source: input.pairedVideo.source || { db: 'bildfilen', table: 'QuickTime' } });
         }
+        // Android: Snapchats Memories säger när bilden togs; Snapchat-händelsen bär meningen.
+        if (file.memory && file.capturedMs) {
+            add({ ms: file.capturedMs, kind: 'file-captured', lane: 'file', bold: true,
+                text: 'Tagen enligt Snapchats Memories (snap_capture_time, ' + (file.memory.front ? 'frontkameran' : 'bakre kameran') + (file.memory.video ? ', inspelningens slut' : '') + ')',
+                plain: null, source: file.memory.source || { db: 'memories.db', table: 'memories_snap', column: 'snap_capture_time' } });
+        }
 
         (input.neighbours || []).forEach(function (n) {
             if (file.pk != null && n.pk === file.pk) return;
@@ -287,6 +313,18 @@
             var lane = isCameraApp(iv.app, input.cameraApps) ? 'camera' : 'app';
             add({ ms: iv.startMs, endMs: iv.endMs, kind: 'app', lane: lane, app: iv.app, stream: iv.stream, openEnded: iv.openEnded,
                 text: name + ' igång (' + iv.stream + ')', plain: name + ' öppnas', plainEnd: name + ' lämnas', source: iv.source });
+        });
+        // Android: kameran per app ur appops (op 26). Kamerabandet, inte appbandet: appen själv
+        // står redan i appraden. Utan slutrad är slutet okänt och bandet en sekund långt.
+        // Tätt följande kameraoperationer från samma app (kameran öppnas igen inom två sekunder, t.ex.
+        // vid byte mellan fram- och bakkamera) slås ihop till ett intervall.
+        var camUse = mergeIntervals((input.cameraUse || []).map(function (iv) {
+            return { startMs: iv.startMs, endMs: iv.endMs != null ? iv.endMs : iv.startMs + 1000, app: iv.app, stream: 'appops', source: iv.source, openEnded: iv.endMs == null };
+        }));
+        camUse.forEach(function (iv) {
+            var name = appName(iv.app, names);
+            add({ ms: iv.startMs, endMs: iv.endMs, kind: 'app', lane: 'camera', app: iv.app, stream: 'appops', openEnded: !!iv.openEnded, cameraOp: true, merged: iv.merged || null,
+                text: name + ' använder kameran (appops op 26' + (iv.merged ? ', ' + iv.merged + ' operationer i följd' : '') + (iv.openEnded ? ', slutet inte registrerat' : '') + ')', plain: name + ' startar kameran', plainEnd: name + ' stänger kameran', source: iv.source });
         });
         (input.screen || []).forEach(function (iv) {
             add({ ms: iv.startMs, endMs: iv.endMs, kind: 'screen', lane: 'screen', on: !!iv.on, stream: iv.stream, openEnded: iv.openEnded,
@@ -328,7 +366,9 @@
             return { id: 'time', title: 'Skapandetid', state: 'missing', items: ['Skapandetiden saknas i databasen.'],
                 plain: 'Det går inte att se när filen skapades.' };
         }
-        if (file.addedMs) {
+        if (file.createdFrom === 'date_added') {
+            items.push({ state: 'info', text: 'datetaken saknas i MediaStore, så T är date_added: när filen lades till i galleriet, inte när bilden togs. Så ser filer ut som en app sparar till galleriet utan EXIF-tid.' });
+        } else if (file.addedMs) {
             var diff = file.addedMs - file.createdMs;
             if (Math.abs(diff) <= SAME_TIME_MS) items.push({ state: 'support', text: 'Tillagd i biblioteket ' + duration(diff) + ' efter Skapad. Filen hamnade i biblioteket direkt när den skapades.' });
             else if (diff > LATE_MS) items.push({ state: 'contradiction', text: 'Tillagd i biblioteket ' + duration(diff) + ' efter Skapad. Filen kom till biblioteket långt efter att den skapades, vilket är vanligt för mottagna eller synkade bilder.' });
@@ -337,6 +377,14 @@
             items.push({ state: 'info', text: 'Filen ligger utanför bildbiblioteket, så det finns ingen Tillagd-tid. T är tiden då Snapchat registrerade filen i sin cache.' });
         } else {
             items.push({ state: 'info', text: 'Tiden då filen lades till i biblioteket saknas.' });
+        }
+        if (file.memory && file.capturedMs) {
+            var mem = file.memory;
+            var mAnchor = file.addedMs || file.createdMs;
+            var mdiffCap = mAnchor - file.capturedMs;
+            var okMem = mdiffCap >= -TOLERANCE_MS && mdiffCap <= 10 * MINUTE;
+            items.push({ state: okMem ? 'support' : 'info', text: 'Snapchats Memories: ' + (mem.video ? 'videon spelades in' : 'bilden togs') + ' ' + formatUtc(file.capturedMs) + ' med ' + (mem.front ? 'frontkameran' : 'bakre kameran') +
+                ' och sparades i Memories ' + formatUtc(mem.createdMs) + ', ' + duration(Math.abs(mAnchor - mem.createdMs)) + ' ' + (mem.createdMs <= mAnchor ? 'före' : 'efter') + ' att filen lades till i galleriet (snap_capture_time, create_time).' });
         }
         var scm = type.type === 'snapchat' && file.snapchatCache && file.snapchatCache.messageCreatedMs;
         if (input.exif && input.exif.takenMs && scm) {
@@ -369,8 +417,9 @@
         else if (items.some(function (i) { return i.state === 'support'; })) state = 'support';
         else state = 'info';
         var plain;
-        if (state === 'support' && type.type === 'snapchat' && scm) plain = 'Tiderna hänger ihop: tiden inuti filen stämmer med när meddelandet skickades, och filen hämtades till den här telefonen ' + duration(file.createdMs - scm) + ' senare.';
+        if (state === 'support' && type.type === 'snapchat' && scm) plain = 'Tiderna hänger ihop: ' + (input.exif && input.exif.takenMs ? 'tiden inuti filen stämmer med när meddelandet skickades, och ' : '') + 'filen hämtades till den här telefonen ' + duration(file.createdMs - scm) + ' efter att meddelandet skickades.';
         else if (state === 'support' && type.type === 'snapchat') plain = 'Tiderna hänger ihop: ' + (input.exif && input.exif.takenMs ? 'tiden inuti filen och ' : '') + 'filsystemets tid stämmer med när Snapchat registrerade filen.';
+        else if (state === 'support' && file.memory && file.capturedMs) plain = 'Tiderna hänger ihop: enligt Snapchats Memories ' + (file.memory.video ? 'spelades videon in' : 'togs bilden') + ' ' + duration(Math.abs((file.addedMs || file.createdMs) - file.capturedMs)) + ' innan den sparades till galleriet.';
         else if (state === 'support') plain = 'Tiderna hänger ihop: filen skapades och hamnade i biblioteket vid samma tid' + (input.exif && input.exif.takenMs ? ', och tiden inuti filen säger detsamma' : '') + '.';
         else if (state === 'contradiction') plain = 'Tiderna hänger inte ihop. ' + items.filter(function (i) { return i.state === 'contradiction'; }).map(function (i) { return i.text; }).join(' ');
         else plain = 'Tiderna går inte att kontrollera mot varandra.';
@@ -413,12 +462,20 @@
             out.push({ kind: 'exif', ms: file.createdMs, lat: exPos.lat, lon: exPos.lon, accuracy: ex.accuracy || null, label: 'Bilden enligt EXIF i filen',
                 source: { db: 'bildfilen', table: file.filename, column: ex.source || 'GPS' } });
         }
+        // Android: positionen Snapchat sparade med snappen i Memories. MediaStore-raden saknar position.
+        var mem = file.memory;
+        if (mem && validCoord(mem.latitude, mem.longitude)) {
+            var memPos = { lat: Number(mem.latitude), lon: Number(mem.longitude) };
+            if (!filePos) filePos = memPos;
+            out.push({ kind: 'memory', ms: file.capturedMs || file.createdMs, lat: memPos.lat, lon: memPos.lon, accuracy: null, label: 'Bilden enligt Snapchats Memories',
+                source: mem.source || { db: 'memories.db', table: 'memories_snap', column: 'latitude, longitude' } });
+        }
         (input.locations || []).forEach(function (l) {
             out.push({ kind: 'phone', ms: l.ms, lat: l.lat, lon: l.lon, accuracy: l.accuracy, locType: l.type,
                 label: 'Telefonen (' + (l.type === 1 ? 'GNSS' : l.type === 4 ? 'Wi-Fi' : 'typ ' + l.type) + ')', source: l.source || input.locationSource || null });
         });
         out.forEach(function (p) {
-            p.distanceM = filePos && p.kind === 'phone' ? distanceM(filePos, p) : (p.kind === 'exif' && out[0].kind === 'file' ? distanceM(out[0], p) : null);
+            p.distanceM = filePos && p.kind === 'phone' ? distanceM(filePos, p) : ((p.kind === 'exif' || p.kind === 'memory') && out[0].kind === 'file' ? distanceM(out[0], p) : null);
             p.offsetMs = file.createdMs != null && p.ms != null ? p.ms - file.createdMs : null;
         });
         return { list: out, filePos: filePos };
@@ -432,9 +489,10 @@
         var items = [];
         var near = null;
         phone.forEach(function (p) { if (near === null || Math.abs(p.offsetMs) < Math.abs(near.offsetMs)) near = p; });
+        var noPhoneLog = input.platform === 'Android' ? ' (ingen positionslogg läses på Android)' : input.missingDbs && input.missingDbs.routined ? ' (routined Cache.sqlite finns inte i extraktionen)' : '';
         if (!pos.filePos) {
             if (!phone.length) {
-                return { id: 'position', title: 'Position', state: 'missing', items: [{ state: 'missing', text: 'Filen har ingen position, och telefonen har inga registrerade positioner i fönstret' + (input.missingDbs && input.missingDbs.routined ? ' (routined Cache.sqlite finns inte i extraktionen)' : '') + '.' }],
+                return { id: 'position', title: 'Position', state: 'missing', items: [{ state: 'missing', text: 'Filen har ingen position, och telefonen har inga registrerade positioner i fönstret' + noPhoneLog + '.' }],
                     plain: 'Det finns ingen positionsuppgift, varken i ' + noun + ' eller från telefonen.' };
             }
             return { id: 'position', title: 'Position', state: 'info', items: [{ state: 'info', text: 'Filen har ingen position. Telefonen registrerade ' + phone.length + (phone.length === 1 ? ' position' : ' positioner') + ' i fönstret, närmast ' + duration(near.offsetMs) + (near.offsetMs < 0 ? ' före' : ' efter') + ' ' + noun + '.' }],
@@ -442,9 +500,12 @@
         }
         var exifRow = pos.list.filter(function (p) { return p.kind === 'exif' && p.distanceM != null; })[0];
         if (exifRow) items.push({ state: exifRow.distanceM <= 50 ? 'support' : 'contradiction', text: 'Positionen i EXIF i filen ligger ' + metres(exifRow.distanceM) + ' från positionen i databasen.' });
+        var memRow = pos.list.filter(function (p) { return p.kind === 'memory'; })[0];
+        if (memRow && memRow.distanceM != null) items.push({ state: memRow.distanceM <= 50 ? 'support' : 'contradiction', text: 'Positionen i Snapchats Memories ligger ' + metres(memRow.distanceM) + ' från positionen i databasen.' });
+        else if (memRow) items.push({ state: 'info', text: 'Bildens position kommer ur Snapchats Memories (latitude, longitude), inte ur MediaStore, som saknar position för filen.' });
         if (!phone.length) {
-            items.push({ state: 'missing', text: 'Telefonen har inga registrerade positioner i fönstret' + (input.missingDbs && input.missingDbs.routined ? ': routined Cache.sqlite finns inte i extraktionen' : '') + '.' });
-            return { id: 'position', title: 'Position', state: 'missing', items: items, plain: 'Bilden har en position, men det finns ingen registrering av var telefonen var vid den tiden.' };
+            items.push({ state: 'missing', text: 'Telefonen har inga registrerade positioner i fönstret' + noPhoneLog + '.' });
+            return { id: 'position', title: 'Position', state: memRow && !exifRow ? 'info' : 'missing', items: items, plain: memRow && !exifRow ? 'Snapchat sparade var bilden togs, men det finns ingen annan registrering av var telefonen var vid den tiden.' : 'Bilden har en position, men det finns ingen registrering av var telefonen var vid den tiden.' };
         }
         var tol = Math.max(100, 2 * (Number(near.accuracy) || 0));
         var when = duration(near.offsetMs) + (near.offsetMs < 0 ? ' före' : ' efter');
@@ -460,18 +521,25 @@
         return { id: 'position', title: 'Position', state: state, items: items, plain: plain };
     }
 
+    // Intervallen som täcker ms (med tolerans), de som täcker utan tolerans först.
     function appsAt(events, ms, lane) {
-        return events.filter(function (e) { return e.kind === 'app' && (!lane || e.lane === lane) && covers(e, ms); });
+        var edge = function (e) { return covers(e, ms, 0) ? 0 : Math.min(Math.abs(e.ms - ms), Math.abs((e.endMs != null ? e.endMs : e.ms) - ms)); };
+        return events.filter(function (e) { return e.kind === 'app' && (!lane || e.lane === lane) && covers(e, ms); })
+            .sort(function (a, b) { return edge(a) - edge(b) || a.ms - b.ms; });
     }
+
+    function uniq(list) { var seen = {}; return list.filter(function (x) { if (seen[x]) return false; seen[x] = true; return true; }); }
 
     function factorApp(input, type, events) {
         var file = input.file;
         var T = file.createdMs;
         var names = input.appNames;
-        var kcLabel = input.platform === 'Android' ? 'Wellbeing' : 'knowledgeC';
-        var streamKey = input.platform === 'Android' ? 'wellbeing' : '/app/usage';
-        var running = appsAt(events, T);
-        var runningNames = running.map(function (e) { return appName(e.app, names); });
+        var li = logInfo(input);
+        var kcLabel = li.label;
+        var streamKey = li.key;
+        // Kameraanvändning ur appops är inte "app i förgrunden": appraden gäller förgrunden.
+        var running = appsAt(events, T).filter(function (e) { return !e.cameraOp; });
+        var runningNames = uniq(running.map(function (e) { return appName(e.app, names); }));
         var expected = type.type === 'camera' ? null : type.importer;
         var title = type.type === 'screenshot' ? 'App på skärmen' : 'App igång';
         var anyInWindow = events.some(function (e) { return e.kind === 'app'; });
@@ -480,8 +548,8 @@
         var plain;
         if (type.type === 'snapchat') {
             // Snapchats egen rad i registret vid T är ett tecken på att appen kördes, utöver knowledgeC.
-            var own = events.filter(function (e) { return /^snap-/.test(e.kind) && Math.abs(e.ms - T) <= SAME_TIME_MS; });
-            var kcSnap = running.filter(function (e) { return e.app === SNAPCHAT; });
+            var own = events.filter(function (e) { return /^snap-/.test(e.kind) && Math.abs(e.ms - T) <= SAME_TIME_MS; }).sort(function (a, b) { return Math.abs(a.ms - T) - Math.abs(b.ms - T); });
+            var kcSnap = running.filter(function (e) { return isSnapchatApp(e.app); });
             if (own.length) items.push({ state: 'support', text: 'Snapchat skrev själv i sitt register vid tidpunkten (' + own[0].source.db + ' → ' + own[0].source.table + '), vilket förutsätter att appen kördes.' });
             if (kcSnap.length) items.push({ state: 'support', text: 'Snapchat var igång vid tidpunkten enligt ' + kcLabel + ' (' + kcSnap[0].stream + ').' });
             else if (running.length) items.push({ state: 'info', text: kcLabel + ' registrerar ' + runningNames.join(', ') + ' vid tidpunkten, inte Snapchat. Snapchat kan ha skrivit i registret i bakgrunden, till exempel vid en notis.' });
@@ -502,10 +570,12 @@
             items.push({ state: 'info', text: 'På skärmen vid tidpunkten: ' + runningNames.join(', ') + ' (' + running[0].stream + ').' });
             plain = 'När skärmdumpen togs var ' + runningNames.join(' och ') + ' öppen på skärmen.';
         } else if (type.type === 'camera') {
-            var cam = running.filter(function (e) { return isCameraApp(e.app, input.cameraApps); });
-            if (cam.length) { state = 'support'; items.push({ state: 'support', text: 'Kameran var igång vid tidpunkten (' + cam[0].stream + ').' }); }
+            // Kameraappen enligt katalogen, eller appen som enligt MediaStore skapade filen i DCIM/Camera.
+            var camApp = function (e) { return isCameraApp(e.app, input.cameraApps) || (type.importer && e.app === type.importer); };
+            var cam = running.filter(camApp);
+            if (cam.length) { state = 'support'; items.push({ state: 'support', text: (isCameraApp(cam[0].app, input.cameraApps) ? 'Kameran' : appName(cam[0].app, names) + ', som skapade filen,') + ' var igång vid tidpunkten (' + cam[0].stream + ').' }); }
             else { state = 'contradiction'; items.push({ state: 'contradiction', text: 'Vid tidpunkten var ' + runningNames.join(', ') + ' igång, inte kameran.' }); }
-            var others = running.filter(function (e) { return !isCameraApp(e.app, input.cameraApps); });
+            var others = running.filter(function (e) { return !camApp(e) && covers(e, T, 0); });
             if (cam.length && others.length) items.push({ state: 'info', text: 'Samtidigt registrerades ' + others.map(function (e) { return appName(e.app, names); }).join(', ') + '.' });
             plain = state === 'support' ? 'Kameran var igång när bilden togs.' : 'Vid den här tiden var ' + runningNames.join(' och ') + ' igång, men inte kameran.';
         } else {
@@ -521,30 +591,55 @@
     }
 
     function factorCamera(input, type, events, appFactor) {
-        var T = input.file.createdMs;
+        var file = input.file;
+        var T = file.createdMs;
         var names = input.appNames;
         if (type.type === 'screenshot') {
             return { id: 'camera', title: 'Kamera igång', state: 'na', items: [{ state: 'na', text: 'En skärmdump tas utan kameran.' }], plain: 'Kameran behövs inte för en skärmdump, så den frågan ställs inte.' };
         }
         if (type.type === 'snapchat') return factorSnapchatCamera(input, type, events);
+        var li = logInfo(input);
+        // Android: tagningstiden enligt Snapchats Memories är då kameran måste ha varit igång; T är exporten.
+        var tCam = file.capturedMs || T;
+        var atCam = appsAt(events, tCam, 'camera');
+        var ops = events.filter(function (e) { return e.kind === 'app' && e.cameraOp; });
+        var whenText = file.capturedMs ? 'tagningstiden enligt Memories (' + formatUtc(file.capturedMs) + ')' : 'tidpunkten';
         if (type.type === 'saved' && type.importer && !isCameraApp(type.importer, input.cameraApps)) {
+            var creator = appName(type.importer, names);
+            // Androids appops registrerar kameran per app, även en tredjepartsapps egen kamera.
+            var byImporter = atCam.filter(function (e) { return e.app === type.importer && e.cameraOp; });
+            if (byImporter.length) {
+                return { id: 'camera', title: 'Kamera igång', state: 'support', items: [{ state: 'support', text: creator + ' använde kameran ' + formatUtc(byImporter[0].ms) + ' till ' + formatUtc(byImporter[0].endMs) + ' enligt appops (op 26), vilket täcker ' + whenText + '.' }],
+                    plain: creator + ' använde kameran när ' + (file.memory && file.memory.video ? 'videon spelades in' : 'bilden togs') + '.' };
+            }
+            if (ops.length) {
+                var before = ops.filter(function (e) { return e.app === type.importer && e.endMs <= tCam + TOLERANCE_MS && tCam - e.endMs <= 2 * MINUTE; });
+                if (before.length) {
+                    var last = before[before.length - 1];
+                    return { id: 'camera', title: 'Kamera igång', state: 'info', items: [{ state: 'info', text: creator + ' använde kameran ' + formatUtc(last.ms) + ' till ' + formatUtc(last.endMs) + ' enligt appops (op 26), ' + duration(tCam - last.endMs) + ' före ' + whenText + '. Appen sparar filen när användaren väljer det, så kameran kan ha stängts innan.' }],
+                        plain: creator + ' använde kameran ' + duration(tCam - last.endMs) + ' innan filen sparades.' };
+                }
+                var f0 = Object.assign({}, appFactor, { id: 'camera', title: 'Skaparappen igång' });
+                f0.items = f0.items.concat([{ state: 'info', text: 'Ingen kameraanvändning av ' + creator + ' är registrerad i appops kring ' + whenText + '. Filen kan ha tagits emot, valts ur galleriet eller skapats på annat sätt i appen.' }]);
+                return f0;
+            }
             // En tredjepartsapp med egen kamera ger inga rader för systemkameran.
             var f = Object.assign({}, appFactor, { id: 'camera', title: 'Skaparappen igång' });
-            f.items = f.items.concat([{ state: 'info', text: 'Filen skapades av ' + appName(type.importer, names) + '. En sådan app använder kameran i sin egen process, så systemkameran syns inte i loggen. Därför bedöms om skaparappen var igång.' }]);
+            f.items = f.items.concat([{ state: 'info', text: 'Filen skapades av ' + creator + '. En sådan app använder kameran i sin egen process, så systemkameran syns inte i loggen. Därför bedöms om skaparappen var igång.' }]);
             return f;
         }
-        var cam = appsAt(events, T, 'camera');
+        var cam = atCam;
         var anyCamInWindow = events.some(function (e) { return e.kind === 'app' && e.lane === 'camera'; });
-        var running = appsAt(events, T);
-        var kcLabel = input.platform === 'Android' ? 'Wellbeing' : 'knowledgeC';
-        var streamKey = input.platform === 'Android' ? 'wellbeing' : '/app/usage';
+        var running = appsAt(events, tCam).filter(function (e) { return !e.cameraOp; });
+        var kcLabel = li.label;
+        var streamKey = li.key;
         if (cam.length) {
-            return { id: 'camera', title: 'Kamera igång', state: 'support', items: [{ state: 'support', text: appName(cam[0].app, names) + ' var igång ' + formatUtc(cam[0].ms) + ' till ' + formatUtc(cam[0].endMs) + ' (' + cam[0].stream + ').' }],
+            return { id: 'camera', title: 'Kamera igång', state: 'support', items: [{ state: 'support', text: appName(cam[0].app, names) + (cam[0].cameraOp ? ' använde kameran ' : ' var igång ') + formatUtc(cam[0].ms) + ' till ' + formatUtc(cam[0].endMs) + ' (' + cam[0].stream + (cam[0].cameraOp ? ', op 26' : '') + ').' }],
                 plain: 'Kameran var igång när bilden togs.' };
         }
         if (running.length) {
-            return { id: 'camera', title: 'Kamera igång', state: 'contradiction', items: [{ state: 'contradiction', text: 'Kameran är inte registrerad vid tidpunkten. Igång var ' + running.map(function (e) { return appName(e.app, names); }).join(', ') + '.' }],
-                plain: 'Kameran är inte registrerad som igång vid den här tiden. ' + running.map(function (e) { return appName(e.app, names); }).join(' och ') + ' var igång.' };
+            return { id: 'camera', title: 'Kamera igång', state: 'contradiction', items: [{ state: 'contradiction', text: 'Kameran är inte registrerad vid tidpunkten. Igång var ' + uniq(running.map(function (e) { return appName(e.app, names); })).join(', ') + '.' }],
+                plain: 'Kameran är inte registrerad som igång vid den här tiden. ' + uniq(running.map(function (e) { return appName(e.app, names); })).join(' och ') + ' var igång.' };
         }
         var reason = anyCamInWindow ? 'Kameran var igång i fönstret, men inte vid själva tidpunkten.' : coverageReason(streamKey, input.coverage, input.missingDbs, T, kcLabel);
         return { id: 'camera', title: 'Kamera igång', state: 'missing', items: [{ state: 'missing', text: reason }],
@@ -584,7 +679,8 @@
         var on = events.filter(function (e) { return e.kind === 'screen' && covers(e, T); });
         if (!on.length) {
             var any = events.some(function (e) { return e.kind === 'screen'; });
-            var reason = any ? 'Ingen registrering av skärmen vid själva tidpunkten.' : coverageReason(input.platform === 'Android' ? 'wellbeing' : '/display/isBacklit', input.coverage, input.missingDbs, T, input.platform === 'Android' ? 'Wellbeing' : 'knowledgeC');
+            var li = logInfo(input);
+            var reason = any ? 'Ingen registrering av skärmen vid själva tidpunkten.' : coverageReason(li.screenKey, input.coverage, input.missingDbs, T, li.label);
             return { id: 'screen', title: 'Skärm', state: 'missing', items: [{ state: 'missing', text: reason }], plain: 'Det finns ingen registrering av om skärmen var tänd.' };
         }
         var lit = on.some(function (e) { return e.on; });
@@ -611,6 +707,8 @@
         var camText = cam && cam.state === 'support' ? (type.type === 'snapchat' ? 'Snapchats kamera användes för filen enligt Snapchats register.' : 'Kameran var igång vid tidpunkten.') : null;
         var copyAreas = {};
         (input.copies || []).forEach(function (c) { copyAreas[c.area] = c; });
+        var mem = type.memory;
+        var memText = mem && file.capturedMs ? 'Enligt Snapchats Memories ' + (mem.video ? 'spelades videon in' : 'togs bilden') + ' med telefonens ' + (mem.front ? 'frontkamera' : 'bakre kamera') + ' ' + formatUtc(file.capturedMs) + ' och sparades ' + duration(Math.abs((file.addedMs || file.createdMs) - mem.createdMs)) + ' innan filen lades till i galleriet.' : null;
         alt('received', 'Mottagen från någon annan (chatt, AirDrop, nedladdning)',
             [lateDiff != null && lateDiff > LATE_MS ? 'Filen lades till i biblioteket ' + duration(lateDiff) + ' efter att den skapades.' : null,
                 type.type === 'saved' ? 'Skaparappen är ' + appName(type.importer, names) + '.' : null,
@@ -621,14 +719,16 @@
             [type.type === 'camera' ? 'Databasen anger kameran som källa (' + type.reasons.join(', ') + ').' : null,
                 type.origin === 'recorded' ? 'Registrerad som inspelning med Snapchats kamera på den här telefonen.' : null,
                 type.origin === 'sent' ? 'Filen skickades från den här telefonen' + (type.recipient ? ' till @' + type.recipient : '') + '.' : null,
-                lateDiff != null && Math.abs(lateDiff) <= SAME_TIME_MS ? 'Filen hamnade i biblioteket direkt när den skapades.' : null,
+                memText,
+                lateDiff != null && Math.abs(lateDiff) <= SAME_TIME_MS && file.createdFrom !== 'date_added' ? 'Filen hamnade i biblioteket direkt när den skapades.' : null,
                 type.origin === 'recorded' ? null : camText,
                 posF && posF.state === 'support' ? 'Telefonen var på bildens position vid tidpunkten.' : null]);
         alt('synced', 'Synkad från en annan enhet eller molnet',
             [lateDiff != null && lateDiff > LATE_MS && type.type !== 'saved' ? 'Filen lades till i biblioteket långt efter att den skapades.' : null,
                 file.cloudLocalState != null && Number(file.cloudLocalState) !== 0 ? 'ZCLOUDLOCALSTATE är ' + file.cloudLocalState + '.' : null],
             [type.type === 'snapchat' ? camText : cam && cam.state === 'support' ? 'Kameran var igång på den här telefonen vid tidpunkten.' : null,
-                lateDiff != null && Math.abs(lateDiff) <= SAME_TIME_MS ? 'Filen hamnade i biblioteket direkt när den skapades.' : null]);
+                memText,
+                lateDiff != null && Math.abs(lateDiff) <= SAME_TIME_MS && file.createdFrom !== 'date_added' ? 'Filen hamnade i biblioteket direkt när den skapades.' : null]);
         alt('screenshot', 'Skärmdump',
             [type.type === 'screenshot' ? type.reasons.join(', ') + '.' : null],
             [type.type !== 'screenshot' && type.reasons.length ? type.reasons.join(', ') + '.' : null]);
@@ -728,6 +828,7 @@
     function summaryText(type, factors, names) {
         var core = factors.filter(function (f) { return f.id !== 'screen' && f.state !== 'na' && f.state !== 'info'; });
         var hyp = type.type === 'screenshot' ? 'att skärmdumpen togs på den här telefonen'
+            : type.type === 'saved' && type.memory ? 'att ' + (type.memory.video ? 'videon spelades in' : 'bilden togs') + ' med Snapchats ' + (type.memory.front ? 'frontkamera' : 'bakre kamera') + ' på den här telefonen och sparades till galleriet'
             : type.type === 'saved' ? 'att filen sparades på den här telefonen av ' + (type.importer ? appName(type.importer, names) : 'appen')
                 : type.type === 'snapchat' ? (type.origin === 'recorded' || type.origin === 'sent' ? 'att filen skapades med Snapchat på den här telefonen'
                     : type.origin === 'received' ? 'att filen togs emot i Snapchat på den här telefonen' + (type.who ? ' från ' + type.who : '')
@@ -746,7 +847,7 @@
         buildEvents: buildEvents, narrative: narrative, build: build, summaryText: summaryText,
         formatWithOffset: formatWithOffset, formatUtc: formatUtc, duration: duration, appName: appName, isCameraApp: isCameraApp, covers: covers,
         positions: positions, distanceM: distanceM, metres: metres, validCoord: validCoord,
-        snapOrigin: snapOrigin, SNAPCHAT: SNAPCHAT,
+        snapOrigin: snapOrigin, SNAPCHAT: SNAPCHAT, SNAPCHAT_ANDROID: SNAPCHAT_ANDROID, isSnapchatApp: isSnapchatApp, logInfo: logInfo,
         STATE_LABEL: STATE_LABEL, TOLERANCE_MS: TOLERANCE_MS, SAME_TIME_MS: SAME_TIME_MS, LATE_MS: LATE_MS,
     };
     if (typeof module !== 'undefined' && module.exports) module.exports = api;

@@ -203,7 +203,7 @@
                 asset(4105, 'IMG_4105.JPG', T + 33 * M + 32 * S, CAMERA, 1, 0),
                 asset(4113, 'IMG_4113.PNG', T + 4 * M + 12 * S, SPRINGBOARD, 8, 10),
             ],
-            fileEntryMeta: { path: 'testdata/private/var/mobile/Media/DCIM/100APPLE/IMG_4104.JPG', size: 2437118, mtime: '2024-06-01 12:31:31 UTC', crc32: 'påhittad', crcOk: true, sha256: 'påhittad' },
+            fileEntryMeta: { path: 'testdata/private/var/mobile/Media/DCIM/100APPLE/IMG_4104.JPG', size: 2437118, mtime: '2024-06-01 12:31:31 UTC', crc32: 'påhittad', crcOk: true, md5: 'påhittad', sha256: 'påhittad' },
         }, phoneLog());
     }
 
@@ -258,11 +258,161 @@
                 asset(4104, 'IMG_4104.JPG', T, CAMERA, 1, 0),
                 asset(4113, 'IMG_4113.PNG', T + 4 * M + 12 * S, SPRINGBOARD, 8, 10),
             ],
-            fileEntryMeta: { path: zipPath, size: REC.size, mtime: '2024-06-01 12:38:17 UTC', crc32: 'påhittad', crcOk: true, sha256: 'påhittad' },
+            fileEntryMeta: { path: zipPath, size: REC.size, mtime: '2024-06-01 12:38:17 UTC', crc32: 'påhittad', crcOk: true, md5: 'påhittad', sha256: 'påhittad' },
         }, phoneLog());
     }
 
-    var api = { scenario: scenario, snapchatScenario: snapchatScenario, T: T, T2: T2 };
+    // ---------- Android (beta): selfie med Snapchats frontkamera, sparad till galleriet ----------
+
+    // Samma promenad, men på en Android-telefon: tio minuter efter IMG_4104 tar Anna en selfie med
+    // Snapchats frontkamera, sparar den till Memories och galleriet och skickar den till Erik.
+    // MediaStore-raden saknar datetaken (så ser Snapchats exporter ut), T blir date_added, och raden i
+    // Memories som sparades i samma sekund ger tagningstiden, kameran, positionen och tidszonen.
+    // App, skärm och lås kommer ur usagestats, kameran per app ur appops.
+    var T3 = T + 10 * M;                                   // 14:41:30: selfien tas
+    var ANDROID_SNAP = 'com.snapchat.android';
+    var ANDROID_CAMERA = 'com.google.android.GoogleCamera';
+    var LAUNCHER = 'com.google.android.apps.nexuslauncher';
+    var SYSTEMUI = 'com.android.systemui';
+    var SNAP_FILE = 'Snapchat-1717245690.jpg';
+    var MEM_ID = '4669844f-2375-6c4f-5de8-14894448591e';
+    var ANDROID_APP = 'data/data/com.snapchat.android/';
+    var MEDIASTORE = { db: 'MediaStore / filer (external.db)', table: 'files', column: 'date_added (datetaken saknas)', queryId: 'role-file' };
+    var MS_NEIGHBOURS = { db: 'MediaStore / filer (external.db)', table: 'files', column: 'datetaken', queryId: 'role-neighbours' };
+    var USAGESTATS = { db: 'usagestats', table: 'daily/1717192800000', column: 'event_log: typ 1/2/23 (app), 15/16 (skärm), 17/18 (låsskärm)', queryId: 'usagestats-daily' };
+    var APPOPS = { db: 'appops', table: 'discrete/1717247700000tl … 1717249500000tl (3 filer)', column: 'op 26 (CAMERA): nt (start), nd (längd ms) per paket', queryId: 'appops-discrete' };
+    var MEMORIES_SRC = { db: 'memories.db', table: 'memories_snap', column: 'snap_capture_time, create_time, front_facing, latitude, longitude', queryId: 'role-memories' };
+    var UA = 'Snapchat/13.5.0.42 (Pixel 8; Android 14#UQ1A.240205.004#34; gzip) V/MUSHROOM';
+    // EXIF UserComment som Snapchat skriver: base64 av en protobuf { 1: { 1: user agent } }.
+    function uaBase64() {
+        var bytes = []; for (var i = 0; i < UA.length; i++) bytes.push(UA.charCodeAt(i));
+        var proto = lenField(1, lenField(1, bytes));
+        var bin = ''; for (var j = 0; j < proto.length; j++) bin += String.fromCharCode(proto[j]);
+        return typeof btoa === 'function' ? btoa(bin) : '';
+    }
+
+    function androidSnapchatContext() {
+        var friends = {};
+        friends[ERIK] = { username: 'erik.lind', displayName: 'Erik Lind' };
+        var erikUuid = ERIK.slice(0, 8) + '-' + ERIK.slice(8, 12) + '-' + ERIK.slice(12, 16) + '-' + ERIK.slice(16, 20) + '-' + ERIK.slice(20);
+        return {
+            app: ANDROID_SNAP, accountId: ACCOUNT_UUID, friends: friends, centerMs: T3 + S,
+            file: { addedMs: T3 + S, createdMs: T3 + S, video: false },
+            cacheRows: [
+                { key: '96ccba52c4ad30d3905afa6ab7182fd1', context: 5, external: '4e473a5b-6477-20b6-84e2-f721685555df', createdMs: T3 + 9 * S, expiresMs: T3 + 86400 * S, deletedMs: null, size: 124638 },
+                { key: '15116568751943e94ff764a3d4c183d5', context: 3, external: 'chat_snap.chat_snap-nGJdelEzP6e2A8Di5zMiF', createdMs: T3 - 6 * M + 2 * S, expiresMs: T3 + 14 * 86400 * S, deletedMs: null, size: 79904 },
+            ],
+            messages: [
+                { conversation: CONVERSATION, serverId: 21, createdMs: T3 - 6 * M, readMs: T3 - 5 * M - 40 * S, content: Uint8Array.from([8, 21]), senderId: erikUuid, createdOnDevice: 0, remoteMediaCount: 1, isSaved: 0 },
+                { conversation: CONVERSATION, serverId: 22, createdMs: T3 + 12 * S, readMs: T3 + 48 * S, content: Uint8Array.from([8, 22]), senderId: ACCOUNT_UUID, createdOnDevice: 1, remoteMediaCount: 1, isSaved: 0 },
+            ],
+            notifications: [{ ms: T3 - 6 * M + 1 * S, type: 'snap', category: null }],
+            memories: [{ id: MEM_ID, mediaType: 0, front: 1, capturedMs: T3, createdMs: T3 + 1300, width: 1080, height: 1920, duration: 0, hasLocation: 1, latitude: 59.33251, longitude: 18.06412, zone: 'Europe/Stockholm', userAgent: UA }],
+            journal: [{ key: 'C025B6FFB844EF85C721AA05B78DA32D.posted_story_snap', timeMs: T3 - 3 * M - 20 * S, size: 975137, path: '/data/data/com.snapchat.android/files/file_manager/posted_story_snap' }],
+            sources: {
+                cache: { db: 'cache_controller.db', table: 'CACHE_FILE_CLAIM + CACHE_FILE_METADATA', queryId: 'role-cache-window' },
+                messages: { db: 'arroyo.db', table: 'conversation_message', queryId: 'role-messages' },
+                notifications: { db: 'client_notifications.db', table: 'Notifications', queryId: 'role-notifications' },
+                memories: MEMORIES_SRC,
+                journal: { db: 'journal.db', table: 'journal_entry + journal', queryId: 'role-journal' },
+            },
+        };
+    }
+
+    function logSource(label, path) {
+        return { label: label, path: path, size: 0, mtime: '', crc32: 'påhittad', crcOk: true, sha256: 'påhittad', walPath: '', walCrc32: '', walSha256: '', walSummary: 'Binär fil, ingen WAL.', warnings: [] };
+    }
+    var ANDROID_SOURCES = [
+        dbSource('MediaStore external.db (testdata)', 'data/data/com.android.providers.media.module/databases/external.db', true),
+        logSource('usagestats mappings (testdata)', 'data/system_ce/0/usagestats/mappings'),
+        logSource('usagestats daily/1717192800000 (testdata)', 'data/system_ce/0/usagestats/daily/1717192800000'),
+        logSource('appops discrete/1717247700000tl (testdata)', 'data/system/appops/discrete/1717247700000tl'),
+        dbSource('cache_controller.db (Snapchat, testdata)', ANDROID_APP + 'databases/native_content_manager/cache_controller.db', true),
+        dbSource('arroyo.db (Snapchat chatt, testdata)', ANDROID_APP + 'databases/arroyo.db', true),
+        dbSource('main.db (Snapchat konton, testdata)', ANDROID_APP + 'databases/main.db', true),
+        dbSource('client_notifications.db (Snapchat notiser, testdata)', ANDROID_APP + 'databases/client_notifications.db', true),
+        dbSource('memories.db (Snapchat Memories, testdata)', ANDROID_APP + 'databases/memories.db', true),
+        dbSource('journal.db (Snapchats filhanterare, testdata)', ANDROID_APP + 'databases/journal.db', true),
+    ];
+
+    // Telefonens egen logg på Android: usagestats (app, skärm, lås) och appops (kameran per app).
+    function androidPhoneLog() {
+        var iv = function (start, end, app) { return { startMs: T3 + start, endMs: T3 + end, app: app, stream: 'usagestats', source: USAGESTATS }; };
+        var sc = function (start, end, on) { return { startMs: T3 + start, endMs: T3 + end, on: on, stream: 'usagestats', source: USAGESTATS }; };
+        var lk = function (start, end, locked) { return { startMs: T3 + start, endMs: T3 + end, locked: locked, stream: 'usagestats', source: USAGESTATS }; };
+        var cam = function (start, end, app) { return { startMs: T3 + start, endMs: T3 + end, app: app, source: APPOPS }; };
+        return {
+            appIntervals: [
+                iv(-12 * M - 10 * S, -11 * M - 50 * S, LAUNCHER), iv(-11 * M - 50 * S, -8 * M - 30 * S, ANDROID_SNAP),
+                iv(-2 * M - 6 * S, -2 * M - 2 * S, LAUNCHER), iv(-2 * M - 2 * S, 3 * M + 40 * S, ANDROID_SNAP),
+                iv(3 * M + 40 * S, 3 * M + 44 * S, LAUNCHER), iv(3 * M + 44 * S, 4 * M + 30 * S, ANDROID_CAMERA), iv(4 * M + 30 * S, 5 * M + 10 * S, LAUNCHER),
+            ],
+            screen: [sc(-15 * M, -12 * M - 20 * S, false), sc(-12 * M - 20 * S, -8 * M - 20 * S, true), sc(-8 * M - 20 * S, -2 * M - 14 * S, false), sc(-2 * M - 14 * S, 5 * M + 12 * S, true), sc(5 * M + 12 * S, 15 * M, false)],
+            lock: [lk(-15 * M, -12 * M - 12 * S, true), lk(-12 * M - 12 * S, -8 * M - 18 * S, false), lk(-8 * M - 18 * S, -2 * M - 8 * S, true), lk(-2 * M - 8 * S, 5 * M + 14 * S, false), lk(5 * M + 14 * S, 15 * M, true)],
+            // Kameravyn visas när Snapchat öppnas, igen för selfien (bak- och frontkameran i följd), och Pixel-kameran efteråt.
+            cameraUse: [cam(-2 * M + 4 * S, -1 * M - 40 * S, ANDROID_SNAP), cam(-11 * S, -7 * S, ANDROID_SNAP), cam(-7 * S, 5 * S, ANDROID_SNAP), cam(3 * M + 46 * S, 4 * M + 20 * S, ANDROID_CAMERA)],
+            androidLog: 'usagestats',
+            locations: [],
+            coverage: {
+                usagestats: { firstMs: T3 - 7 * 86400 * S, lastMs: T3 + 5 * M + 14 * S, rows: 812 },
+                appops: { firstMs: T3 - 6 * 86400 * S, lastMs: T3 + 4 * M + 20 * S, rows: 3310 },
+            },
+            missingDbs: {},
+            platform: 'Android',
+            snapchatAccount: ACCOUNT_UUID,
+            extraction: { name: 'Testdata (påhittad Android-extraktion)', size: 0, lastModified: '' },
+            deviceLabel: 'Android 14 (påhittad)',
+            sources: ANDROID_SOURCES,
+        };
+    }
+
+    function androidAsset(pk, name, rel, ms, importer) {
+        return { pk: pk, path: '/storage/emulated/0/' + rel + name, filename: name, relativePath: rel, importer: importer, createdMs: ms, addedMs: ms + S, modifiedMs: ms + S, trashed: 0, pending: 0 };
+    }
+
+    // deps.snapchat: ProvenanceSnapchat, för Snapchat-händelserna, Memories-kopplingen och journalen.
+    function androidScenario(deps) {
+        var Snap = deps && deps.snapchat || root.ProvenanceSnapchat;
+        var snap = Snap ? Snap.build(androidSnapchatContext()) : { events: [], notes: [], memory: null };
+        var added = T3 + S;
+        var file = {
+            pk: 1000000090, path: '/storage/emulated/0/DCIM/Snapchat/' + SNAP_FILE, filename: SNAP_FILE, relativePath: 'DCIM/Snapchat/', mime: 'image/jpeg', importer: ANDROID_SNAP,
+            createdMs: added, createdFrom: 'date_added', addedMs: added, modifiedMs: added, trashed: 0, pending: 0, size: 1131041,
+            zoneName: 'Europe/Stockholm', zoneOffset: null, zoneSource: 'Snapchats Memories (time_zone_id)', capturedMs: T3,
+            memory: { id: MEM_ID, video: false, front: true, capturedMs: T3, createdMs: T3 + 1300, deltaMs: 300, latitude: 59.33251, longitude: 18.06412, zone: 'Europe/Stockholm', width: 1080, height: 1920, duration: 0, userAgent: UA, source: MEMORIES_SRC },
+            _raw: {
+                _id: 1000000090, _data: '/storage/emulated/0/DCIM/Snapchat/' + SNAP_FILE, _display_name: SNAP_FILE, relative_path: 'DCIM/Snapchat/', mime_type: 'image/jpeg',
+                owner_package_name: ANDROID_SNAP, datetaken: null, date_added: Math.floor(added / 1000), date_modified: Math.floor(added / 1000), is_trashed: 0, is_pending: 0, _size: 1131041,
+                'memories_snap._id': MEM_ID, 'memories_snap.snap_capture_time': T3, 'memories_snap.create_time': T3 + 1300, 'memories_snap.front_facing': 1, 'memories_snap.media_type': 0,
+                'memories_snap.time_zone_id': 'Europe/Stockholm', 'memories_snap.latitude': 59.33251, 'memories_snap.longitude': 18.06412, 'memories_snap.snap_create_user_agent': UA,
+            },
+        };
+        return Object.assign({
+            kind: 'android',
+            extraEvents: snap.events,
+            extraNotes: ['Telefonens logg över vilken app som använde kameran sparas i cirka sju dagar. Kameran igång betyder att kameravyn visades, inte att en bild togs.'].concat(snap.notes),
+            snapchatMemory: snap.memory,
+            copies: [],
+            note: 'Påhittade testdata: en selfie med Snapchats frontkamera på en Android-telefon, sparad till Memories och galleriet, på samma promenad i Stockholm. Inget kommer från en riktig telefon.',
+            file: file,
+            fileSource: MEDIASTORE,
+            neighbourSource: MS_NEIGHBOURS,
+            exif: { read: true, takenMs: null, takenText: '', sourceTag: '', make: '', model: '', software: '', position: null, source: { db: 'bildfilen', table: SNAP_FILE, column: 'EXIF' } },
+            exifRows: [
+                ['File:FileType', 'JPEG'], ['File:MIMEType', 'image/jpeg'], ['IFD0:ImageWidth', '1080'], ['IFD0:ImageHeight', '1920'], ['IFD0:Orientation', 'Horizontal (normal)'],
+                ['ExifIFD:UserComment', uaBase64()],
+            ],
+            fileEntry: { name: 'data/media/0/DCIM/Snapchat/' + SNAP_FILE, size: 1131041, mtimeMs: added },
+            neighbours: [
+                androidAsset(1000000085, 'PXL_20240601_123012345.jpg', 'DCIM/Camera/', T3 - 11 * M - 18 * S, ANDROID_CAMERA),
+                androidAsset(1000000091, 'Screenshot_20240601-144402.png', 'Pictures/Screenshots/', T3 + 2 * M + 32 * S, SYSTEMUI),
+                androidAsset(1000000092, 'PXL_20240601_124545678.jpg', 'DCIM/Camera/', T3 + 4 * M + 15 * S, ANDROID_CAMERA),
+            ],
+            fileEntryMeta: { path: 'testdata/data/media/0/DCIM/Snapchat/' + SNAP_FILE, size: 1131041, mtime: '2024-06-01 12:41:31 UTC', crc32: 'påhittad', crcOk: true, md5: 'påhittad', sha256: 'påhittad' },
+        }, androidPhoneLog());
+    }
+
+    var api = { scenario: scenario, snapchatScenario: snapchatScenario, androidScenario: androidScenario, T: T, T2: T2, T3: T3 };
     if (typeof module !== 'undefined' && module.exports) module.exports = api;
     else root.ProvenanceSample = api;
 })(typeof window !== 'undefined' ? window : this);

@@ -159,3 +159,104 @@ test('fler än 40 händelser kapas, men den bedömda filen behålls', () => {
     // De närmast T behålls: 30 s ± 20 s, inte de första.
     assert.ok(out.events.every((e) => e.isFile || Math.abs(e.ms - 30000) <= 20000), 'de som behålls ligger nära T');
 });
+
+test('Android: avsändare ur sender_id, egen telefon ur created_on_device, media ur remote_media_count, chattnyckel', () => {
+    assert.deepStrictEqual(snap.parseExternalKey('chat_snap.chat_snap-nGJdelEzP6e2A8Di5zMiF'), { kind: 'chat', snapId: 'nGJdelEzP6e2A8Di5zMiF' });
+    assert.deepStrictEqual(snap.parseExternalKey('c4f0411b-047d-741a-3cd1-6feea93c03bf'), { kind: 'uuid', id: 'c4f0411b-047d-741a-3cd1-6feea93c03bf' });
+    assert.strictEqual(snap.appId('Android'), 'com.snapchat.android');
+    assert.strictEqual(snap.appId('iOS'), snap.PICABOO);
+    assert.ok(snap.isSnapchatApp('com.snapchat.android') && snap.isSnapchatApp(snap.PICABOO) && !snap.isSnapchatApp('com.whatsapp'));
+    const OWN = 'd57a4e83-bf02-4da2-8fb7-ca65be939d22', LABZY = '3c75669d-69da-4918-aab6-a8419bf9ba50';
+    const friends = {};
+    friends[snap.hexId(LABZY)] = { username: 'labzy2026', displayName: 'Labzy' };
+    const out = snap.build({
+        app: 'com.snapchat.android', accountId: OWN, friends: friends,
+        messages: [
+            { conversation: '12a1429e', serverId: 7, createdMs: 1793404122558, readMs: null, content: new Uint8Array([8, 7]), senderId: OWN, createdOnDevice: 1, remoteMediaCount: 1, isSaved: 0 },
+            { conversation: '12a1429e', serverId: 9, createdMs: 1793404168858, readMs: 1793404179333, content: new Uint8Array([8, 9]), senderId: LABZY, createdOnDevice: 0, remoteMediaCount: 1, isSaved: 1 },
+            { conversation: '12a1429e', serverId: 1, createdMs: 1793399534613, readMs: null, content: new Uint8Array([8, 1]), senderId: OWN, createdOnDevice: 1, remoteMediaCount: 0, isSaved: 0 },
+        ],
+        cacheRows: [{ key: '15116568751943e94ff764a3d4c183d5', context: 3, external: 'chat_snap.chat_snap-nGJdelEzP6e2A8Di5zMiF', createdMs: 1793404170349 }],
+        notifications: [{ ms: 1793404168966, type: 'snap', category: null }],
+        sources: { messages: { db: 'arroyo.db', table: 'conversation_message', queryId: 'role-messages' } },
+    });
+    const msgs = out.events.filter((e) => e.kind === 'snap-message');
+    assert.strictEqual(msgs.length, 3);
+    const sent = msgs.find((e) => e.serverId === 7);
+    assert.strictEqual(sent.own, true);
+    assert.strictEqual(sent.app, 'com.snapchat.android');
+    assert.strictEqual(sent.plain, 'En snap eller bild skickas från den här telefonen i Snapchat');
+    assert.match(sent.source.column, /sender_id/);
+    const recv = msgs.find((e) => e.serverId === 9);
+    assert.strictEqual(recv.own, false);
+    assert.match(recv.text, /@labzy2026/);
+    assert.match(recv.text, /sparad i chatten/);
+    assert.strictEqual(recv.saved, true);
+    const text = msgs.find((e) => e.serverId === 1);
+    assert.strictEqual(text.hasMediaKey, false);
+    assert.strictEqual(text.plain, 'Ett meddelande skickas från den här telefonen i Snapchat');
+    assert.ok(out.events.some((e) => e.kind === 'snap-read' && e.plain === 'Den öppnas på den här telefonen'));
+    const cache = out.events.find((e) => e.kind === 'snap-cache');
+    assert.match(cache.text, /chattsnap nGJdelEz/);
+    assert.strictEqual(cache.app, 'com.snapchat.android');
+    const notif = out.events.find((e) => e.kind === 'snap-notification');
+    assert.strictEqual(notif.text, 'Snapchat-notis: snap');
+});
+
+test('Android: Memories ger tagning och sparning, kopplas till filen i galleriet, journalen ger story-posten', () => {
+    const memories = [
+        { id: 'A', mediaType: 0, front: 1, capturedMs: 1793404131479, createdMs: 1793404132805, width: 1080, height: 1920, hasLocation: 1, latitude: 59.464596, longitude: 17.8125206, zone: 'Europe/Stockholm' },
+        { id: 'B', mediaType: 1, front: 0, capturedMs: 1793404110546, createdMs: 1793404118356, width: 720, height: 1280, duration: 5.41, hasLocation: 1, latitude: 59.464596, longitude: 17.8125206 },
+    ];
+    const out = snap.build({
+        app: 'com.snapchat.android', memories: memories, file: { addedMs: 1793404132000, video: false },
+        journal: [
+            { key: 'C025B6FF.posted_story_snap', timeMs: 1793399329955, size: 975137, path: '/data/data/com.snapchat.android/files/file_manager/posted_story_snap' },
+            { key: 'X.bitmoji_avatar', timeMs: 1793399525684, path: '/data/data/com.snapchat.android/files/file_manager/bitmoji_avatar' },
+        ],
+    });
+    assert.ok(out.memory);
+    assert.strictEqual(out.memory.row.id, 'A');
+    assert.strictEqual(out.memory.deltaMs, 805);
+    const cap = out.events.find((e) => e.kind === 'snap-memory' && e.captured && e.isFile);
+    assert.strictEqual(cap.ms, 1793404131479);
+    assert.strictEqual(cap.plain, 'Den bedömda bilden tas med Snapchats frontkamera på den här telefonen');
+    assert.match(cap.text, /1080×1920/);
+    assert.strictEqual(cap.bold, true);
+    const vid = out.events.find((e) => e.kind === 'snap-memory' && e.captured && e.video);
+    assert.strictEqual(vid.isFile, false);
+    assert.strictEqual(vid.plain, 'En video spelas in med Snapchats bakre kamera på den här telefonen');
+    assert.match(vid.text, /inspelningens slut/);
+    assert.match(vid.text, /5,4 s/);
+    assert.strictEqual(out.events.filter((e) => e.kind === 'snap-memory' && !e.captured).length, 2);
+    const story = out.events.find((e) => e.kind === 'snap-journal');
+    assert.strictEqual(story.folder, 'posted_story_snap');
+    assert.strictEqual(story.plain, 'En story-snap lagras av Snapchat på den här telefonen');
+    assert.ok(out.notes.some((n) => /1 poster i Snapchats filhanterare/.test(n)));
+    // Videon kopplas inte till en bildfil, och utanför 5 s ingen koppling.
+    assert.strictEqual(snap.linkMemory(memories, { addedMs: 1793404118000, video: false }), null);
+    assert.strictEqual(snap.linkMemory(memories, { addedMs: 1793404118000, video: true }).row.id, 'B');
+    assert.strictEqual(snap.linkMemory(memories, { addedMs: 1793404200000, video: false }), null);
+});
+
+test('Android: chattmediets nyckel kopplas till meddelandet via id:t i protobufen', () => {
+    const SNAP = 'nGJdelEzP6e2A8Di5zMiF';
+    const content = Uint8Array.from([...len(4, [...len(3, [...str(1, SNAP + '2'), ...str(2, 'msmnZ7L4agNy70i1XLsDvMVZQIY7iLwgD434Yqr+kJc=')])])]);
+    const other = Uint8Array.from([...len(4, [...str(1, 'UUtlM1m1pSfSzl9wR2ixS_1')])]);
+    const LABZY = '3c75669d-69da-4918-aab6-a8419bf9ba50';
+    const messages = [
+        { conversation: '12a1429e', serverId: 7, createdMs: 1793404122558, content: other, senderId: 'd57a4e83-bf02-4da2-8fb7-ca65be939d22', createdOnDevice: 1, remoteMediaCount: 1 },
+        { conversation: '12a1429e', serverId: 9, createdMs: 1793404168858, readMs: 1793404179333, content: content, senderId: LABZY, createdOnDevice: 0, remoteMediaCount: 1, isSaved: 1 },
+    ];
+    assert.strictEqual(snap.messageForSnapId(messages, SNAP).serverId, 9);
+    assert.strictEqual(snap.messageForSnapId(messages, 'finnsinte'), null);
+    const out = snap.build({ app: 'com.snapchat.android', accountId: 'd57a4e83-bf02-4da2-8fb7-ca65be939d22', messages: messages, fileKey: '15116568751943e94ff764a3d4c183d5',
+        cacheRows: [{ key: '15116568751943e94ff764a3d4c183d5', context: 3, external: 'chat_snap.chat_snap-' + SNAP, createdMs: 1793404170349 }] });
+    assert.ok(out.link && out.link.message);
+    assert.strictEqual(out.link.message.serverId, 9);
+    assert.strictEqual(out.link.external.kind, 'chat');
+    const fileEv = out.events.find((e) => e.kind === 'snap-cache' && e.isFile);
+    assert.match(fileEv.text, /meddelande 9/);
+    assert.strictEqual(fileEv.plain, 'Den bedömda filen läggs i Snapchat-chattens cache');
+    assert.ok(out.events.some((e) => e.kind === 'snap-message' && e.isFile && e.own === false));
+});

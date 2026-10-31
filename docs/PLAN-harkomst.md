@@ -588,3 +588,109 @@ Tre layoutförslag ritades (A händelsekedja, B översikt och närbild, C kontro
 - **Närbild.** `windows()` ger varje fönster `closeup` = en tiondel av fönstret åt varje håll, minst 30 s. Översikten ritas med `zoom: w.closeup` (blå ruta), närbilden med `window: w.closeup, labels: true`: `shortLabel()` ger korta texter per händelsetyp, filens tidpunkter inom 2 s slås ihop till en text, två textrader per spår och vänsterställning vid högerkanten så att inget skrivs ovanpå. Snapchat-rader utan egen mening i förklaringen (meddelandet som cacheraden redan täcker) får ingen text.
 - **Nyckelhändelser.** Förklaringens rader bär `source`, `lane`, `kind` och `near` (inom närbilden). Vyn visar raderna med `near` och källan kort (databas + ström/tabell), knappen Visa alla fäller ut resten. Exporterna är oförändrade i tabellerna men får närbilden som andra bild (`meta.closeupPngs`).
 - Provkört i Electron med båda testdataknapparna: 7 av 35 respektive 5 av 26 rader inom närbilden, inga överlappande texter, båda exporterna med tre bilder (översikt, närbild, karta) och undersökarens provtext. Samma dag, på användarens begäran: **Kontrollerad per faktor** (förslag C:s ruta) med `state.checked` (faktor-id → ms), räknaren `#check-count`, `meta.checks` vid export och "Undersökarens kontroll: kontrollerad <tid> / ej kontrollerad" per faktor i protokollet plus meningen "Undersökaren har kontrollerat N av M faktorer mot källorna" i båda exporterna (förklaringen bara när N > 0). Och **innehållsförteckningen en gång per zip**: `ZipRead.cacheDirectory(read, size, opts, onProgress)` läser förteckningen (ca 200 byte per fil, 98 MB för K12345:s 494 794 poster) till minnet och ger en `read` som svarar ur minnet för det intervallet och går till disk för allt annat; över 512 MB (`maxBytes`) används disken som förut. Härkomsts `openZip` använder den, Queries inte (ingen upprepad sökning där).
+
+## Filkort, tidsökning och tidslinje med en rad per jämförelse (2026-10-30, 1.30)
+
+Användaren tyckte att 1.29:s tidslinje (rader per källa) fortfarande var svår att överblicka. Diagnos: raderna var ordnade per källa, bandens mening låg i text i stället för form, och inget sade läget just vid T. Tre förslag ritades på designytan (D en rad per jämförelse med kolumnen Vid T, E samma i ett diagram med lins, G lägesrutor vid T); användaren valde **D** och ville dessutom se själva filen med EXIF och MD5, och kunna söka på tid. Byggt:
+
+- **`timeline-svg.js` omskriven.** `ROWS` = Fil, App, Kamera, Skärm, Lås, Position, Snapchat; `rowsFor(model)` ger de rader som har något att visa, med faktorn per rad. Band i radens färg = på, `COLORS.off` = av (Kamera-raden visar grått där en annan app var i förgrunden). `tMarker(row, ctx)` ger pricken i T-kolumnen (fylld/vit/ingen) och `stateAt(row, ctx)` → `{ state, l1, l2 }` texten i kolumnen Vid T med `STATE_LABEL`-ordet som pill. `bandText()` lägger texten så att den inte går under T-pricken. Bredden 1100 ger 674 px diagram + 300 px kolumn; `column: false` ger bara diagrammet. Färger validerade med dataviz-skriptet: telefon #1f6fd0, kamera #008300, Snapchat #c98500, position #6250d6, EXIF #eb6834, annan app #8e8e93.
+- **`media-card.js` (ny, UMD `ProvenanceMedia`).** `kindOf(name)` (image/heic/video), `thumbnailSuffix(platform, row)` = `PhotoData/Thumbnails/V2/<ZDIRECTORY>/<ZFILENAME>/5005.JPG` (kontrollerat i Arkiv-zippen: en JPEG per bild och video, även HEIC och MOV, ca 65 kB), `suffixKeeper`/`pickBySuffix` för sökningen i innehållsförteckningen, `previewPlan()` (originalet för JPEG/PNG ≤ 24 MB, annars tumnageln, annars MP4 direkt, annars skälet i klartext), `cardRows()` med MD5/SHA-256 och `exifSummary()` (urval ur protokollets taggrader), `parseLocal`/`toUtcMs` (klockslag i IANA-zon via Intl, med sommartid), `nearestFirst`/`deltaText`, `mediaKeeper()` (bild/video/Snapchat-cache utanför biblioteket) och `entryMs()` (unixtid, annars DOS-tid tolkad i zonen och märkt).
+- **Filkortet** (`#file-card`, avsnitt 3): bilden som blob-URL ur zippen (ingenting skrivs), knappen Dölj/Visa (`state.showMedia`, på som standard, inte sparad: write-guarden förbjuder localStorage i Härkomst), raderna, och rutan `#include-picture` (av som standard, nollställs per fil). MD5 räknas med `ToolboxHashing.hashBytes` (ren JS) i `readMedia()`. `meta.fileEntry.md5` och `meta.thumbnail { path, size, crc32, sha256 }` går till protokollets "1. Filen"; `meta.previewPng` (JPEG via canvas, längsta sidan 480 px, ritad från blob-URL:en så att det fungerar även när bilden är dold) bara när rutan är ikryssad, i protokollet under 1. Filen och i förklaringen överst, med `meta.previewNote` i klartext.
+- **Vallistorna.** `renderHits()` (rader i biblioteket) får kolumnerna Bild, Storlek, CRC32, fyllda efteråt av `fillHitDetails()`: en sökning i förteckningen för originalens och tumnaglarnas sökvägar, tumnageln eller en liten originalbild (≤ 8 MB) som blob. `renderEntryHits()` (poster i zippen) får tumnagel för bildposter och kan rita i `#hits-entries` med egen rubrik.
+- **Sök på tid.** `#when-date` + `#when-time` (textfält `ÅÅÅÅ-MM-DD` och `TT:MM[:SS]`, 24 timmar, sedan 1.31; klockslaget får vara tomt) + `#run-time` → `runTime()`: `ProvenanceMedia.parseWhen()` tolkar fälten (`parseLocal` tar också punkt, `kl` och `T`; `dateOnly` när klockslag saknas), zonen ur rutan (`searchZone()`: datorns zon eller UTC), bara datum → `dayRange()` (hela dygnet i zonen, 23/25 timmar vid omställning) i tidsordning utan fönster, annars grannqueryn `roles.neighbours` för fönstret, `nearestFirst` → `renderHits(…, { centerMs })` med kolumnen "Från tidpunkten"; `#when-note` säger hur det inskrivna tolkas (`updateWhenNote()`), och `pasteWhen()` delar upp ett inklistrat "datum klockslag"; valet går via `run({ pk })` som tar raden med det Z_PK:t utan att fråga igen. Under listan: `mediaKeeper()` + `entryMs()` → poster utanför biblioteket med ändringstid i fönstret → `renderEntryHits(…, { target: 'hits-entries' })` → `assessEntry`.
+- Provkört i harnesset (`probe/cdp-130.js sample <camera|snapchat>` och `… zip <zip> IMG_0049.HEIC auto`): Arkiv-zippen (iOS 26) gav kortet med tumnagel 360×480 ur 5005.JPG, MD5 och SHA-256, kolumnen Vid T på båda bilderna, exporter med MD5 och tumnagelns sökväg, bilden som JPEG bara med rutan ikryssad, och tidsökningen 12 bilder inom ±15 min med tumnagel på alla rader; zippens storlek, mtime och ctime oförändrade.
+
+## Snapchat på Android, usagestats och appops (2026-10-31, 1.31)
+
+Android saknade Snapchat-stöd och hade bara Wellbeing (ingen skärm, inget lås, bara på vissa
+telefoner). Användaren satte upp en labbtelefon (OnePlus Nord AC2003, LineageOS 13 = Android 13,
+Magisk, Snapchat 14.30.0.54) och gjorde två labbsessioner 2026-10-30 23:24–23:35 och 2026-10-31
+00:48–00:50: bild med bakre kameran sparad till Memories och galleriet, story, vän tillagd, snaps
+skickade och mottagna, video med bakre kameran, selfie med frontkameran, mottagen snap, en bild med
+Aperture (telefonens kamera) och en skärmdump. Allt hämtades med `tar` över `adb exec-out` utan
+att skriva på telefonen, och facit togs ur `dumpsys usagestats`, `dumpsys media.camera`,
+`dumpsys batterystats --history` och `abx2xml` på telefonen.
+
+### Fynd
+
+- **Snapchat på Android har samma `cache_controller.db` och `arroyo.db` som iOS** (tabeller,
+  kolumner, typkoder). Android har dessutom `sender_id` i klartext, `created_on_device`,
+  `remote_media_count` och `is_saved` i `conversation_message`. Chattmedia har nyckeln
+  `chat_snap.chat_snap-<id>`, och samma id står som sträng i meddelandets protobuf. Typ 34
+  (inspelning) sågs inte; skickad media är typ 5 utan attribution strax före meddelandet.
+- **`memories.db` är okrypterat på Android** (på iOS SQLCipher). `memories_snap` har
+  `snap_capture_time` (tagningen, för video inspelningens slut), `create_time` (sparad),
+  `front_facing`, `media_type`, `time_zone_id`, `latitude`/`longitude`, mått, längd och
+  `snap_create_user_agent`. `snap_capture_time` stämde på millisekunden med kameraloggen.
+- **Export till galleriet:** `DCIM/Snapchat/Snapchat-<slumptal>.jpg|mp4`, i MediaStore med
+  `owner_package_name = com.snapchat.android`, `datetaken` NULL för bilder (för video
+  `creation_time` ur MP4:an = inspelningens start), `date_added` i samma sekund som Memories
+  `create_time`. EXIF har bara mått och `UserComment` = base64-protobuf med user agent.
+  Den exporterade filen är omkodad (annan storlek än `memories_media`-filen).
+- **`usagestats`** (`data/system_ce/0/usagestats/`, version 5): `mappings` = token → strängar,
+  `daily/<beginMs>` = `IntervalStatsObfuscatedProto` med fält 22 händelser (1 paket-token, 2
+  klass-token, 3 ms relativt begin, 5 typ, 10 instans, 11 rotpaket). Typ 1/2/23 app, 15/16 skärm,
+  17/18 låsskärm. Alla händelser på disk var lika med `dumpsys usagestats`; det som saknades låg
+  efter dagsfilens senaste skrivning (den skrivs ungefär var 20:e–30:e minut). Åtta dagsfiler sparas.
+- **`appops/discrete/<ms>tl`** (ABX): `<u ui><p pn><o op><a at?><e nt nd? us f/>`. Op 26 =
+  kamera, 27 = mikrofon, 1 = position. Startraden saknar `nd`, slutraden har samma `nt` och `nd` =
+  längden, ibland i en senare fil (filerna skrivs var 15:e minut). Kameran är igång så länge
+  kameravyn visas: 60 s efter story-posten utan att någon bild togs, och 31 s medan en snap togs
+  emot. Sju dagar behålls. Mikrofonen (op 27) låg exakt över videoinspelningen (5,6 s).
+- **Byte av kamera** ger två kameraoperationer i följd (bak → fram); kamerans `dumpsys` säger
+  device 0 (bak) och 1 (fram), men appops säger inte vilken.
+- **Batterihistoriken** har +camera/−camera och +top men nollställdes vid laddning och parsas inte.
+
+### Vad som byggdes
+
+- `queries/android/snapchat/catalog.json`: sex databaser (cache, arroyo, main, client_notifications,
+  memories, journal) med synliga queries och rollqueries. Rollnamnen är desamma som iOS; nya
+  roller `memories` och `journal`. Alla queries provkörda mot labbdatabaserna.
+- `tools/provenance/android-logs.js`: ABX-avkodare (identisk utskrift med `abx2xml` på alla 764
+  filer), `discreteOps`/`opIntervals` (parar start- och slutrad per `nt`), `usageMappings`/`usageDaily`
+  (version 5 och 4), `pickDaily`/`pickDiscrete` för fönstret, täckning. Inga `require`, ingen `fs`.
+- `snapchat.js`: plattformsoberoende (`appId`, `isSnapchatApp`), Android-meddelanden
+  (`sender_id`, `created_on_device`, `remote_media_count`, `is_saved`), `chat_snap`-nycklar
+  kopplade till meddelandet via id:t i protobufen, Memories-händelser (`snap-memory`, tagen och
+  sparad, med kamera och mått), journalen (`snap-journal`, bara `posted_story_snap`,
+  `memories_media`, `memories_overlay`), `linkMemory` (samma sort, sparad inom 5 s).
+- `timeline-core.js`: `logInfo()` (knowledgeC / usagestats / Wellbeing i texterna och
+  täckningen), `cameraUse` → kamerabandet (`cameraOp`, hopslaget vid luckor under 2 s),
+  `file.capturedMs`/`file.memory` (händelsen `file-captured`, kamerafaktorn vid tagningstiden,
+  positionen `memory`, hypotesen "togs med Snapchats frontkamera … och sparades till galleriet"),
+  T ur `date_added` märkt i typraden och tidsfaktorn, kameraappen = appen som skapade filen i
+  DCIM/Camera även när den inte står i katalogen.
+- `timeline-svg.js`: kameraoperationer ritas bara i Kamera-raden (`foreground()` i App-raden),
+  Memories-tagningen som prick i Kamera-raden och i Snapchat-raden, "tagen N s före (Memories)" i
+  Fil-raden, "används av Snapchat" i Vid T, Memories-positionen i Vid T.
+- `script.js`: plattform Android så fort någon Android-källa finns; `androidLogs` och
+  Android-versionen (`usagestats/version`: "13;REL;…") vid öppning; `addAndroidLogs()` (källor i
+  protokollet per läst fil med SHA-256, pseudoquery i bilagan som säger hur filerna avkodades,
+  varning när dagsfilen är äldre än fönstret); `snapKeys()` per plattform; `linkSnapMemory()`
+  före zonvalet (tidszon ur Memories); `androidCreatedFallback()` i körningen, grannarna och
+  tidsökningen; Memories-positionen på kartan; `App (UserComment)` i filkortet.
+- Queries: katalogen laddad, `os: 'Android'`, Aperture i App-ID-katalogen, `DCIM/Snapchat` som
+  plats i "Var finns filen?".
+
+### Provkörning mot labb-zippen (FFS-layout, 1 196 poster, 143 MB)
+
+- `Snapchat-1334982621.jpg` (selfie): T = date_added 00:48:52, Memories tagen 00:48:51 med
+  frontkameran, Snapchat i förgrunden (usagestats), Snapchat använde kameran 00:48:49–00:49:01
+  (appops) som täcker tagningstiden, skärm tänd och olåst, positionen ur Memories, Snapchat-raden
+  med videon, snapsen och notisen. Sammanvägning: förenligt, alla faktorer stöd.
+- `Snapchat-1565107742.mp4` (video): T = datetaken 00:48:25 = MP4:ans creation_time = inspelningens
+  start, kameran 00:48:23–00:48:40, Memories tagen 00:48:30 (slutet).
+- `Snapchat-1788669324.jpg` (första sessionen): tagen 23:27:24, sparad 23:27:51, exporterad
+  23:27:52; kameran igång vid tagningen, inte vid T.
+- `2026-10-31-00-49-54-783.jpg` (Aperture): kamerabild, EXIF stämmer, Aperture i förgrunden och
+  kameran enligt appops.
+- `15116568751943e94ff764a3d4c183d5` (mottagen chattsnap i cachen): T = cache 00:49:30, kopplad
+  till meddelande 9 från @labzy2026 00:49:28, läst 00:49:39.
+- Zippens storlek, mtime och SHA-256 oförändrade efter körningen.
+
+### Inte med
+
+- Batterihistoriken, mikrofon- och positionsoperationerna i appops (finns i modulen, används inte),
+  usagestats i XML (Android 9 och äldre), flera Android-användare (första med dagsfiler tas),
+  Snapchats `files/file_manager/memories_media` som kopia av den exporterade filen (omkodad, så
+  CRC32 skiljer), och en labbkörning mot en kommersiell Android-extraktion.

@@ -123,7 +123,7 @@ window.ANDROID_QUERIES_CATALOG = {
           "hidden": true,
           "role": "neighbours",
           "title": "Härkomst: media i tidsfönstret",
-          "description": "Används av Härkomst. Bilder och video under DCIM och Pictures vars datetaken ligger i tidsfönstret.",
+          "description": "Används av Härkomst. Bilder och video under DCIM och Pictures vars datetaken ligger i tidsfönstret. Saknas datetaken (vanligt för filer som en app sparar till galleriet, t.ex. Snapchat) används date_added.",
           "params": [
             "unixStart",
             "unixEnd"
@@ -140,7 +140,7 @@ window.ANDROID_QUERIES_CATALOG = {
             },
             "added": "date_added"
           },
-          "sql": "SELECT\n  _id,\n  _display_name,\n  relative_path,\n  owner_package_name,\n  datetaken,\n  date_added\nFROM files\nWHERE (relative_path LIKE 'DCIM/%' OR relative_path LIKE 'Pictures/%')\n  AND (CASE WHEN datetaken > 1000000000000 THEN datetaken / 1000 ELSE datetaken END) BETWEEN {{unixStart}} AND {{unixEnd}}\nORDER BY datetaken\nLIMIT 300;"
+          "sql": "SELECT\n  _id,\n  _display_name,\n  relative_path,\n  owner_package_name,\n  datetaken,\n  date_added\nFROM files\nWHERE (relative_path LIKE 'DCIM/%' OR relative_path LIKE 'Pictures/%')\n  AND COALESCE(CASE WHEN datetaken > 1000000000000 THEN datetaken / 1000 WHEN datetaken > 0 THEN datetaken END, date_added) BETWEEN {{unixStart}} AND {{unixEnd}}\nORDER BY COALESCE(datetaken, date_added * 1000)\nLIMIT 300;"
         }
       ]
     },

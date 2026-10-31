@@ -15,7 +15,7 @@
         return out;
     }
 
-    // catalogs: { photos, android, appUsage, routined, snapchat } som i Queries. Returnerar källorna i
+    // catalogs: { photos, android, appUsage, routined, snapchat, snapchatAndroid } som i Queries. Returnerar källorna i
     // den form ExtractionCore.targets() vill ha, med rollerna per källa (och per band för Photos).
     function collect(catalogs) {
         var photos = catalogs.photos || {};
@@ -65,14 +65,17 @@
             });
         });
 
-        // Snapchat (beta): fyra databaser som hittas på suffix i appens behållare.
-        ((catalogs.snapchat || {}).databases || []).forEach(function (db) {
-            var roles = roleMap(db.queries);
-            if (!Object.keys(roles).length) return;
-            var label = db.label.replace(/^iOS — /, '');
-            sources.push({
-                key: db.id, platform: 'iOS', title: label, paths: db.paths || [], source: db.source, roles: roles, beta: true,
-                databases: [{ id: db.id, family: db.id, familyTitle: label, label: label, paths: db.paths || [], ios: null }],
+        // Snapchat (beta): på iOS fyra databaser som hittas på suffix i appens behållare, på Android
+        // sex databaser under data/data/com.snapchat.android. Samma rollnamn på båda.
+        [[catalogs.snapchat, 'iOS'], [catalogs.snapchatAndroid, 'Android']].forEach(function (pair) {
+            ((pair[0] || {}).databases || []).forEach(function (db) {
+                var roles = roleMap(db.queries);
+                if (!Object.keys(roles).length) return;
+                var label = db.label.replace(/^(iOS|Android) — /, '');
+                sources.push({
+                    key: db.id, platform: pair[1], title: label, paths: db.paths || [], source: db.source, roles: roles, beta: true,
+                    databases: [{ id: db.id, family: db.id, familyTitle: label, label: label, paths: db.paths || [], ios: null }],
+                });
             });
         });
 

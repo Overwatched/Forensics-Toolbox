@@ -15,6 +15,7 @@ const CATALOGS = [
     { dir: 'queries/android', global: 'ANDROID_QUERIES_CATALOG', name: 'android/catalog.json' },
     { dir: 'queries/ios/routined', global: 'ROUTINED_CATALOG', name: 'routined/catalog.json' },
     { dir: 'queries/ios/snapchat', global: 'SNAPCHAT_CATALOG', name: 'snapchat/catalog.json' },
+    { dir: 'queries/android/snapchat', global: 'SNAPCHAT_ANDROID_CATALOG', name: 'android/snapchat/catalog.json' },
 ];
 
 function render(catalog) {

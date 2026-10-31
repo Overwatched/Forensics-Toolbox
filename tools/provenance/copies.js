@@ -23,6 +23,7 @@
         [new RegExp('/Containers/Data/Application/' + GUID + '/'), 'Appbehållare $1', 'i en apps egen lagring', 'app'],
         [/\/DCIM\/Camera\//, 'Kameran (DCIM/Camera)', 'i kamerans mapp', 'library'],
         [/\/Pictures\/Screenshots\//, 'Skärmdumpar (Pictures/Screenshots)', 'bland skärmdumparna', 'library'],
+        [/\/DCIM\/Snapchat\//, 'Snapchat, sparade till galleriet (DCIM/Snapchat)', 'bland Snapchats bilder i galleriet', 'library'],
         [/\/Pictures\/Snapchat\//, 'Snapchat, sparade snaps (Pictures/Snapchat)', 'bland Snapchats sparade bilder', 'snapchat'],
         [/\/Download\//, 'Hämtade filer (Download)', 'bland hämtade filer', 'downloads'],
         [/\/Android\/(?:data|media)\/([\w.]+)\//, 'Appens lagring: $1', 'i en apps egen lagring', 'app'],
@@ -43,8 +44,9 @@
         }
         var containers = (opts && opts.snapchatContainers || []).map(function (g) { return String(g).toUpperCase(); });
         var inSnapContainer = guid && containers.indexOf(String(guid).toUpperCase()) >= 0;
-        // En appbehållare eller appdata som hör till Snapchat märks som Snapchat.
-        if (out.area !== 'snapchat' && (inSnapContainer || /picaboo|snapchat/i.test(n))) {
+        // En appbehållare eller appdata som hör till Snapchat märks som Snapchat. Bildbiblioteket
+        // (t.ex. DCIM/Snapchat på Android) är fortfarande bildbiblioteket.
+        if (out.area !== 'snapchat' && out.area !== 'library' && (inSnapContainer || /picaboo|snapchat/i.test(n))) {
             out = { label: 'Snapchat, ' + out.label.charAt(0).toLowerCase() + out.label.slice(1), plain: 'i Snapchat', area: 'snapchat' };
         }
         return out;

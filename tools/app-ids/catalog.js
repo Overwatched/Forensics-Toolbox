@@ -329,6 +329,7 @@
         app({ id: 'samsung-camera', name: 'Samsung Kamera', category: 'android-system', android: 'com.sec.android.app.camera' }),
         app({ id: 'huawei-camera', name: 'Huawei Kamera', category: 'android-system', android: 'com.huawei.camera' }),
         app({ id: 'oplus-camera', name: 'Kamera (OnePlus/OPPO)', category: 'android-system', aliases: ['oneplus', 'oppo', 'realme'], android: 'com.oplus.camera' }),
+        app({ id: 'aperture-camera', name: 'Aperture (LineageOS kamera)', category: 'android-system', aliases: ['lineageos', 'aperture'], android: 'org.lineageos.aperture' }),
         app({ id: 'aosp-gallery', name: 'Galleri (AOSP)', category: 'android-system', android: 'com.android.gallery3d' }),
         app({ id: 'samsung-gallery', name: 'Samsung Galleri', category: 'android-system', android: 'com.sec.android.gallery3d' }),
         app({ id: 'xiaomi-gallery', name: 'Galleri (Xiaomi)', category: 'android-system', android: 'com.miui.gallery' }),

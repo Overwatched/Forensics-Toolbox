@@ -21,6 +21,8 @@ test('platsens betydelse för iOS- och Android-sökvägar', () => {
     assert.strictEqual(c(P + 'Containers/Data/Application/AAAAAAAA-0000-0000-0000-000000000000/Documents/x.jpg').label, 'Appbehållare AAAAAAAA-0000-0000-0000-000000000000');
     assert.strictEqual(c('data/media/0/DCIM/Camera/PXL_1.jpg').label, 'Kameran (DCIM/Camera)');
     assert.strictEqual(c('data/media/0/Pictures/Snapchat/Snapchat-123.jpg').area, 'snapchat');
+    assert.deepStrictEqual(c('data/media/0/DCIM/Snapchat/Snapchat-1788669324.jpg'), { label: 'Snapchat, sparade till galleriet (DCIM/Snapchat)', plain: 'bland Snapchats bilder i galleriet', area: 'library' });
+    assert.strictEqual(c('data/data/com.snapchat.android/files/native_content_manager/com.snap.file_manager_3_SCContent_d57a4e83-bf02-4da2-8fb7-ca65be939d22/15116568751943e94ff764a3d4c183d5').label, 'Snapchat, cache (file_manager)');
     assert.strictEqual(c('data/data/com.snapchat.android/files/file_manager/chat_snap/x').label, 'Snapchat, appens data: com.snapchat.android');
     assert.strictEqual(c(P + 'Containers/Data/Application/61AE6288-182A-4DBE-A56C-CA2590D52576/Library/Caches/com.toyopagroup.picaboo/Cache.db').area, 'snapchat');
     assert.strictEqual(c('data/media/0/Android/data/com.whatsapp/cache/x.jpg').label, 'Appens lagring: com.whatsapp');

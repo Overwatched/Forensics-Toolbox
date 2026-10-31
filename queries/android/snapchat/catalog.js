@@ -1,0 +1,469 @@
+/* Genererad från android/snapchat/catalog.json — används när fetch() blockeras (file://). */
+window.SNAPCHAT_ANDROID_CATALOG = {
+  "id": "snapchat-android",
+  "title": "Snapchat Android Queries",
+  "sourceNote": "Betafunktion. Snapchats egna databaser på Android, lästa ur appens datamapp data/data/com.snapchat.android (data/user/0 är samma mapp). Tiderna är Unix-millisekunder och visas här med datetime(…/1000, 'unixepoch', 'localtime'). Tabeller, kolumner och typkoder är kontrollerade mot en labbtelefon (Android 13, Snapchat 14.30, 2026-10-30). cache_controller.db och arroyo.db har samma tabeller som på iOS. Strukturen kan skilja sig mellan Snapchat-versioner, så kontrollera alltid mot databasen.",
+  "paramLabels": {
+    "timeStart": "Från (ÅÅÅÅ-MM-DD TT:MM)",
+    "timeEnd": "Till (ÅÅÅÅ-MM-DD TT:MM)",
+    "cacheKey": "Cachenyckel (filnamnet i native_content_manager-mappen)",
+    "conversationId": "Konversations-id (client_conversation_id)"
+  },
+  "databases": [
+    {
+      "id": "snapchat-android-cache",
+      "label": "Android — cache_controller.db (Snapchat cache)",
+      "blurb": "Snapchats register över cachade mediefiler: filnamnet i native_content_manager-mappen (CACHE_KEY), typ av media, extern nyckel (chat_snap.chat_snap-<id> för chattmedia), när filen skapades, går ut och raderades. Samma tabeller som på iOS.",
+      "dbPathHint": "/data/data/com.snapchat.android/databases/native_content_manager/cache_controller.db (+ -wal). Filerna ligger utan ändelse i files/native_content_manager/com.snap.file_manager_3_SCContent_<konto>/<CACHE_KEY>",
+      "paths": [
+        "data/data/com.snapchat.android/databases/native_content_manager/cache_controller.db"
+      ],
+      "source": "Kontrollerad mot labbtelefon (Android 13, Snapchat 14.30.0.54). Typkoder sedda: 3 chattmedia (EXTERNAL_KEY chat_snap.chat_snap-<id>), 16/24 story-video och första bildruta, 11 bildcache (composer_encrypted_file), 2 kreativa verktyg, 29 karta, 5 ej attribuerad (bl.a. skickad media strax före meddelandet), 1/12 linser. Typ 34 (inspelning) är sedd på iOS, inte på Android.",
+      "queries": [
+        {
+          "id": "cached-media",
+          "title": "Cachade mediefiler i tidsspann",
+          "subtitle": "Visar varje fil Snapchat lade i sin cache inom tidsspannet: cachenyckel (= filnamnet i native_content_manager-mappen), typ, extern nyckel, storlek och när den går ut, raderades och senast lästes. Typtolkningen är härledd ur en labbtelefon och ska ses som en ledtråd.",
+          "recommended": true,
+          "timeEpoch": "unix-ms",
+          "params": [
+            "timeStart",
+            "timeEnd"
+          ],
+          "returns": "skapad, cachenyckel, typ, typtolkning, extern nyckel, storlek, går ut, raderad, senast läst, UTC, konto",
+          "sql": "SELECT\n  datetime(c.CREATION_TIMESTAMP_MILLIS / 1000, 'unixepoch', 'localtime') AS skapad_lokal,\n  c.CACHE_KEY,\n  c.MEDIA_CONTEXT_TYPE,\n  CASE c.MEDIA_CONTEXT_TYPE\n    WHEN 3 THEN 'chattmedia'\n    WHEN 34 THEN 'inspelning med Snapchats kamera'\n    WHEN 16 THEN 'story-video'\n    WHEN 24 THEN 'story, första bildruta'\n    WHEN 11 THEN 'bildcache (composer)'\n    WHEN 2 THEN 'kreativa verktyg'\n    WHEN 29 THEN 'karta'\n    WHEN 5 THEN 'ej attribuerad (bl.a. media som laddas upp)'\n    WHEN 7 THEN 'bild från Snapchats CDN'\n    WHEN 13 THEN 'nedladdning från Snapchats CDN'\n    WHEN 1 THEN 'lins'\n    WHEN 12 THEN 'linspaket'\n    ELSE 'okänd typ'\n  END AS typ_tolkning,\n  c.EXTERNAL_KEY,\n  m.FILE_SIZE_BYTES,\n  datetime(c.EXPIRATION_TIMESTAMP_MILLIS / 1000, 'unixepoch', 'localtime') AS gar_ut_lokal,\n  CASE WHEN c.DELETED_TIMESTAMP_MILLIS > 0 THEN datetime(c.DELETED_TIMESTAMP_MILLIS / 1000, 'unixepoch', 'localtime') END AS raderad_lokal,\n  datetime(m.LAST_READ_TIMESTAMP_MILLIS / 1000, 'unixepoch', 'localtime') AS senast_last_lokal,\n  datetime(c.CREATION_TIMESTAMP_MILLIS / 1000, 'unixepoch') AS skapad_utc,\n  c.USER_ID\nFROM CACHE_FILE_CLAIM c\nLEFT JOIN CACHE_FILE_METADATA m ON m.CACHE_KEY = c.CACHE_KEY AND m.USER_ID = c.USER_ID\nWHERE c.CREATION_TIMESTAMP_MILLIS BETWEEN {{unixMsStart}} AND {{unixMsEnd}}\nORDER BY c.CREATION_TIMESTAMP_MILLIS;"
+        },
+        {
+          "id": "by-cache-key",
+          "title": "En fil i cachen, efter cachenyckel",
+          "subtitle": "Visar registerraden för en fil i native_content_manager-mappen. Cachenyckeln är filnamnet utan ändelse, eller delen före understrecket för filer med suffix som _PREFETCH.",
+          "timeEpoch": "unix-ms",
+          "params": [
+            "cacheKey"
+          ],
+          "returns": "skapad, typ, typtolkning, extern nyckel, storlek, går ut, raderad, senast läst, UTC, konto",
+          "sql": "SELECT\n  datetime(c.CREATION_TIMESTAMP_MILLIS / 1000, 'unixepoch', 'localtime') AS skapad_lokal,\n  c.CACHE_KEY,\n  c.MEDIA_CONTEXT_TYPE,\n  CASE c.MEDIA_CONTEXT_TYPE\n    WHEN 3 THEN 'chattmedia'\n    WHEN 34 THEN 'inspelning med Snapchats kamera'\n    WHEN 16 THEN 'story-video'\n    WHEN 24 THEN 'story, första bildruta'\n    WHEN 11 THEN 'bildcache (composer)'\n    WHEN 2 THEN 'kreativa verktyg'\n    WHEN 29 THEN 'karta'\n    WHEN 5 THEN 'ej attribuerad (bl.a. media som laddas upp)'\n    WHEN 7 THEN 'bild från Snapchats CDN'\n    WHEN 13 THEN 'nedladdning från Snapchats CDN'\n    WHEN 1 THEN 'lins'\n    WHEN 12 THEN 'linspaket'\n    ELSE 'okänd typ'\n  END AS typ_tolkning,\n  c.EXTERNAL_KEY,\n  m.FILE_SIZE_BYTES,\n  datetime(c.EXPIRATION_TIMESTAMP_MILLIS / 1000, 'unixepoch', 'localtime') AS gar_ut_lokal,\n  CASE WHEN c.DELETED_TIMESTAMP_MILLIS > 0 THEN datetime(c.DELETED_TIMESTAMP_MILLIS / 1000, 'unixepoch', 'localtime') END AS raderad_lokal,\n  datetime(m.LAST_READ_TIMESTAMP_MILLIS / 1000, 'unixepoch', 'localtime') AS senast_last_lokal,\n  datetime(c.CREATION_TIMESTAMP_MILLIS / 1000, 'unixepoch') AS skapad_utc,\n  c.USER_ID\nFROM CACHE_FILE_CLAIM c\nLEFT JOIN CACHE_FILE_METADATA m ON m.CACHE_KEY = c.CACHE_KEY AND m.USER_ID = c.USER_ID\nWHERE c.CACHE_KEY = '{{cacheKey}}'\nORDER BY c.CREATION_TIMESTAMP_MILLIS;"
+        },
+        {
+          "id": "tables",
+          "title": "Hjälp: tabeller och antal rader",
+          "subtitle": "Listar tabellerna i databasen. Bra för att se om CACHE_FILE_CLAIM och CACHE_FILE_METADATA finns i den här Snapchat-versionen.",
+          "group": "advanced",
+          "params": [],
+          "returns": "tabellnamn",
+          "sql": "SELECT name AS tabell\nFROM sqlite_master\nWHERE type = 'table'\nORDER BY name;"
+        },
+        {
+          "id": "role-cache-window",
+          "hidden": true,
+          "role": "cache-window",
+          "title": "Härkomst: cacheposter i tidsfönstret",
+          "description": "Används av Härkomst. Cacheposterna i fönstret med råa tider (Unix-millisekunder).",
+          "params": [
+            "timeStart",
+            "timeEnd"
+          ],
+          "epoch": "unixMs",
+          "fields": {
+            "key": "CACHE_KEY",
+            "context": "MEDIA_CONTEXT_TYPE",
+            "external": "EXTERNAL_KEY",
+            "created": "CREATION_TIMESTAMP_MILLIS",
+            "expires": "EXPIRATION_TIMESTAMP_MILLIS",
+            "deleted": "DELETED_TIMESTAMP_MILLIS",
+            "size": "FILE_SIZE_BYTES",
+            "lastRead": "LAST_READ_TIMESTAMP_MILLIS",
+            "user": "USER_ID"
+          },
+          "sql": "SELECT\n  c.CACHE_KEY,\n  c.MEDIA_CONTEXT_TYPE,\n  c.EXTERNAL_KEY,\n  c.CREATION_TIMESTAMP_MILLIS,\n  c.EXPIRATION_TIMESTAMP_MILLIS,\n  c.DELETED_TIMESTAMP_MILLIS,\n  m.FILE_SIZE_BYTES,\n  m.LAST_READ_TIMESTAMP_MILLIS,\n  c.USER_ID\nFROM CACHE_FILE_CLAIM c\nLEFT JOIN CACHE_FILE_METADATA m ON m.CACHE_KEY = c.CACHE_KEY AND m.USER_ID = c.USER_ID\nWHERE c.CREATION_TIMESTAMP_MILLIS BETWEEN {{unixMsStart}} AND {{unixMsEnd}}\nORDER BY c.CREATION_TIMESTAMP_MILLIS\nLIMIT 2000;"
+        },
+        {
+          "id": "role-cache-key",
+          "hidden": true,
+          "role": "cache-key",
+          "title": "Härkomst: cacheposten för en nyckel",
+          "description": "Används av Härkomst. Raden för den bedömda filens cachenyckel.",
+          "params": [
+            "cacheKey"
+          ],
+          "epoch": "unixMs",
+          "fields": {
+            "key": "CACHE_KEY",
+            "context": "MEDIA_CONTEXT_TYPE",
+            "external": "EXTERNAL_KEY",
+            "created": "CREATION_TIMESTAMP_MILLIS",
+            "expires": "EXPIRATION_TIMESTAMP_MILLIS",
+            "deleted": "DELETED_TIMESTAMP_MILLIS",
+            "size": "FILE_SIZE_BYTES",
+            "lastRead": "LAST_READ_TIMESTAMP_MILLIS",
+            "user": "USER_ID"
+          },
+          "sql": "SELECT\n  c.CACHE_KEY,\n  c.MEDIA_CONTEXT_TYPE,\n  c.EXTERNAL_KEY,\n  c.CREATION_TIMESTAMP_MILLIS,\n  c.EXPIRATION_TIMESTAMP_MILLIS,\n  c.DELETED_TIMESTAMP_MILLIS,\n  m.FILE_SIZE_BYTES,\n  m.LAST_READ_TIMESTAMP_MILLIS,\n  c.USER_ID\nFROM CACHE_FILE_CLAIM c\nLEFT JOIN CACHE_FILE_METADATA m ON m.CACHE_KEY = c.CACHE_KEY AND m.USER_ID = c.USER_ID\nWHERE c.CACHE_KEY = '{{cacheKey}}'\nORDER BY c.CREATION_TIMESTAMP_MILLIS;"
+        },
+        {
+          "id": "role-coverage",
+          "hidden": true,
+          "role": "coverage",
+          "title": "Härkomst: täckning",
+          "params": [],
+          "epoch": "unixMs",
+          "fields": {
+            "first": "first_start",
+            "last": "last_start",
+            "rows": "n_rows"
+          },
+          "sql": "SELECT\n  MIN(CREATION_TIMESTAMP_MILLIS) AS first_start,\n  MAX(CREATION_TIMESTAMP_MILLIS) AS last_start,\n  COUNT(*) AS n_rows\nFROM CACHE_FILE_CLAIM;"
+        }
+      ]
+    },
+    {
+      "id": "snapchat-android-arroyo",
+      "label": "Android — arroyo.db (Snapchat chatt)",
+      "blurb": "Chattmeddelanden och snaps: konversation, meddelandenummer, skickad och läst tid, avsändarens id i klartext (sender_id), om meddelandet skapades på den här telefonen (created_on_device), om det är media (remote_media_count) och om det sparades i chatten (is_saved).",
+      "dbPathHint": "/data/data/com.snapchat.android/databases/arroyo.db (+ -wal). Nästan allt ligger i -wal.",
+      "paths": [
+        "data/data/com.snapchat.android/databases/arroyo.db"
+      ],
+      "source": "Kontrollerad mot labbtelefon (Android 13, Snapchat 14.30.0.54). Samma tabell conversation_message som på iOS, men med kolumnerna sender_id, content_type (0 media, 1 text), created_on_device, is_saved, is_viewed_by_user och remote_media_count. sender_id är samma uuid som Friend.userId i main.db. Raderade och visade snaps försvinner ur tabellen.",
+      "queries": [
+        {
+          "id": "messages",
+          "title": "Meddelanden i tidsspann",
+          "subtitle": "Visar meddelanden och snaps inom tidsspannet med skickad och läst tid, konversation, meddelandenummer, avsändare, om det skapades på telefonen, om det är media och om det sparades i chatten.",
+          "recommended": true,
+          "timeEpoch": "unix-ms",
+          "params": [
+            "timeStart",
+            "timeEnd"
+          ],
+          "returns": "skickad, läst, konversation, meddelandenummer, avsändar-id, skapad på telefonen, innehållstyp, media, sparad, UTC",
+          "sql": "SELECT\n  datetime(creation_timestamp / 1000, 'unixepoch', 'localtime') AS skickad_lokal,\n  datetime(read_timestamp / 1000, 'unixepoch', 'localtime') AS last_lokal,\n  client_conversation_id,\n  server_message_id,\n  client_message_id,\n  sender_id,\n  created_on_device,\n  content_type,\n  remote_media_count,\n  is_saved,\n  message_state_type,\n  datetime(creation_timestamp / 1000, 'unixepoch') AS skickad_utc\nFROM conversation_message\nWHERE creation_timestamp BETWEEN {{unixMsStart}} AND {{unixMsEnd}}\nORDER BY creation_timestamp;"
+        },
+        {
+          "id": "conversation",
+          "title": "Alla meddelanden i en konversation",
+          "subtitle": "Visar alla meddelanden som finns kvar i en konversation, med skickad och läst tid, avsändare och om de skapades på den här telefonen.",
+          "timeEpoch": "unix-ms",
+          "params": [
+            "conversationId"
+          ],
+          "returns": "skickad, läst, meddelandenummer, avsändar-id, skapad på telefonen, innehållstyp, media, sparad, UTC",
+          "sql": "SELECT\n  datetime(creation_timestamp / 1000, 'unixepoch', 'localtime') AS skickad_lokal,\n  datetime(read_timestamp / 1000, 'unixepoch', 'localtime') AS last_lokal,\n  server_message_id,\n  client_message_id,\n  sender_id,\n  created_on_device,\n  content_type,\n  remote_media_count,\n  is_saved,\n  message_state_type,\n  datetime(creation_timestamp / 1000, 'unixepoch') AS skickad_utc\nFROM conversation_message\nWHERE client_conversation_id = '{{conversationId}}'\nORDER BY creation_timestamp;"
+        },
+        {
+          "id": "tables",
+          "title": "Hjälp: tabeller och antal rader",
+          "subtitle": "Listar tabellerna i databasen. Bra för att se om conversation_message finns i den här Snapchat-versionen.",
+          "group": "advanced",
+          "params": [],
+          "returns": "tabellnamn",
+          "sql": "SELECT name AS tabell\nFROM sqlite_master\nWHERE type = 'table'\nORDER BY name;"
+        },
+        {
+          "id": "role-messages",
+          "hidden": true,
+          "role": "messages",
+          "title": "Härkomst: meddelanden i tidsfönstret",
+          "description": "Används av Härkomst. Meddelandena i fönstret med råa tider, avsändare och flaggor.",
+          "params": [
+            "timeStart",
+            "timeEnd"
+          ],
+          "epoch": "unixMs",
+          "fields": {
+            "conversation": "client_conversation_id",
+            "serverId": "server_message_id",
+            "clientId": "client_message_id",
+            "created": "creation_timestamp",
+            "read": "read_timestamp",
+            "state": "message_state_type",
+            "content": "message_content",
+            "senderId": "sender_id",
+            "createdOnDevice": "created_on_device",
+            "contentType": "content_type",
+            "remoteMediaCount": "remote_media_count",
+            "isSaved": "is_saved",
+            "isViewed": "is_viewed_by_user"
+          },
+          "sql": "SELECT\n  client_conversation_id,\n  server_message_id,\n  client_message_id,\n  creation_timestamp,\n  read_timestamp,\n  message_state_type,\n  message_content,\n  sender_id,\n  created_on_device,\n  content_type,\n  remote_media_count,\n  is_saved,\n  is_viewed_by_user\nFROM conversation_message\nWHERE creation_timestamp BETWEEN {{unixMsStart}} AND {{unixMsEnd}}\n   OR read_timestamp BETWEEN {{unixMsStart}} AND {{unixMsEnd}}\nORDER BY creation_timestamp\nLIMIT 500;"
+        },
+        {
+          "id": "role-coverage",
+          "hidden": true,
+          "role": "coverage",
+          "title": "Härkomst: täckning",
+          "params": [],
+          "epoch": "unixMs",
+          "fields": {
+            "first": "first_start",
+            "last": "last_start",
+            "rows": "n_rows"
+          },
+          "sql": "SELECT\n  MIN(creation_timestamp) AS first_start,\n  MAX(creation_timestamp) AS last_start,\n  COUNT(*) AS n_rows\nFROM conversation_message;"
+        }
+      ]
+    },
+    {
+      "id": "snapchat-android-friends",
+      "label": "Android — main.db (Snapchat konton)",
+      "blurb": "Vänner och det egna kontot i klartext: användar-id, användarnamn, visningsnamn och när vännen lades till.",
+      "dbPathHint": "/data/data/com.snapchat.android/databases/main.db (+ -wal)",
+      "paths": [
+        "data/data/com.snapchat.android/databases/main.db"
+      ],
+      "source": "Kontrollerad mot labbtelefon (Android 13, Snapchat 14.30.0.54). Friend.userId är samma uuid som sender_id i arroyo.db och USER_ID i cache_controller.db. Det egna kontot står också i tabellen.",
+      "queries": [
+        {
+          "id": "friends",
+          "title": "Konton (vänner och eget)",
+          "subtitle": "Visar varje konto som Snapchat känner till på telefonen: användar-id, användarnamn, visningsnamn och när det lades till som vän.",
+          "recommended": true,
+          "timeEpoch": "unix-ms",
+          "params": [],
+          "returns": "användarnamn, visningsnamn, användar-id, tillagd",
+          "sql": "SELECT\n  username,\n  displayName,\n  userId,\n  datetime(addedTimestamp / 1000, 'unixepoch', 'localtime') AS tillagd_lokal\nFROM Friend\nORDER BY addedTimestamp;"
+        },
+        {
+          "id": "tables",
+          "title": "Hjälp: tabeller och antal rader",
+          "subtitle": "Listar tabellerna i databasen. Bra för att se om Friend finns i den här Snapchat-versionen.",
+          "group": "advanced",
+          "params": [],
+          "returns": "tabellnamn",
+          "sql": "SELECT name AS tabell\nFROM sqlite_master\nWHERE type = 'table'\nORDER BY name;"
+        },
+        {
+          "id": "role-friends",
+          "hidden": true,
+          "role": "friends",
+          "title": "Härkomst: konton",
+          "description": "Används av Härkomst. Användar-id, användarnamn och visningsnamn för alla konton.",
+          "params": [],
+          "epoch": "unixMs",
+          "fields": {
+            "userId": "userId",
+            "username": "username",
+            "displayName": "displayName",
+            "added": "addedTimestamp"
+          },
+          "sql": "SELECT\n  userId,\n  username,\n  displayName,\n  addedTimestamp\nFROM Friend\nLIMIT 5000;"
+        }
+      ]
+    },
+    {
+      "id": "snapchat-android-notifications",
+      "label": "Android — client_notifications.db (Snapchat notiser)",
+      "blurb": "Notiser som Snapchat tog emot: typ (snap, addfriend …), när notisen skapades och togs emot, och vilket meddelande den gäller (i json). Finns kvar när chatten är tömd.",
+      "dbPathHint": "/data/data/com.snapchat.android/databases/client_notifications.db (+ -wal)",
+      "paths": [
+        "data/data/com.snapchat.android/databases/client_notifications.db"
+      ],
+      "source": "Kontrollerad mot labbtelefon (Android 13, Snapchat 14.30.0.54). Kolumnen json har arroyo_convo_id och arroyo_message_id som pekar på meddelandet i arroyo.db.",
+      "queries": [
+        {
+          "id": "notifications",
+          "title": "Notiser i tidsspann",
+          "subtitle": "Visar notiserna inom tidsspannet med typ, när de skapades och togs emot, och början av json-fältet där meddelandet pekas ut.",
+          "recommended": true,
+          "timeEpoch": "unix-ms",
+          "params": [
+            "timeStart",
+            "timeEnd"
+          ],
+          "returns": "tid, typ, mottagen, notis-id, json (början), UTC",
+          "sql": "SELECT\n  datetime(timestamp / 1000, 'unixepoch', 'localtime') AS tid_lokal,\n  type,\n  datetime(receiveTimestampMs / 1000, 'unixepoch', 'localtime') AS tid_mottagen_lokal,\n  notificationId,\n  substr(json, 1, 160) AS json_borjan,\n  datetime(timestamp / 1000, 'unixepoch') AS tid_utc\nFROM Notifications\nWHERE timestamp BETWEEN {{unixMsStart}} AND {{unixMsEnd}}\nORDER BY timestamp;"
+        },
+        {
+          "id": "tables",
+          "title": "Hjälp: tabeller och antal rader",
+          "subtitle": "Listar tabellerna i databasen. Bra för att se om Notifications finns i den här Snapchat-versionen.",
+          "group": "advanced",
+          "params": [],
+          "returns": "tabellnamn",
+          "sql": "SELECT name AS tabell\nFROM sqlite_master\nWHERE type = 'table'\nORDER BY name;"
+        },
+        {
+          "id": "role-notifications",
+          "hidden": true,
+          "role": "notifications",
+          "title": "Härkomst: notiser i tidsfönstret",
+          "description": "Används av Härkomst. Notiserna i fönstret med råa tider.",
+          "params": [
+            "timeStart",
+            "timeEnd"
+          ],
+          "epoch": "unixMs",
+          "fields": {
+            "time": "timestamp",
+            "type": "type",
+            "id": "notificationId",
+            "received": "receiveTimestampMs",
+            "json": "json"
+          },
+          "sql": "SELECT\n  timestamp,\n  type,\n  notificationId,\n  receiveTimestampMs,\n  json\nFROM Notifications\nWHERE timestamp BETWEEN {{unixMsStart}} AND {{unixMsEnd}}\nORDER BY timestamp\nLIMIT 500;"
+        },
+        {
+          "id": "role-coverage",
+          "hidden": true,
+          "role": "coverage",
+          "title": "Härkomst: täckning",
+          "params": [],
+          "epoch": "unixMs",
+          "fields": {
+            "first": "first_start",
+            "last": "last_start",
+            "rows": "n_rows"
+          },
+          "sql": "SELECT\n  MIN(timestamp) AS first_start,\n  MAX(timestamp) AS last_start,\n  COUNT(*) AS n_rows\nFROM Notifications;"
+        }
+      ]
+    },
+    {
+      "id": "snapchat-android-memories",
+      "label": "Android — memories.db (Snapchat Memories)",
+      "blurb": "Snaps sparade i Memories: när bilden eller videon togs (snap_capture_time), när den sparades (create_time), fram- eller bakkamera, mått, längd, tidszon och position. Memories är okrypterat på Android.",
+      "dbPathHint": "/data/data/com.snapchat.android/databases/memories.db (+ -wal). Själva filerna ligger i files/file_manager/memories_media/<HEX>.media.0 (utan EXIF)",
+      "paths": [
+        "data/data/com.snapchat.android/databases/memories.db"
+      ],
+      "source": "Kontrollerad mot labbtelefon (Android 13, Snapchat 14.30.0.54): snap_capture_time stämde på millisekunden med kameraloggen i appops; för video är det inspelningens slut. media_type 0 = bild, 1 = video. front_facing 1 = frontkameran. En bild som sparas till kamerarullen får en rad i MediaStore (owner_package_name com.snapchat.android) med date_added strax efter create_time.",
+      "queries": [
+        {
+          "id": "snaps",
+          "title": "Sparade snaps i tidsspann",
+          "subtitle": "Visar snaps som togs eller sparades i Memories inom tidsspannet: tagen, sparad, bild eller video, fram- eller bakkamera, mått, längd, tidszon, position och vilken Snapchat-version som skapade dem.",
+          "recommended": true,
+          "timeEpoch": "unix-ms",
+          "params": [
+            "timeStart",
+            "timeEnd"
+          ],
+          "returns": "tagen, sparad, typ, frontkamera, bredd, höjd, längd, tidszon, position, user agent, id, UTC",
+          "sql": "SELECT\n  datetime(snap_capture_time / 1000, 'unixepoch', 'localtime') AS tagen_lokal,\n  datetime(create_time / 1000, 'unixepoch', 'localtime') AS sparad_lokal,\n  media_type,\n  front_facing,\n  width,\n  height,\n  duration,\n  time_zone_id,\n  has_location,\n  latitude,\n  longitude,\n  has_overlay_image,\n  snap_create_user_agent,\n  _id,\n  datetime(snap_capture_time / 1000, 'unixepoch') AS tagen_utc\nFROM memories_snap\nWHERE snap_capture_time BETWEEN {{unixMsStart}} AND {{unixMsEnd}}\n   OR create_time BETWEEN {{unixMsStart}} AND {{unixMsEnd}}\nORDER BY snap_capture_time;"
+        },
+        {
+          "id": "tables",
+          "title": "Hjälp: tabeller och antal rader",
+          "subtitle": "Listar tabellerna i databasen. Bra för att se om memories_snap finns i den här Snapchat-versionen.",
+          "group": "advanced",
+          "params": [],
+          "returns": "tabellnamn",
+          "sql": "SELECT name AS tabell\nFROM sqlite_master\nWHERE type = 'table'\nORDER BY name;"
+        },
+        {
+          "id": "role-memories",
+          "hidden": true,
+          "role": "memories",
+          "title": "Härkomst: sparade snaps i tidsfönstret",
+          "description": "Används av Härkomst. Snaps tagna eller sparade i fönstret med råa tider.",
+          "params": [
+            "timeStart",
+            "timeEnd"
+          ],
+          "epoch": "unixMs",
+          "fields": {
+            "id": "_id",
+            "mediaId": "media_id",
+            "mediaType": "media_type",
+            "created": "create_time",
+            "captured": "snap_capture_time",
+            "zone": "time_zone_id",
+            "width": "width",
+            "height": "height",
+            "duration": "duration",
+            "front": "front_facing",
+            "hasLocation": "has_location",
+            "latitude": "latitude",
+            "longitude": "longitude",
+            "overlay": "has_overlay_image",
+            "userAgent": "snap_create_user_agent",
+            "externalId": "external_id"
+          },
+          "sql": "SELECT\n  _id,\n  media_id,\n  media_type,\n  create_time,\n  snap_capture_time,\n  time_zone_id,\n  width,\n  height,\n  duration,\n  front_facing,\n  has_location,\n  latitude,\n  longitude,\n  has_overlay_image,\n  snap_create_user_agent,\n  external_id\nFROM memories_snap\nWHERE snap_capture_time BETWEEN {{unixMsStart}} AND {{unixMsEnd}}\n   OR create_time BETWEEN {{unixMsStart}} AND {{unixMsEnd}}\nORDER BY snap_capture_time\nLIMIT 500;"
+        },
+        {
+          "id": "role-coverage",
+          "hidden": true,
+          "role": "coverage",
+          "title": "Härkomst: täckning",
+          "params": [],
+          "epoch": "unixMs",
+          "fields": {
+            "first": "first_start",
+            "last": "last_start",
+            "rows": "n_rows"
+          },
+          "sql": "SELECT\n  MIN(create_time) AS first_start,\n  MAX(create_time) AS last_start,\n  COUNT(*) AS n_rows\nFROM memories_snap;"
+        }
+      ]
+    },
+    {
+      "id": "snapchat-android-journal",
+      "label": "Android — journal.db (Snapchats filhanterare)",
+      "blurb": "Snapchats egen bokföring över filerna i files/file_manager: vilken mapp (memories_media, posted_story_snap, memories_overlay …), nyckel och när filen senast skrevs. Säger när en sparad snap, en story eller ett överlägg lagrades lokalt.",
+      "dbPathHint": "/data/data/com.snapchat.android/databases/journal.db (+ -wal). Filerna heter files/file_manager/<mapp>/<NYCKEL>.<typ>.<n>",
+      "paths": [
+        "data/data/com.snapchat.android/databases/journal.db"
+      ],
+      "source": "Kontrollerad mot labbtelefon (Android 13, Snapchat 14.30.0.54): en rad i posted_story_snap skrevs i samma sekund som en story lades upp, och memories_media när en snap sparades. Filerna i memories_media är JPEG utan EXIF.",
+      "queries": [
+        {
+          "id": "entries",
+          "title": "Filer i filhanteraren i tidsspann",
+          "subtitle": "Visar filer som Snapchats filhanterare skrev inom tidsspannet, med mapp, nyckel, storlek och när de går ut. Mappen säger vad filen är: memories_media (sparad snap), posted_story_snap (upplagd story), memories_overlay (text och klotter).",
+          "recommended": true,
+          "timeEpoch": "unix-ms",
+          "params": [
+            "timeStart",
+            "timeEnd"
+          ],
+          "returns": "skriven, mapp, nyckel, storlek, går ut, UTC",
+          "sql": "SELECT\n  datetime(e.last_update_time / 1000, 'unixepoch', 'localtime') AS skriven_lokal,\n  replace(j.path, rtrim(j.path, replace(j.path, '/', '')), '') AS mapp,\n  e.key,\n  e.total_size,\n  CASE WHEN e.expiration > 0 THEN datetime(e.expiration / 1000, 'unixepoch', 'localtime') END AS gar_ut_lokal,\n  datetime(e.last_update_time / 1000, 'unixepoch') AS skriven_utc\nFROM journal_entry e\nJOIN journal j ON j._id = e.journal_id\nWHERE e.last_update_time BETWEEN {{unixMsStart}} AND {{unixMsEnd}}\nORDER BY e.last_update_time;"
+        },
+        {
+          "id": "tables",
+          "title": "Hjälp: tabeller och antal rader",
+          "subtitle": "Listar tabellerna i databasen. Bra för att se om journal_entry finns i den här Snapchat-versionen.",
+          "group": "advanced",
+          "params": [],
+          "returns": "tabellnamn",
+          "sql": "SELECT name AS tabell\nFROM sqlite_master\nWHERE type = 'table'\nORDER BY name;"
+        },
+        {
+          "id": "role-journal",
+          "hidden": true,
+          "role": "journal",
+          "title": "Härkomst: filhanterarens poster i tidsfönstret",
+          "description": "Används av Härkomst. Filhanterarens poster i fönstret med råa tider och mappens sökväg.",
+          "params": [
+            "timeStart",
+            "timeEnd"
+          ],
+          "epoch": "unixMs",
+          "fields": {
+            "key": "key",
+            "time": "last_update_time",
+            "size": "total_size",
+            "expires": "expiration",
+            "path": "path"
+          },
+          "sql": "SELECT\n  e.key,\n  e.last_update_time,\n  e.total_size,\n  e.expiration,\n  j.path\nFROM journal_entry e\nJOIN journal j ON j._id = e.journal_id\nWHERE e.last_update_time BETWEEN {{unixMsStart}} AND {{unixMsEnd}}\nORDER BY e.last_update_time\nLIMIT 500;"
+        },
+        {
+          "id": "role-coverage",
+          "hidden": true,
+          "role": "coverage",
+          "title": "Härkomst: täckning",
+          "params": [],
+          "epoch": "unixMs",
+          "fields": {
+            "first": "first_start",
+            "last": "last_start",
+            "rows": "n_rows"
+          },
+          "sql": "SELECT\n  MIN(last_update_time) AS first_start,\n  MAX(last_update_time) AS last_start,\n  COUNT(*) AS n_rows\nFROM journal_entry;"
+        }
+      ]
+    }
+  ]
+};
