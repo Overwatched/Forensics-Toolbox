@@ -230,6 +230,22 @@
         return wall - (zone.offsetMinutes || 0) * 60000;
     }
 
+    // EXIF-tiden ({ sort, zone } ur ExifCore) -> UTC-millisekunder. Har taggen ingen zon antas
+    // zone ({ name (IANA) | offsetMinutes }) med den förskjutning som gällde just då, så att en
+    // sommarbild inte räknas om med vintertid. assumed säger att zonen är antagen.
+    function exifTakenMs(taken, zone) {
+        if (!taken || !taken.sort) return { ms: null, assumed: false };
+        var m = /^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2}):(\d{2})(\.\d+)?/.exec(taken.sort);
+        if (!m) return { ms: null, assumed: false };
+        var parts = { y: Number(m[1]), mo: Number(m[2]), d: Number(m[3]), h: Number(m[4]), mi: Number(m[5]), s: Number(m[6]) };
+        var frac = m[7] ? Math.round(Number(m[7]) * 1000) : 0;
+        var z = taken.zone || '';
+        if (z === 'UTC') return { ms: toUtcMs(parts, { offsetMinutes: 0 }) + frac, assumed: false };
+        var zm = /^([+\-])(\d{2}):?(\d{2})$/.exec(z);
+        if (zm) return { ms: toUtcMs(parts, { offsetMinutes: (zm[1] === '-' ? -1 : 1) * (Number(zm[2]) * 60 + Number(zm[3])) }) + frac, assumed: false };
+        return { ms: toUtcMs(parts, zone || {}) + frac, assumed: true };
+    }
+
     // Träffarna närmast tidpunkten först, med deltaMs (negativt = före).
     function nearestFirst(rows, centerMs, key) {
         key = key || 'createdMs';
@@ -281,7 +297,7 @@
     var api = {
         decodeUserComment: decodeUserComment,
         kindOf: kindOf, mimeOf: mimeOf, baseName: baseName, thumbnailSuffix: thumbnailSuffix, suffixKeeper: suffixKeeper, pickBySuffix: pickBySuffix,
-        previewPlan: previewPlan, exifSummary: exifSummary, cardRows: cardRows, parseLocal: parseLocal, parseWhen: parseWhen, dateText: dateText, timeText: timeText, dayRange: dayRange, zoneOffsetAt: zoneOffsetAt, toUtcMs: toUtcMs,
+        previewPlan: previewPlan, exifSummary: exifSummary, cardRows: cardRows, parseLocal: parseLocal, parseWhen: parseWhen, dateText: dateText, timeText: timeText, dayRange: dayRange, zoneOffsetAt: zoneOffsetAt, toUtcMs: toUtcMs, exifTakenMs: exifTakenMs,
         nearestFirst: nearestFirst, deltaText: deltaText, mediaKeeper: mediaKeeper, entryMs: entryMs, dataUrl: dataUrl, THUMB_FILE: THUMB_FILE,
     };
     if (typeof module !== 'undefined' && module.exports) module.exports = api;

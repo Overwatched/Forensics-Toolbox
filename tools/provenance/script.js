@@ -18,7 +18,7 @@
         loaded: {},          // zip-postens namn -> laddad databas (bytes, stats, hashes, sqlDb …)
         exif: null,          // ExifTool-motorn
         model: null, meta: null, pngs: [],
-        ownFor: null,        // filnamnet som undersökarens ruta och bockar gäller
+        ownFor: null,        // filen (zip + rad eller sökväg) som undersökarens ruta och bockar gäller
         checked: {},         // faktor-id -> när undersökaren bockade i Kontrollerad (ms)
         preview: null,       // bilden i filkortet: { source, kind, note, url, mime, name, thumbName }
         showMedia: true,     // bilden visas i appen; av med knappen Dölj bilden
@@ -105,11 +105,12 @@
         var v = $('zone').value;
         if (v === 'file' && file && (file.zoneName || file.zoneOffset != null)) {
             var minutes = file.zoneOffset != null ? Math.round(Number(file.zoneOffset) / 60) : 0;
-            return { label: file.zoneName || offsetText(minutes), note: 'ur ' + (file.zoneSource || 'bildens ' + (file.zoneName ? 'ZTIMEZONENAME' : 'ZTIMEZONEOFFSET')), format: zoneFormatter(file.zoneName, minutes), offsetMinutes: minutes };
+            // Förskjutningen vid tagningen (ZTIMEZONEOFFSET) är exakt; finns bara zonnamnet räknas förskjutningen per tidpunkt.
+            return { label: file.zoneName || offsetText(minutes), note: 'ur ' + (file.zoneSource || 'bildens ' + (file.zoneName ? 'ZTIMEZONENAME' : 'ZTIMEZONEOFFSET')), format: zoneFormatter(file.zoneName, minutes), offsetMinutes: minutes, name: file.zoneOffset != null ? null : file.zoneName };
         }
-        if (v === 'utc') return { label: 'UTC', note: '', format: zoneFormatter('UTC', 0), offsetMinutes: 0 };
+        if (v === 'utc') return { label: 'UTC', note: '', format: zoneFormatter('UTC', 0), offsetMinutes: 0, name: 'UTC' };
         var local = localZone();
-        return { label: local || offsetText(-new Date().getTimezoneOffset()), note: 'datorns tidszon, antagen', format: zoneFormatter(local, -new Date().getTimezoneOffset()), offsetMinutes: -new Date().getTimezoneOffset() };
+        return { label: local || offsetText(-new Date().getTimezoneOffset()), note: 'datorns tidszon, antagen', format: zoneFormatter(local, -new Date().getTimezoneOffset()), offsetMinutes: -new Date().getTimezoneOffset(), name: local || null };
     }
 
     // ---------- Extraktionen ----------
@@ -222,13 +223,25 @@
     // Kör en rollquery och ger raderna med fältkartans namn. Varje körning sparas till protokollet.
     function runRole(loaded, query, values, timeKeys, run) {
         var sql = ProvenanceRoles.fill(query.sql, values);
-        var all = loaded.sqlDb.exec(sql);
+        var all;
+        try { all = loaded.sqlDb.exec(sql); } catch (err) { throw schemaError(err, loaded, query); }
         var res = all.length ? all[all.length - 1] : { columns: [], values: [] };
         // Sökvägen i zippen följer med, så att queryn kan öppnas och köras i Queries.
         var timeColumns = (timeKeys || []).map(function (k) { return ProvenanceRoles.fieldSpec(query, k); })
             .filter(function (t, i, a) { return t && a.findIndex(function (x) { return x && x.col === t.col; }) === i; });
         run.queries.push({ id: query.id, db: loaded.label, title: query.title, sql: sql, path: loaded.dbEntry.name, walPath: loaded.walEntry ? loaded.walEntry.name : null, timeColumns: timeColumns });
         return { rows: ProvenanceRoles.mapRows(query, res, timeKeys), result: res, sql: sql };
+    }
+
+    // En rollquery som saknar en tabell eller kolumn i databasen är nästan alltid skriven för en
+    // annan system- eller appversion än telefonens. Felet säger det i klartext.
+    function schemaError(err, loaded, query) {
+        var msg = err && err.message ? err.message : String(err);
+        if (!/no such (column|table)/i.test(msg)) return err;
+        var hint = /external\.db$/.test(loaded.dbEntry.name) ? ' Härkomsts MediaStore-queryer är skrivna för Android 11 och senare (kolumnerna relative_path, owner_package_name, is_pending och is_trashed).'
+            : /Photos\.sqlite$/.test(loaded.dbEntry.name) ? ' Photos-queryerna väljs efter iOS-versionen; kontrollera versionen, och se tabellerna med schema-probe i Queries.'
+                : ' Databasens tabeller ändras mellan system- och appversioner.';
+        return new Error(loaded.label + ' saknar en tabell eller kolumn som queryn ' + query.id + ' använder (' + msg + '). Databasen är troligen från en annan version än queryn är skriven för.' + hint);
     }
 
     function coverageFrom(rows, keyField) {
@@ -300,17 +313,10 @@
         });
     }
 
-    // EXIF-tiden i filen -> UTC-millisekunder. Utan zon i taggen antas bevisets zon.
-    function exifTakenMs(taken, offsetMinutes) {
-        if (!taken || !taken.sort) return { ms: null, assumed: false };
-        var m = /^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2}):(\d{2})(\.\d+)?/.exec(taken.sort);
-        if (!m) return { ms: null, assumed: false };
-        var base = Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]), Number(m[4]), Number(m[5]), Number(m[6])) + (m[7] ? Math.round(Number(m[7]) * 1000) : 0);
-        var z = taken.zone || '';
-        if (z === 'UTC') return { ms: base, assumed: false };
-        var zm = /^([+\-])(\d{2}):?(\d{2})$/.exec(z);
-        if (zm) return { ms: base - (zm[1] === '-' ? -1 : 1) * (Number(zm[2]) * 60 + Number(zm[3])) * 60000, assumed: false };
-        return { ms: base - (offsetMinutes || 0) * 60000, assumed: true };
+    // EXIF-tiden i filen -> UTC-millisekunder. Utan zon i taggen antas rapportens zon, med
+    // förskjutningen vid just den tidpunkten (sommartid).
+    function exifTakenMs(taken, zone) {
+        return ProvenanceMedia.exifTakenMs(taken, { name: zone.name, offsetMinutes: zone.offsetMinutes });
     }
 
     var EXIF_ROW_RE = /DateTimeOriginal|CreateDate|CreationDate|OffsetTime|:Make$|:Model$|Software|ModifyDate|GPS(Latitude|Longitude)$|ImageWidth$|ImageHeight$|FileType$|MIMEType$|UserComment|HostComputer|LensModel/;
@@ -357,6 +363,27 @@
         try { return window.ToolboxHashing ? window.ToolboxHashing.hashBytes(bytes, ['md5']).md5 : ''; } catch (e) { return ''; }
     }
     function tick() { return new Promise(function (r) { setTimeout(r, 0); }); }
+
+    // Medan en bedömning pågår går det inte att byta eller stänga zippen, fylla med testdata eller
+    // starta en ny körning: annars kunde svar ur två extraktioner hamna i samma protokoll.
+    var BUSY_IDS = ['run', 'run-time', 'ex-pick', 'ex-close', 'disk-pick', 'fill-sample', 'fill-sample-snap', 'fill-sample-android'];
+    var busyCount = 0;
+    var redoPending = false;
+    function busy(on) {
+        busyCount = Math.max(0, busyCount + (on ? 1 : -1));
+        BUSY_IDS.forEach(function (id) { if ($(id)) $(id).disabled = busyCount > 0; });
+        // Byttes tidszonen eller fönstret under körningen görs bedömningen om när den är klar.
+        if (!busyCount && redoPending) { redoPending = false; setTimeout(redoShown, 0); }
+    }
+    function isBusy() { return busyCount > 0; }
+    // Kör fn som en bedömning: knapparna är spärrade tills den är klar, och fel visas på statusraden.
+    function guarded(fn) {
+        busy(true);
+        return Promise.resolve().then(fn).catch(function (err) {
+            console.error(err);
+            setStatus('run-status', escapeHtml(err && err.message ? err.message : String(err)), 'err');
+        }).then(function () { busy(false); });
+    }
 
     // ---------- Filkortet: bilden ----------
 
@@ -501,11 +528,12 @@
         var range = { startMs: Math.min.apply(null, wins.map(function (w) { return w.startMs; })), endMs: Math.max.apply(null, wins.map(function (w) { return w.endMs; })) };
         var input = {
             platform: platform, file: fileRow, appNames: appName, cameraApps: cams, windowMs: windowMs, format: fmt,
-            fileSource: run.fileSource || { db: run.fileLabel, table: platform === 'Android' ? 'files' : fileQuery.sql.indexOf('ZGENERICASSET') >= 0 ? 'ZGENERICASSET' : 'ZASSET', column: fileQuery.fields.created.col || fileQuery.fields.created, queryId: fileQuery.id },
+            fileSource: run.fileSource || { db: run.fileLabel, table: platform === 'Android' ? 'files' : fileQuery.sql.indexOf('ZGENERICASSET') >= 0 ? 'ZGENERICASSET' : 'ZASSET', column: ProvenanceRoles.fieldSpec(fileQuery, 'created').col, queryId: fileQuery.id },
             appIntervals: [], screen: [], lock: [], locations: [], neighbours: [], coverage: {}, missingDbs: {}, warnings: [], copies: [], extraEvents: [], extraNotes: [],
             cameraUse: [], androidLog: null,
         };
         if (fileRow.createdFrom === 'date_added') input.fileSource = Object.assign({}, input.fileSource, { column: 'date_added (datetaken saknas)' });
+        if (run.bandNote) input.warnings.push(run.bandNote);
         var meta = { sources: [], queries: run.queries, coverage: [], fileRows: [], exifRows: [], fileEntry: null, fileMissingReason: '', timelinePngs: [], copiesNote: '' };
 
         // Grannar ur samma databas som filen, eller ur bildbiblioteket när filen ligger utanför det.
@@ -513,7 +541,7 @@
         var nbRoles = run.neighbourRoles || fileRoles;
         if (nbRoles.neighbours) {
             input.neighbours = androidCreatedFallback(runRole(run.neighbourDb || run.fileDb, nbRoles.neighbours, { window: range }, ['created', 'added'], run).rows);
-            input.neighbourSource = run.neighbourSource || { db: run.fileLabel, table: input.fileSource.table, column: nbRoles.neighbours.fields.created, queryId: nbRoles.neighbours.id };
+            input.neighbourSource = run.neighbourSource || { db: run.fileLabel, table: input.fileSource.table, column: ProvenanceRoles.fieldSpec(nbRoles.neighbours, 'created').col, queryId: nbRoles.neighbours.id };
         }
         var seq = /^(.*?)(\d+)(\.[^.]+)$/.exec(fileRow.filename || '');
         if (fileRoles.sequence && seq) {
@@ -530,7 +558,9 @@
         // App, skärm, lås: knowledgeC på iOS, Wellbeing på Android.
         if (platform === 'iOS') {
             var kc = hitFor('knowledgec');
-            if (kc) {
+            // En databas som inte går att läsa (annat schema, trasig fil) stoppar inte bedömningen:
+            // faktorerna säger att den inte kunde läsas, och felet står bland varningarna.
+            if (kc) try {
                 var kcSrc = sourceByKey('knowledgec');
                 var kcDb = await loadDb(kc, kcSrc.title);
                 var mk = function (stream, cols, qid) { return { db: 'knowledgeC.db', table: 'ZOBJECT', stream: stream, column: cols, queryId: qid }; };
@@ -564,12 +594,16 @@
                     ['/app/usage', '/app/inFocus', '/display/isBacklit', '/device/isLocked'].forEach(function (s) { if (!input.coverage[s]) input.coverage[s] = { firstMs: null, lastMs: null, rows: 0 }; });
                 }
                 input.warnings = input.warnings.concat(kcDb.warnings);
+            } catch (e) {
+                input.warnings.push('knowledgeC.db kunde inte läsas: ' + e.message);
+                input.missingDbs['/app/usage'] = 'unread';
+                input.missingDbs['/display/isBacklit'] = 'unread';
             } else {
                 input.missingDbs['/app/usage'] = true;
                 input.missingDbs['/display/isBacklit'] = true;
             }
             var rt = hitFor('routined-cache');
-            if (rt) {
+            if (rt) try {
                 var rtSrc = sourceByKey('routined-cache');
                 var rtDb = await loadDb(rt, rtSrc.title);
                 if (rtSrc.roles.location) {
@@ -580,13 +614,16 @@
                     });
                 }
                 input.warnings = input.warnings.concat(rtDb.warnings);
+            } catch (e) {
+                input.warnings.push('routined Cache.sqlite kunde inte läsas: ' + e.message);
+                input.missingDbs.routined = 'unread';
             } else {
                 input.missingDbs.routined = true;
             }
         } else {
             input.missingDbs.routined = true;
             var wb = hitFor('wellbeing');
-            if (wb) {
+            if (wb) try {
                 var wbSrc = sourceByKey('wellbeing');
                 var wbDb = await loadDb(wb, wbSrc.title);
                 var wbSource = { db: 'app_usage', table: 'events', column: 'timestamp, type, package_name', queryId: wbSrc.roles['app-events'].id };
@@ -605,6 +642,9 @@
                     }
                 }
                 input.warnings = input.warnings.concat(wbDb.warnings);
+            } catch (e) {
+                input.warnings.push('Wellbeing (app_usage) kunde inte läsas: ' + e.message);
+                input.missingDbs.wellbeing = 'unread';
             } else {
                 input.missingDbs.wellbeing = true;
             }
@@ -635,7 +675,7 @@
                     setStatus('run-status', 'Läser EXIF ur bildfilen…');
                     var tags = await readTags(read.bytes, fileRow.filename);
                     var sum = ExifCore.summarize(tags, fileRow.filename);
-                    var taken = exifTakenMs(sum.taken, zone.offsetMinutes);
+                    var taken = exifTakenMs(sum.taken, zone);
                     input.exif = {
                         read: true, takenMs: taken.ms, takenText: sum.taken ? sum.taken.text + (taken.assumed ? ' (zon antagen: ' + zone.label + ')' : '') : '',
                         position: sum.position && !sum.position.zero ? { lat: sum.position.lat, lon: sum.position.lon, accuracy: sum.position.accuracy, source: sum.position.source } : null,
@@ -655,7 +695,7 @@
                         var pr = await ExtractionCore.readEntry(state.zip.read, media.paired);
                         var ptags = await readTags(pr.bytes, media.paired.name.slice(media.paired.name.lastIndexOf('/') + 1));
                         var psum = ExifCore.summarize(ptags, media.paired.name);
-                        var pt = exifTakenMs(psum.taken, zone.offsetMinutes);
+                        var pt = exifTakenMs(psum.taken, zone);
                         if (pt.ms) input.pairedVideo = { name: media.paired.name.slice(media.paired.name.lastIndexOf('/') + 1), takenMs: pt.ms, source: { db: 'bildfilen', table: media.paired.name.slice(media.paired.name.lastIndexOf('/') + 1), column: psum.taken.source } };
                     } catch (e) { input.warnings.push('Live Photo-videon kunde inte läsas: ' + e.message); }
                 }
@@ -728,9 +768,14 @@
         var fmtU = ProvenanceCore.formatUtc;
         var dailies = L.pickDaily(logs.daily, range);
         var vi = logs.versionInfo || { version: null };
-        if (logs.mappings && dailies.length && vi.version != null && vi.version !== 5 && vi.version !== 4) {
-            input.warnings.push('usagestats har version ' + vi.version + ' (XML, Android 9 eller äldre), som inte läses. App, skärm och lås kommer då bara ur Wellbeing om den finns.');
-        } else if ((logs.mappings || vi.version === 4) && dailies.length) {
+        // Version 4 har strängarna i dagsfilen, version 5 i mappings. Version 3 och äldre är XML.
+        var canDecode = vi.version === 4 || (!!logs.mappings && (vi.version == null || vi.version === 5));
+        if (dailies.length && !canDecode) {
+            input.warnings.push('usagestats finns men läses inte: ' + (vi.version != null && vi.version < 4
+                ? 'version ' + vi.version + ' är XML (Android 9 eller äldre).'
+                : 'version ' + (vi.version == null ? 'okänd' : vi.version) + (logs.mappings ? '' : ' utan mappings-filen') + ', som Härkomst inte kan avkoda.') +
+                ' App, skärm och lås kommer då bara ur Wellbeing om den finns.');
+        } else if (dailies.length) {
             setStatus('run-status', 'Läser usagestats (app, skärm, lås)…');
             var map = null;
             if (logs.mappings) {
@@ -990,7 +1035,9 @@
 
     // Bildbibliotekets databas (Photos.sqlite på iOS, MediaStore på Android) med rollqueryerna för
     // versionen, eller null när den inte finns i zippen.
-    function libraryPick() {
+    // Saknas iOS-versionen i zippen väljs Photos-queryerna efter databasens egna tabeller och
+    // kolumner, och protokollet får en varning (bandNote) om hur de valdes.
+    async function libraryPick() {
         var z = state.zip;
         var key = z.platform === 'iOS' ? 'photos' : 'android-mediastore';
         var hit = z.found.find(function (f) { return f.key === key && f.primary; }) || hitFor(key);
@@ -998,8 +1045,28 @@
         if (!hit || !src) return null;
         var dbPick = ExtractionCore.dbForVersion(state.targets.find(function (t) { return t.key === key; }), z.version);
         var roles = ProvenanceRoles.rolesFor(src, { dbId: dbPick.db.id, version: z.version });
+        var guessed = !!(dbPick.guessed && src.bands);
+        var bandNote = '';
+        if (guessed) {
+            var band = null;
+            try {
+                var schema = photosSchema(await loadDb(hit, src.title));
+                band = ProvenanceRoles.photosBandFromSchema(schema.tables, schema.columns);
+            } catch (e) { band = null; }
+            if (band) roles = ProvenanceRoles.rolesFor(src, { dbId: band.id });
+            bandNote = 'iOS-versionen hittades inte i zippen (SystemVersion.plist saknas eller går inte att läsa). ' + (band
+                ? 'Photos-queryerna valdes efter databasen: ' + band.why + '.'
+                : 'Photos-queryerna för ' + src.bands[src.bands.length - 1].label + ' används. Kontrollera versionen.');
+        }
         var table = z.platform === 'Android' ? 'files' : roles.file && roles.file.sql.indexOf('ZGENERICASSET') >= 0 ? 'ZGENERICASSET' : 'ZASSET';
-        return { key: key, hit: hit, src: src, roles: roles, table: table, guessed: !!(dbPick.guessed && src.bands) };
+        return { key: key, hit: hit, src: src, roles: roles, table: table, guessed: guessed, bandNote: bandNote };
+    }
+
+    // Tabellerna och kolumnerna i ZADDITIONALASSETATTRIBUTES, för valet av Photos-band.
+    function photosSchema(loaded) {
+        var t = loaded.sqlDb.exec("SELECT name FROM sqlite_master WHERE type = 'table'");
+        var c = loaded.sqlDb.exec('PRAGMA table_info(ZADDITIONALASSETATTRIBUTES)');
+        return { tables: t.length ? t[0].values.map(function (r) { return r[0]; }) : [], columns: c.length ? c[0].values.map(function (r) { return r[1]; }) : [] };
     }
 
     // GUID:erna för Snapchats appbehållare och appgrupp, lästa ur var dess databaser hittades, så
@@ -1060,6 +1127,7 @@
     // cache, vars tidpunkt kommer ur cache_controller. Annars används EXIF-tiden eller zippens ändringstid.
     // priorQueries: queries som redan körts (sökningen i bildbiblioteket utan träff), så att de står i protokollet.
     async function assessEntry(entry, windowMs, priorQueries) {
+        state.redo = function () { return assessEntry(entry, Number($('window').value) * 60000, priorQueries).then(function () { setStatus('run-status', ''); }); };
         var z = state.zip;
         var runLog = { queries: (priorQueries || []).slice(), fileDb: null, fileLabel: '', fileRoles: null, mediaEntry: entry };
         var name = ExtractionCore.baseName(entry.name);
@@ -1114,7 +1182,7 @@
                     var r = await ExtractionCore.readEntry(z.read, entry);
                     var tags = await readTags(r.bytes, name);
                     var sum = ExifCore.summarize(tags, name);
-                    var taken = exifTakenMs(sum.taken, zone0.offsetMinutes);
+                    var taken = exifTakenMs(sum.taken, zone0);
                     if (taken.ms) { fileRow.createdMs = taken.ms; tSource = { db: 'bildfilen', table: name, column: sum.taken.source }; }
                 } catch (e) { /* ingen EXIF */ }
             }
@@ -1125,11 +1193,12 @@
         runLog.fileSource = tSource;
         runLog.fileLabel = tSource.db;
         // Bilderna i biblioteket runt tidpunkten visas även för en fil utanför biblioteket.
-        var lib = libraryPick();
+        var lib = await libraryPick();
+        if (lib && lib.bandNote) runLog.bandNote = lib.bandNote;
         if (lib && lib.roles.neighbours) {
             runLog.neighbourDb = await loadDb(lib.hit, lib.src.title);
             runLog.neighbourRoles = { neighbours: lib.roles.neighbours };
-            runLog.neighbourSource = { db: lib.src.title, table: lib.table, column: lib.roles.neighbours.fields.created, queryId: lib.roles.neighbours.id };
+            runLog.neighbourSource = { db: lib.src.title, table: lib.table, column: ProvenanceRoles.fieldSpec(lib.roles.neighbours, 'created').col, queryId: lib.roles.neighbours.id };
         }
         fillZoneSelect(fileRow);
         setStatus('run-status', 'Hämtar registreringar…');
@@ -1144,7 +1213,7 @@
         var hits = ProvenanceCopies.byName(entries, filename);
         if (!hits.length) { setStatus('run-status', 'Ingen rad med filnamnet ' + escapeHtml(filename) + ' i bildbiblioteket, och ingen fil med det namnet i zippen. Namnet måste vara exakt, med ändelse.', 'warn'); return; }
         if (hits.length === 1) { await assessEntry(hits[0], windowMs, priorQueries); return; }
-        renderEntryHits(hits, 'Filnamnet finns på ' + hits.length + ' ställen i zippen, men inte i bildbiblioteket. Välj vilken post som ska bedömas.', function (e) { assessEntry(e, Number($('window').value) * 60000, priorQueries).then(function () { setStatus('run-status', ''); }).catch(function (err) { setStatus('run-status', escapeHtml(err.message), 'err'); }); });
+        renderEntryHits(hits, 'Filnamnet finns på ' + hits.length + ' ställen i zippen, men inte i bildbiblioteket. Välj vilken post som ska bedömas.', function (e) { guarded(function () { return assessEntry(e, Number($('window').value) * 60000, priorQueries).then(function () { setStatus('run-status', ''); }); }); });
     }
 
     // Poster i zippen att välja bland, med tumnagel för bildfiler. opts: { target (behållarens id,
@@ -1163,7 +1232,10 @@
             }).join('') + '</tbody></table>';
         box.classList.remove('display-none');
         box.querySelectorAll('tr.pick').forEach(function (tr) {
-            tr.addEventListener('click', function () { $('hits').classList.add('display-none'); $('hits-entries').classList.add('display-none'); onPick(hits[Number(tr.getAttribute('data-i'))]); });
+            tr.addEventListener('click', function () {
+                if (isBusy()) return;
+                $('hits').classList.add('display-none'); $('hits-entries').classList.add('display-none'); onPick(hits[Number(tr.getAttribute('data-i'))]);
+            });
         });
         if (!opts.heading) setStatus('run-status', escapeHtml(text));
         fillEntryThumbs(box, hits).catch(function () {});
@@ -1193,7 +1265,7 @@
         var z = state.zip;
         if (!z || !z.platform) { setStatus('run-status', 'Öppna en extraktion först.', 'warn'); return; }
         if (file.size > MAX_MEDIA) { setStatus('run-status', 'Filen är ' + ExtractionCore.sizeText(file.size) + ', över gränsen på 200 MB.', 'warn'); return; }
-        $('run').disabled = true;
+        busy(true);
         $('hits').classList.add('display-none');
         $('result').classList.add('display-none');
         try {
@@ -1218,12 +1290,12 @@
                 }
             };
             if (hits.length === 1) { setStatus('run-status', escapeHtml(head) + 'Samma innehåll finns på ett ställe i zippen.'); await pick(hits[0]); return; }
-            renderEntryHits(hits, head + 'Samma innehåll finns på ' + hits.length + ' ställen i zippen. Välj vilken post som ska bedömas.', function (e) { pick(e).catch(function (err) { setStatus('run-status', escapeHtml(err.message), 'err'); }); });
+            renderEntryHits(hits, head + 'Samma innehåll finns på ' + hits.length + ' ställen i zippen. Välj vilken post som ska bedömas.', function (e) { guarded(function () { return pick(e); }); });
         } catch (err) {
             console.error(err);
             setStatus('run-status', escapeHtml(err && err.message ? err.message : String(err)), 'err');
         } finally {
-            $('run').disabled = false;
+            busy(false);
         }
     }
 
@@ -1257,6 +1329,7 @@
     // protokollet är den riktiga ur katalogerna, ifylld för fönstret, i samma ordning som en körning.
     async function fillSample(kind) {
         closeZip();
+        state.redo = function () { return fillSample(kind); };
         var deps = { snapchat: window.ProvenanceSnapchat, copies: window.ProvenanceCopies };
         var s = kind === 'snapchat' ? ProvenanceSample.snapchatScenario(deps) : kind === 'android' ? ProvenanceSample.androidScenario(deps) : ProvenanceSample.scenario(deps);
         fillZoneSelect(s.file);
@@ -1327,7 +1400,7 @@
         var filename = $('filename').value.trim();
         if (!filename) { setStatus('run-status', 'Ange ett filnamn, eller sök på en tidpunkt.', 'warn'); return; }
         var pk = opts && opts.pk != null && typeof opts.pk !== 'object' ? String(opts.pk) : null;
-        $('run').disabled = true;
+        busy(true);
         releaseHitUrls();
         $('hits').classList.add('display-none');
         $('hits-entries').classList.add('display-none');
@@ -1335,7 +1408,7 @@
         try {
             var runLog = { queries: [] };
             var windowMs = Number($('window').value) * 60000;
-            var lib = libraryPick();
+            var lib = await libraryPick();
             if (!lib) {
                 setStatus('run-status', 'Bildbibliotekets databas finns inte i zippen. Söker filnamnet i hela zippen…');
                 await runOutsideLibrary(filename, windowMs, []);
@@ -1348,7 +1421,7 @@
             runLog.fileDb = db;
             runLog.fileLabel = src.title;
             runLog.fileRoles = roles;
-            if (lib.guessed) runLog.guessed = true;
+            if (lib.bandNote) runLog.bandNote = lib.bandNote;
             var hits = androidCreatedFallback(runRole(db, roles.file, { filename: filename }, TIME_KEYS, runLog).rows);
             // Exakt ZFILENAME först. En träff på ZORIGINALFILENAME är ofta en molnkopia med annat namn.
             hits.sort(function (a, b) { return (b.filename === filename) - (a.filename === filename) || (a.createdMs || 0) - (b.createdMs || 0); });
@@ -1358,26 +1431,31 @@
                 return;
             }
             if (hits.length === 1) {
-                fillZoneSelect(hits[0]);
+                var only = hits[0];
+                state.redo = function () { $('filename').value = filename; return run({ pk: only.pk }); };
+                fillZoneSelect(only);
                 setStatus('run-status', 'Hämtar registreringar…');
-                await assess(hits[0], roles.file, windowMs, runLog);
+                await assess(only, roles.file, windowMs, runLog);
                 setStatus('run-status', '');
                 return;
             }
             fillZoneSelect(hits[0]);
             renderHits(hits, function (row) {
                 $('hits').classList.add('display-none');
-                setStatus('run-status', 'Hämtar registreringar…');
-                var log = { queries: runLog.queries.slice(), fileDb: db, fileLabel: src.title, fileRoles: roles };
-                assess(row, roles.file, Number($('window').value) * 60000, log).then(function () { setStatus('run-status', ''); })
-                    .catch(function (err) { setStatus('run-status', escapeHtml(err.message), 'err'); });
+                // Samma rad igen (tidszon eller fönster ändrat) görs om via run, som hämtar raden på nytt.
+                state.redo = function () { $('filename').value = filename; return run({ pk: row.pk }); };
+                guarded(function () {
+                    setStatus('run-status', 'Hämtar registreringar…');
+                    var log = { queries: runLog.queries.slice(), fileDb: db, fileLabel: src.title, fileRoles: roles, bandNote: runLog.bandNote };
+                    return assess(row, roles.file, Number($('window').value) * 60000, log).then(function () { setStatus('run-status', ''); });
+                });
             });
             setStatus('run-status', hits.length + ' rader har det filnamnet. Välj vilken som ska bedömas.');
         } catch (err) {
             console.error(err);
             setStatus('run-status', escapeHtml(err && err.message ? err.message : String(err)), 'err');
         } finally {
-            $('run').disabled = false;
+            busy(false);
         }
     }
 
@@ -1395,7 +1473,7 @@
             }).join('') + '</tbody></table>';
         $('hits').classList.remove('display-none');
         $('hits').querySelectorAll('tr.pick').forEach(function (tr) {
-            tr.addEventListener('click', function () { onPick(hits[Number(tr.getAttribute('data-i'))]); });
+            tr.addEventListener('click', function () { if (!isBusy()) onPick(hits[Number(tr.getAttribute('data-i'))]); });
         });
         fillHitDetails(hits).catch(function () {});
     }
@@ -1487,14 +1565,13 @@
         var centerMs = dayOnly ? null : ProvenanceMedia.toUtcMs(parts, zone);
         var minutes = Number($('window').value);
         var range = dayOnly ? ProvenanceMedia.dayRange(parts, zone) : { startMs: centerMs - minutes * 60000, endMs: centerMs + minutes * 60000 };
-        $('run').disabled = true;
-        $('run-time').disabled = true;
+        busy(true);
         releaseHitUrls();
         $('hits').classList.add('display-none');
         $('hits-entries').classList.add('display-none');
         $('result').classList.add('display-none');
         try {
-            var lib = libraryPick();
+            var lib = await libraryPick();
             var rows = [];
             if (lib && lib.roles.neighbours) {
                 setStatus('run-status', 'Läser ' + escapeHtml(lib.src.title) + ' och -wal…');
@@ -1539,8 +1616,7 @@
             console.error(err);
             setStatus('run-status', escapeHtml(err && err.message ? err.message : String(err)), 'err');
         } finally {
-            $('run').disabled = false;
-            $('run-time').disabled = false;
+            busy(false);
         }
     }
     function pickLibraryRow(row) {
@@ -1551,8 +1627,7 @@
     }
     function pickTimedEntry(e) {
         $('filename').value = ExtractionCore.baseName(e.name);
-        assessEntry(e, Number($('window').value) * 60000).then(function () { setStatus('run-status', ''); })
-            .catch(function (err) { setStatus('run-status', escapeHtml(err.message), 'err'); });
+        guarded(function () { return assessEntry(e, Number($('window').value) * 60000).then(function () { setStatus('run-status', ''); }); });
     }
 
     // ---------- Kartan ----------
@@ -1670,6 +1745,16 @@
 
     function badge(model, stateName) {
         return '<span class="badge ' + escapeHtml(stateName) + '">' + escapeHtml(model.stateLabel[stateName] || stateName) + '</span>';
+    }
+
+    // Undersökarens ruta och bockar hör till en fil i en extraktion. Samma filnamn i en annan zip,
+    // på en annan rad eller på en annan plats i zippen börjar med en tom ruta; samma fil igen
+    // (till exempel med en annan tidszon eller ett annat fönster) behåller det som skrivits.
+    function assessmentKey(file) {
+        var z = state.zip;
+        var zip = z ? [z.file.name, z.file.size, z.file.lastModified].join('|') : 'testdata';
+        var where = file.pk != null ? 'rad ' + file.pk : (file.directory || file.relativePath || '') + '/' + file.filename;
+        return zip + '|' + where;
     }
 
     function updateCheckCount() {
@@ -1799,7 +1884,8 @@
         var m = state.model;
         var meta = state.meta;
         var fmt = meta.format;
-        if (state.ownFor !== m.file.filename) { $('own-assessment').value = ''; state.checked = {}; state.ownFor = m.file.filename; state.includePicture = false; }
+        var own = assessmentKey(m.file);
+        if (state.ownFor !== own) { $('own-assessment').value = ''; state.checked = {}; state.ownFor = own; state.includePicture = false; }
         renderFileCard();
         $('summary').innerHTML =
             (m.beta ? '<div class="type-line"><span class="badge beta">Beta</span> ' + escapeHtml(ProvenanceReport.BETA_NOTE) + '</div>' : '') +
@@ -1851,7 +1937,9 @@
         renderPositions(m, fmt);
         renderCopies(m);
         $('result').classList.remove('display-none');
-        $('result').scrollIntoView({ block: 'start', behavior: 'smooth' });
+        if (!state.keepScroll) $('result').scrollIntoView({ block: 'start', behavior: 'smooth' });
+        // Kartan kan ta en stund (eller ge upp efter 15 s utan kartfiler). Resultatet är redan klart.
+        if (/Letar efter kopior|Läser bildfilen|Hämtar registreringar/.test($('run-status').textContent)) setStatus('run-status', '');
         await showMap(m, fmt);
     }
 
@@ -1929,6 +2017,16 @@
         download(new Blob(['﻿' + html], { type: 'text/html;charset=utf-8' }), 'harkomst-' + state.model.file.filename.replace(/\.[^.]+$/, '') + '-' + (kind === 'protocol' ? 'protokoll' : 'forklaring') + '-' + stamp() + '.html');
     }
 
+    // Tidszonen och fönstret gäller hela bedömningen. Byts de medan ett resultat visas görs samma
+    // bedömning om, så att tidslinjen, tabellerna och exporterna inte står kvar med de gamla.
+    function redoShown() {
+        if (isBusy()) { redoPending = true; return; }
+        if (!state.model || !state.redo || $('result').classList.contains('display-none')) return;
+        var y = window.scrollY;
+        state.keepScroll = true;
+        guarded(state.redo).then(function () { state.keepScroll = false; window.scrollTo(0, y); });
+    }
+
     // ---------- Start ----------
 
     async function init() {
@@ -1987,15 +2085,17 @@
         if (file) runDiskFile(file);
     });
     $('run').addEventListener('click', function () { run(); });
-    $('filename').addEventListener('keydown', function (e) { if (e.key === 'Enter') run(); });
+    $('filename').addEventListener('keydown', function (e) { if (e.key === 'Enter' && !isBusy()) run(); });
     $('run-time').addEventListener('click', runTime);
     ['when-date', 'when-time'].forEach(function (id) {
-        $(id).addEventListener('keydown', function (e) { if (e.key === 'Enter') runTime(); });
+        $(id).addEventListener('keydown', function (e) { if (e.key === 'Enter' && !isBusy()) runTime(); });
         $(id).addEventListener('input', updateWhenNote);
     });
     $('when-date').addEventListener('paste', pasteWhen);
     $('zone').addEventListener('change', updateWhenNote);
     $('window').addEventListener('change', updateWhenNote);
+    $('zone').addEventListener('change', redoShown);
+    $('window').addEventListener('change', redoShown);
     $('file-card').addEventListener('click', function (e) {
         if (!e.target.closest('#toggle-media')) return;
         state.showMedia = !state.showMedia;

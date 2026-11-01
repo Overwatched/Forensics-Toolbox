@@ -161,3 +161,16 @@ test('UserComment: Snapchats user agent avkodas ur base64, andra kommentarer vis
     assert.deepStrictEqual(rows, [['Mått', '1080 × 1920'], ['App (UserComment)', 'Snapchat/14.30.0.54 (AC2003; Android 13#f8fb74d040#33; gzip) V/MUSHROOM (base64 i taggen)']]);
     assert.deepStrictEqual(media.exifSummary([['QuickTime:Description', b64]])[0][1].slice(0, 19), 'Snapchat/14.30.0.54');
 });
+
+test('EXIF-tid utan zon räknas om med förskjutningen vid tagningen, inte dagens', () => {
+    const summer = { sort: '2026-07-01 12:00:00', zone: '' };
+    const winter = { sort: '2026-01-15 12:00:00.250', zone: '' };
+    const sthlm = { name: 'Europe/Stockholm', offsetMinutes: 60 };
+    assert.deepStrictEqual(media.exifTakenMs(summer, sthlm), { ms: Date.UTC(2026, 6, 1, 10, 0, 0), assumed: true }, 'sommartid +02:00 även om datorn just nu har +01:00');
+    assert.deepStrictEqual(media.exifTakenMs(winter, sthlm), { ms: Date.UTC(2026, 0, 15, 11, 0, 0) + 250, assumed: true });
+    assert.strictEqual(media.exifTakenMs(summer, { name: null, offsetMinutes: 120 }).ms, Date.UTC(2026, 6, 1, 10, 0, 0), 'bara förskjutning');
+    assert.strictEqual(media.exifTakenMs(summer, { name: 'GMT-0700', offsetMinutes: -420 }).ms, Date.UTC(2026, 6, 1, 19, 0, 0), 'okänt zonnamn: förskjutningen');
+    assert.deepStrictEqual(media.exifTakenMs({ sort: '2026-07-01 12:00:00', zone: '+02:00' }, { name: 'UTC' }), { ms: Date.UTC(2026, 6, 1, 10, 0, 0), assumed: false }, 'zonen i taggen gäller');
+    assert.deepStrictEqual(media.exifTakenMs({ sort: '2026-07-01 12:00:00', zone: 'UTC' }, sthlm), { ms: Date.UTC(2026, 6, 1, 12, 0, 0), assumed: false });
+    assert.deepStrictEqual(media.exifTakenMs(null, sthlm), { ms: null, assumed: false });
+});

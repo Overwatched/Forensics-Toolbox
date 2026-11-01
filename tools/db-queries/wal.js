@@ -68,8 +68,9 @@
             uncommittedFrames: 0, oldFrames: 0, brokenFrames: 0,
             commits: 0, pages: 0, error: '',
         };
+        // En tom -wal (0 byte) är det vanliga läget efter en checkpoint: inga ramar att lägga på.
         if (!wal || !wal.byteLength) {
-            stats.error = 'Tom -wal-fil';
+            stats.empty = true;
             return { bytes: unWal(db.slice()), stats: stats };
         }
         wal = wal instanceof Uint8Array ? wal : new Uint8Array(wal);

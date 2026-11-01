@@ -25,12 +25,20 @@
 
     function targets() { return ExtractionCore.targets(window.QueriesApp.databases()); }
 
+    // Var en databas på en annan sökväg än katalogens första ligger. MediaStore ligger i
+    // mediemodulen från Android 11, och det är den vanliga platsen där.
+    function placeNote(name) {
+        if (/Syndication\.photoslibrary/.test(name)) return 'Delat med dig (Syndication)';
+        if (/providers\.media\.module\//.test(name)) return 'mediemodulen, Android 11 och senare';
+        return 'annan plats än den vanliga';
+    }
+
     // Etiketten för en träff: katalogens namn, plus var den ligger om det inte är den vanliga platsen.
     function describe(f) {
         var target = targets().find(function (x) { return x.key === f.key; });
         var pick = ExtractionCore.dbForVersion(target, current.version);
         var notes = [];
-        if (!f.primary) notes.push(/Syndication\.photoslibrary/.test(f.db.name) ? 'Delat med dig (Syndication)' : 'annan plats än den vanliga');
+        if (!f.primary) notes.push(placeNote(f.db.name));
         if (f.user) notes.push('användare ' + f.user);
         if (pick.guessed) notes.push('iOS-versionen hittades inte, kontrollera versionen');
         return { db: pick.db, label: pick.db.label, notes: notes, guessed: pick.guessed };
@@ -133,6 +141,17 @@
         layout();
     }
 
+    // Korten på startsidan märks med vad som finns i zippen, och ett klick väljer databasen ur den.
+    function announce() {
+        window.QueriesApp.setExtraction(current ? {
+            families: new Set(current.found.map(function (f) { return f.key; })),
+            pick: function (family) {
+                var i = current.found.findIndex(function (f) { return f.key === family; });
+                if (i >= 0) use(i);
+            },
+        } : null);
+    }
+
     async function open(file) {
         close();
         status.textContent = 'Läser zippens innehållsförteckning…';
@@ -140,18 +159,14 @@
         var opened = await ExtractionCore.open(read, file.size, targets(), function (done, total) {
             status.textContent = 'Läser zippens innehållsförteckning… ' + Math.round(100 * done / total) + ' %';
         });
-        current = { file: file, read: read, scan: opened.scan, found: opened.found, version: opened.version, chosen: -1 };
         var secs = opened.seconds.toFixed(1).replace('.', ',');
-        status.textContent = opened.found.length + (opened.found.length === 1 ? ' databas hittades' : ' databaser hittades') +
-            ' på ' + secs + ' s.' + (opened.found.length ? ' Välj en här eller bland korten nedan.' : '');
-        var families = new Set(opened.found.map(function (f) { return f.key; }));
-        window.QueriesApp.setExtraction({
-            families: families,
-            pick: function (family) {
-                var i = current.found.findIndex(function (f) { return f.key === family; });
-                if (i >= 0) use(i);
-            },
-        });
+        current = {
+            file: file, read: read, scan: opened.scan, found: opened.found, version: opened.version, chosen: -1,
+            statusText: opened.found.length + (opened.found.length === 1 ? ' databas hittades' : ' databaser hittades') +
+                ' på ' + secs + ' s.' + (opened.found.length ? ' Välj en här eller bland korten nedan.' : ''),
+        };
+        status.textContent = current.statusText;
+        announce();
         render();
         layout();
     }
@@ -173,14 +188,22 @@
         return true;
     }
 
+    // Varje flik har sin egen extraktion: en query från Härkomst kan komma från en annan zip än
+    // den som är öppen i de andra flikarna. En ny flik börjar med zippen som var öppen.
     window.QueriesExtraction = {
         ensure: ensure,
         useByPath: useByPath,
-        snapshot: function () { return current ? { file: current.file, chosen: current.chosen } : null; },
+        snapshot: function () { return { ex: current, chosen: current ? current.chosen : -1 }; },
         restore: function (s) {
-            if (!current) return;
-            current.chosen = s && s.file === current.file ? s.chosen : -1;
-            setTimeout(function () { render(); layout(); }, 0);
+            var next = s && s.ex ? s.ex : null;
+            if (next !== current) {
+                current = next;
+                list.innerHTML = '';
+                status.textContent = current ? current.statusText || '' : '';
+                announce();
+            }
+            if (current) current.chosen = s ? s.chosen : -1;
+            setTimeout(function () { if (current) render(); layout(); }, 0);
         },
     };
 

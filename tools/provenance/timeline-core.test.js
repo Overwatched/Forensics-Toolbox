@@ -228,3 +228,33 @@ test('varje fönster har en närbild, och förklaringens rader vet sin källa oc
     assert.strictEqual(lines.find((l) => l.text === 'Skärmen tänds').near, false, '3 min före T ligger utanför närbilden');
     assert.ok(lines.every((l) => typeof l.near === 'boolean'));
 });
+
+test('Tillagd före Skapad sägs som före, inte efter', () => {
+    const m = core.build(input({ file: cameraFile({ addedMs: T - 2 * 3600 * S, modifiedMs: T - 2 * 3600 * S }) }));
+    const item = m.factors[0].items[0];
+    assert.strictEqual(item.state, 'info');
+    assert.match(item.text, /^Tillagd i biblioteket 2 h 0 min före Skapad\. Skapad ligger efter tiden då filen lades till\./);
+    const close = core.build(input({ file: cameraFile({ addedMs: T - 20 * S }) }));
+    assert.match(close.factors[0].items[0].text, /^Tillagd i biblioteket 20 s före Skapad\. Filen hamnade/);
+});
+
+test('ett hopslaget intervall med öppet slut är fortfarande öppet, och får ingen påhittad sluttid', () => {
+    const merged = core.mergeIntervals([
+        { startMs: 0, endMs: 1000, app: 'a', stream: 's' },
+        { startMs: 1500, endMs: 60000, app: 'a', stream: 's', openEnded: true },
+    ]);
+    assert.strictEqual(merged.length, 1);
+    assert.strictEqual(merged[0].openEnded, true);
+    const m = core.build(input({ appIntervals: [
+        { startMs: T - 20 * S, endMs: T - 19 * S, app: 'com.apple.camera', stream: '/app/usage', source: KC },
+        { startMs: T - 18 * S, endMs: T + 5 * M, app: 'com.apple.camera', stream: '/app/usage', source: KC, openEnded: true },
+    ] }));
+    assert.ok(!m.narrative[0].lines.some((l) => l.text === 'Kamera lämnas'), 'slutet är okänt');
+});
+
+test('en databas som inte gick att läsa sägs som oläst, inte som saknad', () => {
+    const m = core.build(input({ appIntervals: [], screen: [], lock: [], coverage: {}, locations: [], missingDbs: { '/app/usage': 'unread', '/display/isBacklit': 'unread', routined: 'unread' } }));
+    assert.match(m.factors[1].items[0].text, /^knowledgeC kunde inte läsas/);
+    assert.match(m.factors[3].items[0].text, /^knowledgeC kunde inte läsas/);
+    assert.match(m.factors[4].items.map((i) => i.text).join(' '), /routined Cache\.sqlite kunde inte läsas/);
+});

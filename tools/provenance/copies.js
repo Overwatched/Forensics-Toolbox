@@ -62,7 +62,9 @@
         var any = Object.keys(wanted).length > 0;
         return function (name, entrySize, entryCrc) {
             if (name.charAt(name.length - 1) === '/') return false;
-            if (size != null && entrySize === size && entryCrc === crc32) return true;
+            // 0xFFFFFFFF: storleken står i Zip64-fältet, som läses först när posten sparats. findCopies
+            // jämför sedan den riktiga storleken.
+            if (size != null && (entrySize === size || entrySize === 0xffffffff) && entryCrc === crc32) return true;
             return any && wanted[baseName(name).toLowerCase()] === true;
         };
     }

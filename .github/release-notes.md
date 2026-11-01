@@ -1,5 +1,26 @@
 Automatiskt byggd från commit `{{SHA}}`.
 
+## Nytt i 1.33
+
+Rättningar efter en genomgång av Härkomst, Queries och Time Converter.
+
+- **Tom `-wal` stoppar inte längre läsningen.** En `-wal` på 0 byte, det vanliga läget efter en checkpoint, gav felet "Tom -wal-fil" i både Härkomst och Queries. Nu läses databasen som den är, och raden WAL i protokollet säger att `-wal` var tom.
+- **EXIF-tid med rätt sommartid.** En EXIF-tid utan zon räknades om med den förskjutning som gäller i dag, inte den som gällde vid T. En sommarbild som undersöktes på vintern kunde därför hamna en timme fel och ge en falsk motsägelse i Skapandetid. En zon som bara fanns som namn, till exempel ur Snapchats Memories, räknades som UTC. Nu räknas tiden om med zonen och sommartiden vid T.
+- **Undersökarens bedömning hör till filen.** Undersökarens text och bockarna i Kontrollerad följde med till nästa fil med samma namn, i en annan zip eller på en annan rad i databasen. Nu töms de när filen eller extraktionen byts.
+- **Inga blandade extraktioner.** Att öppna en annan zip, välja testdata eller klicka på en annan rad medan en bedömning pågick kunde blanda två extraktioner i samma protokoll. Knapparna är nu spärrade tills bedömningen är klar.
+- **Byte av tidszon eller fönster gör om bedömningen.** Förut hände ingenting förrän man körde igen, och exporterna fick den gamla zonen. Nu görs samma bedömning om direkt, och undersökarens text, bockarna och platsen på sidan står kvar. Ett byte medan en bedömning pågår görs när den är klar.
+- **Varje flik i Queries har sin egen zip.** När Härkomst öppnade en query från en annan zip visade de äldre flikarna den nya zippens namn och databaser, fast de körde mot sin egen. Nu visar varje flik sin egen extraktion, och en ny flik får den zip som är öppen.
+- **Grannbilder på Android med rätt källa.** Källan stod som `files → [object Object]` i Händelser med källa och i Word-tabellen. Nu står det `files → datetaken`.
+- **Okänd iOS-version.** Saknades `SystemVersion.plist` i zippen valdes Photos-queryerna för iOS 17 och senare utan att det sades. Nu väljs de efter databasens egna tabeller och kolumner (`ZGENERICASSET`, `ZASSET`, `ZIMPORTEDBYBUNDLEIDENTIFIER`), och varningarna i protokollet säger att versionen saknades och hur queryerna valdes.
+- **Begripliga fel när versionen skiljer sig.** En query som inte hittar en tabell eller kolumn ("no such column") förklaras: för MediaStore att queryerna kräver Android 11 eller senare, för Photos.sqlite att iOS-versionen bör kontrolleras. Om knowledgeC, routined eller Wellbeing inte går att läsa stoppas inte längre hela bedömningen. Det blir en varning, och faktorn säger att källan inte kunde läsas.
+- **usagestats som inte kan läsas nämns.** Dagsfiler i XML (Android 9 och äldre) eller utan `mappings`-filen hoppades över utan ett ord. Nu står det bland varningarna varför de inte lästes.
+- **Före eller efter.** Skapandetid skrev "Tillagd … efter Skapad" även när filen lades till före Skapad. Nu står det rätt ord, och när Skapad ligger efter Tillagd förklaras vad det kan bero på.
+- **Ingen påhittad sluttid.** När två intervall för samma app slogs ihop tappades att det sista saknade slut, och förklaringen kunde då ange en tid då appen lämnades som inte står i loggen.
+- **Var finns filen? med Zip64.** Kopior vars storlek bara står i zippens Zip64-fält missades. Nu jämförs den riktiga storleken.
+- **Queries: MediaStore på Android 11 och senare.** Databasen under `providers.media.module/` kallades "annan plats än den vanliga". Nu står det "mediemodulen, Android 11 och senare".
+- **Time Converter: tydliga datum.** `2026-10-31 14:30` lästes tyst som lokal tid men `2026-10-31` som UTC, och `01/02/2026` blev 2 januari. Nu gäller en zon i texten (`Z`, `UTC`, `+01:00`). Utan zon antas datorns zon och det står vilken, och datum som `01/02/2026` avvisas med en förklaring.
+- Provkört i appen mot en riktig iOS 26-extraktion och labbzippen (Android 13), och mot påhittade databaser med äldre scheman (Photos.sqlite utan `SystemVersion.plist`, MediaStore från Android 10). Zipparna läses bara.
+
 ## Nytt i 1.32
 
 - **Från Härkomst till Queries.** Varje källa under Nyckelhändelser och varje query-id under Händelser med källa är en länk när en extraktion är öppen, och Spårbarhet har knappen **Kör i Queries** per query. Queries öppnar samma zip, väljer samma databas med `-wal` pålagd och kör exakt den SQL som Härkomst körde, med tidsfönster och värden ifyllda, och visar raderna. Bredvid varje tidskolumn står tiden i UTC, omräknad på samma sätt som i Härkomst, så att raderna går att jämföra direkt; råvärdet står kvar. Spara CSV får SQL:en, sökvägarna och hasharna överst som förut.

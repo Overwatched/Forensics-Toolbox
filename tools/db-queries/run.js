@@ -143,6 +143,7 @@
     function walSummary(o) {
         if (!o.walFile) return 'Utan -wal.';
         var s = o.stats;
+        if (s.empty) return '-wal är tom (0 byte), så det fanns inga ramar att lägga på.';
         var text = '-wal: ' + s.appliedFrames + ' av ' + s.walFrames + ' ramar lades på (' + s.commits + ' commit, ' + s.pages + ' sidor).';
         if (s.uncommittedFrames) text += ' ' + s.uncommittedFrames + ' ramar hörde till en transaktion som aldrig blev klar och lades inte på.';
         if (s.oldFrames) text += ' ' + s.oldFrames + ' ramar är kvar från en äldre omgång av -wal (redan överförda till databasen eller ersatta) och lades inte på. De kan innehålla äldre versioner av sidor.';

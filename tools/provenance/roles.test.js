@@ -81,3 +81,13 @@ test('mapRows ger fältkartans namn och Ms-fält för tider', () => {
     assert.strictEqual(rows[0].addedMs, 1727436400000);
     assert.strictEqual(rows[0]._raw.datetaken, 1727436336123);
 });
+
+test('utan iOS-version väljs Photos-bandet efter databasens tabeller och kolumner', () => {
+    assert.strictEqual(roles.photosBandFromSchema(['ZGENERICASSET', 'ZADDITIONALASSETATTRIBUTES'], ['ZCREATORBUNDLEID']).id, 'photos-ios10-13');
+    assert.strictEqual(roles.photosBandFromSchema(['ZASSET'], ['ZCREATORBUNDLEID']).id, 'photos-ios14');
+    assert.strictEqual(roles.photosBandFromSchema(['ZASSET'], ['ZIMPORTEDBYBUNDLEIDENTIFIER']).id, 'photos-ios17-plus');
+    assert.strictEqual(roles.photosBandFromSchema(['ZFOO'], []), null);
+    const sources = roles.collect(catalogs);
+    const photos = sources.find((s) => s.key === 'photos');
+    ['photos-ios10-13', 'photos-ios14', 'photos-ios17-plus'].forEach((id) => assert.ok(photos.bands.some((b) => b.id === id), id + ' finns som band'));
+});

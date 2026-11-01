@@ -112,3 +112,21 @@ test('loadDatabase läser databas och -wal, lägger på ramarna, hashar och varn
 
     assert.ok(before.equals(buf), 'zippen ändrades');
 });
+
+// En -wal på 0 byte är normalt efter en checkpoint. Databasen ska läsas ändå, utan fel.
+test('tom -wal (0 byte) stoppar inte inläsningen', { skip: !DatabaseSync && 'node:sqlite saknas' }, async () => {
+    const files = makePhotosDb();
+    const buf = buildZip([
+        { name: 'filesystem1/private/var/mobile/Media/PhotoData/Photos.sqlite', data: files.db },
+        { name: 'filesystem1/private/var/mobile/Media/PhotoData/Photos.sqlite-wal', data: '' },
+    ]);
+    const read = reader(buf);
+    const r = await core.open(read, buf.length, core.targets(DATABASES));
+    const photos = await core.loadDatabase(read, r.found[0]);
+    assert.ok(photos.walEntry);
+    assert.strictEqual(photos.stats.error, '');
+    assert.strictEqual(photos.stats.appliedFrames, 0);
+    assert.strictEqual(core.walSummary(photos), '-wal är tom (0 byte), så det fanns inga ramar att lägga på.');
+    const db = await openSqlJs(photos.bytes);
+    assert.strictEqual(db.exec('SELECT count(*) FROM ZASSET')[0].values[0][0], 0);
+});

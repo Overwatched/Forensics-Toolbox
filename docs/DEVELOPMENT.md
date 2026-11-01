@@ -101,7 +101,11 @@ Photos.sqlite-mallarna är indelade i band efter schema: iOS 10–13 (`ZGENERICA
 iOS 14 (`ZASSET`), iOS 15–16 och iOS 17+ (skaparappen i `ZIMPORTEDBYBUNDLEIDENTIFIER`).
 `tools/db-queries/photos-catalog.test.js` kör varje mall mot de tabeller och kolumner
 som iLEAPP läser för iOS 11–13, 14, 15, 16, 17, 18 och 26
-(`tools/db-queries/fixtures/photos-schema.json`). Ny iOS-version i iLEAPP:
+(`tools/db-queries/fixtures/photos-schema.json`). Härkomst väljer bandet efter iOS-versionen i
+`SystemVersion.plist`. Saknas den väljs bandet efter databasens schema
+(`ProvenanceRoles.photosBandFromSchema`: `ZGENERICASSET` → iOS 10–13, `ZASSET` med
+`ZIMPORTEDBYBUNDLEIDENTIFIER` → iOS 17+, utan → iOS 14), och protokollet får en varning.
+Ny iOS-version i iLEAPP:
 
 ```bash
 git clone --depth 1 https://github.com/abrignoni/iLEAPP /tmp/iLEAPP
@@ -116,7 +120,8 @@ npm test
   Snapchat). En databas utan `category` hör till operativsystemet.
 - `tabs.js`: varje flik är ett sparat läge. Vid byte sparas `QueriesApp.snapshot()`,
   `QueriesRun.snapshot()` (filer, inläst databas, resultat) och `QueriesExtraction.snapshot()`, och
-  den andra flikens läge läggs tillbaka med `restore()`. Extraktionen är gemensam.
+  den andra flikens läge läggs tillbaka med `restore()`. Extraktionen hör till fliken
+  (`QueriesExtraction.snapshot()` ger `{ ex, chosen }`), och en ny flik får den zip som är öppen.
 - `openFromProvenance()`: samma zip, sökväg och SQL visar den flik som redan finns, annars används
   en tom flik eller öppnas en ny. `QueriesApp.showCustom()` visar SQL:en utan fält,
   `QueriesRun.run()` kör den, och `QueryRunCore.withUtcColumns()` lägger en kolumn `<namn> (UTC)`
@@ -157,6 +162,10 @@ i extraktionen med `-wal` pålagd, och bygger en händelselista i UTC.
   läsning: testet i `zip.test.js` grep:ar alla filer i `tools/provenance/` efter skrivande API:er.
   Härkomst läser zippens innehållsförteckning en gång per öppnad zip (`ZipRead.cacheDirectory`)
   och söker sedan i minnet; posterna själva läses alltid ur zippen.
+- Under en bedömning är knapparna som byter zip, fil eller testdata spärrade (`busy()`, `BUSY_IDS`), så
+  att två extraktioner aldrig blandas i ett protokoll. Byte av zon eller fönster kör om den senaste
+  bedömningen (`state.redo`), och undersökarens text och bockar hör till filen (`assessmentKey()`: zip
+  och rad eller sökväg).
 - Bildfilen läses ur zippen och ExifTool-workern från EXIF & karta laddas först när den behövs.
 - Positionerna (bildens enligt databasen och EXIF, telefonens enligt routined) visas i en tabell
   och på den delade kartvyn med nålar. Kartbilden hämtas med `mapView.toImage()` och läggs i

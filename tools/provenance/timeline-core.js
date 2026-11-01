@@ -220,7 +220,8 @@
         list.slice().sort(function (a, b) { return a.startMs - b.startMs; }).forEach(function (iv) {
             var last = out[out.length - 1];
             if (last && last.app === iv.app && last.stream === iv.stream && iv.startMs - last.endMs <= gapMs) {
-                last.endMs = Math.max(last.endMs, iv.endMs);
+                // Slutet är det senare intervallets, och är det öppet är det hopslagna också öppet.
+                if (iv.endMs >= last.endMs) { last.endMs = iv.endMs; last.openEnded = iv.openEnded; }
                 last.merged = (last.merged || 1) + 1;
             } else {
                 out.push(Object.assign({}, iv));
@@ -349,6 +350,7 @@
     // ---------- Bedömning ----------
 
     function coverageReason(key, coverage, missingDbs, ms, dbLabel) {
+        if (missingDbs && missingDbs[key] === 'unread') return dbLabel + ' kunde inte läsas (felet står bland varningarna).';
         if (missingDbs && missingDbs[key]) return dbLabel + ' finns inte i extraktionen.';
         var c = coverage && coverage[key];
         if (c && c.rows === 0) return dbLabel + ' har inga rader i strömmen.';
@@ -370,9 +372,10 @@
             items.push({ state: 'info', text: 'datetaken saknas i MediaStore, så T är date_added: när filen lades till i galleriet, inte när bilden togs. Så ser filer ut som en app sparar till galleriet utan EXIF-tid.' });
         } else if (file.addedMs) {
             var diff = file.addedMs - file.createdMs;
-            if (Math.abs(diff) <= SAME_TIME_MS) items.push({ state: 'support', text: 'Tillagd i biblioteket ' + duration(diff) + ' efter Skapad. Filen hamnade i biblioteket direkt när den skapades.' });
+            var side = diff < 0 ? ' före' : ' efter';
+            if (Math.abs(diff) <= SAME_TIME_MS) items.push({ state: 'support', text: 'Tillagd i biblioteket ' + duration(diff) + side + ' Skapad. Filen hamnade i biblioteket direkt när den skapades.' });
             else if (diff > LATE_MS) items.push({ state: 'contradiction', text: 'Tillagd i biblioteket ' + duration(diff) + ' efter Skapad. Filen kom till biblioteket långt efter att den skapades, vilket är vanligt för mottagna eller synkade bilder.' });
-            else items.push({ state: 'info', text: 'Tillagd i biblioteket ' + duration(diff) + ' efter Skapad.' });
+            else items.push({ state: 'info', text: 'Tillagd i biblioteket ' + duration(diff) + side + ' Skapad.' + (diff < 0 ? ' Skapad ligger efter tiden då filen lades till. Det händer när tiden har ändrats i efterhand eller när klockan i enheten som tog bilden gick fel.' : '') });
         } else if (type.type === 'snapchat') {
             items.push({ state: 'info', text: 'Filen ligger utanför bildbiblioteket, så det finns ingen Tillagd-tid. T är tiden då Snapchat registrerade filen i sin cache.' });
         } else {
@@ -489,7 +492,7 @@
         var items = [];
         var near = null;
         phone.forEach(function (p) { if (near === null || Math.abs(p.offsetMs) < Math.abs(near.offsetMs)) near = p; });
-        var noPhoneLog = input.platform === 'Android' ? ' (ingen positionslogg läses på Android)' : input.missingDbs && input.missingDbs.routined ? ' (routined Cache.sqlite finns inte i extraktionen)' : '';
+        var noPhoneLog = input.platform === 'Android' ? ' (ingen positionslogg läses på Android)' : input.missingDbs && input.missingDbs.routined === 'unread' ? ' (routined Cache.sqlite kunde inte läsas)' : input.missingDbs && input.missingDbs.routined ? ' (routined Cache.sqlite finns inte i extraktionen)' : '';
         if (!pos.filePos) {
             if (!phone.length) {
                 return { id: 'position', title: 'Position', state: 'missing', items: [{ state: 'missing', text: 'Filen har ingen position, och telefonen har inga registrerade positioner i fönstret' + noPhoneLog + '.' }],

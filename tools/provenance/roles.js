@@ -112,6 +112,18 @@
         return band.roles;
     }
 
+    // Photos-bandet efter databasens egna tabeller och kolumner, när iOS-versionen saknas i zippen.
+    // tables: tabellnamnen; columns: kolumnerna i ZADDITIONALASSETATTRIBUTES. null om inget passar.
+    // Banden för iOS 15–16 och 17 och senare har samma rollqueryer.
+    function photosBandFromSchema(tables, columns) {
+        tables = tables || [];
+        columns = columns || [];
+        if (tables.indexOf('ZGENERICASSET') >= 0) return { id: 'photos-ios10-13', why: 'tabellen ZGENERICASSET finns (iOS 10–13)' };
+        if (tables.indexOf('ZASSET') < 0) return null;
+        if (columns.indexOf('ZIMPORTEDBYBUNDLEIDENTIFIER') >= 0) return { id: 'photos-ios17-plus', why: 'tabellen ZASSET med kolumnen ZIMPORTEDBYBUNDLEIDENTIFIER (iOS 15 och senare)' };
+        return { id: 'photos-ios14', why: 'tabellen ZASSET utan kolumnen ZIMPORTEDBYBUNDLEIDENTIFIER (iOS 14)' };
+    }
+
     function sqlString(v) { return String(v == null ? '' : v).replace(/'/g, "''"); }
 
     // Fyller i platshållarna. window: { startMs, endMs } i UTC-millisekunder. Tidsplatshållarna
@@ -177,7 +189,7 @@
         return Math.round(n * 1000);
     }
 
-    var api = { collect: collect, databases: databases, rolesFor: rolesFor, fill: fill, fieldSpec: fieldSpec, mapRows: mapRows, toMs: toMs, COCOA_EPOCH: COCOA_EPOCH };
+    var api = { collect: collect, databases: databases, rolesFor: rolesFor, photosBandFromSchema: photosBandFromSchema, fill: fill, fieldSpec: fieldSpec, mapRows: mapRows, toMs: toMs, COCOA_EPOCH: COCOA_EPOCH };
     if (typeof module !== 'undefined' && module.exports) module.exports = api;
     else root.ProvenanceRoles = api;
 })(typeof window !== 'undefined' ? window : this);

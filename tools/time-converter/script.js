@@ -164,8 +164,8 @@ function detectFormat(n, raw) {
 
 function dateFromFormat(format, raw) {
     if (format === 'iso') {
-        const d = new Date(String(raw).trim());
-        return Number.isNaN(d.getTime()) ? null : d;
+        const parsed = TimeParse.parseDateText(raw);
+        return parsed && parsed.date ? parsed.date : null;
     }
     const n = parseNumber(raw);
     if (n === null) return null;
@@ -289,7 +289,7 @@ function convert() {
         } else {
             const n = parseNumber(raw);
             if (n === null) {
-                const asIso = dateFromFormat('iso', raw);
+                const asIso = TimeParse.parseDateText(raw);
                 if (asIso) {
                     format = 'iso';
                     reason = 'Tolkas som datumsträng.';
@@ -303,6 +303,22 @@ function convert() {
                 reason = detected.reason;
             }
         }
+    }
+
+    // En datumsträng säger vilken zon den tolkades i: den som står i texten, annars datorns.
+    if (format === 'iso') {
+        const parsed = TimeParse.parseDateText(raw);
+        if (!parsed || parsed.error) {
+            setStatus(parsed && parsed.error ? parsed.error : 'Kunde inte tolka datumet', true);
+            guessEl.classList.add('display-none');
+            matrixEl.classList.add('display-none');
+            interpretationsEl.classList.add('display-none');
+            return;
+        }
+        const zoneText = parsed.assumed
+            ? 'Texten saknar tidszon, så ' + (parsed.dateOnly ? 'datumet räknas från midnatt i' : 'tiden tolkades i') + ' datorns zon (' + localZoneMeta(parsed.date) + '). Skriv Z eller till exempel +01:00 efter tiden för att ange zonen.'
+            : 'Zonen står i texten (' + parsed.zone + ').';
+        reason = [reason, zoneText].filter(Boolean).join(' ');
     }
 
     const date = dateFromFormat(format, raw);

@@ -67,6 +67,8 @@ test('keep-filtret sparar samma storlek+CRC32 och sökta filnamn, inte mappar', 
     assert.strictEqual(keep('a/b/c', 100, 0xabd), false);
     assert.strictEqual(keep('a/b/img_0001.heic', 5, 1), true);
     assert.strictEqual(keep('a/b/IMG_0001.HEIC/', 100, 0xabc), false);
+    assert.strictEqual(keep('a/b/zip64', 0xffffffff, 0xabc), true, 'Zip64: storleken står i extrafältet');
+    assert.strictEqual(keep('a/b/zip64', 0xffffffff, 0xabd), false);
     const onlyName = copies.keeper(null, null, ['x.jpg']);
     assert.strictEqual(onlyName('q/X.JPG', 1, 1), true);
     assert.strictEqual(onlyName('q/y.jpg', 1, 1), false);
