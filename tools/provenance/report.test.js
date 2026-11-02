@@ -165,3 +165,29 @@ test('tillagd och ändrad har sin egen kolumn som källa, inte skapandetidens', 
     assert.strictEqual(src('file-added'), 'Photos.sqlite → ZASSET → ZADDEDDATE');
     assert.strictEqual(src('file-modified'), 'Photos.sqlite → ZASSET → ZMODIFICATIONDATE');
 });
+
+test('listan med flera filer för Word: en rad per fil, hasharna i en egen tabell, ej bedömda märkta', () => {
+    const batch = require('./batch');
+    const done = batch.summarize({
+        file: { filename: 'IMG_0042.HEIC', createdMs: T },
+        type: { type: 'camera', label: 'Kamerabild' },
+        factors: [{ id: 'time', title: 'Skapandetid', state: 'support' }, { id: 'camera', title: 'Kamera igång', state: 'contradiction' }],
+        summary: 'Underlaget är förenligt med <en> kamerabild.',
+    }, { fileEntry: { path: 'private/var/mobile/Media/DCIM/100APPLE/IMG_0042.HEIC', md5: 'm'.repeat(32), sha256: 's'.repeat(64) } },
+    { format: () => '2025-09-24 14:31:09', zoneLabel: 'Europe/Stockholm', place: 'Bildbiblioteket (DCIM)' });
+    const html = report.batchTable([
+        { name: 'IMG_0042.HEIC', status: 'done', summary: done, examiner: { text: 'Tagen med kameran.\nKontrollerat.', checked: { time: 1 } } },
+        { name: 'saknas.jpg', status: 'missing', note: 'Finns varken i bildbiblioteket eller någon annanstans i zippen.' },
+        { name: 'IMG_0050.PNG', status: 'done', summary: Object.assign({}, done, { filename: 'IMG_0050.PNG' }), examiner: null },
+    ], { extraction: { name: 'EXTRACTION_FFS.zip' }, windowText: '±15 min', zoneText: 'varje bilds egen zon', stateLabel: { support: 'Stöd', contradiction: 'Motsägelse' } });
+    assert.ok(html.includes('Härkomst, 3 filer') && html.includes('EXTRACTION_FFS.zip') && html.includes('fönster ±15 min'));
+    assert.ok(html.includes('Skapandetid: <span') && html.includes('>Stöd</span>') && html.includes('>Motsägelse</span>'));
+    assert.ok(html.includes('Tagen med kameran.<br>Kontrollerat.') && html.includes('Kontrollerade: 1 av 2 (Skapandetid)'));
+    assert.ok(html.includes('<i>Ej ifylld</i>'), 'en fil utan undersökarens text ska säga det');
+    assert.ok(html.includes('Finns inte i zippen') && html.includes('1 av filerna är inte bedömda'));
+    assert.ok(html.includes('&lt;en&gt;'), 'texten ska vara escapad');
+    assert.ok(html.includes('SHA-256 ' + 's'.repeat(64)) && html.includes('MD5 ' + 'm'.repeat(32)));
+    const tables = html.match(/<table/g) || [];
+    assert.strictEqual(tables.length, 2, 'bedömningen och hasharna i två tabeller');
+    assert.ok(report.plainText(html).includes('IMG_0050.PNG'));
+});

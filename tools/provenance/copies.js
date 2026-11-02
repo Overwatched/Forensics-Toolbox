@@ -49,6 +49,14 @@
         if (out.area !== 'snapchat' && out.area !== 'library' && (inSnapContainer || /picaboo|snapchat/i.test(n))) {
             out = { label: 'Snapchat, ' + out.label.charAt(0).toLowerCase() + out.label.slice(1), plain: 'i Snapchat', area: 'snapchat' };
         }
+        // Appens namn i stället för GUID:t eller paketnamnet, när det är känt: opts.containerApps
+        // (GUID -> "TikTok (com.zhiliaoapp.musically)", ur behållarens metadata) och opts.appName (paketnamn -> namn).
+        if (guid && out.area !== 'snapchat' && out.area !== 'library') {
+            var known = (opts && opts.containerApps || {})[String(guid).toUpperCase()];
+            var named = !known && /\./.test(guid) && opts && opts.appName ? opts.appName(guid) : null;
+            var app = known || (named ? named + ' (' + guid + ')' : null);
+            if (app) out = { label: out.label.replace(guid, app), plain: out.plain + ' (' + (named || app) + ')', area: out.area };
+        }
         return out;
     }
 

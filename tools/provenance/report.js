@@ -231,6 +231,53 @@
             (model.outside ? p(esc(model.outside + ' registreringar till finns utanför fönstren och är inte med.')) : '') + '</div>';
     }
 
+    // Listan med flera filer för Word: en rad per fil med typ, faktorerna, programmets sammanvägning
+    // och undersökarens bedömning, och sedan sökväg, MD5 och SHA-256 per fil i en egen tabell, så att
+    // hasharna får plats på sidan. rows: [{ name, status, note, summary (ProvenanceBatch.summarize),
+    // examiner: { text, checked } }]. head: { extraction: { name }, deviceLabel, windowText, zoneText,
+    // createdText, toolVersion, stateLabel }.
+    var BATCH_STATUS = { missing: 'Finns inte i zippen', ambiguous: 'Flera träffar, ingen vald', error: 'Kunde inte bedömas', stopped: 'Avbruten', waiting: 'Inte bedömd' };
+
+    function batchTable(rows, head) {
+        head = head || {};
+        var labels = head.stateLabel || {};
+        var done = rows.filter(function (r) { return r.status === 'done' && r.summary; });
+        var out = '<div style="' + FONT + '">';
+        out += p('<b>Härkomst, ' + rows.length + (rows.length === 1 ? ' fil' : ' filer') + '</b>' +
+            (head.extraction && head.extraction.name ? ' · ' + esc(head.extraction.name) : '') + (head.deviceLabel ? ' · ' + esc(head.deviceLabel) : '') +
+            (head.windowText ? ' · fönster ' + esc(head.windowText) : '') + (head.zoneText ? ' · tidszon ' + esc(head.zoneText) : '') +
+            (head.createdText ? ' · skapad ' + esc(head.createdText) : '') + (head.toolVersion ? ' · Forensics Toolbox ' + esc(head.toolVersion) : ''));
+        out += table(['Fil', 'T', 'Typ', 'Faktorer', 'Programmets sammanvägning', 'Undersökarens bedömning'], rows.map(function (r) {
+            var s = r.summary;
+            if (r.status !== 'done' || !s) return [{ html: '<b>' + esc(r.name) + '</b>' }, '', BATCH_STATUS[r.status] || BATCH_STATUS.waiting, '', r.note || '', ''];
+            var factors = s.factorIds.map(function (id) {
+                var f = s.factors[id];
+                return esc(f.title) + ': <span style="color: ' + (STATE_COLOR[f.state] || '#444') + '; font-weight: bold;">' + esc(labels[f.state] || f.state) + '</span>';
+            }).join('<br>');
+            var ex = r.examiner || {};
+            var text = ex.text && String(ex.text).trim() ? esc(String(ex.text).trim()).replace(/\n/g, '<br>') : '<i>Ej ifylld</i>';
+            var checked = s.factorIds.filter(function (id) { return ex.checked && ex.checked[id]; }).map(function (id) { return s.factors[id].title; });
+            return [
+                { html: '<b>' + esc(s.filename) + '</b>' + (r.name && r.name !== s.filename ? '<br>på disk: ' + esc(r.name) : '') },
+                s.tText + (s.zoneLabel ? ' (' + s.zoneLabel + ')' : ''),
+                s.typeLabel + (s.place ? ', ' + s.place : ''),
+                { html: factors },
+                s.summary,
+                { html: text + '<br>Kontrollerade: ' + checked.length + ' av ' + s.factorIds.length + (checked.length ? ' (' + esc(checked.join(', ')) + ')' : '') },
+            ];
+        }));
+        if (done.length) {
+            out += p('<b>Filerna i extraktionen</b>');
+            out += table(['Fil', 'Sökväg i zippen, MD5 och SHA-256'], done.map(function (r) {
+                var s = r.summary;
+                return [s.filename, { html: esc(s.path || s.fileNote || 'Filen lästes inte ur zippen.') + (s.md5 ? '<br>MD5 ' + esc(s.md5) : '') + (s.sha256 ? '<br>SHA-256 ' + esc(s.sha256) : '') }];
+            }));
+        }
+        out += p(esc(ROLE_NOTE) + ' Varje fil har ett eget protokoll med källor, hashar och SQL; listan är en sammanställning' +
+            (done.length < rows.length ? ', och ' + (rows.length - done.length) + ' av filerna är inte bedömda.' : '.'));
+        return out + '</div>';
+    }
+
     // Förklaringen: inga hashar, sökvägar, kolumnnamn eller bundle-id.
     function explanation(model, meta) {
         var fmt = meta.format;
@@ -313,7 +360,7 @@
             '<body style="max-width: 1000px; margin: 24px auto; padding: 0 16px; color: #1c1c1e; background: #fff;">' + bodyHtml + '</body></html>\n';
     }
 
-    var api = { protocol: protocol, explanation: explanation, keyEventsTable: keyEventsTable, eventsTable: eventsTable, sourceText: sourceText, plainText: plainText, standalone: standalone, esc: esc, plainCopies: plainCopies, BETA_NOTE: BETA_NOTE, ROLE_NOTE: ROLE_NOTE };
+    var api = { protocol: protocol, explanation: explanation, keyEventsTable: keyEventsTable, eventsTable: eventsTable, batchTable: batchTable, sourceText: sourceText, plainText: plainText, standalone: standalone, esc: esc, plainCopies: plainCopies, BETA_NOTE: BETA_NOTE, ROLE_NOTE: ROLE_NOTE };
     if (typeof module !== 'undefined' && module.exports) module.exports = api;
     else root.ProvenanceReport = api;
 })(typeof window !== 'undefined' ? window : this);

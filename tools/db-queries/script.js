@@ -1000,6 +1000,13 @@ window.addEventListener('message', function (event) {
         window.QueriesTabs.openFromProvenance(data);
         return;
     }
+    // Extraktionen i programmet: zippen som senast öppnades eller stängdes i något verktyg.
+    if (data.type === 'extraction' && window.QueriesExtraction) {
+        window.QueriesApp.ready.then(function () {
+            return window.QueriesExtraction.follow({ file: data.file || null, seq: Number(data.seq) || 0, from: data.from || '' });
+        }).catch(function (err) { console.warn('Extraktionen kunde inte öppnas', err); });
+        return;
+    }
     if (data.type === 'select-db' && data.db && databases.length) {
         let id = String(data.db);
         if (ALIASES[id]) id = ALIASES[id];

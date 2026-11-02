@@ -79,3 +79,22 @@ test('träffar på filnamn sorteras med kortast sökväg först', () => {
     assert.deepStrictEqual(copies.byName(entries, 'img_1.jpg').map((e) => e.name), ['x/IMG_1.JPG', 'a/b/c/IMG_1.JPG']);
     assert.deepStrictEqual(copies.byName(entries, ''), []);
 });
+
+test('appens namn i stället för behållarens GUID eller paketnamnet, när det är känt', () => {
+    const guid = '8CD0CF65-D0F3-41EE-BFF4-6725C22C497E';
+    const path = 'private/var/mobile/Containers/Data/Application/' + guid + '/Library/Caches/bild.jpg';
+    assert.strictEqual(copies.classifyPath(path).label, 'Appbehållare ' + guid);
+    const named = copies.classifyPath(path, { containerApps: { [guid]: 'TikTok (com.zhiliaoapp.musically)' } });
+    assert.strictEqual(named.label, 'Appbehållare TikTok (com.zhiliaoapp.musically)');
+    assert.strictEqual(named.area, 'app');
+    assert.match(named.plain, /egen lagring \(TikTok \(com\.zhiliaoapp\.musically\)\)/);
+    const group = copies.classifyPath('private/var/mobile/Containers/Shared/AppGroup/' + guid.toLowerCase() + '/Message/Media/x.jpg', { containerApps: { [guid]: 'group.net.whatsapp.WhatsApp.shared' } });
+    assert.strictEqual(group.label, 'Appgrupp group.net.whatsapp.WhatsApp.shared');
+    const android = copies.classifyPath('data/media/0/Android/media/com.whatsapp/WhatsApp/Media/WhatsApp Images/IMG-1.jpg', { appName: (id) => (id === 'com.whatsapp' ? 'WhatsApp' : null) });
+    assert.strictEqual(android.label, 'Appens lagring: WhatsApp (com.whatsapp)');
+    assert.match(android.plain, /\(WhatsApp\)$/);
+    const unknown = copies.classifyPath('data/data/org.example.okand/cache/a.jpg', { appName: () => null });
+    assert.strictEqual(unknown.label, 'Appens data: org.example.okand');
+    // Snapchat och bildbiblioteket behåller sina egna namn.
+    assert.match(copies.classifyPath('private/var/mobile/Containers/Data/Application/' + guid + '/Documents/x', { snapchatContainers: [guid], containerApps: { [guid]: 'Snapchat (com.toyopagroup.picaboo)' } }).label, /^Snapchat, /);
+});

@@ -1,5 +1,16 @@
 Automatiskt byggd från commit `{{SHA}}`.
 
+## Nytt i 1.34
+
+- **Flera filer på en gång.** Klistra in filnamn i Härkomst, ett per rad, välj flera filer från disk, eller tryck **Bedöm alla** efter en sökning på tid. Varje fil bedöms med samma kod som en ensam fil och får en rad i listan: tumnagel, fil och plats, T, typ, faktorerna som färgade prickar och om undersökaren har bedömt filen. Ett klick öppnar den vanliga vyn med **Föregående**, **Nästa** och **Tillbaka till listan**. Zippen och databaserna är redan inlästa, så det går fort: 28 filer i en iOS 26-extraktion tog 4,5 s.
+- **Undersökarens bedömning per fil.** Texten och bockarna i Kontrollerad sparas för varje fil. De finns kvar när du går till nästa fil och tillbaka, och även om zippen stängs och öppnas igen, så länge programmet är öppet.
+- **Listan för Word.** **Kopiera listan för Word** och **Spara listan som HTML** ger en rad per fil med typ, faktorer, programmets sammanvägning och undersökarens bedömning. Sökväg, MD5 och SHA-256 per fil står i en egen tabell, och filer som inte är bedömda märks. Varje fil har dessutom sitt eget protokoll som förut.
+- **Flera träffar och filer som saknas.** Ett namn som finns på flera ställen öppnas med samma vallista som för en ensam fil, och valet sparas på raden. Ett namn som inte finns står kvar i listan med förklaringen. Byts fönstret eller tidszonen görs listan om.
+- **Extraktionen följer med.** En zip som öppnas i Härkomst finns i Queries när du går dit, och tvärtom. Zippens namn står under versionen i sidopanelen. Visar Härkomst en bedömning eller en lista, eller använder en flik i Queries en databas ur en annan zip, byts inget bort: en rad erbjuder bytet med en knapp. Stängning följer samma regel, och testdata i Härkomst står kvar.
+- **Appens namn i stället för GUID.** På iOS heter appbehållare och appgrupper nu efter appen, till exempel `TikTok (com.zhiliaoapp.musically)`, läst ur behållarens metadata. Det gäller i listan, i "Var finns filen?" och i protokollet. På Android står appens namn bredvid paketnamnet.
+- **Rättat: filer med bara DOS-tid i zippen.** En fil utanför bildbiblioteket utan EXIF-tid kunde inte bedömas när zippen bara angav DOS-tid, fast sökningen på tid hittade den. Nu blir T zippens ändringstid tolkad i den valda zonen, och protokollet säger det.
+- Provkört i appen mot en riktig iOS 26-extraktion och labbzippen (Android 13). Zipparna läses bara.
+
 ## Nytt i 1.33
 
 Rättningar efter en genomgång av Härkomst, Queries och Time Converter.

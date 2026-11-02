@@ -1,7 +1,7 @@
 // Flikar i Queries: varje flik har sin egen databas, query, SQL och sitt eget resultat. Läget
 // sparas när man byter flik och läggs tillbaka när man kommer tillbaka, så att en query från
-// Härkomst öppnas i en ny flik utan att det man redan har uppe försvinner. Extraktionen (zippen)
-// är gemensam för alla flikar.
+// Härkomst öppnas i en ny flik utan att det man redan har uppe försvinner. Varje flik har också
+// sin egen zip; en ny flik börjar med programmets extraktion (extraction.js).
 (function () {
     'use strict';
 
@@ -74,6 +74,8 @@
         setNote('');
         restore(null);
         render();
+        // En query från Härkomst öppnar sin egen zip; en tom flik får programmets extraktion.
+        if (!key) window.QueriesExtraction.adoptShared();
     }
 
     function close(i) {
@@ -129,6 +131,14 @@
         var box = $('run-box');
         if (box) box.scrollIntoView({ block: 'start' });
     }
+
+    // Extraktionen öppnades eller stängdes i Härkomst medan den här fliken använder en annan zip.
+    document.addEventListener('queries:extraction-note', function (e) { setNote(e.detail && e.detail.html); });
+    note.addEventListener('click', function (e) {
+        if (!e.target.closest('[data-follow]')) return;
+        setNote('');
+        window.QueriesExtraction.followHere().then(render);
+    });
 
     bar.addEventListener('click', function (e) {
         var b = e.target.closest('button');

@@ -114,6 +114,20 @@ node scripts/photos-schema-from-ileapp.js /tmp/iLEAPP/scripts/artifacts
 npm test
 ```
 
+### Extraktionen följer med mellan verktygen (`src/script.js`)
+
+- Huvudfönstret minns zippen (File-objektet) som senast öppnades eller stängdes i Härkomst eller
+  Queries, med ett löpnummer: `{ file, seq, from }`. Verktyget som öppnade eller stängde skickar
+  `{ type: 'extraction-changed', file }` (`null` vid stängning); huvudfönstret visar zippens namn i
+  sidopanelen (`#extraction-status`) och skickar `{ type: 'extraction', file, seq, from }` till ett
+  verktyg när det laddas eller visas.
+- Verktyget följer bara ett löpnummer det inte redan sett, så att testdata i Härkomst inte byts bort
+  bara för att verktyget visas igen. Härkomst följer direkt när inget visas; visas en bedömning eller
+  en lista erbjuds bytet på en rad (`#ex-follow`). I Queries behåller en flik med en databas ur sin zip
+  zippen, och bytet erbjuds i flikens notis; startsidan och nya flikar följer. Öppningarna i Queries
+  görs i tur och ordning (`serial()` i `extraction.js`), så att läget och en query från Härkomst inte
+  läser samma zip två gånger.
+
 ### Queries: flikar och SQL från Härkomst (`tools/db-queries/`)
 
 - Startsidan och rullistan grupperas per OS och kategori (`CATEGORIES` i `script.js`: Operativsystemet,
@@ -121,7 +135,8 @@ npm test
 - `tabs.js`: varje flik är ett sparat läge. Vid byte sparas `QueriesApp.snapshot()`,
   `QueriesRun.snapshot()` (filer, inläst databas, resultat) och `QueriesExtraction.snapshot()`, och
   den andra flikens läge läggs tillbaka med `restore()`. Extraktionen hör till fliken
-  (`QueriesExtraction.snapshot()` ger `{ ex, chosen }`), och en ny flik får den zip som är öppen.
+  (`QueriesExtraction.snapshot()` ger `{ ex, chosen }`), och en ny flik får programmets extraktion
+  (`adoptShared()`), fristående den zip som är öppen.
 - `openFromProvenance()`: samma zip, sökväg och SQL visar den flik som redan finns, annars används
   en tom flik eller öppnas en ny. `QueriesApp.showCustom()` visar SQL:en utan fält,
   `QueriesRun.run()` kör den, och `QueryRunCore.withUtcColumns()` lägger en kolumn `<namn> (UTC)`
@@ -166,6 +181,20 @@ i extraktionen med `-wal` pålagd, och bygger en händelselista i UTC.
   att två extraktioner aldrig blandas i ett protokoll. Byte av zon eller fönster kör om den senaste
   bedömningen (`state.redo`), och undersökarens text och bockar hör till filen (`assessmentKey()`: zip
   och rad eller sökväg).
+- Flera filer (`batch.js`, UMD `ProvenanceBatch`): `parseNames()` tolkar inklistrade namn (per rad,
+  semikolon, eller komma när varje del har en ändelse), och `runBatch()` i `script.js` bedömer varje
+  post med samma `assess()`/`assessEntry()` som en ensam fil men med `quiet`: inget filkort, ingen
+  tidslinje eller karta, och `finalize()` returnerar `{ model, meta }`. `summarize()` gör listans rad,
+  och `ProvenanceReport.batchTable()` tabellen för Word. Ett klick på en rad gör om bedömningen för
+  filen i den vanliga vyn. Ett val bland flera träffar sparas på raden (`item.pk` eller `item.path`),
+  så att det gäller när listan görs om. Undersökarens text och bockar sparas per fil i
+  `state.examiner` (nyckeln innehåller zippen) och finns kvar så länge programmet är öppet.
+- Appbehållare på iOS (`knownContainers()`): GUID:t blir appens id ur behållarens
+  `.com.apple.mobile_container_manager.metadata.plist` (`MCMMetadataIdentifier`, läst med
+  `tools/ios-keychain/lib/bplist.js`) och namnet ur App-ID. `ProvenanceCopies.classifyPath()` tar
+  `opts.containerApps` och `opts.appName` (paketnamn på Android).
+- En fil utanför biblioteket utan EXIF-tid får T ur zippens ändringstid, även när zippen bara har
+  DOS-tid utan zon (`ProvenanceMedia.entryMs`, som sökningen på tid); protokollet får en varning.
 - Bildfilen läses ur zippen och ExifTool-workern från EXIF & karta laddas först när den behövs.
 - Positionerna (bildens enligt databasen och EXIF, telefonens enligt routined) visas i en tabell
   och på den delade kartvyn med nålar. Kartbilden hämtas med `mapView.toImage()` och läggs i

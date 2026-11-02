@@ -136,6 +136,15 @@ body {
     margin-top: 8px;
 }
 
+/* Extraktionen som Härkomst och Queries delar: zippens namn under versionen. */
+.sidebar-header p.extraction-status {
+    margin-top: 6px;
+    font-size: 11px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
 .sidebar-header-actions {
     display: flex;
     align-items: center;

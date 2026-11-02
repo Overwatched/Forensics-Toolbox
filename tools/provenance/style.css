@@ -98,6 +98,9 @@ input[type="text"], select {
     min-width: 160px;
 }
 input[type="text"]:focus, select:focus { outline: 2px solid var(--accent-soft); border-color: var(--accent); }
+/* Filnamnet: en rad som växer när flera namn klistras in. */
+textarea.name-box { font: inherit; font-size: 14px; padding: 8px 10px; border-radius: 9px; border: 1px solid var(--border); background: var(--bg); color: var(--text); min-width: 160px; resize: vertical; line-height: 1.35; }
+textarea.name-box:focus { outline: 2px solid var(--accent-soft); border-color: var(--accent); }
 .when-fields { display: flex; gap: 6px; }
 .when-fields .date-field { min-width: 0; width: 8.6em; font-variant-numeric: tabular-nums; }
 .when-fields .time-field { min-width: 0; width: 7em; font-variant-numeric: tabular-nums; }
@@ -114,6 +117,8 @@ input[type="text"]:focus, select:focus { outline: 2px solid var(--accent-soft); 
 .status { font-size: 13px; color: var(--text-muted); margin-top: 8px; min-height: 18px; line-height: 1.45; }
 .status .warn, .warn { color: var(--warn); }
 .status .err, .err { color: var(--error); }
+/* Extraktionen öppnades eller stängdes i ett annat verktyg medan något visas här: erbjud bytet. */
+.follow { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; background: var(--warn-soft); color: var(--text); border-radius: 9px; padding: 8px 10px; font-size: 13px; margin-top: 8px; }
 
 table { border-collapse: collapse; width: 100%; font-size: 13px; }
 th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--border); vertical-align: top; }
@@ -213,6 +218,22 @@ pre.sql { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 12px; w
 .row-thumb { width: 40px; height: 40px; display: block; object-fit: cover; border-radius: 6px; background: var(--bg); border: 1px solid var(--border); }
 #hits-entries { margin-top: 10px; }
 #hits-entries .hit-note { margin-bottom: 4px; }
+
+/* Listan med flera filer: en rad per fil, faktorerna som prickar. */
+#batch-stop { margin-top: 6px; }
+.batch-table .thumb-col { width: 48px; }
+.batch-table th.f-col, .batch-table td.f-col { text-align: center; width: 58px; }
+.batch-table tr.pick { cursor: pointer; }
+.batch-table tr.pick:hover td { background: var(--surface-hover); }
+.batch-table tr.current td { background: var(--accent-soft); }
+.batch-table td .sub { font-size: 12px; color: var(--text-muted); margin-top: 2px; word-break: break-all; }
+.batch-table td.ok { color: var(--ok); }
+.dot { display: inline-block; width: 12px; height: 12px; border-radius: 50%; background: var(--text-muted); opacity: 0.45; vertical-align: middle; }
+.dot.support { background: var(--ok); opacity: 1; }
+.dot.contradiction { background: var(--error); opacity: 1; }
+.dot.missing { background: var(--warn); opacity: 1; }
+.batch-nav { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 12px; padding: 10px 14px; border: 1px solid var(--accent); border-radius: 12px; background: var(--accent-soft); }
+.batch-nav .grow { flex: 1; }
 
 .sql-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-top: 10px; }
 .sql-head button { padding: 4px 10px; font-size: 12px; }

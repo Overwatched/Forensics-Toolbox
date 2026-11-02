@@ -33,6 +33,45 @@ function initToolNav() {
 
     const frames = new Map();
 
+    // Extraktionen följer med mellan verktygen. Huvudfönstret minns zippen (File) som senast
+    // öppnades eller stängdes i något verktyg, med ett löpnummer, och skickar läget till ett verktyg
+    // när det visas. Verktyget följer bara en ändring det inte redan har sett, så att till exempel
+    // testdata i Härkomst inte byts bort bara för att verktyget visas igen.
+    let extraction = { file: null, seq: 0, from: '' };
+
+    function sameFile(a, b) {
+        return !!a && !!b && a.name === b.name && a.size === b.size && a.lastModified === b.lastModified;
+    }
+
+    function sizeText(bytes) {
+        const units = ['byte', 'kB', 'MB', 'GB', 'TB'];
+        let v = bytes;
+        let i = 0;
+        while (v >= 1024 && i < units.length - 1) { v /= 1024; i++; }
+        return (i ? v.toLocaleString('sv-SE', { maximumFractionDigits: 1 }) : String(v)) + ' ' + units[i];
+    }
+
+    function renderExtraction() {
+        const el = document.getElementById('extraction-status');
+        if (!el) return;
+        const f = extraction.file;
+        el.hidden = !f;
+        el.textContent = f ? 'Extraktion: ' + f.name : '';
+        el.title = f ? f.name + ', ' + sizeText(f.size) + (extraction.from ? '. Öppnad i ' + extraction.from : '') +
+            '. Härkomst och Queries använder samma extraktion.' : '';
+    }
+
+    function sendExtraction(frame) {
+        postToFrame(frame, { source: 'forensics-toolbox', type: 'extraction', file: extraction.file, seq: extraction.seq, from: extraction.from });
+    }
+
+    function frameOf(win) {
+        for (const frame of frames.values()) {
+            if (frame.contentWindow === win) return frame;
+        }
+        return null;
+    }
+
     function currentTheme() {
         return document.documentElement.getAttribute('data-theme') || 'dark';
     }
@@ -76,6 +115,7 @@ function initToolNav() {
         frame.addEventListener('load', () => {
             frame.dataset.ready = '1';
             postToFrame(frame, { source: 'forensics-toolbox', type: 'theme', theme: currentTheme() });
+            sendExtraction(frame);
         });
         host.appendChild(frame);
         frames.set(path, frame);
@@ -113,6 +153,7 @@ function initToolNav() {
             if (format) {
                 postToFrame(frame, { source: 'forensics-toolbox', type: 'select-format', format: format });
             }
+            if (frame.dataset.ready) sendExtraction(frame);
         }
 
         placeholder.style.display = 'none';
@@ -148,6 +189,18 @@ function initToolNav() {
             const send = () => postToFrame(frame, { source: 'forensics-toolbox', type: 'show-exif', exifId: data.exifId });
             if (frame && frame.dataset.ready) send();
             else if (frame) frame.addEventListener('load', send, { once: true });
+            return;
+        }
+        // Ett verktyg öppnade eller stängde en zip. Verktyget får numret tillbaka, så att det inte
+        // följer sin egen ändring; de andra får läget när de visas.
+        if (data.type === 'extraction-changed') {
+            const file = data.file || null;
+            const frame = frameOf(event.source);
+            if (!(file ? sameFile(file, extraction.file) : !extraction.file)) {
+                extraction = { file: file, seq: extraction.seq + 1, from: frame ? frame.title : '' };
+                renderExtraction();
+            }
+            if (frame) sendExtraction(frame);
             return;
         }
         // Härkomst → Queries: zippen (File), databasens sökväg och exakt den SQL som kördes.

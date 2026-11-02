@@ -12,6 +12,23 @@
 
     var current = null;
 
+    // Huvudfönstrets extraktion: zippen som senast öppnades eller stängdes i något verktyg, med
+    // löpnummer. Öppningar görs i tur och ordning, så att en query från Härkomst och läget från
+    // huvudfönstret inte läser samma zip två gånger samtidigt.
+    var shared = { seq: 0, file: null, from: '' };
+    var chain = Promise.resolve();
+    function serial(fn) {
+        var p = chain.then(fn);
+        chain = p.catch(function () {});
+        return p;
+    }
+
+    // Undersökaren öppnade eller stängde en zip här: huvudfönstret och Härkomst får veta det.
+    function announceExtraction(file) {
+        if (window.parent === window) return;
+        window.parent.postMessage({ source: 'forensics-toolbox', type: 'extraction-changed', file: file || null }, '*');
+    }
+
     function escapeHtml(s) {
         return String(s)
             .replace(/&/g, '&amp;')
@@ -152,7 +169,8 @@
         } : null);
     }
 
-    async function open(file) {
+    // from: verktyget där zippen öppnades, när Queries följer extraktionen dit.
+    async function open(file, from) {
         close();
         status.textContent = 'Läser zippens innehållsförteckning…';
         var read = ZipRead.fileReader(file);
@@ -162,7 +180,8 @@
         var secs = opened.seconds.toFixed(1).replace('.', ',');
         current = {
             file: file, read: read, scan: opened.scan, found: opened.found, version: opened.version, chosen: -1,
-            statusText: opened.found.length + (opened.found.length === 1 ? ' databas hittades' : ' databaser hittades') +
+            statusText: (from ? 'Samma extraktion som i ' + from + '. ' : '') +
+                opened.found.length + (opened.found.length === 1 ? ' databas hittades' : ' databaser hittades') +
                 ' på ' + secs + ' s.' + (opened.found.length ? ' Välj en här eller bland korten nedan.' : ''),
         };
         status.textContent = current.statusText;
@@ -174,9 +193,57 @@
     // Från Härkomst: samma zip (namn, storlek och ändringstid) öppnas bara en gång.
     function sameFile(a, b) { return !!a && !!b && a.name === b.name && a.size === b.size && a.lastModified === b.lastModified; }
 
-    async function ensure(file) {
-        if (current && sameFile(current.file, file)) return;
-        await open(file);
+    function ensure(file) {
+        return serial(function () {
+            if (current && sameFile(current.file, file)) return null;
+            return open(file);
+        });
+    }
+
+    // Fliken har en databas ur zippen och är då ett eget dokument: den behåller sin zip.
+    function tabUsesZip() {
+        return !!current && !!window.QueriesApp.currentDb() && window.QueriesApp.fromExtraction();
+    }
+
+    function offer(html) {
+        document.dispatchEvent(new CustomEvent('queries:extraction-note', { detail: { html: html } }));
+    }
+
+    // Läget från huvudfönstret, när Queries visas. En ändring som redan setts görs inte om, och en
+    // flik som använder en databas ur sin zip byts inte: där erbjuds bytet i stället.
+    function follow(msg) {
+        if (!(msg.seq > shared.seq)) return Promise.resolve();
+        shared = { seq: msg.seq, file: msg.file || null, from: msg.from || '' };
+        return serial(function () {
+            if (shared.file ? current && sameFile(current.file, shared.file) : !current) return null;
+            if (tabUsesZip()) {
+                var where = shared.from ? ' i ' + shared.from : '';
+                offer(shared.file
+                    ? escapeHtml(shared.file.name) + ' öppnades' + escapeHtml(where) + '. Den här fliken använder fortfarande ' + escapeHtml(current.file.name) +
+                        '. <button type="button" class="link-btn" data-follow="1">Byt till ' + escapeHtml(shared.file.name) + ' här</button> · + Ny flik använder den.'
+                    : 'Extraktionen stängdes' + escapeHtml(where) + '. Den här fliken använder fortfarande ' + escapeHtml(current.file.name) + '.');
+                return null;
+            }
+            return shared.file ? open(shared.file, shared.from).catch(failed) : close();
+        });
+    }
+
+    // Erbjudandet ovan: fliken byter till programmets extraktion.
+    function followHere() {
+        return serial(function () {
+            if (!shared.file) return null;
+            return open(shared.file, shared.from).catch(failed);
+        });
+    }
+
+    // En ny flik börjar med programmets extraktion. Fristående (utan huvudfönstret) ärver den
+    // fliken som var öppen.
+    function adoptShared() {
+        if (!shared.seq) return Promise.resolve();
+        return serial(function () {
+            if (shared.file ? current && sameFile(current.file, shared.file) : !current) return null;
+            return shared.file ? open(shared.file, shared.from).catch(failed) : close();
+        });
     }
 
     // Databasen på exakt den sökvägen i zippen. false om Queries inte hittade den.
@@ -189,9 +256,12 @@
     }
 
     // Varje flik har sin egen extraktion: en query från Härkomst kan komma från en annan zip än
-    // den som är öppen i de andra flikarna. En ny flik börjar med zippen som var öppen.
+    // den som är öppen i de andra flikarna. En ny flik börjar med programmets extraktion.
     window.QueriesExtraction = {
         ensure: ensure,
+        follow: follow,
+        followHere: followHere,
+        adoptShared: adoptShared,
         useByPath: useByPath,
         snapshot: function () { return { ex: current, chosen: current ? current.chosen : -1 }; },
         restore: function (s) {
@@ -208,8 +278,9 @@
     };
 
     $('ex-pick').addEventListener('click', function () { input.click(); });
-    $('ex-close').addEventListener('click', close);
-    $('ex-close-compact').addEventListener('click', close);
+    function closeHere() { close(); announceExtraction(null); }
+    $('ex-close').addEventListener('click', closeHere);
+    $('ex-close-compact').addEventListener('click', closeHere);
     $('ex-switch').addEventListener('change', function () {
         var v = $('ex-switch').value;
         if (v === 'manual') {
@@ -226,14 +297,16 @@
         var file = input.files && input.files[0];
         input.value = '';
         if (!file) return;
-        open(file).catch(function (err) {
-            current = null;
-            list.innerHTML = '';
-            window.QueriesApp.setExtraction(null);
-            layout();
-            status.innerHTML = '<span class="run-warn">' + escapeHtml(err && err.message ? err.message : String(err)) + '</span>';
-        });
+        serial(function () { return open(file); }).then(function () { announceExtraction(file); }, failed);
     });
+
+    function failed(err) {
+        current = null;
+        list.innerHTML = '';
+        window.QueriesApp.setExtraction(null);
+        layout();
+        status.innerHTML = '<span class="run-warn">' + escapeHtml(err && err.message ? err.message : String(err)) + '</span>';
+    }
 
     document.addEventListener('queries:db-change', function () {
         if (current && !window.QueriesApp.fromExtraction()) current.chosen = -1;

@@ -41,6 +41,7 @@
                 </div>
             </div>
             <div id="ex-status" class="status"></div>
+            <div id="ex-follow" class="follow display-none"></div>
             <div id="ex-list"></div>
             <input type="file" id="ex-input" accept=".zip,application/zip" hidden>
         </section>
@@ -49,8 +50,8 @@
             <div class="step-label">2. Fil</div>
             <div class="field-row">
                 <div class="param-block grow">
-                    <label class="field-label" for="filename">Filnamn, exakt som i biblioteket</label>
-                    <input type="text" id="filename" spellcheck="false" autocomplete="off" placeholder="IMG_0042.HEIC">
+                    <label class="field-label" for="filename">Filnamn, exakt som i biblioteket. Flera filer: ett namn per rad</label>
+                    <textarea id="filename" class="name-box" rows="1" spellcheck="false" autocomplete="off" placeholder="IMG_0042.HEIC"></textarea>
                 </div>
                 <div class="param-block">
                     <label class="field-label" for="window">Fönster runt tidpunkten</label>
@@ -71,11 +72,13 @@
                 </div>
                 <div class="param-block">
                     <label class="field-label">&nbsp;</label>
-                    <button type="button" class="secondary" id="disk-pick" title="Räknar storlek och CRC32 på filen och letar efter exakt samma innehåll i zippen">Eller välj filen från disk…</button>
+                    <button type="button" class="secondary" id="disk-pick" title="Räknar storlek och CRC32 på filen och letar efter exakt samma innehåll i zippen. Flera filer går att välja.">Eller välj filer från disk…</button>
                 </div>
             </div>
             <p class="muted">Finns namnet inte i bildbiblioteket söks hela zippen, till exempel Snapchats cache. <span class="badge beta">Beta</span>
-                Har flera filer samma namn visas en lista med tumnagel, storlek och CRC32 att välja ur.</p>
+                Har flera filer samma namn visas en lista med tumnagel, storlek och CRC32 att välja ur.
+                Flera filer (namn per rad eller med komma emellan, eller flera filer från disk) bedöms en i taget och visas i en lista.
+                Enter bedömer, Skift+Enter ger en ny rad.</p>
             <div class="field-row time-row">
                 <div class="param-block">
                     <label class="field-label" for="when-date">Eller en tidpunkt, när filen borde ha skapats</label>
@@ -95,12 +98,32 @@
                     Klicka på en rad för att bedöma den.</p>
             </div>
             <div id="run-status" class="status"></div>
+            <button type="button" class="secondary display-none" id="batch-stop" title="Filen som bedöms nu blir klar, sedan stannar listan">Avbryt listan</button>
             <div id="hits" class="display-none"></div>
             <div id="hits-entries" class="display-none"></div>
-            <input type="file" id="disk-input" hidden>
+            <input type="file" id="disk-input" multiple hidden>
+        </section>
+
+        <section class="box display-none" id="batch-box">
+            <div class="box-head">
+                <div class="step-label">3. Filerna</div>
+                <div class="button-row">
+                    <button type="button" class="secondary" id="batch-copy" title="En rad per fil med typ, faktorerna, programmets sammanvägning och din egen bedömning, och sökväg, MD5 och SHA-256 per fil">Kopiera listan för Word</button>
+                    <button type="button" class="secondary" id="batch-save">Spara listan som HTML</button>
+                </div>
+            </div>
+            <p class="muted" id="batch-note"></p>
+            <div id="batch-list" class="result-scroll"></div>
         </section>
 
         <section id="result" class="display-none">
+            <div class="batch-nav display-none" id="batch-nav">
+                <button type="button" class="secondary" id="batch-back">← Tillbaka till listan</button>
+                <span id="batch-pos" class="muted"></span>
+                <span class="grow"></span>
+                <button type="button" class="secondary" id="batch-prev">Föregående</button>
+                <button type="button" class="secondary" id="batch-next">Nästa fil</button>
+            </div>
             <div class="box" id="file-card-box">
                 <div class="step-label">3. Filen</div>
                 <p class="muted">Bilden eller videon som bedöms, med sökväg i zippen, storlek, CRC32, MD5 och SHA-256, så att det går att
@@ -195,6 +218,7 @@
     <script src="../app-ids/catalog.js"></script>
     <script src="../exif-viewer/exif-core.js"></script>
     <script src="../hash-calculator/hashing.js"></script>
+    <script src="../ios-keychain/lib/bplist.js"></script>
     <script src="../ios-keychain/vendor/sqljs/sql-wasm-binary.js"></script>
     <script src="../ios-keychain/vendor/sqljs/sql-wasm.js"></script>
     <script src="../_shared/map/map-core.js"></script>
@@ -209,6 +233,7 @@
     <script src="android-logs.js"></script>
     <script src="snapchat.js"></script>
     <script src="copies.js"></script>
+    <script src="batch.js"></script>
     <script src="timeline-core.js"></script>
     <script src="timeline-svg.js"></script>
     <script src="media-card.js"></script>
