@@ -140,15 +140,29 @@ npm test
   (`entriesAsFiles()`, högst 1 GB åt gången). Queries skickar filnamnen i ett resultat med `ZFILENAME`,
   `_display_name` eller `filename` som `{ type: 'names-for', to: 'provenance', names, zipName }`.
 
-### Queries: flikar och SQL från Härkomst (`tools/db-queries/`)
+### Queries: arbetsbänken, flikar och SQL från Härkomst (`tools/db-queries/`)
 
-- Startsidan och rullistan grupperas per OS och kategori (`CATEGORIES` i `script.js`: Operativsystemet,
-  Snapchat, Signal). En databas utan `category` hör till operativsystemet.
-- Arbetsytan (`#workspace`, ett rutnät): databasrutan överst över hela bredden (`.ws-top`: beskrivning
-  och sökväg, källa och noter i en ihopfälld `<details>`), query och fält till vänster (`.ws-left`),
-  **Kör i appen** till höger i samma höjd (`.ws-right`), resultatet under båda (`.ws-full`) och sist SQL:en
-  (`.ws-sql`), båda över hela bredden. Smalare än 1000 px blir det en kolumn i samma ordning. Vyn har inget
-  tak på bredden, och resultatet får upp till 70 % av fönstrets höjd. "Så här gör du" finns inte längre.
+- Arbetsbänken (1.38): sidopanelen (`.side`, klistrad i fönstret) har **Översikt** överst, en sökruta och
+  databaserna per OS och kategori (`CATEGORIES` i `script.js`: Operativsystemet, Snapchat, Signal; en databas
+  utan `category` hör till operativsystemet). En databas per familj (`familyKey()`), och den valda är utfälld
+  med sina queries (★ = rekommenderad, "Hjälp:"/"Tips:" grå). Photos.sqlite har knappar per iOS-version
+  (`pickVersion()`: ur zippen behålls posten och queryn, `extraction.repick(dbId)`). Med en extraktion öppen
+  står zippens databaser först och resten under en ihopfälld **Inte i extraktionen**. Sökningen matchar
+  familjens namn eller queryns titel, beskrivning och `returns`, och fäller ut alla träffar. `renderSide()`
+  ritar om panelen vid varje byte.
+- Översikten (`#start`): ingen databas vald. Zippens databaser i en tabell med sökväg, storlek, tid och `-wal`
+  (`extraction.js`, `render()`); fristående finns **Öppna extraktion (zip)…** där.
+- Arbetsytan (`#workspace`), uppifrån: queryrutan (`.q-card`: var databasen hör hemma, namn, märke,
+  beskrivning, fälten och **Kör query** på en rad med CSV, karta och Härkomst till höger, tidsspannet i klartext
+  och sist raden **Källa** med filerna, platsen i zippen när databasen finns på flera ställen, noter och
+  nyckelraden för SQLCipher), resultatet (`.r-card`: statusraden och tabellen, eller påhittade exempelrader
+  innan queryn körts), och flikarna **SQL**, **Spårbarhet** (källan, CRC32 och SHA-256 för senaste körningen)
+  och **Om databasen** (beskrivning, sökväg, källa, noter och posten i zippen). Ett klick på den öppna fliken
+  fäller ihop rutan. CRC32 som inte stämmer öppnar Spårbarhet (`queries:show-pane`).
+- Fälten sparas per namn i `paramMemory`: samma tidsspann eller filnamn står kvar när man byter query eller
+  databas i fliken, och Enter i ett fält kör queryn. En annan query i samma databas (`selectQuery()`,
+  händelsen `queries:query-change`) tömmer resultatet men behåller filerna och den inlästa databasen.
+  Smalare än 980 px står sidopanelen överst.
 - `tabs.js`: varje flik är ett sparat läge. Vid byte sparas `QueriesApp.snapshot()`,
   `QueriesRun.snapshot()` (filer, inläst databas, resultat) och `QueriesExtraction.snapshot()`, och
   den andra flikens läge läggs tillbaka med `restore()`. Extraktionen hör till fliken
@@ -334,8 +348,8 @@ Plan och provkörning: [PLAN-harkomst.md](PLAN-harkomst.md).
 - `tools/db-queries/app-secrets.js` (`AppSecrets`): nycklarna ur `secrets.json` (`fromSecretsFile`),
   `android_keystore` (`fromKeystoreFile`) och inklistrad text. `ExtractionCore.loadDatabase(read, hit, lead, { cipher })`
   dekrypterar när katalogens databas har `cipher: "signal"`; utan nyckel kastas ett fel med `code: 'ENCRYPTED'`.
-  Queries läser nyckelfilen när zippen öppnas och har en nyckelruta under Kör i appen; Härkomst har rutan
-  under databaslistan.
+  Queries läser nyckelfilen när zippen öppnas och visar nyckelraden under Källa när nyckeln saknas (eller
+  efter **Annan nyckel…**); Härkomst har rutan under databaslistan.
 - `queries/android/signal/catalog.json`: `signal.db` (meddelanden, bilagor med SHA-256 i hex via en rekursiv
   CTE som avkodar base64, en bilaga efter SHA-256, kontakter, konversationer) och `signal-logs.db`
   (händelser i loggen, hela loggen). Rollerna för Härkomst: `attachments` (alla, ingen tidsgräns),

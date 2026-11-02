@@ -1,5 +1,14 @@
 Automatiskt byggd från commit `{{SHA}}`.
 
+## Nytt i 1.38
+
+- **Queries är en arbetsbänk.** Databaserna och deras queries står i en lista till vänster, grupperade per operativsystem och app. Med en extraktion öppen står zippens databaser först, och resten ligger under **Inte i extraktionen**. Sökrutan överst hittar en query på namn eller beskrivning, till exempel "sha" eller "bilagor".
+- **Kör query står högst upp,** på samma rad som Från, Till och sökvärdet, med Spara CSV, Visa på karta och Bedöm i Härkomst bredvid. Enter i ett fält kör queryn. Resultatet kommer direkt under.
+- **Tidsspannet står kvar** när du byter query eller databas i samma flik, så du kan pröva flera queries mot samma tid. Byter du query i samma databas behålls filerna och den inlästa databasen.
+- **Källan på en rad** längst ned i queryrutan: vilken databas och `-wal` som används och ur vilken zip, och om nyckeln kommer ur extraktionen. Nyckelrutan visas bara när nyckeln saknas, eller efter **Annan nyckel…**.
+- **SQL, Spårbarhet och Om databasen** är flikar under resultatet. Spårbarhet visar källan, CRC32 och SHA-256 för senaste körningen och öppnas av sig själv om CRC32 inte stämmer. Om databasen visar beskrivningen, sökvägen, källan och var databasen ligger i zippen.
+- **Photos.sqlite:** iOS-versionen väljs med knappar i listan. Queryn och filen ur zippen står kvar när du byter version.
+
 ## Nytt i 1.37
 
 - **Signal i Härkomst och Queries (beta).** Signals databaser på Android är krypterade. Med nyckeln ur extraktionen (`extra/Secrets/secrets.json`) eller en inklistrad nyckel läses de i minnet; zippen ändras inte.

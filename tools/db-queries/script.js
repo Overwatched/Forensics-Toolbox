@@ -1,8 +1,6 @@
 // Inne i Forensics Toolbox öppnas extraktionen i raden högst upp, och vissa knappar finns bara där.
 if (window.parent !== window) document.body.classList.add('in-hub');
 
-const dbSelect = document.getElementById('db-select');
-const querySelect = document.getElementById('query-select');
 const paramsEl = document.getElementById('params');
 const sqlOut = document.getElementById('sql-out');
 const sqlView = document.getElementById('sql-view');
@@ -10,21 +8,26 @@ const metaBox = document.getElementById('meta-box');
 const loadError = document.getElementById('load-error');
 const copyButton = document.getElementById('copy-button');
 const editButton = document.getElementById('edit-button');
-const showQueriesBtn = document.getElementById('show-queries-btn');
-const queryPanel = document.getElementById('query-panel');
-const recommendedBox = document.getElementById('recommended-box');
-const dbOverview = document.getElementById('db-overview');
 const workspace = document.getElementById('workspace');
+const startView = document.getElementById('start');
 const toast = document.getElementById('toast');
 const resultPreview = document.getElementById('result-preview');
-const sqlStepLabel = document.getElementById('sql-step-label');
-const dbPicker = document.getElementById('db-picker');
-const backBtn = document.getElementById('back-btn');
+const timePreview = document.getElementById('time-preview');
+const sqlLegend = document.querySelector('.sql-legend');
+const qEyebrow = document.getElementById('q-eyebrow');
+const qTitle = document.getElementById('q-title');
+const qBadge = document.getElementById('q-badge');
+const qSub = document.getElementById('q-sub');
+const sideTree = document.getElementById('side-tree');
+const sideSearch = document.getElementById('side-search');
+const sideHome = document.getElementById('side-home');
+const sideHomeSub = document.getElementById('side-home-sub');
+const dCard = document.getElementById('d-card');
 
 const TIME_NAMES = new Set(['timeStart', 'timeEnd', 'unixStart', 'unixEnd']);
 const LIST_NAMES = new Set(['filename', 'bundleId', 'packageName']);
 const NUMBER_NAMES = new Set(['maxAccuracy']);
-const KW_RE = /\b(SELECT|FROM|WHERE|AND|OR|JOIN|LEFT|INNER|ON|AS|CASE|WHEN|THEN|ELSE|END|ORDER|BY|GROUP|LIMIT|LIKE|IFNULL|BETWEEN|IN|NOT|NULL|DISTINCT|UNION|ALL|DESC|ASC|PRAGMA)\b/g;
+const KW_RE = /\b(WITH|RECURSIVE|SELECT|FROM|WHERE|AND|OR|JOIN|LEFT|INNER|ON|AS|CASE|WHEN|THEN|ELSE|END|ORDER|BY|GROUP|LIMIT|LIKE|IFNULL|BETWEEN|IN|NOT|NULL|DISTINCT|UNION|ALL|DESC|ASC|PRAGMA)\b/g;
 
 const ALIASES = {
     photos: 'photos-ios17-plus',
@@ -43,10 +46,18 @@ const ALIASES = {
 let databases = [];
 let paramLabels = {};
 let paramDefaults = {};
-let showQueries = false;
 let sqlDirty = false;
 let editing = false;
 let plainSql = '';
+// Den valda databasen och queryn. Utan vald query gäller den rekommenderade.
+let currentDbId = '';
+let currentQueryId = '';
+// Det som skrivits i fälten, per namn: samma tidsspann eller filnamn följer med till nästa query.
+let paramMemory = {};
+// Fliken under resultatet som visas (sql, trace eller about), tom när den är ihopfälld.
+let pane = 'sql';
+// "Inte i extraktionen" i sidopanelen är utfälld.
+let missingOpen = false;
 
 function escapeHtml(s) {
     return String(s)
@@ -62,15 +73,15 @@ function showToast(text) {
     setTimeout(() => toast.classList.remove('show'), 1200);
 }
 
-// Satt när databasen kom ur en öppnad extraktion: första steget i "Så här gör du" byts ut,
-// och startsidans kort visar vad som finns i extraktionen.
+// source är satt när databasen kom ur en öppnad extraktion, och extraction beskriver zippens
+// databaser så länge en extraktion är öppen.
 let source = null;
 let extraction = null;
 // Satt när SQL:en kom från Härkomst: { queryId, title, db, from }. Då visas exakt den SQL:en, utan fält.
 let custom = null;
 
 function currentDb() {
-    return databases.find((d) => d.id === dbSelect.value) || null;
+    return databases.find((d) => d.id === currentDbId) || null;
 }
 
 function recommendedQuery(db) {
@@ -82,8 +93,12 @@ function recommendedQuery(db) {
 function currentQuery() {
     const db = currentDb();
     if (!db) return null;
-    if (!showQueries) return recommendedQuery(db);
-    return (db.queries || []).find((q) => q.id === querySelect.value) || db.queries[0];
+    return (db.queries || []).find((q) => q.id === currentQueryId) || recommendedQuery(db);
+}
+
+// Photos.sqlite har en databas per iOS-version i samma familj; de andra är sin egen familj.
+function familyKey(d) {
+    return d.family || d.id;
 }
 
 function looksLikeEpoch(raw) {
@@ -277,111 +292,105 @@ function buildSql() {
     return { plain, html };
 }
 
-// Databasen i korthet: beskrivningen och sökvägen. Källan och längre noter ligger ihopfällda.
+// Om databasen: beskrivningen, sökvägen på telefonen, källan och noterna.
 function renderMeta() {
     const db = currentDb();
     if (!db) {
-        metaBox.classList.add('display-none');
+        metaBox.innerHTML = '';
         return;
     }
-    const source = db.source || '';
-    const extra = db.dbPathHints && db.dbPathHints.length
-        ? db.dbPathHints.map((p) => '<code>' + escapeHtml(p) + '</code>').join('<br>')
-        : '<code>' + escapeHtml(db.dbPathHint || '') + '</code>';
-    const sourceHtml = !source ? ''
-        : /^https?:\/\//.test(source)
-            ? '<p><strong>Källa:</strong> <a href="' + escapeHtml(source) + '" target="_blank" rel="noopener noreferrer">' + escapeHtml(source.replace(/^https:\/\/github.com\//, '')) + '</a></p>'
-            : '<p>' + escapeHtml(source) + '</p>';
-    const more = sourceHtml + (db.note ? '<p>' + escapeHtml(db.note) + '</p>' : '') + (db.footerHtml || '');
+    const paths = (db.dbPathHints && db.dbPathHints.length ? db.dbPathHints : [db.dbPathHint]).filter(Boolean);
+    const src = db.source || '';
+    const sourceHtml = !src ? ''
+        : /^https?:\/\//.test(src)
+            ? '<p><strong>Källa:</strong> <a href="' + escapeHtml(src) + '" target="_blank" rel="noopener noreferrer">' + escapeHtml(src.replace(/^https:\/\/github.com\//, '')) + '</a></p>'
+            : '<p>' + escapeHtml(src) + '</p>';
     metaBox.innerHTML =
-        (db.blurb ? '<p class="meta-blurb">' + escapeHtml(db.blurb) + '</p>' : '') +
-        '<p class="meta-path"><strong>Databas:</strong> ' + extra + '</p>' +
-        (more ? '<details class="meta-more"><summary>Mer om databasen</summary>' + more + '</details>' : '');
-    metaBox.classList.remove('display-none');
+        (db.blurb ? '<p>' + escapeHtml(db.blurb) + '</p>' : '') +
+        (paths.length ? '<p><strong>Sökväg:</strong> ' + paths.map((p) => '<code>' + escapeHtml(p) + '</code>').join('<br>') + '</p>' : '') +
+        sourceHtml + (db.note ? '<p>' + escapeHtml(db.note) + '</p>' : '') + (db.footerHtml || '');
 }
 
-function renderRecommended() {
-    const q = currentQuery();
-    recommendedBox.classList.toggle('display-none', !q);
-    if (!q) return;
-    const badge = q.recommended
-        ? '<span class="badge">Rekommenderas</span>'
-        : (q.group === 'advanced' ? '<span class="badge muted">Hjälp</span>' : '');
-    recommendedBox.innerHTML =
-        '<div class="q-title">' + badge + '<span>' + escapeHtml(q.title) + '</span></div>' +
-        (q.subtitle ? '<div class="q-sub"><strong>Vad den gör:</strong> ' + escapeHtml(q.subtitle) + '</div>' : '') +
-        (q.returns ? '<div class="q-sub"><strong>Visar:</strong> ' + escapeHtml(q.returns) + '</div>' : '');
-}
-
-function fillQuerySelect() {
+// Överst i arbetsytan: var databasen hör hemma, queryns namn och vad den gör.
+function renderQueryHead() {
     const db = currentDb();
-    querySelect.innerHTML = (db.queries || []).map((q) => {
-        const prefix = q.recommended ? '★ ' : '';
-        return '<option value="' + escapeHtml(q.id) + '">' + escapeHtml(prefix + q.title) + '</option>';
-    }).join('');
-    const rec = recommendedQuery(db);
-    if (rec) querySelect.value = rec.id;
+    if (!db) return;
+    const cat = CATEGORIES[categoryOf(db)] || {};
+    qEyebrow.textContent = [db.os, (cat.title || '') + (cat.beta ? ' (beta)' : ''),
+        splitTitle(db.familyTitle || db.label).name + (db.versionLabel ? ' (' + db.versionLabel + ')' : '')].join(' · ');
+    sqlLegend.classList.toggle('display-none', !!custom);
+    if (custom) {
+        const file = String(custom.from || '').replace(/^Härkomst · /, '');
+        qTitle.textContent = custom.title || custom.queryId || '';
+        qBadge.innerHTML = '<span class="badge">Från Härkomst</span>';
+        qSub.innerHTML = 'Samma SQL som Härkomst körde' + (file ? ' för ' + escapeHtml(file) : '') +
+            ', med tidsfönstret och värdena ifyllda (query <code>' + escapeHtml(custom.queryId || '') + '</code>).';
+        return;
+    }
+    const q = currentQuery();
+    qTitle.textContent = q ? q.title : '';
+    qBadge.innerHTML = q && q.recommended ? '<span class="badge">Rekommenderas</span>' : '';
+    qSub.textContent = q ? q.subtitle : '';
 }
 
 function hasTimeParams(params) {
     return (params || []).some((p) => TIME_NAMES.has(p));
 }
 
+// Från och Till utan formatet inom parentes: formatet står i fältet i stället.
+function shortLabel(name, fallback) {
+    return String(paramLabels[name] || fallback).replace(/\s*\(ÅÅÅÅ-MM-DD TT:MM\)\s*$/, '');
+}
+
+function paramField(name, label, placeholder, cls) {
+    const id = 'param-' + name;
+    return '<div class="param-block ' + cls + '">' +
+        '<label class="field-label" for="' + escapeHtml(id) + '">' + escapeHtml(label) + '</label>' +
+        '<input type="text" id="' + escapeHtml(id) + '" data-param="' + escapeHtml(name) + '" spellcheck="false" autocomplete="off"' +
+        ' placeholder="' + escapeHtml(placeholder) + '" value="' + escapeHtml(paramMemory[name] || '') + '">' +
+        '</div>';
+}
+
+// Fälten står på samma rad som Kör, och Enter kör queryn. Det som skrivits in står kvar när
+// man byter query eller databas i fliken.
 function renderParams() {
-    const q = currentQuery();
+    const q = custom ? null : currentQuery();
     const params = (q && q.params) || [];
-    const timeParams = hasTimeParams(params);
-    const other = params.filter((p) => !TIME_NAMES.has(p));
-
+    const time = hasTimeParams(params);
     let html = '';
-    let step = 3;
-    if (timeParams) {
-        html += '<div class="step-label">' + step + '. Tidsspann</div><div class="time-row">';
-        html += `
-          <div class="param-block">
-            <label class="field-label" for="param-timeStart">${escapeHtml(paramLabels.timeStart || 'Från (ÅÅÅÅ-MM-DD TT:MM)')}</label>
-            <input type="text" id="param-timeStart" spellcheck="false" autocomplete="off" placeholder="Tomt = från början">
-          </div>
-          <div class="param-block">
-            <label class="field-label" for="param-timeEnd">${escapeHtml(paramLabels.timeEnd || 'Till (ÅÅÅÅ-MM-DD TT:MM)')}</label>
-            <input type="text" id="param-timeEnd" spellcheck="false" autocomplete="off" placeholder="Tomt = till slutet">
-          </div>`;
-        html += '</div>';
-        html += '<div id="time-preview" class="time-preview"></div>';
-        step += 1;
+    if (time) {
+        html += paramField('timeStart', shortLabel('timeStart', 'Från'), 'ÅÅÅÅ-MM-DD TT:MM', 'param-time');
+        html += paramField('timeEnd', shortLabel('timeEnd', 'Till'), 'ÅÅÅÅ-MM-DD TT:MM', 'param-time');
     }
-    if (other.length) {
-        html += '<div class="step-label">' + step + '. Sökvärde</div>';
-        html += other.map((name) => `
-          <div class="param-block">
-            <label class="field-label" for="param-${escapeHtml(name)}">${escapeHtml(paramLabels[name] || name)}</label>
-            <input type="text" id="param-${escapeHtml(name)}" data-param="${escapeHtml(name)}"
-              spellcheck="false" autocomplete="off" placeholder="${escapeHtml(paramDefaults[name] != null
-                ? 'Tomt = ' + paramDefaults[name] : (paramLabels[name] || name))}">
-          </div>`).join('');
-        step += 1;
-    }
-
+    params.filter((p) => !TIME_NAMES.has(p)).forEach((name) => {
+        const placeholder = paramDefaults[name] != null ? 'Tomt = ' + paramDefaults[name] : '';
+        html += paramField(name, paramLabels[name] || name, placeholder, 'param-text');
+    });
     paramsEl.innerHTML = html;
-    if (sqlStepLabel) sqlStepLabel.textContent = step + '. SQL';
+    paramsEl.classList.toggle('display-none', !html);
+    timePreview.classList.toggle('display-none', !time);
     paramsEl.querySelectorAll('input').forEach((input) => {
         const refresh = () => {
+            paramMemory[input.getAttribute('data-param')] = input.value;
             sqlDirty = false;
             generateSql();
         };
         input.addEventListener('input', refresh);
         input.addEventListener('change', refresh);
-        input.addEventListener('blur', refresh);
+        input.addEventListener('keydown', (e) => {
+            if (e.key !== 'Enter') return;
+            e.preventDefault();
+            document.getElementById('run-button').click();
+        });
     });
 }
 
 function updateTimePreview() {
-    const el = document.getElementById('time-preview');
-    if (!el) return;
+    if (timePreview.classList.contains('display-none')) return;
     const startRaw = paramValue('timeStart');
     const endRaw = paramValue('timeEnd');
     if (!startRaw && !endRaw) {
-        el.textContent = 'Ingen tidsgräns: hela databasen.';
+        timePreview.textContent = 'Ingen tidsgräns: hela databasen.';
         return;
     }
     const start = TimeSql.parse(startRaw, false);
@@ -390,14 +399,14 @@ function updateTimePreview() {
     if (startRaw && !start) bad.push('Från');
     if (endRaw && !end) bad.push('Till');
     if (bad.length) {
-        el.textContent = 'Ogiltigt datum i ' + bad.join(' och ')
+        timePreview.textContent = 'Ogiltigt datum i ' + bad.join(' och ')
             + '. Använd ÅÅÅÅ-MM-DD eller ÅÅÅÅ-MM-DD TT:MM, eller klistra in unixtid (10 eller 13 siffror).';
         return;
     }
 
     const show = (t, open) => (t ? t.text + ' (UTC' + t.offset + ')' : open);
     const typedDate = (startRaw && !looksLikeEpoch(startRaw)) || (endRaw && !looksLikeEpoch(endRaw));
-    el.textContent = 'Söker från ' + show(start, 'början') + ' till ' + show(end, 'slutet') + (typedDate ? ', i ' + (localZoneName() || 'datorns tidszon') : '') + '.';
+    timePreview.textContent = 'Söker från ' + show(start, 'början') + ' till ' + show(end, 'slutet') + (typedDate ? ', i ' + (localZoneName() || 'datorns tidszon') : '') + '.';
 }
 
 function setEditMode(on) {
@@ -419,11 +428,12 @@ function generateSql() {
     if (!editing) setEditMode(false);
 }
 
+// Innan queryn körts: påhittade rader med kolumnerna i SQL:en.
 function renderResultPreview(sql) {
     if (!resultPreview || !window.QueryPreview) return;
     const cols = window.QueryPreview.columns(sql);
     if (!cols.length) {
-        resultPreview.innerHTML = '<p class="muted">Det här är ingen query som returnerar rader, bara en mall eller arbetsgång. Läs kommentarerna i SQL:en.</p>';
+        resultPreview.innerHTML = '<p class="muted">Den här queryn returnerar inga rader. Den är en mall eller arbetsgång: läs kommentarerna i SQL:en.</p>';
         return;
     }
     const db = currentDb();
@@ -436,7 +446,7 @@ function renderResultPreview(sql) {
         rows: 10,
     });
     resultPreview.innerHTML =
-        '<p class="muted">Påhittade exempelrader. Kolumnerna kommer från SQL:en.</p>' +
+        '<p class="muted">Påhittade exempelrader med queryns kolumner. Kör queryn för de riktiga.</p>' +
         '<div class="result-scroll"><table><thead><tr>' +
         cols.map((c) => '<th>' + escapeHtml(c) + '</th>').join('') +
         '</tr></thead><tbody>' +
@@ -447,25 +457,21 @@ function renderResultPreview(sql) {
 function onDbChange() {
     const db = currentDb();
     custom = null;
-    showQueriesBtn.classList.remove('display-none');
-    document.querySelector('.sql-legend').classList.remove('display-none');
     document.dispatchEvent(new CustomEvent('queries:db-change'));
     workspace.classList.toggle('display-none', !db);
-    if (dbOverview) dbOverview.classList.toggle('display-none', !!db);
-    dbPicker.classList.toggle('display-none', !db);
-    showQueries = false;
+    startView.classList.toggle('display-none', !!db);
     sqlDirty = false;
     setEditMode(false);
-    queryPanel.classList.add('display-none');
-    showQueriesBtn.textContent = 'Välj en annan query…';
+    currentQueryId = db ? ((recommendedQuery(db) || {}).id || '') : '';
+    renderSide();
     if (!db) {
         sqlView.innerHTML = '';
         sqlOut.value = '';
+        plainSql = '';
         copyButton.disabled = true;
         return;
     }
-    fillQuerySelect();
-    renderRecommended();
+    renderQueryHead();
     renderMeta();
     renderParams();
     generateSql();
@@ -527,12 +533,6 @@ function buildDatabases(photos, android, appUsage, routined, snapchat, snapchatA
             ios: band.ios || null,
             source: photos.source,
             note: [band.notes, photos.timeNote].filter(Boolean).join(' '),
-            flow: [
-                'Läs in <code>Photos.sqlite</code> + <code>-wal</code> + <code>-shm</code>',
-                'Använd den rekommenderade queryn, eller välj en annan',
-                'Ange filnamn, tidsspann eller app',
-                'Kör queryn här med databasen och <code>-wal</code>, eller kopiera SQL:en till DB Browser',
-            ],
             queries: queries,
         });
     });
@@ -560,12 +560,6 @@ function buildDatabases(photos, android, appUsage, routined, snapchat, snapchatA
             paths: db.paths || [],
             source: db.source,
             note: appUsage.sourceNote,
-            flow: [
-                'Läs in databasen + <code>-wal</code> + <code>-shm</code>',
-                'Använd den rekommenderade queryn, eller välj en annan',
-                'Ange tidsspann som <code>ÅÅÅÅ-MM-DD TT:MM</code>',
-                'Kör queryn här med databasen och <code>-wal</code>, eller kopiera SQL:en till DB Browser',
-            ],
             footerHtml: db.id === 'knowledgec'
                 ? '<p>Biome <code>App.InFocus</code> är SEGB/protobuf, inte SQL — använd iLEAPP.</p>'
                 : '',
@@ -596,12 +590,6 @@ function buildDatabases(photos, android, appUsage, routined, snapchat, snapchatA
             source: db.source,
             note: routined.sourceNote,
             runnable: true,
-            flow: [
-                'Välj databasen och dess <code>-wal</code> under <em>Kör i appen</em>, eller kör SQL:en i DB Browser',
-                'Använd den rekommenderade queryn, eller välj en annan',
-                'Ange tidsspann som <code>ÅÅÅÅ-MM-DD TT:MM</code>',
-                'Visa resultatet på kartan i Positioner',
-            ],
             queries: visibleQueries(db.queries).map((q) => ({
                 id: q.id,
                 title: q.title,
@@ -633,12 +621,6 @@ function buildDatabases(photos, android, appUsage, routined, snapchat, snapchatA
                 source: db.source,
                 note: cat.sourceNote,
                 runnable: true,
-                flow: [
-                    'Öppna extraktionen, eller välj databasen och dess <code>-wal</code> under <em>Kör i appen</em>',
-                    'Använd den rekommenderade queryn, eller välj en annan',
-                    'Ange tidsspann som <code>ÅÅÅÅ-MM-DD TT:MM</code>, eller cachenyckeln (filnamnet i ' + (os === 'iOS' ? 'file_manager' : 'native_content_manager') + '-mappen)',
-                    'Jämför med Härkomst: samma SQL ligger i protokollets bilaga',
-                ],
                 queries: visibleQueries(db.queries).map((q) => ({
                     id: q.id,
                     title: q.title,
@@ -671,12 +653,6 @@ function buildDatabases(photos, android, appUsage, routined, snapchat, snapchatA
             note: signalAndroid.sourceNote,
             cipher: db.cipher || null,
             runnable: true,
-            flow: [
-                'Öppna extraktionen, eller välj databasen och dess <code>-wal</code> under <em>Kör i appen</em>',
-                'Nyckeln läses ur extraktionen (<code>extra/Secrets/secrets.json</code>); saknas den, klistra in den under <em>Kör i appen</em>',
-                'Använd den rekommenderade queryn, eller välj en annan',
-                'Ange tidsspann som <code>ÅÅÅÅ-MM-DD TT:MM</code>, eller filens SHA-256',
-            ],
             queries: visibleQueries(db.queries).map((q) => ({
                 id: q.id,
                 title: q.title,
@@ -713,12 +689,6 @@ function buildDatabases(photos, android, appUsage, routined, snapchat, snapchatA
             paths: cat.paths || [],
             source: android.source,
             note: android.sourceNote,
-            flow: [
-                'Läs in databasen + <code>-wal</code> + <code>-shm</code>',
-                'Använd den rekommenderade queryn, eller välj en annan',
-                'Fyll i filnamn / tid / paket om queryn frågar efter det',
-                'Kör queryn här med databasen och <code>-wal</code>, eller kopiera SQL:en till DB Browser',
-            ],
             queries: queries,
         });
     });
@@ -783,34 +753,15 @@ function groupByOsAndCategory(list) {
     return out;
 }
 
-function categoryTitle(key) {
-    const c = CATEGORIES[key];
-    return c ? c.title + (c.beta ? ' (beta)' : '') : key;
-}
-
-function fillDbSelect() {
-    const groups = groupByOsAndCategory(databases);
-    let html = '<option value="">Välj databas…</option>';
-    Object.keys(groups).forEach((os) => {
-        groups[os].forEach((g) => {
-            html += '<optgroup label="' + escapeHtml(os + ' · ' + categoryTitle(g.key)) + '">';
-            g.items.forEach((d) => {
-                html += '<option value="' + escapeHtml(d.id) + '">' + escapeHtml(d.label) + '</option>';
-            });
-            html += '</optgroup>';
-        });
-    });
-    dbSelect.innerHTML = html;
-    dbSelect.disabled = false;
-}
-
-function overviewFamilies() {
+// Katalogens databaser per familj: { os, category, title, blurb, items: [databaser] }.
+function catalogFamilies() {
     const families = [];
     const byKey = {};
     databases.forEach((d) => {
-        const key = d.family || d.id;
+        const key = familyKey(d);
         if (!byKey[key]) {
             byKey[key] = {
+                key: key,
                 os: d.os,
                 category: categoryOf(d),
                 title: d.familyTitle || d.label,
@@ -827,96 +778,194 @@ function overviewFamilies() {
 function selectDb(id, opts) {
     if (!id || !databases.some((d) => d.id === id)) return;
     source = (opts && opts.source) || null;
-    dbSelect.value = id;
+    currentDbId = id;
     sqlDirty = false;
     onDbChange();
     window.scrollTo(0, 0);
 }
 
-const OS_INTRO = {
-    iOS: 'iPhone och iPad. Tiderna i databaserna räknas från 2001 och konverteras i SQL:en.',
-    Android: 'Telefoner och surfplattor. MediaStore finns på alla, de andra beror på tillverkare och version.',
-};
+// En annan query i samma databas: filerna och den inlästa databasen står kvar.
+function selectQuery(id) {
+    const db = currentDb();
+    if (!db || !(db.queries || []).some((q) => q.id === id)) return;
+    custom = null;
+    currentQueryId = id;
+    sqlDirty = false;
+    setEditMode(false);
+    document.dispatchEvent(new CustomEvent('queries:query-change'));
+    renderQueryHead();
+    renderParams();
+    generateSql();
+    renderSide();
+}
 
-function renderOverview() {
-    if (!dbOverview) return;
-    const families = overviewFamilies();
-    const groups = groupByOsAndCategory(families);
+function goHome() {
+    source = null;
+    currentDbId = '';
+    sqlDirty = false;
+    onDbChange();
+}
 
-    let html = '<div class="db-sections">';
+// Databasen ur zippen när den finns där, annars katalogens databas (filerna läses in för hand).
+function pickFamily(key, dbId) {
+    if (extraction && extraction.families.has(key)) extraction.pick(key);
+    else selectDb(dbId);
+}
+
+// Klick på databasens rad: den rekommenderade queryn. Är databasen redan vald händer inget,
+// utom när filerna lästs in för hand och databasen finns i zippen: då hämtas den därifrån.
+function pickDbRow(key, dbId) {
+    const cur = currentDb();
+    const inZip = !!extraction && extraction.families.has(key);
+    if (cur && familyKey(cur) === key && !custom && (source || !inZip)) return;
+    pickFamily(key, dbId);
+}
+
+function pickQuery(key, dbId, queryId) {
+    const cur = currentDb();
+    if (!cur || familyKey(cur) !== key) pickFamily(key, dbId);
+    selectQuery(queryId);
+}
+
+// Photos.sqlite: en annan iOS-version byter katalogens databas men behåller filen ur zippen och queryn.
+function pickVersion(dbId) {
+    const cur = currentDb();
+    if (!cur || cur.id === dbId) return;
+    const keep = custom ? '' : currentQueryId;
+    if (source && extraction) extraction.repick(dbId);
+    else selectDb(dbId);
+    if (keep) selectQuery(keep);
+}
+
+// "cache_controller.db (Snapchat cache)": namnet, och det inom parentes som visas grått.
+function splitTitle(title) {
+    const m = /^(.*?)\s*\(([^()]*)\)$/.exec(String(title || ''));
+    return m ? { name: m[1], sub: m[2] } : { name: String(title || ''), sub: '' };
+}
+
+const CHEVRON = '<svg class="side-chev" width="10" height="10" viewBox="0 0 10 10" aria-hidden="true">' +
+    '<path d="M3.5 2l3 3-3 3" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+
+function queryMatches(q, terms) {
+    const hay = (q.title + ' ' + (q.subtitle || '') + ' ' + (q.returns || '')).toLowerCase();
+    return terms.every((t) => hay.includes(t));
+}
+
+// Sidopanelen: databaserna per operativsystem och kategori, den valda utfälld med sina queries.
+// Med en extraktion öppen står zippens databaser först och de andra under "Inte i extraktionen".
+// En sökning fäller ut alla databaser med träffar.
+function renderSide() {
+    const cur = currentDb();
+    const curKey = cur ? familyKey(cur) : null;
+    const active = cur && !custom ? currentQuery() : null;
+    const terms = sideSearch.value.trim().toLowerCase().split(/\s+/).filter(Boolean);
+
+    sideHome.classList.toggle('active', !cur);
+    if (cur) sideHome.removeAttribute('aria-current');
+    else sideHome.setAttribute('aria-current', 'page');
+    sideHomeSub.textContent = extraction ? extraction.title : 'Ingen extraktion öppen';
+
+    const found = [];
+    const missing = [];
+    catalogFamilies().forEach((f) => {
+        const isCur = f.key === curKey;
+        const inZip = !!extraction && extraction.families.has(f.key);
+        const db = isCur ? cur : (inZip && extraction.dbFor(f.key)) || f.items[f.items.length - 1];
+        let queries = db.queries || [];
+        let open = isCur;
+        if (terms.length) {
+            const famHit = terms.every((t) => f.title.toLowerCase().includes(t));
+            if (!famHit) queries = queries.filter((q) => queryMatches(q, terms));
+            if (!famHit && !queries.length) return;
+            open = true;
+        }
+        const row = { f: f, db: db, queries: queries, open: open, isCur: isCur };
+        (extraction && !inZip ? missing : found).push(row);
+    });
+
+    let html = sideSections(found, active);
+    if (missing.length) {
+        const open = terms.length > 0 || missingOpen || missing.some((r) => r.isCur);
+        html += '<details class="side-missing"' + (open ? ' open' : '') + '><summary>Inte i extraktionen <span class="side-count">' +
+            missing.length + '</span></summary>' + sideSections(missing, active) + '</details>';
+    }
+    // Panelen ritas om vid varje klick: knappen som hade fokus får det tillbaka, så att man kan
+    // fortsätta med tangentbordet.
+    const had = sideTree.contains(document.activeElement) ? sideKey(document.activeElement) : null;
+    sideTree.innerHTML = html || '<p class="side-empty">Inga queries matchar.</p>';
+    if (had) {
+        const again = [...sideTree.querySelectorAll('button')].find((b) => sideKey(b) === had);
+        if (again) again.focus();
+    }
+}
+
+function sideKey(el) {
+    return ['data-ver', 'data-q', 'data-family'].map((a) => el.getAttribute(a) || '').join('|');
+}
+
+function sideSections(rows, active) {
+    const groups = groupByOsAndCategory(rows.map((r) => ({ os: r.f.os, category: r.f.category, row: r })));
+    let html = '';
     Object.keys(groups).forEach((os) => {
-        if (!groups[os].length) return;
-        html += '<section class="db-section"><div class="db-section-head"><h2>' + escapeHtml(os) + '</h2>' +
-            '<p>' + escapeHtml(OS_INTRO[os] || '') + '</p></div>';
         groups[os].forEach((g) => {
             const cat = CATEGORIES[g.key] || {};
-            html += '<div class="db-subhead"><h3>' + escapeHtml(cat.title || g.key) + (cat.beta ? ' <span class="badge muted">Beta</span>' : '') + '</h3>' +
-                (cat.intro && cat.intro[os] ? '<p>' + escapeHtml(cat.intro[os]) + '</p>' : '') + '</div>';
-            g.items.forEach((f) => {
-                const defaultDb = f.items[f.items.length - 1];
-                const rec = recommendedQuery(defaultDb);
-                const path = String(defaultDb.dbPathHint || '').replace(/\s*\(.*\)\s*$/, '');
-                const count = defaultDb.queries.length;
-                const key = defaultDb.family || defaultDb.id;
-                const found = extraction && extraction.families.has(key);
-                const state = extraction ? (found ? ' db-card-found' : ' db-card-missing') : '';
-                html += '<div class="db-card' + state + '" role="button" tabindex="0" data-db="' + escapeHtml(defaultDb.id) +
-                    '" data-family="' + escapeHtml(key) + '">';
-                if (extraction) {
-                    html += '<div class="db-card-ex">' + (found
-                        ? '<span class="badge">I extraktionen</span>'
-                        : '<span class="db-card-ex-missing">Finns inte i extraktionen</span>') + '</div>';
-                }
-                html += '<div class="db-card-title"><span>' + escapeHtml(f.title) + '</span>' +
-                    '<span class="db-card-count">' + count + (count === 1 ? ' query' : ' queries') + '</span></div>';
-                html += '<div class="db-card-blurb">' + escapeHtml(f.blurb) + '</div>';
-                if (path) html += '<div class="db-card-path" title="' + escapeHtml(path) + '">' + escapeHtml(path) + '</div>';
-                if (rec) html += '<div class="db-card-rec"><span class="badge">Rekommenderas</span>' + escapeHtml(rec.title) + '</div>';
-                if (f.items.length > 1) {
-                    html += '<div class="db-card-versions"><span class="db-card-versions-label">iOS-version:</span>';
-                    f.items.forEach((item) => {
-                        html += '<button type="button" class="db-chip" data-db="' + escapeHtml(item.id) + '">' +
-                            escapeHtml(item.versionLabel || item.label) + '</button>';
-                    });
-                    html += '</div>';
-                }
-                html += '</div>';
-            });
+            const intro = cat.intro && cat.intro[os] ? cat.intro[os] : '';
+            html += '<div class="side-sec"><div class="side-head" title="' + escapeHtml(intro) + '">' + escapeHtml(os + ' · ' + (cat.title || g.key)) +
+                (cat.beta ? ' <span class="side-beta">beta</span>' : '') + '</div>';
+            g.items.forEach((x) => { html += sideFamily(x.row, active); });
+            html += '</div>';
         });
-        html += '</section>';
     });
-    dbOverview.innerHTML = html + '</div>';
+    return html;
+}
 
-    dbOverview.querySelectorAll('.db-chip').forEach((chip) => {
-        chip.addEventListener('click', (e) => {
-            e.stopPropagation();
-            selectDb(chip.getAttribute('data-db'));
-        });
+function sideFamily(r, active) {
+    const t = splitTitle(r.f.title);
+    let html = '<div class="side-fam' + (r.isCur ? ' current' : '') + '">' +
+        '<button type="button" class="side-db" data-family="' + escapeHtml(r.f.key) + '" data-db="' + escapeHtml(r.db.id) + '"' +
+        ' aria-expanded="' + r.open + '" title="' + escapeHtml(r.f.blurb || r.f.title) + '">' + CHEVRON +
+        '<span class="side-name">' + escapeHtml(t.name) + '</span>' +
+        (t.sub ? '<span class="side-sub">' + escapeHtml(t.sub) + '</span>' : '') +
+        '<span class="side-count">' + (r.db.queries || []).length + '</span></button>';
+    if (!r.open) return html + '</div>';
+    if (r.isCur && r.f.items.length > 1) {
+        html += '<div class="side-vers" role="group" aria-label="iOS-version"><span>iOS</span>' + r.f.items.map((d) => {
+            const on = d.id === r.db.id;
+            return '<button type="button" class="side-ver' + (on ? ' active' : '') + '" data-ver="' + escapeHtml(d.id) + '" aria-pressed="' + on + '"' +
+                ' title="' + escapeHtml(d.versionLabel || d.label) + '">' +
+                escapeHtml(String(d.versionLabel || d.label).replace(/^iOS\s*/, '').replace(/ och senare$/, '+')) + '</button>';
+        }).join('') + '</div>';
+    }
+    html += '<ul class="side-qs">' + r.queries.map((q) => {
+        const on = !!active && r.isCur && q.id === active.id;
+        return '<li><button type="button" class="side-q' + (on ? ' active' : '') + (q.group === 'advanced' ? ' help' : '') + '"' +
+            ' data-family="' + escapeHtml(r.f.key) + '" data-db="' + escapeHtml(r.db.id) + '" data-q="' + escapeHtml(q.id) + '"' +
+            (on ? ' aria-current="true"' : '') + ' title="' + escapeHtml(q.subtitle || q.title) + '">' +
+            '<span class="side-q-title">' + escapeHtml(q.title) + '</span>' +
+            (q.recommended ? '<span class="side-rec" title="Rekommenderas" aria-label="Rekommenderas">★</span>' : '') +
+            '</button></li>';
+    }).join('') + '</ul>';
+    return html + '</div>';
+}
+
+// Flikarna under resultatet. Ett klick på den öppna fliken fäller ihop rutan.
+function setPane(p) {
+    pane = p;
+    dCard.classList.toggle('collapsed', !p);
+    dCard.querySelectorAll('.d-tab').forEach((b) => {
+        b.setAttribute('aria-selected', b.getAttribute('data-pane') === p ? 'true' : 'false');
     });
-    dbOverview.querySelectorAll('.db-card').forEach((card) => {
-        const pick = () => {
-            const family = card.getAttribute('data-family');
-            if (extraction && extraction.families.has(family)) extraction.pick(family);
-            else selectDb(card.getAttribute('data-db'));
-        };
-        card.addEventListener('click', pick);
-        card.addEventListener('keydown', (e) => {
-            if (e.key === 'Enter' || e.key === ' ') {
-                e.preventDefault();
-                pick();
-            }
-        });
+    ['sql', 'trace', 'about'].forEach((k) => {
+        document.getElementById('pane-' + k).classList.toggle('display-none', k !== p);
     });
+    document.getElementById('sql-tools').classList.toggle('display-none', p !== 'sql');
 }
 
 function applyDeepLink() {
     const params = new URLSearchParams(location.search);
     let id = params.get('db') || '';
     if (ALIASES[id]) id = ALIASES[id];
-    if (id && databases.some((d) => d.id === id)) {
-        dbSelect.value = id;
-        onDbChange();
-    }
+    if (id && databases.some((d) => d.id === id)) selectDb(id);
 }
 
 async function init() {
@@ -931,8 +980,7 @@ async function init() {
             loadLocalJson('../../queries/android/signal/catalog.json', 'SIGNAL_ANDROID_CATALOG'),
         ]);
         databases = buildDatabases(photos, android, appUsage, routined, snapchat, snapchatAndroid, signalAndroid);
-        fillDbSelect();
-        renderOverview();
+        renderSide();
         applyDeepLink();
         readyResolve();
     } catch (err) {
@@ -942,40 +990,40 @@ async function init() {
     }
 }
 
-dbSelect.addEventListener('change', () => {
-    source = null;
-    sqlDirty = false;
-    onDbChange();
+sideTree.addEventListener('click', (e) => {
+    const b = e.target.closest('button');
+    if (!b) return;
+    if (b.hasAttribute('data-ver')) pickVersion(b.getAttribute('data-ver'));
+    else if (b.hasAttribute('data-q')) pickQuery(b.getAttribute('data-family'), b.getAttribute('data-db'), b.getAttribute('data-q'));
+    else if (b.hasAttribute('data-family')) pickDbRow(b.getAttribute('data-family'), b.getAttribute('data-db'));
 });
+// toggle bubblar inte, så den fångas på vägen ned.
+sideTree.addEventListener('toggle', (e) => {
+    if (e.target.classList && e.target.classList.contains('side-missing')) missingOpen = e.target.open;
+}, true);
+sideSearch.addEventListener('input', renderSide);
+sideSearch.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape' || !sideSearch.value) return;
+    sideSearch.value = '';
+    renderSide();
+});
+sideHome.addEventListener('click', goHome);
 
-backBtn.addEventListener('click', () => {
-    source = null;
-    dbSelect.value = '';
-    sqlDirty = false;
-    onDbChange();
+dCard.querySelector('.d-tabs').addEventListener('click', (e) => {
+    const b = e.target.closest('.d-tab');
+    if (!b) return;
+    const p = b.getAttribute('data-pane');
+    setPane(p === pane ? '' : p);
 });
-
-querySelect.addEventListener('change', () => {
-    sqlDirty = false;
-    document.dispatchEvent(new CustomEvent('queries:query-change'));
-    renderRecommended();
-    renderParams();
-    generateSql();
+// Knappar på andra ställen (statusraden) som öppnar en flik under resultatet.
+document.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-show-pane]');
+    if (!b) return;
+    setPane(b.getAttribute('data-show-pane'));
+    dCard.scrollIntoView({ block: 'nearest' });
 });
-
-showQueriesBtn.addEventListener('click', () => {
-    showQueries = !showQueries;
-    queryPanel.classList.toggle('display-none', !showQueries);
-    showQueriesBtn.textContent = showQueries ? 'Använd rekommenderad query' : 'Välj en annan query…';
-    if (!showQueries) {
-        const rec = recommendedQuery(currentDb());
-        if (rec) querySelect.value = rec.id;
-        sqlDirty = false;
-        renderParams();
-        generateSql();
-    }
-    renderRecommended();
-});
+// Körningen öppnar Spårbarhet när CRC32 inte stämmer.
+document.addEventListener('queries:show-pane', (e) => setPane(e.detail));
 
 sqlOut.addEventListener('input', () => {
     sqlDirty = true;
@@ -1033,12 +1081,7 @@ window.addEventListener('message', function (event) {
     if (data.type === 'select-db' && data.db && databases.length) {
         let id = String(data.db);
         if (ALIASES[id]) id = ALIASES[id];
-        if (databases.some((d) => d.id === id)) {
-            source = null;
-            dbSelect.value = id;
-            sqlDirty = false;
-            onDbChange();
-        }
+        selectDb(id);
     }
 });
 
@@ -1051,29 +1094,18 @@ function showCustom(info, sql) {
     sqlView.innerHTML = colorSql(sql);
     setEditMode(false);
     copyButton.disabled = !sql;
-    paramsEl.innerHTML = '';
-    if (sqlStepLabel) sqlStepLabel.textContent = '3. SQL';
-    showQueries = false;
-    queryPanel.classList.add('display-none');
-    showQueriesBtn.classList.add('display-none');
-    recommendedBox.classList.remove('display-none');
-    recommendedBox.innerHTML =
-        '<div class="q-title"><span class="badge">Från Härkomst</span><span>' + escapeHtml(custom.title || custom.queryId || '') + '</span></div>' +
-        '<div class="q-sub"><strong>Query:</strong> <code>' + escapeHtml(custom.queryId || '') + '</code>' + (custom.db ? ' mot ' + escapeHtml(custom.db) : '') + '</div>' +
-        '<div class="q-sub">Samma SQL som Härkomst körde, med tidsfönster och värden ifyllda. Den står också i protokollets bilaga. ' +
-        'Resultatet nedan är databasen med <code>-wal</code> pålagd, precis som i Härkomst.</div>' +
-        (custom.from ? '<div class="q-sub"><strong>Bedömningen:</strong> ' + escapeHtml(custom.from) + '</div>' : '');
+    renderQueryHead();
+    renderParams();
     renderResultPreview(sql);
-    document.querySelector('.sql-legend').classList.add('display-none');
+    renderSide();
     document.dispatchEvent(new CustomEvent('queries:query-change'));
 }
 
 // Flikarna: läget i arbetsytan sparas när man byter flik och läggs tillbaka när man kommer tillbaka.
+// Sökningen i sidopanelen gäller alla flikar.
 function snapshot() {
-    const params = {};
-    paramsEl.querySelectorAll('input').forEach((el) => { params[el.id] = el.value; });
     return {
-        dbId: dbSelect.value, source: source, showQueries: showQueries, queryId: querySelect.value, params: params,
+        dbId: currentDbId, source: source, queryId: currentQueryId, params: Object.assign({}, paramMemory), pane: pane,
         editing: editing, sqlDirty: sqlDirty, sqlText: editing ? sqlOut.value : plainSql, custom: custom, scrollY: window.scrollY,
     };
 }
@@ -1081,28 +1113,18 @@ function snapshot() {
 function restore(snap) {
     const s = snap || {};
     source = s.source || null;
-    dbSelect.value = s.dbId && databases.some((d) => d.id === s.dbId) ? s.dbId : '';
+    currentDbId = s.dbId && databases.some((d) => d.id === s.dbId) ? s.dbId : '';
+    paramMemory = Object.assign({}, s.params || {});
     sqlDirty = false;
+    setPane(s.pane != null ? s.pane : 'sql');
     onDbChange();
-    if (!dbSelect.value) return;
+    if (!currentDbId) return;
     if (s.custom) {
         showCustom(s.custom, s.sqlText || '');
         if (s.editing) setEditMode(true);
         return;
     }
-    if (s.showQueries) {
-        showQueries = true;
-        queryPanel.classList.remove('display-none');
-        showQueriesBtn.textContent = 'Använd rekommenderad query';
-        if (s.queryId) querySelect.value = s.queryId;
-        renderRecommended();
-        renderParams();
-    }
-    Object.keys(s.params || {}).forEach((id) => {
-        const el = document.getElementById(id);
-        if (el) el.value = s.params[id];
-    });
-    generateSql();
+    if (s.queryId) selectQuery(s.queryId);
     if (s.sqlDirty) {
         sqlDirty = true;
         plainSql = s.sqlText;
@@ -1116,15 +1138,15 @@ function restore(snap) {
 function tabLabel(snap) {
     const s = snap || snapshot();
     const db = databases.find((d) => d.id === s.dbId);
-    if (!db) return { title: 'Startsidan', sub: '' };
-    let q = null;
-    if (s.custom) q = s.custom.queryId;
+    if (!db) return { title: 'Översikt', sub: '' };
+    let q = '';
+    if (s.custom) q = s.custom.title || s.custom.queryId || '';
     else {
         const list = db.queries || [];
-        const picked = s.showQueries ? list.find((x) => x.id === s.queryId) : recommendedQuery(db);
+        const picked = list.find((x) => x.id === s.queryId) || recommendedQuery(db);
         q = picked ? picked.title : '';
     }
-    return { title: db.familyTitle || db.label, sub: q || '', fromProvenance: !!s.custom };
+    return { title: db.familyTitle || db.label, sub: q, fromProvenance: !!s.custom };
 }
 
 let readyResolve;
@@ -1142,11 +1164,11 @@ window.QueriesApp = {
     tabLabel: tabLabel,
     databases: () => databases,
     selectDb: selectDb,
-    // { families: Set, pick(family) } när en extraktion är öppen, annars null.
+    // { families: Set, title, dbFor(family), pick(family), repick(dbId) } när en extraktion är öppen, annars null.
     setExtraction: (ex) => {
         extraction = ex;
         if (!ex) source = null;
-        renderOverview();
+        renderSide();
     },
     fromExtraction: () => !!source,
 };

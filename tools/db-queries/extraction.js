@@ -1,6 +1,6 @@
 // Extraktion: användaren väljer en zip. Innehållsförteckningen gås igenom, katalogernas
-// databaser och deras -wal listas, och en vald databas läses ut till minnet och läggs i
-// "Kör i appen". Zippen läses bara med File.slice(). Inget packas upp eller sparas på disk.
+// databaser och deras -wal listas, och en vald databas läses ut till minnet och blir queryns
+// källa. Zippen läses bara med File.slice(). Inget packas upp eller sparas på disk.
 // Själva läsningen ligger i extraction-core.js, som Härkomst också använder.
 (function () {
     'use strict';
@@ -94,54 +94,64 @@
         });
     }
 
-    // Startsidan visar hela rutan. När en databas är vald krymper den till en rad med byte av
-    // databas, och utan extraktion döljs den.
+    // Översikten (ingen databas vald) visar zippens databaser. I arbetsytan står källan längst ned i
+    // queryrutan: platsen i zippen när databasen finns på flera ställen, och noter om platsen.
+    // Om databasen visar posten i zippen.
     function layout() {
         var app = window.QueriesApp;
-        var inWorkspace = !!app.currentDb();
-        var fromZip = app.fromExtraction();
-        $('ex-box').classList.toggle('display-none', inWorkspace);
+        var db = app.currentDb();
+        var hub = document.body.classList.contains('in-hub');
+        $('ex-box').classList.toggle('display-none', !!db || (hub && !current && !status.textContent));
+        // Med en extraktion öppen säger statusraden det som behövs.
+        document.querySelector('.start-intro').classList.toggle('display-none', !!current);
         $('ex-close').classList.toggle('display-none', !current);
         var pickBtn = $('ex-pick');
         pickBtn.textContent = current ? 'Öppna en annan zip…' : 'Öppna extraktion (zip)…';
         pickBtn.classList.toggle('secondary', !!current);
-        // I arbetsytan: rullistan under "1. Databas" listar databaserna i extraktionen. Katalogens
-        // rullista visas bara när databasen lästs in för hand eller iOS-versionen är okänd.
         var sw = $('ex-switch');
-        var guessed = fromZip && current && current.chosen >= 0 && describe(current.found[current.chosen]).guessed;
-        sw.classList.toggle('display-none', !inWorkspace || !current);
-        $('ex-compact').classList.toggle('display-none', !inWorkspace || !current);
-        $('db-select').classList.toggle('display-none', inWorkspace && fromZip && !guessed);
-        if (!current || !inWorkspace) return;
-        $('ex-compact-name').textContent = summary();
-        var html = '';
-        current.found.forEach(function (f, i) {
-            var d = describe(f);
-            html += '<option value="' + i + '"' + (fromZip && current.chosen === i ? ' selected' : '') + '>' +
-                escapeHtml(d.label + (d.notes.length ? ' – ' + d.notes.join(', ') : '')) + '</option>';
-        });
-        html += '<option value="manual"' + (fromZip ? '' : ' selected') + '>Annan databas, filerna läses in för hand…</option>';
-        sw.innerHTML = html;
+        var notes = $('ex-notes');
+        var about = $('about-zip');
+        sw.classList.add('display-none');
+        notes.innerHTML = '';
+        about.innerHTML = '';
+        if (!db || !current || !app.fromExtraction() || current.chosen < 0) return;
+        var f = current.found[current.chosen];
+        var same = [];
+        current.found.forEach(function (x, i) { if (x.key === f.key) same.push(i); });
+        if (same.length > 1) {
+            sw.innerHTML = same.map(function (i) {
+                var name = current.found[i].db.name;
+                return '<option value="' + i + '"' + (i === current.chosen ? ' selected' : '') + ' title="' + escapeHtml(name) + '">' + escapeHtml(name) + '</option>';
+            }).join('');
+            sw.classList.remove('display-none');
+        }
+        var list = [];
+        if (!f.primary) list.push(escapeHtml(placeNote(f.db.name)));
+        if (f.user) list.push('användare ' + escapeHtml(f.user));
+        if (describe(f).guessed && !current.override) list.push('<span class="run-warn">iOS-versionen står inte i extraktionen: välj den till vänster</span>');
+        if (f.journal && f.journal.size) list.push('<span class="run-warn">-journal finns: databasen kan vara mitt i en transaktion</span>');
+        notes.innerHTML = list.join(' · ');
+        about.innerHTML = '<p><strong>I extraktionen:</strong> <code>' + escapeHtml(f.db.name) + '</code></p>' +
+            '<p>' + sizeText(f.db.size) + ', ändrad ' + escapeHtml(entryTime(f.db)) + ' enligt zippen. ' +
+            (f.wal ? '<code>-wal</code> ' + sizeText(f.wal.size) + '.' : '<span class="run-warn">Ingen -wal i zippen.</span>') + '</p>';
     }
 
-    function use(i) {
+    // dbId: en annan databas i samma familj än den iOS-versionen pekar ut (Photos.sqlite).
+    function use(i, dbId) {
         var c = current;
         var f = c.found[i];
         var d = describe(f);
+        var db = (dbId && window.QueriesApp.databases().find(function (x) { return x.id === dbId; })) || d.db;
         c.chosen = i;
-        window.QueriesApp.selectDb(d.db.id, {
-            source: {
-                html: 'Databasen' + (f.wal ? ' och <code>-wal</code>' : '') + ' är hämtade ur <code>' +
-                    escapeHtml(c.file.name) + '</code>' + (f.wal ? '' : '. Extraktionen har ingen <code>-wal</code>'),
-            },
-        });
+        c.override = db !== d.db ? db.id : null;
+        window.QueriesApp.selectDb(db.id, { source: { zip: c.file.name } });
         var zipLine = 'Extraktion: ' + c.file.name + ' (' + c.file.size + ' byte, ändrad ' +
             new Date(c.file.lastModified).toISOString() + ')';
         // En krypterad databas (Signal) får nyckeln som extraktionsverktyget sparade, om den finns.
         var cipher = null;
-        if (d.db.cipher) {
+        if (db.cipher) {
             var keys = AppSecrets.signalKeys(c.secrets || []);
-            cipher = { profile: d.db.cipher, passphrase: keys ? keys.dbKey : null, source: keys ? keys.source : null };
+            cipher = { profile: db.cipher, passphrase: keys ? keys.dbKey : null, source: keys ? keys.source : null };
         }
         window.QueriesRun.useSources({
             db: ExtractionCore.zipSource(c.read, f.db, [zipLine]),
@@ -160,18 +170,29 @@
         list.innerHTML = '';
         status.textContent = '';
         window.QueriesApp.setExtraction(null);
-        // Rutan Kör i appen ska inte längre peka på zippen.
+        // Källan ska inte längre peka på zippen.
         if (wasFromZip && db) window.QueriesApp.selectDb(db.id);
         layout();
     }
 
-    // Korten på startsidan märks med vad som finns i zippen, och ett klick väljer databasen ur den.
+    // Sidopanelen visar zippens databaser först, och ett klick väljer databasen ur zippen.
     function announce() {
         window.QueriesApp.setExtraction(current ? {
             families: new Set(current.found.map(function (f) { return f.key; })),
+            title: current.file.name,
+            // Katalogens databas som ett klick väljer, för iOS-versionen i extraktionen.
+            dbFor: function (family) {
+                var f = current.found.find(function (x) { return x.key === family; });
+                return f ? describe(f).db : null;
+            },
             pick: function (family) {
                 var i = current.found.findIndex(function (f) { return f.key === family; });
                 if (i >= 0) use(i);
+            },
+            // Samma post i zippen med en annan databas i familjen (iOS-versionen i Photos.sqlite).
+            repick: function (dbId) {
+                if (current.chosen >= 0) use(current.chosen, dbId);
+                else window.QueriesApp.selectDb(dbId);
             },
         } : null);
     }
@@ -198,7 +219,7 @@
             file: file, read: read, scan: opened.scan, found: opened.found, version: opened.version, chosen: -1, secrets: secrets,
             statusText: (from ? 'Samma extraktion som i ' + from + '. ' : '') +
                 opened.found.length + (opened.found.length === 1 ? ' databas hittades' : ' databaser hittades') +
-                ' på ' + secs + ' s.' + (opened.found.length ? ' Välj en här eller bland korten nedan.' : ''),
+                ' på ' + secs + ' s.' + (opened.found.length ? ' Välj en här eller i listan till vänster.' : ''),
         };
         status.textContent = current.statusText;
         announce();
@@ -299,17 +320,10 @@
     $('ex-pick').addEventListener('click', function () { input.click(); });
     function closeHere() { close(); announceExtraction(null); }
     $('ex-close').addEventListener('click', closeHere);
-    $('ex-close-compact').addEventListener('click', closeHere);
+    // Databasen finns på flera ställen i zippen: platsen byts, iOS-versionen står kvar.
     $('ex-switch').addEventListener('change', function () {
-        var v = $('ex-switch').value;
-        if (v === 'manual') {
-            // Samma databas, men utan zippen: Kör i appen väntar på filer.
-            var db = window.QueriesApp.currentDb();
-            current.chosen = -1;
-            window.QueriesApp.selectDb(db.id);
-        } else {
-            use(Number(v));
-        }
+        var i = Number($('ex-switch').value);
+        if (current && current.found[i]) use(i, current.override);
     });
 
     input.addEventListener('change', function () {
@@ -327,6 +341,7 @@
         status.innerHTML = '<span class="run-warn">' + escapeHtml(err && err.message ? err.message : String(err)) + '</span>';
     }
 
+    window.QueriesApp.ready.then(layout);
     document.addEventListener('queries:db-change', function () {
         if (current && !window.QueriesApp.fromExtraction()) current.chosen = -1;
         // Händelsen kommer innan sidan bytt vy, så layouten görs efter.

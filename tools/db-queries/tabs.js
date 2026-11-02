@@ -55,7 +55,7 @@
                 (tabs.length > 1 ? '<button type="button" class="q-tab-close" data-i="' + i + '" title="Stäng fliken" aria-label="Stäng fliken">×</button>' : '') +
                 '</div>';
         }).join('');
-        bar.innerHTML = html + '<button type="button" class="q-tab-new secondary" id="tab-new" title="Ny flik med startsidan. Flikarna du har uppe finns kvar.">+ Ny flik</button>';
+        bar.innerHTML = html + '<button type="button" class="q-tab-new secondary" id="tab-new" title="Ny flik med översikten. Flikarna du har uppe finns kvar.">+ Ny flik</button>';
     }
 
     function activate(i) {
@@ -92,7 +92,7 @@
         render();
     }
 
-    // Fliken är tom när den visar startsidan: då används den i stället för att öppna en ny.
+    // Fliken är tom när den visar översikten: då används den i stället för att öppna en ny.
     function activeIsBlank() {
         return !window.QueriesApp.currentDb();
     }
@@ -128,8 +128,8 @@
             : 'Queryn från Härkomst körs mot samma zip.');
         render();
         await window.QueriesRun.run();
-        var box = $('run-result') && $('run-result').innerHTML ? $('run-result') : $('run-box');
-        if (box) box.scrollIntoView({ block: 'start' });
+        var box = document.querySelector('.r-card');
+        if (box) box.scrollIntoView({ block: 'nearest' });
     }
 
     // Extraktionen öppnades eller stängdes i Härkomst medan den här fliken använder en annan zip.

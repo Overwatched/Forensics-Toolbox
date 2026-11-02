@@ -1,5 +1,8 @@
 # Plan: tydligare Queries-vy
 
+> Historik. Från 1.38 är Queries en arbetsbänk med databaserna i en sidopanel; förstasidans kort och
+> rullgardinerna nedan finns inte längre. Se `docs/DEVELOPMENT.md`.
+
 Mål: användaren ska direkt se vad en query gör, stegen ska vara tydliga, och den mest
 användbara queryn ska vara förvald. Ingen commit eller push utan att användaren ber om det.
 

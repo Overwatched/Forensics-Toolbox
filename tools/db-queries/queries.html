@@ -11,115 +11,112 @@
 
 <body>
     <div id="container">
-        <header class="page-header">
-            <h1>Queries</h1>
-            <p>Öppna en extraktion så hittar appen databaserna själv, eller välj en databas nedan och läs in filerna. Du får färdig SQL att köra här i appen eller i DB Browser for SQLite.</p>
-        </header>
-
         <div id="load-error" class="banner error display-none"></div>
 
         <div id="tabs" class="q-tabs" role="tablist" aria-label="Flikar"></div>
         <div id="tab-note" class="tab-note display-none"></div>
 
-        <section class="run-box ex-box" id="ex-box">
-            <div id="ex-full">
-                <div class="ex-head">
-                    <div>
-                        <div class="step-label"><span class="standalone-only">Öppna en extraktion</span><span class="hub-only">Extraktionen</span></div>
-                        <p class="muted"><span class="standalone-only">Välj extraktionens zip-fil, så letar appen upp databaserna och deras</span><span class="hub-only">Öppna extraktionen i raden högst upp, så letar appen upp databaserna och deras</span>
-                            <code>-wal</code>. Zippen läses bara. Inget packas upp eller sparas på disk.</p>
-                    </div>
-                    <div class="button-row">
-                        <button type="button" id="ex-pick" class="standalone-only">Öppna extraktion (zip)…</button>
-                        <button type="button" class="secondary display-none standalone-only" id="ex-close">Stäng extraktionen</button>
-                    </div>
-                </div>
-                <div id="ex-status" class="run-status"></div>
-                <div id="ex-list" class="ex-list"></div>
-            </div>
-            <input type="file" id="ex-input" accept=".zip,application/zip" hidden>
-        </section>
+        <!-- Arbetsbänken: databaserna och deras queries till vänster, den valda queryn och resultatet till höger. -->
+        <div class="bench">
+            <nav class="side" id="side" aria-label="Databaser och queries">
+                <button type="button" class="side-home" id="side-home">
+                    <span class="side-home-title">Översikt</span>
+                    <span class="side-home-sub" id="side-home-sub">Ingen extraktion öppen</span>
+                </button>
+                <input type="search" id="side-search" class="side-search" placeholder="Sök query…" aria-label="Sök query" spellcheck="false" autocomplete="off">
+                <div id="side-tree" class="side-tree"></div>
+            </nav>
 
-        <div id="db-picker" class="display-none">
-            <div class="step-label">1. Databas</div>
-            <div class="db-picker-row">
-                <button type="button" class="secondary back-btn" id="back-btn">← Alla databaser</button>
-                <select id="ex-switch" class="display-none" aria-label="Databas i extraktionen"></select>
-                <select id="db-select" disabled>
-                    <option value="">Välj databas…</option>
-                </select>
-            </div>
-            <div id="ex-compact" class="ex-compact display-none">
-                Ur <span id="ex-compact-name"></span>
-                <button type="button" class="link-btn standalone-only" id="ex-close-compact">Stäng extraktionen</button>
-            </div>
-        </div>
-        <div id="db-overview" class="db-overview"></div>
-
-        <div id="workspace" class="workspace display-none">
-            <div id="meta-box" class="banner ws-top display-none"></div>
-
-            <div class="ws-left">
-                <div class="step-label">2. Query</div>
-                <div id="recommended-box" class="recommended-box"></div>
-                <button type="button" class="advanced-toggle secondary" id="show-queries-btn">Välj en annan query…</button>
-                <div id="query-panel" class="display-none">
-                    <select id="query-select"></select>
-                </div>
-
-                <div id="params" class="params"></div>
-            </div>
-
-            <div class="ws-right">
-                <section class="run-box" id="run-box">
-                    <div class="step-label">Kör i appen</div>
-                    <p class="muted" id="run-intro">Välj databasen och dess <code>-wal</code>. Filerna läses bara.</p>
-                    <div id="run-file-list" class="run-file-list"></div>
-                    <div class="button-row">
-                        <button type="button" class="secondary" id="run-pick">Välj databas och -wal…</button>
-                        <input type="file" id="run-input" multiple hidden>
-                    </div>
-                    <label class="run-nowal display-none" id="run-nowal-label"><input type="checkbox" id="run-nowal">
-                        Det finns ingen -wal för den här databasen</label>
-                    <div class="run-key display-none" id="run-key-row">
-                        <label for="run-key">Nyckel till den krypterade databasen (SQLCipher)</label>
-                        <input type="text" id="run-key" spellcheck="false" autocomplete="off" placeholder="64 hextecken, eller Signal-posten ur secrets.json">
-                        <p class="muted" id="run-key-note">Nyckeln läses ur extraktionen när den finns där (<code>extra/Secrets/secrets.json</code>), annars klistrar du in den här. Den sparas inte.</p>
-                    </div>
-                    <div class="button-row">
-                        <button type="button" id="run-button" disabled>Kör query</button>
-                        <button type="button" class="secondary" id="run-csv" disabled>Spara CSV</button>
-                        <button type="button" class="secondary" id="run-map" disabled>Visa på karta</button>
-                        <button type="button" class="secondary hub-only" id="run-provenance" disabled title="Filnamnen i resultatet (ZFILENAME, _display_name) bedöms i Härkomst, en rad per fil">Bedöm filerna i Härkomst</button>
-                    </div>
-                    <div id="run-status" class="run-status"></div>
+            <main class="bench-main">
+                <section id="start" class="start">
+                    <h1>Queries</h1>
+                    <p class="start-intro"><span class="hub-only">Öppna en extraktion i raden högst upp, så hittar Queries databaserna och deras <code>-wal</code>.</span><span class="standalone-only">Öppna en extraktion, så hittar Queries databaserna och deras <code>-wal</code>.</span>
+                        Zippen läses bara. Utan extraktion väljer du en databas till vänster och läser in filerna själv.</p>
+                    <section class="ex-box" id="ex-box">
+                        <div class="button-row standalone-only">
+                            <button type="button" id="ex-pick">Öppna extraktion (zip)…</button>
+                            <button type="button" class="secondary display-none" id="ex-close">Stäng extraktionen</button>
+                        </div>
+                        <div id="ex-status" class="run-status"></div>
+                        <div id="ex-list" class="ex-list"></div>
+                        <input type="file" id="ex-input" accept=".zip,application/zip" hidden>
+                    </section>
                 </section>
-            </div>
 
-            <!-- Resultatet tar hela bredden: många kolumner får plats utan sidledsrullning. -->
-            <div class="ws-full">
-                <div id="run-result" class="result-scroll run-result"></div>
-                <div class="step-label" id="preview-label">Så kan resultatet se ut</div>
-                <div id="result-preview" class="result-preview"></div>
-            </div>
+                <div id="workspace" class="workspace display-none">
+                    <!-- Queryn: namn, beskrivning, fälten och Kör på en rad, och källan längst ned. -->
+                    <section class="q-card" aria-labelledby="q-title">
+                        <div class="q-eyebrow" id="q-eyebrow"></div>
+                        <div class="q-head">
+                            <h1 id="q-title"></h1>
+                            <span id="q-badge"></span>
+                        </div>
+                        <p id="q-sub" class="q-sub"></p>
+                        <div class="q-run">
+                            <div id="params" class="params"></div>
+                            <button type="button" id="run-button" class="run-button" disabled>Kör query</button>
+                            <div class="q-more">
+                                <button type="button" class="secondary" id="run-csv" disabled>Spara CSV</button>
+                                <button type="button" class="secondary" id="run-map" disabled>Visa på karta</button>
+                                <button type="button" class="secondary hub-only" id="run-provenance" disabled title="Filnamnen i resultatet (ZFILENAME, _display_name) bedöms i Härkomst, en rad per fil">Bedöm i Härkomst</button>
+                            </div>
+                        </div>
+                        <div id="time-preview" class="time-preview display-none"></div>
+                        <div class="q-source" id="run-box">
+                            <span class="q-source-label">Källa</span>
+                            <span id="run-file-list" class="run-file-list"></span>
+                            <select id="ex-switch" class="ex-switch display-none" aria-label="Databasen i extraktionen"></select>
+                            <span id="ex-notes" class="ex-note"></span>
+                            <button type="button" class="link-btn" id="run-pick">Välj databas och -wal…</button>
+                            <button type="button" class="link-btn display-none" id="run-key-other">Annan nyckel…</button>
+                            <input type="file" id="run-input" multiple hidden>
+                            <label class="run-nowal display-none" id="run-nowal-label"><input type="checkbox" id="run-nowal"> Det finns ingen -wal</label>
+                        </div>
+                        <div class="run-key display-none" id="run-key-row">
+                            <label for="run-key">Nyckel (SQLCipher)</label>
+                            <input type="text" id="run-key" spellcheck="false" autocomplete="off" placeholder="64 hextecken, eller Signal-posten ur secrets.json">
+                            <span class="muted" id="run-key-note">Sparas inte.</span>
+                        </div>
+                    </section>
 
-            <!-- SQL:en under resultatet, över hela bredden. -->
-            <div class="ws-sql">
-                <div class="sql-head">
-                    <div class="step-label" id="sql-step-label">3. SQL</div>
-                    <div class="sql-legend">
-                        <span><mark class="sql-user">gult</mark> = värde du skrev in</span>
-                        <span><mark class="sql-default">grått</mark> = tomt / standard</span>
-                    </div>
-                    <div class="button-row">
-                        <button id="copy-button" type="button" disabled>Kopiera SQL</button>
-                        <button id="edit-button" class="secondary" type="button">Redigera SQL</button>
-                    </div>
+                    <!-- Resultatet, eller påhittade exempelrader innan queryn körts. -->
+                    <section class="r-card" aria-label="Resultat">
+                        <div id="run-status" class="run-status"></div>
+                        <div id="run-result" class="result-scroll run-result"></div>
+                        <div id="result-preview" class="result-preview"></div>
+                    </section>
+
+                    <!-- SQL:en, spårbarheten för senaste körningen och databasen, en i taget. -->
+                    <section class="d-card" id="d-card" aria-label="SQL, spårbarhet och databasen">
+                        <div class="d-head">
+                            <div class="d-tabs" role="tablist" aria-label="Detaljer">
+                                <button type="button" role="tab" class="d-tab" data-pane="sql" aria-selected="true" aria-controls="pane-sql">SQL</button>
+                                <button type="button" role="tab" class="d-tab" data-pane="trace" aria-selected="false" aria-controls="pane-trace">Spårbarhet</button>
+                                <button type="button" role="tab" class="d-tab" data-pane="about" aria-selected="false" aria-controls="pane-about">Om databasen</button>
+                            </div>
+                            <div class="sql-tools" id="sql-tools">
+                                <div class="sql-legend">
+                                    <span><mark class="sql-user">gult</mark> = värde du skrev in</span>
+                                    <span><mark class="sql-default">grått</mark> = tomt / standard</span>
+                                </div>
+                                <button id="copy-button" type="button" class="secondary" disabled>Kopiera SQL</button>
+                                <button id="edit-button" class="secondary" type="button">Redigera SQL</button>
+                            </div>
+                        </div>
+                        <div class="d-pane" id="pane-sql" role="tabpanel">
+                            <pre id="sql-view" class="sql-view" hidden></pre>
+                            <textarea id="sql-out" class="display-none" spellcheck="false" placeholder="SQL visas här…"></textarea>
+                        </div>
+                        <div class="d-pane display-none" id="pane-trace" role="tabpanel">
+                            <div id="run-trace" class="run-trace"></div>
+                        </div>
+                        <div class="d-pane display-none" id="pane-about" role="tabpanel">
+                            <div id="meta-box" class="meta-box"></div>
+                            <div id="about-zip" class="about-zip"></div>
+                        </div>
+                    </section>
                 </div>
-
-                <pre id="sql-view" class="sql-view" hidden></pre>
-                <textarea id="sql-out" class="display-none" spellcheck="false" placeholder="SQL visas här…"></textarea>
-            </div>
+            </main>
         </div>
     </div>
 

@@ -1,5 +1,6 @@
-// Kör i appen: databasen och dess -wal läses in, WAL-ramarna läggs på en kopia i minnet
-// och queryn körs med sql.js. Källfilerna öppnas bara för läsning.
+// Körningen i Queries: databasen och dess -wal läses in, WAL-ramarna läggs på en kopia i minnet
+// och queryn körs med sql.js. Källfilerna öppnas bara för läsning. Källan står längst ned i
+// queryrutan, resultatet under den och spårbarheten i fliken Spårbarhet.
 (function () {
     'use strict';
 
@@ -23,6 +24,8 @@
         return -1;
     }
     var result = $('run-result');
+    var trace = $('run-trace');
+    var TRACE_EMPTY = '<p class="muted">Kör queryn, så står källan, CRC32 och SHA-256 för filerna här.</p>';
 
     var files = { db: null, wal: null };
     var keyRow = $('run-key-row');
@@ -31,6 +34,8 @@
     var opened = null;
     var last = null;
     var sqlPromise = null;
+    // Undersökaren vill klistra in en annan nyckel än den ur extraktionen.
+    var keyWanted = false;
 
     function escapeHtml(s) {
         return String(s)
@@ -68,11 +73,10 @@
         opened = null;
     }
 
-    // Exempelbilden "Så kan resultatet se ut" behövs inte när det finns ett riktigt resultat.
+    // Exempelraderna behövs inte när det finns ett riktigt resultat.
     function setResult(html) {
         result.innerHTML = html;
         $('result-preview').classList.toggle('display-none', !!html);
-        $('preview-label').classList.toggle('display-none', !!html);
     }
 
     function clearResult() {
@@ -81,21 +85,30 @@
         mapButton.disabled = true;
         provButton.disabled = true;
         setResult('');
+        trace.innerHTML = TRACE_EMPTY;
     }
 
+    // Källan på en rad: filerna och var de kom ifrån. Utan databas blir "Välj databas och -wal…"
+    // en vanlig knapp, eftersom det är det som ska göras härnäst.
     function updateState() {
         var ready = !!files.db && (!!files.wal || noWal.checked);
         runButton.disabled = !ready;
         noWalLabel.classList.toggle('display-none', !files.db || !!files.wal || !!files.zip);
-        $('run-intro').classList.toggle('display-none', !!files.zip);
-        $('run-pick').textContent = files.zip ? 'Använd andra filer i stället…' : 'Välj databas och -wal…';
-        var html = '';
-        var from = files.zip ? ' <span class="muted">ur ' + escapeHtml(files.zip) + '</span>' : '';
-        if (files.db) html += '<div><strong>Databas:</strong> ' + escapeHtml(files.db.name) + from + '</div>';
-        if (files.wal) html += '<div><strong>-wal:</strong> ' + escapeHtml(files.wal.name) + from + '</div>';
-        else if (files.zip && files.db) html += '<div class="run-warn">Extraktionen har ingen -wal för databasen. Allt som finns i databasfilen kommer med.</div>';
-        else if (files.db) html += '<div class="run-warn">Ingen -wal vald. Poster som bara finns i -wal kommer att saknas.</div>';
-        if (files.mismatch) html += '<div class="run-warn">-wal-filen har inte samma namn som databasen. Kontrollera att de hör ihop.</div>';
+        var pick = $('run-pick');
+        pick.textContent = files.db ? 'Andra filer…' : 'Välj databas och -wal…';
+        pick.classList.toggle('link-btn', !!files.db);
+        pick.classList.toggle('pick-btn', !files.db);
+        var name = function (f) { return '<strong>' + escapeHtml(f.name) + '</strong>'; };
+        var html;
+        if (!files.db) html = 'Ingen databas vald. Filerna läses bara.';
+        else {
+            html = name(files.db) + (files.wal ? ' och ' + name(files.wal) : '') + (files.zip ? ' ur ' + escapeHtml(files.zip) : '');
+            if (files.cipher && files.cipher.passphrase && !keyInput.value.trim()) html += ', nyckeln ur ' + escapeHtml(files.cipher.source);
+            html += '.';
+            if (!files.wal && files.zip) html += ' <span class="run-warn">Extraktionen har ingen -wal för databasen: allt som finns i databasfilen kommer med.</span>';
+            else if (!files.wal && !noWal.checked) html += ' <span class="run-warn">Ingen -wal vald: poster som bara finns i -wal kommer att saknas.</span>';
+            if (files.mismatch) html += ' <span class="run-warn">-wal har inte samma namn som databasen. Kontrollera att de hör ihop.</span>';
+        }
         fileList.innerHTML = html;
         showKeyRow();
     }
@@ -104,6 +117,7 @@
         files = { db: null, wal: null };
         noWal.checked = false;
         input.value = '';
+        keyWanted = false;
         closeOpened();
         clearResult();
         status.textContent = '';
@@ -112,7 +126,12 @@
 
     $('run-pick').addEventListener('click', function () { input.click(); });
     // En ny nyckel gäller vid nästa körning: databasen läses då in igen.
-    keyInput.addEventListener('input', function () { closeOpened(); });
+    keyInput.addEventListener('input', function () { closeOpened(); updateState(); });
+    $('run-key-other').addEventListener('click', function () {
+        keyWanted = true;
+        showKeyRow();
+        keyInput.focus();
+    });
 
     input.addEventListener('change', function () {
         var list = Array.prototype.slice.call(input.files || []);
@@ -148,11 +167,17 @@
         return { profile: profile, passphrase: null, source: null };
     }
 
+    // Nyckelrutan visas när nyckeln inte finns i extraktionen, eller när någon vill använda en annan.
     function showKeyRow() {
         var db = window.QueriesApp && window.QueriesApp.currentDb ? window.QueriesApp.currentDb() : null;
         var need = !!(db && db.cipher) || !!files.encrypted;
-        keyRow.classList.toggle('display-none', !need);
-        if (need && files.cipher && files.cipher.passphrase) keyNote.textContent = 'Nyckeln lästes ur ' + files.cipher.source + '. En inklistrad nyckel går före och sparas inte.';
+        var zipKey = !!(files.cipher && files.cipher.passphrase);
+        var show = need && (!zipKey || keyWanted || !!keyInput.value.trim());
+        keyRow.classList.toggle('display-none', !show);
+        $('run-key-other').classList.toggle('display-none', !need || !zipKey || show);
+        keyNote.textContent = zipKey ? 'Går före nyckeln ur extraktionen. Sparas inte.'
+            : files.zip ? 'Extraktionen har ingen nyckel (extra/Secrets/secrets.json). Klistra in den här. Den sparas inte.'
+                : 'Klistra in den här. Den sparas inte.';
     }
 
     async function open() {
@@ -170,7 +195,7 @@
         if (dbRead.bytes.length >= 16 && !SqlCipher.isPlain(dbRead.bytes)) {
             files.encrypted = true;
             showKeyRow();
-            if (!cipher.passphrase) throw new Error(files.db.name + ' är krypterad (SQLCipher). Klistra in nyckeln i rutan ovanför Kör query.');
+            if (!cipher.passphrase) throw new Error(files.db.name + ' är krypterad (SQLCipher). Klistra in nyckeln i rutan Nyckel under Källa.');
             merged = SqlCipher.open(dbRead.bytes, walBytes, cipher.passphrase, cipher.profile, SqliteWal);
             origin.push(SqlCipher.summary(merged.stats, cipher.source));
         } else {
@@ -243,10 +268,11 @@
             ];
             if (utc.added) lines.push('Kolumnerna som slutar på (UTC) är omräknade av Forensics Toolbox på samma sätt som i Härkomst. Råvärdet står i kolumnen till vänster.');
             var warn = o.origin.some(function (l) { return /STÄMMER INTE/.test(l); });
-            status.innerHTML = lines.map(escapeHtml).join('<br>') +
-                '<details class="run-trace"' + (warn ? ' open' : '') + '><summary>' +
-                (warn ? '<span class="run-warn">Spårbarhet: CRC stämmer inte, se nedan</span>' : 'Spårbarhet: källa, CRC32 och SHA-256') +
-                '</summary>' + hashLines(o).map(escapeHtml).join('<br>') + '</details>';
+            status.innerHTML = lines.map(escapeHtml).join(' ') + (warn
+                ? '<br><span class="run-warn">CRC32 stämmer inte för en fil ur zippen.</span> <button type="button" class="link-btn" data-show-pane="trace">Visa spårbarheten</button>'
+                : '');
+            trace.innerHTML = hashLines(o).map(escapeHtml).join('<br>');
+            if (warn) document.dispatchEvent(new CustomEvent('queries:show-pane', { detail: 'trace' }));
             if (res.columns.length) renderTable(res);
             csvButton.disabled = !res.columns.length;
             var geo = MapImport.guessColumns(res.columns.map(String));
@@ -340,14 +366,14 @@
         clearResult();
         status.textContent = '';
         updateState();
-        $('run-box').scrollIntoView({ block: 'nearest' });
     }
 
     // Flikarna: filerna, den inlästa databasen och resultatet följer med fliken.
     function snapshot() {
         return {
-            files: files, noWal: noWal.checked, opened: opened, last: last,
-            statusHtml: status.innerHTML, resultHtml: result.innerHTML, csv: !csvButton.disabled, map: !mapButton.disabled, prov: !provButton.disabled,
+            files: files, noWal: noWal.checked, opened: opened, last: last, keyWanted: keyWanted,
+            statusHtml: status.innerHTML, resultHtml: result.innerHTML, traceHtml: trace.innerHTML,
+            csv: !csvButton.disabled, map: !mapButton.disabled, prov: !provButton.disabled,
         };
     }
 
@@ -357,8 +383,10 @@
         noWal.checked = !!s.noWal;
         opened = s.opened || null;
         last = s.last || null;
+        keyWanted = !!s.keyWanted;
         status.innerHTML = s.statusHtml || '';
         setResult(s.resultHtml || '');
+        trace.innerHTML = s.traceHtml || TRACE_EMPTY;
         csvButton.disabled = !s.csv;
         mapButton.disabled = !s.map;
         provButton.disabled = !s.prov;
@@ -368,5 +396,11 @@
     window.QueriesRun = { useSources: useSources, run: runQuery, snapshot: snapshot, restore: restore };
 
     document.addEventListener('queries:db-change', reset);
+    // En annan query i samma databas: filerna och den inlästa databasen står kvar, resultatet töms.
+    document.addEventListener('queries:query-change', function () {
+        clearResult();
+        status.textContent = '';
+    });
+    clearResult();
     updateState();
 })();
