@@ -29,8 +29,7 @@
             <div class="box-head">
                 <div>
                     <div class="step-label">1. Extraktion</div>
-                    <p class="muted"><span class="standalone-only">Välj extraktionens zip-fil.</span><span class="hub-only">Öppna extraktionen i raden högst upp, så finns den också i Queries och EXIF &amp; karta.</span> Appen letar upp Photos.sqlite, knowledgeC, routined, MediaStore,
-                        Wellbeing och Snapchats databaser med deras <code>-wal</code>. Inget packas upp eller skrivs.</p>
+                    <p class="muted"><span class="standalone-only">Välj extraktionens zip-fil.</span><span class="hub-only">Öppna extraktionen i raden högst upp.</span> Databaserna hittas automatiskt. Inget packas upp eller skrivs.</p>
                 </div>
                 <div class="button-row">
                     <button type="button" id="ex-pick" class="standalone-only">Öppna extraktion (zip)…</button>
@@ -43,6 +42,11 @@
             <div id="ex-status" class="status"></div>
             <div id="ex-follow" class="follow display-none"></div>
             <div id="ex-list"></div>
+            <div class="signal-key display-none" id="signal-key-row">
+                <label for="signal-key">Nyckel till Signals databaser (SQLCipher)</label>
+                <input type="text" id="signal-key" spellcheck="false" autocomplete="off" placeholder="64 hextecken, eller Signal-posten ur secrets.json">
+                <p class="muted" id="signal-key-note"></p>
+            </div>
             <input type="file" id="ex-input" accept=".zip,application/zip" hidden>
         </section>
 
@@ -75,14 +79,8 @@
                     <button type="button" class="secondary" id="disk-pick" title="Räknar storlek och CRC32 på filen och letar efter exakt samma innehåll i zippen. Flera filer går att välja.">Eller välj filer från disk…</button>
                 </div>
             </div>
-            <p class="muted">Finns namnet inte i bildbiblioteket söks hela zippen, till exempel Snapchats cache. <span class="badge beta">Beta</span>
-                Har flera filer samma namn visas en lista med tumnagel, storlek och CRC32 att välja ur.
-                Flera filer (namn per rad eller med komma emellan, eller flera filer från disk) bedöms en i taget och visas i en lista.
-                Enter bedömer, Skift+Enter ger en ny rad.
-                En hashsumma (MD5 32 tecken, SHA-1 40, SHA-256 64) söks på innehållet: zippen har bara CRC32, så filerna läses och
-                hashas, bild- och videofilerna först, sedan filerna utan ändelse och sist resten, tills summan hittas. Hittas den inte har
-                alla filer lästs. Det tar från sekunder till några minuter efter zippens storlek, och summor som redan räknats läses inte om.
-                Heter en fil exakt som summan, som Snapchats cachefiler, bedöms den filen. En lista ur md5sum går att klistra in.</p>
+            <p class="muted">Finns namnet inte i bildbiblioteket söks hela zippen. En hashsumma söks på filernas innehåll, vilket kan ta några minuter i en stor zip.
+                Enter bedömer, Skift+Enter ger en ny rad.</p>
             <div class="field-row time-row">
                 <div class="param-block">
                     <label class="field-label" for="when-date">Eller en tidpunkt, när filen borde ha skapats</label>
@@ -96,10 +94,7 @@
                     <label class="field-label">&nbsp;</label>
                     <button type="button" class="secondary" id="run-time">Sök filer kring tidpunkten</button>
                 </div>
-                <p class="muted">Tidpunkten tolkas i tidszonen till höger (datorns zon eller UTC) och fönstret ovanför gäller. Bilderna i
-                    biblioteket skapade i fönstret listas närmast först, och under dem filer i zippen utanför biblioteket med
-                    ändringstid i fönstret. Med bara ett datum söks hela dygnet, i tidsordning, och fönstret används inte.
-                    Klicka på en rad för att bedöma den.</p>
+                <p class="muted">Filerna kring tidpunkten listas, närmast först. Klicka på en rad för att bedöma den.</p>
             </div>
             <div id="run-status" class="status"></div>
             <button type="button" class="secondary display-none" id="batch-stop" title="Filen som bedöms nu blir klar, sedan stannar listan">Avbryt listan</button>
@@ -131,10 +126,7 @@
         <section id="result" class="display-none">
             <div class="box" id="file-card-box">
                 <div class="step-label">3. Filen</div>
-                <p class="muted">Bilden eller videon som bedöms, med sökväg i zippen, storlek, CRC32, MD5 och SHA-256, så att det går att
-                    fastställa att det är rätt fil när flera heter lika, och de viktigaste EXIF-fälten (hela listan finns i protokollet
-                    och i EXIF &amp; karta). HEIC-bilder och videor visas med telefonens egen tumnagel, märkt och med egen hash.
-                    Bilden följer bara med i exporterna om rutan nedanför är ikryssad.</p>
+                <p class="muted">Bilden följer bara med i exporterna om rutan nedanför är ikryssad.</p>
                 <div id="file-card"></div>
             </div>
 
@@ -159,12 +151,8 @@
                         <button type="button" class="secondary" id="save-protocol">Spara protokoll som HTML</button>
                     </div>
                 </div>
-                <p class="muted">En rad per jämförelse: Fil, App, Kamera, Skärm, Lås, Position och Snapchat. Färg betyder på (kameran igång,
-                    skärmen tänd, telefonen olåst), grått av, tomt ingen registrering. T är en kolumn genom alla rader med en prick där den
-                    korsar ett band, och kolumnen <strong>Vid T</strong> säger läget per rad med faktorns ord. Översikten visar hela fönstret,
-                    närbilden sekunderna runt T med händelserna utskrivna. <strong>Det viktiga</strong> skriver bara ut det som gäller den bedömda filen och läget vid T, och ritar resten blekt; <strong>Allt</strong> skriver ut varje händelse. Exporterna får det läge som visas. Nyckelhändelserna är raderna inom närbilden, resten ligger under
-                    Visa alla. Förklaringen är för den som inte är tekniker: alla rader med klockslag, inga källor. Protokollet har varje rad
-                    med databas, sökväg, CRC32, SHA-256 och SQL. Båda bilderna följer med i båda exporterna.</p>
+                <p class="muted">Färg betyder på, grått av och tomt ingen registrering. Kolumnen <strong>Vid T</strong> visar läget vid T.
+                    Förklaringen är skriven för den som inte är tekniker; protokollet har källorna.</p>
                 <div id="export-status" class="status"></div>
                 <div id="timelines"></div>
             </div>
@@ -177,8 +165,7 @@
                         <button type="button" class="secondary" id="save-map">Spara kartbild</button>
                     </div>
                 </div>
-                <p class="muted" id="map-intro">Bildens position enligt databasen och EXIF, och telefonens positioner från routined i fönstret. Nålen för bilden är röd. Kartbilden följer med i båda exporterna.
-                    <strong>Sammanfatta positionerna</strong> ritar en ring per vistelse, alltså positioner i följd inom 100 m i minst 5 minuter, med första och sista tid, och mellan vistelserna en position var 250:e meter eller var 5:e minut. Bildens position och telefonens positioner närmast före och efter T visas alltid. Tabellen och exporterna följer läget; alla positioner finns kvar under Händelser med källa.</p>
+                <p class="muted" id="map-intro">Bildens position (röd nål) och telefonens positioner i fönstret. <strong>Sammanfatta positionerna</strong> slår ihop vistelser till en ring.</p>
                 <p class="map-note" id="map-note"></p>
                 <div id="map-host" class="prov-map"></div>
                 <div id="positions" class="result-scroll"></div>
@@ -188,7 +175,7 @@
                 <div class="box-head">
                     <div class="step-label">7. Var filen finns i extraktionen <span class="badge beta">Beta</span></div>
                 </div>
-                <p class="muted">Alla poster i zippen med samma storlek och CRC32 som den bedömda filen, bekräftade med SHA-256. Platsen säger var kopian ligger: bildbiblioteket, en apps lagring, en bilaga.</p>
+                <p class="muted">Alla kopior av filen i zippen (samma storlek och CRC32, bekräftat med SHA-256).</p>
                 <div id="copies" class="result-scroll"></div>
             </div>
 
@@ -223,6 +210,7 @@
     <script src="../../queries/ios/routined/catalog.js"></script>
     <script src="../../queries/ios/snapchat/catalog.js"></script>
     <script src="../../queries/android/snapchat/catalog.js"></script>
+    <script src="../../queries/android/signal/catalog.js"></script>
     <script src="../app-ids/catalog.js"></script>
     <script src="../exif-viewer/exif-core.js"></script>
     <script src="../hash-calculator/hashing.js"></script>
@@ -236,10 +224,13 @@
     <script src="../db-queries/zip.js"></script>
     <script src="../db-queries/locate.js"></script>
     <script src="../db-queries/wal.js"></script>
+    <script src="../db-queries/sqlcipher.js"></script>
+    <script src="../db-queries/app-secrets.js"></script>
     <script src="../db-queries/extraction-core.js"></script>
     <script src="roles.js"></script>
     <script src="android-logs.js"></script>
     <script src="snapchat.js"></script>
+    <script src="signal.js"></script>
     <script src="copies.js"></script>
     <script src="batch.js"></script>
     <script src="hash-search.js"></script>

@@ -7,7 +7,6 @@ const paramsEl = document.getElementById('params');
 const sqlOut = document.getElementById('sql-out');
 const sqlView = document.getElementById('sql-view');
 const metaBox = document.getElementById('meta-box');
-const flowBox = document.getElementById('flow-box');
 const loadError = document.getElementById('load-error');
 const copyButton = document.getElementById('copy-button');
 const editButton = document.getElementById('edit-button');
@@ -278,6 +277,7 @@ function buildSql() {
     return { plain, html };
 }
 
+// Databasen i korthet: beskrivningen och sökvägen. Källan och längre noter ligger ihopfällda.
 function renderMeta() {
     const db = currentDb();
     if (!db) {
@@ -288,37 +288,16 @@ function renderMeta() {
     const extra = db.dbPathHints && db.dbPathHints.length
         ? db.dbPathHints.map((p) => '<code>' + escapeHtml(p) + '</code>').join('<br>')
         : '<code>' + escapeHtml(db.dbPathHint || '') + '</code>';
+    const sourceHtml = !source ? ''
+        : /^https?:\/\//.test(source)
+            ? '<p><strong>Källa:</strong> <a href="' + escapeHtml(source) + '" target="_blank" rel="noopener noreferrer">' + escapeHtml(source.replace(/^https:\/\/github.com\//, '')) + '</a></p>'
+            : '<p>' + escapeHtml(source) + '</p>';
+    const more = sourceHtml + (db.note ? '<p>' + escapeHtml(db.note) + '</p>' : '') + (db.footerHtml || '');
     metaBox.innerHTML =
-        (db.blurb ? escapeHtml(db.blurb) + '<br>' : '') +
-        '<strong>Databas:</strong> ' + extra +
-        (source ? '<br><strong>Källa:</strong> <a href="' + escapeHtml(source) + '" target="_blank" rel="noopener noreferrer">' +
-            escapeHtml(source.replace(/^https:\/\/github.com\//, '')) + '</a>' : '') +
-        (db.note ? '<br>' + escapeHtml(db.note) : '');
+        (db.blurb ? '<p class="meta-blurb">' + escapeHtml(db.blurb) + '</p>' : '') +
+        '<p class="meta-path"><strong>Databas:</strong> ' + extra + '</p>' +
+        (more ? '<details class="meta-more"><summary>Mer om databasen</summary>' + more + '</details>' : '');
     metaBox.classList.remove('display-none');
-}
-
-function renderFlow() {
-    const db = currentDb();
-    if (!db) {
-        flowBox.innerHTML = '';
-        return;
-    }
-    let steps = db.flow || [
-        'Läs in databasen + <code>-wal</code> + <code>-shm</code>',
-        'Använd den rekommenderade queryn, eller välj en annan',
-        'Fyll i värden (tid, filnamn, app)',
-        'Kör queryn här med databasen och <code>-wal</code>, eller kopiera SQL:en till DB Browser',
-    ];
-    if (source) steps = [source.html].concat(steps.slice(1));
-    if (custom) {
-        steps = [source ? source.html : 'Databasen kommer ur extraktionen',
-            'SQL:en kommer från Härkomst med tidsfönster och värden ifyllda. Inga fält att fylla i',
-            'Raderna visas under <em>Kör i appen</em>, med tiden i UTC bredvid varje tidskolumn',
-            'Ändra med <em>Redigera SQL</em> och kör igen, eller spara som CSV med SQL och hashar överst'];
-    }
-    flowBox.innerHTML = '<h2>Så här gör du</h2><ol class="flow-steps">' +
-        steps.map((s) => '<li><span>' + s + '</span></li>').join('') + '</ol>' +
-        (db.footerHtml || '');
 }
 
 function renderRecommended() {
@@ -367,7 +346,7 @@ function renderParams() {
             <label class="field-label" for="param-timeEnd">${escapeHtml(paramLabels.timeEnd || 'Till (ÅÅÅÅ-MM-DD TT:MM)')}</label>
             <input type="text" id="param-timeEnd" spellcheck="false" autocomplete="off" placeholder="Tomt = till slutet">
           </div>`;
-        html += '</div><p class="zone-note">Tidszon: ' + escapeHtml(localZoneName() || 'datorns tid') + '</p>';
+        html += '</div>';
         html += '<div id="time-preview" class="time-preview"></div>';
         step += 1;
     }
@@ -402,7 +381,7 @@ function updateTimePreview() {
     const startRaw = paramValue('timeStart');
     const endRaw = paramValue('timeEnd');
     if (!startRaw && !endRaw) {
-        el.textContent = 'Ingen tidsgräns — tomt fält = hela databasen.';
+        el.textContent = 'Ingen tidsgräns: hela databasen.';
         return;
     }
     const start = TimeSql.parse(startRaw, false);
@@ -417,13 +396,8 @@ function updateTimePreview() {
     }
 
     const show = (t, open) => (t ? t.text + ' (UTC' + t.offset + ')' : open);
-    let text = 'Söker från ' + show(start, 'början') + ' till ' + show(end, 'slutet') + '.';
     const typedDate = (startRaw && !looksLikeEpoch(startRaw)) || (endRaw && !looksLikeEpoch(endRaw));
-    if (typedDate) {
-        text += ' Datum tolkas i din tidszon (' + (localZoneName() || 'datorns tid')
-            + '). Ett datum utan klockslag tar med hela dagen. Unixtid räknas som UTC.';
-    }
-    el.textContent = text;
+    el.textContent = 'Söker från ' + show(start, 'början') + ' till ' + show(end, 'slutet') + (typedDate ? ', i ' + (localZoneName() || 'datorns tidszon') : '') + '.';
 }
 
 function setEditMode(on) {
@@ -493,7 +467,6 @@ function onDbChange() {
     fillQuerySelect();
     renderRecommended();
     renderMeta();
-    renderFlow();
     renderParams();
     generateSql();
 }
@@ -503,10 +476,11 @@ function visibleQueries(list) {
     return (list || []).filter((q) => !q.hidden);
 }
 
-function buildDatabases(photos, android, appUsage, routined, snapchat, snapchatAndroid) {
+function buildDatabases(photos, android, appUsage, routined, snapchat, snapchatAndroid, signalAndroid) {
     routined = routined || {};
     snapchat = snapchat || {};
     snapchatAndroid = snapchatAndroid || {};
+    signalAndroid = signalAndroid || {};
     const out = [];
     paramLabels = Object.assign(
         {
@@ -518,7 +492,8 @@ function buildDatabases(photos, android, appUsage, routined, snapchat, snapchatA
         appUsage.paramLabels || {},
         routined.paramLabels || {},
         snapchat.paramLabels || {},
-        snapchatAndroid.paramLabels || {}
+        snapchatAndroid.paramLabels || {},
+        signalAndroid.paramLabels || {}
     );
     paramDefaults = Object.assign({}, routined.paramDefaults || {});
 
@@ -592,7 +567,7 @@ function buildDatabases(photos, android, appUsage, routined, snapchat, snapchatA
                 'Kör queryn här med databasen och <code>-wal</code>, eller kopiera SQL:en till DB Browser',
             ],
             footerHtml: db.id === 'knowledgec'
-                ? '<p style="margin-top:8px">Biome <code>App.InFocus</code> är SEGB/protobuf, inte SQL — använd iLEAPP.</p>'
+                ? '<p>Biome <code>App.InFocus</code> är SEGB/protobuf, inte SQL — använd iLEAPP.</p>'
                 : '',
             queries: visibleQueries(db.queries).map((q) => ({
                 id: q.id,
@@ -678,6 +653,43 @@ function buildDatabases(photos, android, appUsage, routined, snapchat, snapchatA
         });
     });
 
+    // Signal (beta): databaserna är krypterade med SQLCipher. Nyckeln läses ur extraktionen
+    // (extra/Secrets/secrets.json) eller klistras in under Kör i appen.
+    (signalAndroid.databases || []).forEach((db) => {
+        const label = db.label.replace(/^Android — /, '');
+        out.push({
+            id: db.id,
+            os: 'Android',
+            category: 'signal',
+            family: db.id,
+            familyTitle: label,
+            label: label + ' (beta)',
+            blurb: db.blurb || '',
+            dbPathHint: db.dbPathHint,
+            paths: db.paths || [],
+            source: db.source,
+            note: signalAndroid.sourceNote,
+            cipher: db.cipher || null,
+            runnable: true,
+            flow: [
+                'Öppna extraktionen, eller välj databasen och dess <code>-wal</code> under <em>Kör i appen</em>',
+                'Nyckeln läses ur extraktionen (<code>extra/Secrets/secrets.json</code>); saknas den, klistra in den under <em>Kör i appen</em>',
+                'Använd den rekommenderade queryn, eller välj en annan',
+                'Ange tidsspann som <code>ÅÅÅÅ-MM-DD TT:MM</code>, eller filens SHA-256',
+            ],
+            queries: visibleQueries(db.queries).map((q) => ({
+                id: q.id,
+                title: q.title,
+                subtitle: q.subtitle || '',
+                recommended: !!q.recommended,
+                group: q.group,
+                returns: q.returns || '',
+                params: q.params || [],
+                sql: q.sql,
+            })),
+        });
+    });
+
     (android.categories || []).forEach((cat) => {
         const queries = visibleQueries(cat.queries).map((q) => ({
             id: q.id,
@@ -743,8 +755,15 @@ const CATEGORIES = {
             Android: 'Snapchats egna databaser under data/data/com.snapchat.android: cache, meddelanden, Memories, filhanterare, vänner och notiser.',
         },
     },
+    signal: {
+        title: 'Signal',
+        beta: true,
+        intro: {
+            Android: 'Signals egna databaser under data/data/org.thoughtcrime.securesms: meddelanden, bilagor med SHA-256, kontakter och Signals logg. Krypterade med SQLCipher; nyckeln läses ur extraktionen eller klistras in.',
+        },
+    },
 };
-const CATEGORY_ORDER = ['system', 'snapchat'];
+const CATEGORY_ORDER = ['system', 'snapchat', 'signal'];
 
 function categoryOf(d) {
     return d.category || 'system';
@@ -902,15 +921,16 @@ function applyDeepLink() {
 
 async function init() {
     try {
-        const [photos, android, appUsage, routined, snapchat, snapchatAndroid] = await Promise.all([
+        const [photos, android, appUsage, routined, snapchat, snapchatAndroid, signalAndroid] = await Promise.all([
             loadLocalJson('../../queries/ios/photos-sqlite/catalog.json', 'PHOTOS_SQLITE_CATALOG'),
             loadLocalJson('../../queries/android/catalog.json', 'ANDROID_QUERIES_CATALOG'),
             loadLocalJson('../../queries/app-usage/catalog.json', 'APP_USAGE_CATALOG'),
             loadLocalJson('../../queries/ios/routined/catalog.json', 'ROUTINED_CATALOG'),
             loadLocalJson('../../queries/ios/snapchat/catalog.json', 'SNAPCHAT_CATALOG'),
             loadLocalJson('../../queries/android/snapchat/catalog.json', 'SNAPCHAT_ANDROID_CATALOG'),
+            loadLocalJson('../../queries/android/signal/catalog.json', 'SIGNAL_ANDROID_CATALOG'),
         ]);
-        databases = buildDatabases(photos, android, appUsage, routined, snapchat, snapchatAndroid);
+        databases = buildDatabases(photos, android, appUsage, routined, snapchat, snapchatAndroid, signalAndroid);
         fillDbSelect();
         renderOverview();
         applyDeepLink();
@@ -1044,7 +1064,6 @@ function showCustom(info, sql) {
         'Resultatet nedan är databasen med <code>-wal</code> pålagd, precis som i Härkomst.</div>' +
         (custom.from ? '<div class="q-sub"><strong>Bedömningen:</strong> ' + escapeHtml(custom.from) + '</div>' : '');
     renderResultPreview(sql);
-    renderFlow();
     document.querySelector('.sql-legend').classList.add('display-none');
     document.dispatchEvent(new CustomEvent('queries:query-change'));
 }

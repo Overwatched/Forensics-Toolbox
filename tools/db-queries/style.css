@@ -60,7 +60,6 @@ body {
 
 #container {
     width: 100%;
-    max-width: 1800px;
     display: flex;
     flex-direction: column;
 }
@@ -68,6 +67,7 @@ body {
 .page-header { text-align: left; margin-bottom: 18px; }
 .page-header h1 { font-size: 26px; }
 .page-header p {
+    max-width: 980px;
     margin-top: 8px;
     color: var(--text-muted);
     font-size: 14px;
@@ -100,11 +100,6 @@ body {
 }
 .time-row .param-block { margin-bottom: 0; }
 
-.zone-note {
-    font-size: 12px;
-    color: var(--text-muted);
-    margin: 8px 0 0;
-}
 .time-preview {
     font-size: 12px;
     color: var(--text-muted);
@@ -205,7 +200,6 @@ mark.sql-default {
 .banner.error { color: var(--error); }
 .help h2, .recommended-box .q-title { color: var(--text); }
 .help ol { margin: 8px 0 0 18px; }
-.help.flow { margin-bottom: 18px; }
 .help h2 { font-size: 14px; margin-bottom: 4px; }
 .recommended-box .q-title {
     display: flex;
@@ -224,7 +218,14 @@ mark.sql-default {
 .help code, .banner code {
     font-family: Consolas, Monaco, monospace;
     font-size: 12px;
+    overflow-wrap: anywhere;
 }
+/* Databasrutan överst: beskrivning och sökväg, resten ihopfällt. */
+.ws-top { grid-column: 1 / -1; margin-bottom: 0; }
+.ws-top p { margin: 0; }
+.ws-top p + p, .ws-top .meta-more { margin-top: 6px; }
+.meta-more summary { cursor: pointer; color: var(--accent); }
+.meta-more p { margin-top: 6px; }
 
 .button-row {
     display: flex;
@@ -396,9 +397,20 @@ button.db-chip {
     gap: 22px;
     align-items: start;
 }
-.ws-left, .ws-right { min-width: 0; }
-.ws-right .sql-view, .ws-right textarea { min-height: 300px; max-height: 55vh; }
-.ws-right .result-preview { max-height: 45vh; overflow: auto; }
+.ws-left, .ws-right, .ws-full, .ws-sql { min-width: 0; }
+/* Query och fält till vänster, Kör i appen till höger i samma höjd. Under dem resultatet och sist
+   SQL:en, båda över hela bredden. */
+.ws-right .run-box { margin: 0; }
+.ws-full, .ws-sql { grid-column: 1 / -1; }
+.ws-sql { margin-top: 6px; }
+.ws-sql .sql-view, .ws-sql textarea { min-height: 200px; max-height: 50vh; }
+.ws-full .result-preview { max-height: 45vh; overflow: auto; }
+.ws-full .run-result:not(:empty) {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 4px 8px 8px;
+}
 .sql-head {
     display: flex;
     flex-wrap: wrap;
@@ -434,34 +446,6 @@ button.db-chip {
     color: var(--text-muted);
 }
 
-.help.flow .flow-steps {
-    list-style: none;
-    counter-reset: step;
-    margin: 10px 0 0;
-    display: grid;
-    gap: 8px;
-}
-.help.flow .flow-steps li {
-    counter-increment: step;
-    display: grid;
-    grid-template-columns: 28px 1fr;
-    align-items: center;
-    gap: 10px;
-    font-size: 14px;
-    color: var(--text);
-}
-.help.flow .flow-steps li::before {
-    content: counter(step);
-    width: 28px;
-    height: 28px;
-    border-radius: 50%;
-    background: var(--accent);
-    color: #fff;
-    font-weight: 700;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-}
 
 .run-box {
     background: var(--surface);
@@ -474,11 +458,15 @@ button.db-chip {
 .run-box .step-label { margin-top: 0; }
 .run-box .muted { color: var(--text-muted); margin: 0 0 10px; }
 .run-box .button-row { margin: 8px 0; }
+.run-box .button-row button { flex: 0 0 auto; min-width: 0; padding: 10px 16px; }
 .run-file-list { display: grid; gap: 4px; margin: 6px 0; word-break: break-all; }
 .run-nowal { display: flex; gap: 8px; align-items: center; margin: 6px 0; }
+.run-key { margin: 8px 0; display: flex; flex-direction: column; gap: 4px; }
+.run-key input { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; padding: 6px 8px; }
+.run-key p { margin: 0; font-size: 12px; }
 .run-warn { color: var(--error); }
 .run-status { color: var(--text-muted); margin: 8px 0; word-break: break-all; }
-.run-result { max-height: 50vh; overflow: auto; }
+.run-result { max-height: 70vh; overflow: auto; }
 .run-result table { border-collapse: collapse; font-size: 12.5px; white-space: nowrap; }
 .run-result th, .run-result td {
     border-bottom: 1px solid var(--border);

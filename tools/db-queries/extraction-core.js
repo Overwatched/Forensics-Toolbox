@@ -40,6 +40,13 @@
 
     function hex(n) { return ('0000000' + n.toString(16)).slice(-8); }
 
+    // En vanlig SQLite-fil börjar med "SQLite format 3" och en nolla. En SQLCipher-fil börjar med saltet.
+    function isPlainSqlite(bytes) {
+        var head = 'SQLite format 3\u0000';
+        for (var i = 0; i < 16; i++) if (bytes[i] !== head.charCodeAt(i)) return false;
+        return true;
+    }
+
     function baseName(name) { return name.slice(name.lastIndexOf('/') + 1); }
 
     // Katalogens databaser grupperade per familj. Photos har en databas per iOS-version och
@@ -121,12 +128,27 @@
 
     // Läser databasen och dess -wal ur zippen, kontrollerar CRC32, räknar SHA-256 på båda och
     // lägger WAL-ramarna på en kopia i minnet. hit är en träff från locate(): { db, wal, journal }.
+    // opts.cipher: { profile, passphrase, source } för en SQLCipher-krypterad databas (Signal):
+    // sidorna och WAL-ramarna dekrypteras då i minnet. Är databasen krypterad utan nyckel kastas
+    // ett fel med code 'ENCRYPTED'.
     // Returnerar { bytes, stats, hashes: { db, wal }, lines, warnings, dbEntry, walEntry }.
-    async function loadDatabase(read, hit, lead) {
+    async function loadDatabase(read, hit, lead, opts) {
+        opts = opts || {};
         var dbRead = await readEntry(read, hit.db);
         var walRead = hit.wal ? await readEntry(read, hit.wal) : null;
         var hashes = { db: await sha256(dbRead.bytes), wal: walRead ? await sha256(walRead.bytes) : '' };
-        var merged = dep('SqliteWal').apply(dbRead.bytes, walRead ? walRead.bytes : new Uint8Array(0));
+        var walBytes = walRead ? walRead.bytes : new Uint8Array(0);
+        var encrypted = dbRead.bytes.length >= 16 && !isPlainSqlite(dbRead.bytes);
+        var merged;
+        if (encrypted && opts.cipher && opts.cipher.passphrase) {
+            merged = dep('SqlCipher').open(dbRead.bytes, walBytes, opts.cipher.passphrase, opts.cipher.profile, dep('SqliteWal'));
+        } else if (encrypted && opts.cipher) {
+            var err = new Error(baseName(hit.db.name) + ' är krypterad (SQLCipher), och ingen nyckel hittades: extraktionen saknar ' + (opts.cipher.hint || 'nyckelfilen') + '. Klistra in nyckeln för att läsa databasen.');
+            err.code = 'ENCRYPTED';
+            throw err;
+        } else {
+            merged = dep('SqliteWal').apply(dbRead.bytes, walBytes);
+        }
         if (walRead && merged.stats.error) throw new Error(baseName(hit.wal.name) + ': ' + merged.stats.error);
         var warnings = [];
         if (!walRead) warnings.push(baseName(hit.db.name) + ' lästes utan -wal: extraktionen har ingen. Poster som bara fanns i -wal kan saknas.');
@@ -136,6 +158,11 @@
         var lines = (lead || []).concat([dbRead.line]).concat(walRead ? [walRead.line] : []);
         if (hashes.db) lines.push('SHA-256 ' + baseName(hit.db.name) + ': ' + hashes.db);
         if (hashes.wal) lines.push('SHA-256 ' + baseName(hit.wal.name) + ': ' + hashes.wal);
+        if (merged.stats.cipher) {
+            lines.push(dep('SqlCipher').summary(merged.stats, opts.cipher.source));
+            var bad = merged.stats.cipher.badHmac + merged.stats.cipher.walBadHmac;
+            if (bad) warnings.push(baseName(hit.db.name) + ': kontrollsumman (HMAC) stämde inte för ' + bad + ' sidor efter dekrypteringen. De sidorna kan vara skadade.');
+        }
         return {
             bytes: merged.bytes, stats: merged.stats, hashes: hashes, lines: lines, warnings: warnings,
             dbEntry: hit.db, walEntry: hit.wal || null, crcOk: dbRead.crcOk && (!walRead || walRead.crcOk),

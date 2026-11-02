@@ -19,6 +19,8 @@ test('iOS egen tumnagel ligger under Thumbnails/V2 med bildens mapp och namn', (
     assert.strictEqual(media.thumbnailSuffix('iOS', { directory: 'DCIM/100APPLE', filename: 'IMG_0049.HEIC' }), 'PhotoData/Thumbnails/V2/DCIM/100APPLE/IMG_0049.HEIC/5005.JPG');
     assert.strictEqual(media.thumbnailSuffix('iOS', { directory: 'PhotoData/CPLAssets/group5', filename: 'X.HEIC' }), 'PhotoData/Thumbnails/V2/PhotoData/CPLAssets/group5/X.HEIC/5005.JPG');
     assert.strictEqual(media.thumbnailSuffix('Android', { directory: 'DCIM/Camera', filename: 'a.jpg' }), null);
+    assert.strictEqual(media.thumbnailSuffix('Android', { pk: 1000000094, relativePath: 'DCIM/Camera/', filename: '2026-11-02-18-48-36-195.jpg', mime: 'image/jpeg' }), 'Pictures/.thumbnails/1000000094.jpg');
+    assert.strictEqual(media.thumbnailSuffix('Android', { pk: 1000000097, filename: '2026-11-02-20-42-21-357.mp4' }), 'Movies/.thumbnails/1000000097.jpg');
     assert.strictEqual(media.thumbnailSuffix('iOS', { filename: 'a.jpg' }), null);
     const keep = media.suffixKeeper(['PhotoData/Thumbnails/V2/DCIM/100APPLE/IMG_0049.HEIC/5005.JPG']);
     assert.ok(keep('private/var/mobile/Media/PhotoData/Thumbnails/V2/DCIM/100APPLE/IMG_0049.HEIC/5005.JPG'));

@@ -143,7 +143,12 @@ npm test
 ### Queries: flikar och SQL från Härkomst (`tools/db-queries/`)
 
 - Startsidan och rullistan grupperas per OS och kategori (`CATEGORIES` i `script.js`: Operativsystemet,
-  Snapchat). En databas utan `category` hör till operativsystemet.
+  Snapchat, Signal). En databas utan `category` hör till operativsystemet.
+- Arbetsytan (`#workspace`, ett rutnät): databasrutan överst över hela bredden (`.ws-top`: beskrivning
+  och sökväg, källa och noter i en ihopfälld `<details>`), query och fält till vänster (`.ws-left`),
+  **Kör i appen** till höger i samma höjd (`.ws-right`), resultatet under båda (`.ws-full`) och sist SQL:en
+  (`.ws-sql`), båda över hela bredden. Smalare än 1000 px blir det en kolumn i samma ordning. Vyn har inget
+  tak på bredden, och resultatet får upp till 70 % av fönstrets höjd. "Så här gör du" finns inte längre.
 - `tabs.js`: varje flik är ett sparat läge. Vid byte sparas `QueriesApp.snapshot()`,
   `QueriesRun.snapshot()` (filer, inläst databas, resultat) och `QueriesExtraction.snapshot()`, och
   den andra flikens läge läggs tillbaka med `restore()`. Extraktionen hör till fliken
@@ -188,7 +193,7 @@ i extraktionen med `-wal` pålagd, och bygger en händelselista i UTC.
   (`src/script.js`), som öppnar Queries och skickar vidare. Filen (File-objektet för zippen) går
   med i `postMessage`; Queries öppnar den bara om den inte redan är öppen (namn, storlek, ändringstid).
 - Zippens tider (`zip.js`): UT-fältet 0x5455 (Unix-sekunder; ändring, och åtkomst och skapande när
-  flaggorna säger det, som i Cellebrites FFS-zippar) och NTFS-fältet 0x000A (FILETIME; ändring, åtkomst
+  flaggorna säger det, som i vissa verktygs FFS-zippar) och NTFS-fältet 0x000A (FILETIME; ändring, åtkomst
   och skapande, som i Arkiv-zippen), som går före UT. Info-ZIP skriver bara ändringen i
   innehållsförteckningen; åtkomst och skapande läses ur den lokala posten när posten läses (`extract`).
   Posten får `mtime`, `atime`, `crtime` (Unix-sekunder) och `timeField`; `ExtractionCore.entryTimes()` ger
@@ -259,6 +264,17 @@ i extraktionen med `-wal` pålagd, och bygger en händelselista i UTC.
   token → [paket, klasser…], klasstoken t = strängar[t − 1]; version 4 med strängpool i filen).
   Händelserna går genom `ProvenanceCore.intervalsFromEvents` som Wellbeing. Kontrollerat mot
   `dumpsys usagestats` och `abx2xml` på labbtelefonen (Android 13).
+- Telefonens egen tumnagel (`ProvenanceMedia.thumbnailSuffix`): iOS `PhotoData/Thumbnails/V2/<mapp>/<fil>/5005.JPG`,
+  Android (10 och senare) `Pictures/.thumbnails/<_id>.jpg` för bilder och `Movies/.thumbnails/<_id>.jpg` för videor
+  (MediaProvider, oavsett var filen ligger). Vallistornas tumnaglar laddas när raden syns (`lazyRowThumbs`,
+  IntersectionObserver, en i taget): telefonens tumnagel, annars originalet upp till 8 MB, annars en bildruta ur
+  en video upp till 64 MB (`videoFrame`). `suffixKeeper` slår upp sökvägarna på filnamnet först.
+- usagestats skrivs till disk med 20–30 minuters mellanrum, så dagsfilen kan sluta före T. Intervall
+  utan slut (app, skärm, lås) slutar därför där dagsfilen slutar (`addAndroidLogs`: `intervalsFromEvents(…,
+  lastEnd)`), inte vid fönstrets slut. Efter loggens slut används `activityAt` i `timeline-core.js`: en app
+  som använde kameran vid T (appops) eller en händelse med `active` inom 5 s (en apps egen loggrad för en
+  åtgärd i appen, till exempel Signals logg när en bilaga sparas) gör att *App igång* och *Skärm* blir
+  förenliga, med källan i raden och `via` till kolumnen Vid T.
 - Android-filer utan `datetaken` (det Snapchat sparar till galleriet) får T = `date_added`
   (`androidCreatedFallback`, `file.createdFrom`). Är skaparappen Snapchat kopplas raden i
   `memories.db` som sparades inom fem sekunder (`linkSnapMemory` → `file.memory`, `file.capturedMs`):
@@ -296,6 +312,57 @@ Plan och provkörning: [PLAN-harkomst.md](PLAN-harkomst.md).
   *Snapchats kamera* (typ 34, eller en inspelning strax före en skickad snap; mottagen = inte tillämplig).
 - Allt är kontrollerat mot **en** extraktion (K12345-26, iOS 18.5). Därför beta: märkt i gränssnittet,
   i protokollet och i katalogens `sourceNote`.
+
+#### Signal på Android (beta, 1.37)
+
+- Signals databaser under `data/data/org.thoughtcrime.securesms/databases/` (`signal.db`, `signal-logs.db`,
+  med flera) är **SQLCipher** med Signals inställningar: lösenordet är databasnyckelns hex (64 tecken),
+  PBKDF2-HMAC-SHA1 i 1 varv, HMAC-SHA1 per sida, sidstorlek 4096, reserv 48 (IV 16 + HMAC 20, avrundat).
+  Nyckeln ligger i `shared_prefs/org.thoughtcrime.securesms_preferences.xml`
+  (`pref_database_encrypted_secret`), krypterad med Keystore-nyckeln `SignalSecret`, och går inte att ta fram
+  ur filerna. Extraktionsverktyg kan låsa upp den på telefonen och spara den: som
+  `extra/Secrets/secrets.json` i zippen (`script_output` → `"sqlite db key"` och
+  `"signal attachment key"` → `modernKey`), eller i en egen nyckelfil med JSON-filen `android_keystore`
+  (formatet för Signal inte kontrollerat). Undersökaren kan också klistra in nyckeln. Leverantörer nämns
+  inte i programmet; filerna beskrivs efter sökväg och format.
+- `tools/db-queries/sqlcipher.js` (`SqlCipher`): AES-256 (CBC för sidorna, CTR för bilagorna), HMAC och
+  PBKDF2 i ren JS, synkront och likadant i Node och webbläsaren; SHA-1/SHA-256 ur `ToolboxHashing`.
+  `SqlCipher.open(db, wal, lösen, 'signal', SqliteWal)` dekrypterar alla sidor, och `SqliteWal.apply` har fått
+  `opts.page(bytes, sidnummer)` så att WAL-ramarna dekrypteras när de läggs på (kontrollsummorna gäller
+  chiffertexten, som i SQLite). HMAC kontrolleras för varje sida; fel på sida 1 betyder fel nyckel.
+  Testerna krypterar en databas med Nodes crypto och kontrollerar mot FIPS-197.
+- `tools/db-queries/app-secrets.js` (`AppSecrets`): nycklarna ur `secrets.json` (`fromSecretsFile`),
+  `android_keystore` (`fromKeystoreFile`) och inklistrad text. `ExtractionCore.loadDatabase(read, hit, lead, { cipher })`
+  dekrypterar när katalogens databas har `cipher: "signal"`; utan nyckel kastas ett fel med `code: 'ENCRYPTED'`.
+  Queries läser nyckelfilen när zippen öppnas och har en nyckelruta under Kör i appen; Härkomst har rutan
+  under databaslistan.
+- `queries/android/signal/catalog.json`: `signal.db` (meddelanden, bilagor med SHA-256 i hex via en rekursiv
+  CTE som avkodar base64, en bilaga efter SHA-256, kontakter, konversationer) och `signal-logs.db`
+  (händelser i loggen, hela loggen). Rollerna för Härkomst: `attachments` (alla, ingen tidsgräns),
+  `messages`, `recipients`, `log` och `coverage`.
+- Bilagorna: `attachment.data_hash_start` är SHA-256 (base64) för filen **före** Signals omkodning,
+  `data_hash_end` för den lagrade. En bild ur galleriet som skickats har galleriets summa som `start`;
+  en mottagen eller sparad bild har `start = end`, och en vidarebefordrad bilaga får samma summor och samma
+  fil. Filerna `app_parts/partN.mms` är AES-256-CTR med noll-IV och nyckeln HMAC-SHA256(`modernKey`,
+  `data_random`). En bilaga som sparas till galleriet heter `signal-ÅÅÅÅ-MM-DD-TT-MM-SS-mmm.ext` i
+  `Pictures/Signal/`, med meddelandets `date_sent` (avsändarens klocka för ett mottaget).
+- Signals logg (`log.body`, raden efter "GMT+01:00 D "): `MediaSendV3Activity` (kameran och medievalet),
+  `Inserting attachment content://media/external/images/media/<MediaStore _id>` (vald ur galleriet; filens
+  `pk` i MediaStore jämförs), `…securesms.blob/blob/single-session-disk/…` (Signals kamera eller
+  redigeraren), `Inserted attachment at AttachmentId::N`, `IndividualSendJobV2: [date_sent][id] Sent message.`,
+  `SaveAttachmentUtil: Save attachments completed`, `[deleteAttachmentsForMessage] mmsId: N` plus
+  `RemoteDeleteSendJob` (raderat för alla). Loggen sparas bara några dagar.
+- `tools/provenance/signal.js` (`ProvenanceSignal`): kopplingen (SHA-256 mot `start`/`end`, valen i loggen
+  med filens MediaStore-id, sparandet, filnamnets tid), händelserna (`sig-message`, `sig-pick`,
+  `sig-capture`, `sig-saved`, `sig-deleted`, `sig-log`) och hashsökningen i bilagorna (`findByHash`: SHA-256
+  direkt, MD5/SHA-1 efter dekryptering). `script.js` kör `addSignal` efter att filen lästs (summan
+  behövs), lägger fönster kring meddelandet och valet och kör om meddelandequeryn för dem.
+  `timeline-core.js` har faktorn **Signal** (`factorSignal`): sparad av Signal + träff = förenligt,
+  kamerabild eller skärmdump som är en mottagen bilaga = inte förenligt, skickad = upplysning, saknas = saknas.
+  Tidslinjen har raden Signal (triangel upp = skickat, ned = mottaget, cirkel = loggen).
+- Kontrollerat mot en labbtelefon (Android 13, Signal 8.33, två sessioner 2026-11-02 med facit) och en
+  verklig extraktion (Signal 8.10, nyckel i `secrets.json`). Labb-zippen
+  `Lab-Android-Nord-2026-11-02.zip` har en `secrets.json` i samma format.
 
 ### ExifTool i EXIF-visaren
 
@@ -419,3 +486,8 @@ i webbläsaren.
   träffen används. Android-Snapchat är kontrollerat mot en labbtelefon (Snapchat 14.30): typ 34
   (inspelning) sågs inte där, typ 5 utan attribution är bland annat media som laddas upp före ett skickat
   meddelande, och `memories.db` är okrypterat.
+- **Signal (beta):** bara Android, kontrollerat mot Signal 8.10 och 8.33. Utan nyckel (ingen
+  `secrets.json` och ingen inklistrad) läses Signal inte. En separat nyckelfil (`android_keystore`) läses
+  inte automatiskt (formatet för Signal är inte sett). Signals logg sparas bara några dagar. En bild som redigerats i
+  Signal har den redigerade versionens summa som `data_hash_start`, så originalet kan inte kopplas.
+  Signal på iOS (K12345-26 har `grdb/signal.sqlite`, nyckeln i nyckelringen) läses inte.

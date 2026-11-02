@@ -26,20 +26,35 @@
         return null;
     }
 
-    // Sökvägens slut för iOS egen tumnagel av en post i Photos.sqlite. Finns för bilder och
-    // videor i DCIM och för iCloud-original i CPLAssets. null på Android och utan rad i biblioteket.
+    // Sökvägens slut för telefonens egen tumnagel av en rad i biblioteket. iOS: Photos.sqlite-raden,
+    // för bilder och videor i DCIM och iCloud-original i CPLAssets. Android (10 och senare): MediaProvider
+    // sparar tumnageln som Pictures/.thumbnails/<_id>.jpg för bilder och Movies/.thumbnails/<_id>.jpg
+    // för videor, oavsett var filen ligger. null utan rad i biblioteket.
     function thumbnailSuffix(platform, file) {
+        if (platform === 'Android') {
+            if (!file || file.pk == null || file.pk === '') return null;
+            var video = /^video\//i.test(String(file.mime || '')) || kindOf(file.filename) === 'video';
+            return (video ? 'Movies' : 'Pictures') + '/.thumbnails/' + file.pk + '.jpg';
+        }
         if (platform !== 'iOS' || !file || !file.directory || !file.filename) return null;
         return 'PhotoData/Thumbnails/V2/' + String(file.directory).replace(/^\/+|\/+$/g, '') + '/' + file.filename + '/' + THUMB_FILE;
     }
 
     // keep(namn) för en sökning i innehållsförteckningen: posterna vars namn slutar på någon av
-    // sökvägarna, skiftlägesokänsligt.
+    // sökvägarna, skiftlägesokänsligt. Sökvägarna slås upp på filnamnet först, så att tusentals
+    // sökvägar mot hundratusentals poster går fort.
     function suffixKeeper(suffixes) {
-        var lower = (suffixes || []).filter(Boolean).map(function (s) { return String(s).toLowerCase(); });
+        var byBase = {};
+        (suffixes || []).filter(Boolean).forEach(function (s) {
+            var l = String(s).toLowerCase();
+            var b = l.slice(l.lastIndexOf('/') + 1);
+            (byBase[b] = byBase[b] || []).push(l);
+        });
         return function (name) {
             var n = String(name).toLowerCase();
-            for (var i = 0; i < lower.length; i++) if (n.endsWith(lower[i]) && (n.length === lower[i].length || n.charAt(n.length - lower[i].length - 1) === '/')) return true;
+            var list = byBase[n.slice(n.lastIndexOf('/') + 1)];
+            if (!list) return false;
+            for (var i = 0; i < list.length; i++) if (n.endsWith(list[i]) && (n.length === list[i].length || n.charAt(n.length - list[i].length - 1) === '/')) return true;
             return false;
         };
     }

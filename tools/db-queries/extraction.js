@@ -137,10 +137,17 @@
         });
         var zipLine = 'Extraktion: ' + c.file.name + ' (' + c.file.size + ' byte, ändrad ' +
             new Date(c.file.lastModified).toISOString() + ')';
+        // En krypterad databas (Signal) får nyckeln som extraktionsverktyget sparade, om den finns.
+        var cipher = null;
+        if (d.db.cipher) {
+            var keys = AppSecrets.signalKeys(c.secrets || []);
+            cipher = { profile: d.db.cipher, passphrase: keys ? keys.dbKey : null, source: keys ? keys.source : null };
+        }
         window.QueriesRun.useSources({
             db: ExtractionCore.zipSource(c.read, f.db, [zipLine]),
             wal: f.wal ? ExtractionCore.zipSource(c.read, f.wal) : null,
             zip: c.file.name,
+            cipher: cipher,
         });
         render();
         layout();
@@ -178,8 +185,17 @@
             status.textContent = 'Läser zippens innehållsförteckning… ' + Math.round(100 * done / total) + ' %';
         });
         var secs = opened.seconds.toFixed(1).replace('.', ',');
+        // Nycklar till krypterade databaser (Signal), bara om någon sådan databas finns i zippen.
+        var secrets = [];
+        var cipherKeys = targets().filter(function (x) { return x.dbs.some(function (d) { return d.cipher; }); }).map(function (x) { return x.key; });
+        if (opened.found.some(function (f) { return cipherKeys.indexOf(f.key) >= 0; })) {
+            try {
+                var sEntries = await ExtractionCore.find(read, file.size, AppSecrets.isSecretsPath);
+                if (sEntries.length) secrets.push(AppSecrets.fromSecretsFile((await ExtractionCore.readEntry(read, sEntries[0])).bytes, sEntries[0].name));
+            } catch (e) { console.warn('Nyckelfilen kunde inte läsas', e); }
+        }
         current = {
-            file: file, read: read, scan: opened.scan, found: opened.found, version: opened.version, chosen: -1,
+            file: file, read: read, scan: opened.scan, found: opened.found, version: opened.version, chosen: -1, secrets: secrets,
             statusText: (from ? 'Samma extraktion som i ' + from + '. ' : '') +
                 opened.found.length + (opened.found.length === 1 ? ' databas hittades' : ' databaser hittades') +
                 ' på ' + secs + ' s.' + (opened.found.length ? ' Välj en här eller bland korten nedan.' : ''),

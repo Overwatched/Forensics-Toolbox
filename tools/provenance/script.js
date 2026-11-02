@@ -13,6 +13,7 @@
     var MAX_PREVIEW = 24 * 1024 * 1024;   // originalet visas direkt upp till så här stort, annars telefonens tumnagel
     var MAX_THUMB = 4 * 1024 * 1024;      // större "tumnaglar" läses inte
     var MAX_ROW_THUMB = 8 * 1024 * 1024;  // originalbilder som får bli tumnagel i vallistan
+    var MAX_ROW_VIDEO = 64 * 1024 * 1024; // videor som läses för en bildruta i vallistan
     var TIME_KEYS = ['created', 'added', 'modified'];
 
     var state = {
@@ -180,6 +181,15 @@
             zipLine: 'Extraktion: ' + file.name + ' (' + file.size + ' byte, ändrad ' + new Date(file.lastModified).toISOString() + ')',
         };
         var logLine = '';
+        // Nycklar till krypterade databaser (Signal), bara om någon sådan databas finns i zippen.
+        state.zip.secrets = [];
+        if (opened.found.some(function (f) { var s = sourceByKey(f.key); return !!(s && s.cipher); })) {
+            try {
+                var sEntries = await ExtractionCore.find(read, file.size, AppSecrets.isSecretsPath);
+                if (sEntries.length) state.zip.secrets.push(AppSecrets.fromSecretsFile((await ExtractionCore.readEntry(read, sEntries[0])).bytes, sEntries[0].name));
+            } catch (e) { console.warn('Nyckelfilen kunde inte läsas', e); }
+        }
+        renderSignalKey();
         if (platform === 'Android') {
             // Androids systemloggar (usagestats, appops) ur innehållsförteckningen, och Android-versionen ur usagestats/version.
             try {
@@ -216,6 +226,9 @@
         state.loaded = {};
         state.zip = null;
         state.model = null;
+        state.signalManual = null;
+        $('signal-key').value = '';
+        renderSignalKey();
         clearBatch();
         hideFollowOffer();
         releasePreview();
@@ -386,12 +399,14 @@
         return SQL;
     }
 
-    async function loadDb(hit, label) {
+    // cipher: { profile, passphrase, source } för en krypterad databas (Signal).
+    async function loadDb(hit, label, cipher) {
         var key = hit.db.name;
         if (state.loaded[key]) return state.loaded[key];
         await loadSql();
-        var loaded = await ExtractionCore.loadDatabase(state.zip.read, hit, [state.zip.zipLine]);
+        var loaded = await ExtractionCore.loadDatabase(state.zip.read, hit, [state.zip.zipLine], cipher ? { cipher: cipher } : undefined);
         loaded.label = label;
+        loaded.keySource = cipher ? cipher.source : null;
         loaded.sqlDb = new SQL.Database(loaded.bytes);
         state.loaded[key] = loaded;
         return loaded;
@@ -657,6 +672,8 @@
         if (meta.thumbnail) rows.push(['Telefonens tumnagel', meta.thumbnail.path + ' · ' + ExtractionCore.sizeText(meta.thumbnail.size) + ' · SHA-256 ' + meta.thumbnail.sha256]);
         var fb = meta.foundBy;
         if (fb) rows.unshift(['Sökt på ' + fb.label, fb.value + (fb.same === true ? ' (samma som filens)' : fb.same === false ? ' (SKILJER SIG från filens ' + fb.own + ')' : ' (filens summa kunde inte kontrolleras)')]);
+        var sigFactor = state.model && (state.model.factors || []).find(function (f) { return f.id === 'signal'; });
+        if (sigFactor && sigFactor.verdictText !== 'Inte i Signal') rows.push(['Signal', sigFactor.plain]);
         var mediaHtml;
         if (pv && pv.url && state.showMedia) {
             mediaHtml = pv.kind === 'video'
@@ -685,6 +702,83 @@
         hitUrls = [];
         hitToken++;
     }
+    // Tumnaglarna i vallistorna laddas när raden syns eller nästan syns, en i taget, så att en lång
+    // lista inte läser alla filer på en gång. load(tr, i) -> Promise. Byts listan (hitToken) slutar kön.
+    var thumbJobs = [];
+    var thumbRunning = false;
+    function lazyRowThumbs(box, load) {
+        var token = hitToken;
+        var rows = box.querySelectorAll('tr.pick');
+        if (box._thumbObserver) box._thumbObserver.disconnect();
+        var queue = function (tr) { thumbJobs.push({ token: token, run: function () { return load(tr, Number(tr.getAttribute('data-i'))); } }); if (!thumbRunning) runThumbJobs(); };
+        if (typeof IntersectionObserver === 'undefined') { rows.forEach(queue); return; }
+        var io = new IntersectionObserver(function (list) {
+            list.forEach(function (en) { if (en.isIntersecting) { io.unobserve(en.target); queue(en.target); } });
+        }, { rootMargin: '600px 0px' });
+        rows.forEach(function (tr) { io.observe(tr); });
+        box._thumbObserver = io;
+    }
+    async function runThumbJobs() {
+        thumbRunning = true;
+        while (thumbJobs.length) {
+            var job = thumbJobs.shift();
+            if (job.token !== hitToken) continue;
+            try { await job.run(); } catch (e) { /* raden får ingen tumnagel */ }
+        }
+        thumbRunning = false;
+    }
+
+    // En bildruta ur en video som tumnagel (längsta sidan 160 px). null om videon inte går att avkoda.
+    function videoFrame(bytes, mime) {
+        return new Promise(function (resolve) {
+            var url = URL.createObjectURL(new Blob([bytes], { type: mime || 'video/mp4' }));
+            var v = document.createElement('video');
+            var done = false;
+            var finish = function (blob) {
+                if (done) return;
+                done = true;
+                URL.revokeObjectURL(url);
+                v.removeAttribute('src');
+                resolve(blob);
+            };
+            var grab = function () {
+                try {
+                    var w = v.videoWidth, h = v.videoHeight;
+                    if (!w || !h) return finish(null);
+                    var s = Math.min(1, 160 / Math.max(w, h));
+                    var c = document.createElement('canvas');
+                    c.width = Math.max(1, Math.round(w * s));
+                    c.height = Math.max(1, Math.round(h * s));
+                    c.getContext('2d').drawImage(v, 0, 0, c.width, c.height);
+                    c.toBlob(function (b) { finish(b); }, 'image/jpeg', 0.8);
+                } catch (e) { finish(null); }
+            };
+            setTimeout(function () { finish(null); }, 8000);
+            v.muted = true;
+            v.preload = 'auto';
+            v.addEventListener('loadeddata', function () { try { v.currentTime = Math.min(0.5, (v.duration || 1) / 10); } catch (e) { grab(); } }, { once: true });
+            v.addEventListener('seeked', grab, { once: true });
+            v.addEventListener('error', function () { finish(null); }, { once: true });
+            v.src = url;
+        });
+    }
+
+    // Tumnageln för en rad: telefonens egen om den finns, annars en liten originalbild eller en
+    // bildruta ur en video.
+    async function rowThumb(tr, thumbEntry, mediaEntry, token) {
+        var src = thumbEntry && thumbEntry.size <= MAX_THUMB ? thumbEntry : null;
+        var kind = mediaEntry ? ProvenanceMedia.kindOf(mediaEntry.name) : null;
+        if (!src && kind === 'image' && mediaEntry.size <= MAX_ROW_THUMB) src = mediaEntry;
+        if (!src && kind === 'video' && mediaEntry.size <= MAX_ROW_VIDEO) src = mediaEntry;
+        if (!src) return;
+        var r = await ExtractionCore.readEntry(state.zip.read, src);
+        if (token !== hitToken || !tr.isConnected) return;
+        if (src === thumbEntry) return thumbInto(tr, r.bytes, 'image/jpeg');
+        if (kind === 'image') return thumbInto(tr, r.bytes, ProvenanceMedia.mimeOf(src.name));
+        var frame = await videoFrame(r.bytes, ProvenanceMedia.mimeOf(src.name));
+        if (frame && token === hitToken && tr.isConnected) thumbInto(tr, frame, 'image/jpeg');
+    }
+
     function thumbInto(tr, bytes, mime) {
         var url = URL.createObjectURL(new Blob([bytes], { type: mime }));
         hitUrls.push(url);
@@ -930,6 +1024,13 @@
             meta.foundBy = { algo: fb.algo, label: ProvenanceHashSearch.label(fb.algo), value: fb.value, own: own || '', same: own ? own === fb.value : null };
         }
 
+        // Signal (beta): filens SHA-256 mot bilagorna, Signals logg och meddelandena kring T. Körs
+        // efter att filen lästs, eftersom summan behövs.
+        if (platform === 'Android' && hitFor(SIGNAL_KEYS.main) && fileRow.createdMs) {
+            try { await addSignal(input, meta, windowMs, run, fileSha, zone); }
+            catch (e) { input.signal = { error: 'Signals databaser kunde inte läsas: ' + e.message }; console.warn(e); }
+        }
+
         // Var finns filen? Alla poster med samma storlek och CRC32, bekräftade med SHA-256.
         if (meta.fileEntry) {
             try {
@@ -946,6 +1047,7 @@
             meta.sources.push({
                 label: l.label, path: l.dbEntry.name, size: l.dbEntry.size, mtime: ExtractionCore.entryTime(l.dbEntry), crc32: ExtractionCore.hex(l.dbEntry.crc32), crcOk: l.crcOk, sha256: l.hashes.db,
                 walPath: l.walEntry ? l.walEntry.name : '', walCrc32: l.walEntry ? ExtractionCore.hex(l.walEntry.crc32) : '', walSha256: l.hashes.wal, walSummary: ExtractionCore.walSummary(l), warnings: l.warnings,
+                cipher: l.stats && l.stats.cipher ? SqlCipher.summary(l.stats, l.keySource) : '',
             });
         });
         meta.extraction = { name: z.file.name, size: z.file.size, lastModified: new Date(z.file.lastModified).toISOString() };
@@ -1011,7 +1113,9 @@
             }
             var usSource = { db: 'usagestats', table: dailies.map(function (d) { return 'daily/' + ExtractionCore.baseName(d.name); }).join(', '), column: 'event_log: typ 1/2/23 (app), 15/16 (skärm), 17/18 (låsskärm)', queryId: 'usagestats-daily' };
             var lastEnd = Math.max.apply(null, decoded.map(function (d) { return d.endMs || 0; }));
-            var iv = ProvenanceCore.intervalsFromEvents(L.usageToEvents(decoded), Math.max(lastEnd || 0, range.endMs), usSource);
+            // Ett intervall utan slut (appen, skärmen eller låset ändrades inte mer innan filen skrevs)
+            // slutar där dagsfilen slutar: efter det finns inga registreringar, inte samma läge.
+            var iv = ProvenanceCore.intervalsFromEvents(L.usageToEvents(decoded), lastEnd || range.endMs, usSource);
             var stamp = function (list) { list.forEach(function (x) { x.stream = 'usagestats'; }); return list; };
             var hadWellbeing = input.appIntervals.length > 0;
             input.appIntervals = stamp(iv.apps);
@@ -1021,7 +1125,7 @@
             var cov = L.usageCoverage(decoded);
             input.coverage.usagestats = cov;
             meta.coverage.push(['usagestats (' + dailies.length + (dailies.length === 1 ? ' dagsfil' : ' dagsfiler') + ')', cov.firstMs ? fmtU(cov.firstMs) : '', cov.lastMs ? fmtU(cov.lastMs) : '', cov.rows]);
-            if (lastEnd && range.endMs > lastEnd) input.warnings.push('usagestats dagsfil skrevs senast ' + fmtU(lastEnd) + '. Händelser efter det låg bara i telefonens minne när extraktionen gjordes och saknas.');
+            if (lastEnd && range.endMs > lastEnd) input.warnings.push('usagestats slutar ' + fmtU(lastEnd) + ': senare händelser hade inte skrivits till disk när extraktionen gjordes.');
             if (hadWellbeing) input.warnings.push('Både usagestats och Wellbeing finns. App, skärm och lås kommer ur usagestats; Wellbeing-queryn står kvar i bilagan.');
             run.queries.push({ id: 'usagestats-daily', db: 'usagestats', title: 'Härkomst: usagestats (protobuf, ingen SQL)',
                 sql: '-- Binära filer ur zippen, avkodade som ' + (vi.version === 4 ? 'IntervalStatsProto (version 4, strängpool i filen)' : 'IntervalStatsObfuscatedProto (version 5) med mappings') + ':\n-- ' + files.join('\n-- ') +
@@ -1055,7 +1159,7 @@
                 var ms = rows.map(function (x) { return x.ms; });
                 input.coverage.appops = { firstMs: ms.length ? Math.min.apply(null, ms) : null, lastMs: ms.length ? Math.max.apply(null, ms) : null, rows: rows.length };
                 meta.coverage.push(['appops discrete (' + dfiles.length + (dfiles.length === 1 ? ' fil' : ' filer') + ', kameran ' + allCam.length + ' gånger)', input.coverage.appops.firstMs ? fmtU(input.coverage.appops.firstMs) : '', input.coverage.appops.lastMs ? fmtU(input.coverage.appops.lastMs) : '', rows.length]);
-                input.extraNotes.push('Telefonens logg över vilken app som använde kameran sparas i cirka sju dagar. Kameran igång betyder att kameravyn visades, inte att en bild togs.');
+                input.extraNotes.push('Kameran igång betyder att kameravyn visades, inte att en bild togs.');
                 run.queries.push({ id: 'appops-discrete', db: 'appops', title: 'Härkomst: appops discrete (binär XML, ingen SQL)',
                     sql: '-- ' + dfiles.length + ' filer ur zippen under appops/discrete/, skrivna ' + fmtU(L.discreteWrittenMs(first.name)) + ' till ' + fmtU(L.discreteWrittenMs(last.name)) + ', avkodade från Androids binära XML (ABX):\n-- ' +
                         dfiles.map(function (f) { return f.name + ' (' + f.size + ' byte, CRC32 ' + ExtractionCore.hex(f.crc32) + ')'; }).join('\n-- ') +
@@ -1247,6 +1351,91 @@
                 input.warnings.push('Ingen rad i cache_controller för cachenyckeln ' + sc.key + '. Tidpunkten kommer från ' + (input.fileSource.column || 'filen') + '.');
             }
         }
+    }
+
+    // ---------- Signal (beta) ----------
+
+    var SIGNAL_KEYS = { main: 'signal-android-main', logs: 'signal-android-logs' };
+
+    // Nyckeln till Signals databaser: inklistrad går före extraktionens nyckelfil.
+    function signalCipher() {
+        var keys = AppSecrets.signalKeys([state.signalManual].concat((state.zip && state.zip.secrets) || []));
+        return { profile: 'signal', passphrase: keys ? keys.dbKey : null, source: keys ? keys.source : null, hint: 'nyckelfilen extra/Secrets/secrets.json' };
+    }
+
+    // Raden under databaslistan: varifrån nyckeln kom, eller rutan att klistra in den i.
+    function renderSignalKey() {
+        var row = $('signal-key-row');
+        var has = !!(state.zip && hitFor(SIGNAL_KEYS.main));
+        row.classList.toggle('display-none', !has);
+        if (!has) return;
+        var c = signalCipher();
+        $('signal-key-note').textContent = c.passphrase && c.source === 'inklistrad'
+            ? 'Signals databaser är krypterade. Den inklistrade nyckeln används från nästa bedömning och sparas inte.'
+            : c.passphrase
+            ? 'Signals databaser är krypterade. Nyckeln läses ur ' + c.source + '.'
+            : 'Signals databaser är krypterade och extraktionen saknar nyckel. Klistra in den (64 hextecken) för att läsa Signal. Den sparas inte.';
+    }
+
+    // Meddelandena och loggen i fönstret, och bilagorna (alla) mot filens SHA-256. Ligger meddelandet
+    // eller valet i Signal utanför fönstren läggs ett eget fönster till kring den tiden.
+    async function addSignal(input, meta, windowMs, run, sha256, zone) {
+        var cipher = signalCipher();
+        if (!cipher.passphrase) {
+            input.signal = { error: 'Signals databas är krypterad och nyckeln saknas. Klistra in den under 1. Extraktion.' };
+            return;
+        }
+        progress('Läser Signals databaser (beta)…');
+        var fileRow = input.file;
+        var mainSrc = sourceByKey(SIGNAL_KEYS.main);
+        var mainDb = await loadDb(hitFor(SIGNAL_KEYS.main), mainSrc.title, cipher);
+        var fmt = zone.format;
+        var wall = function (ms) { return fmt(ms).slice(0, 19) + '.' + ('00' + (((ms % 1000) + 1000) % 1000)).slice(-3); };
+        var attachments = runRole(mainDb, mainSrc.roles.attachments, {}, ['sent', 'received', 'server', 'upload'], run).rows;
+        var recipients = {};
+        runRole(mainDb, mainSrc.roles.recipients, {}, [], run).rows.forEach(function (r) { recipients[String(r.id)] = { name: r.name, groupTitle: r.groupTitle || null, type: r.type }; });
+        var logRows = [];
+        var logHit = hitFor(SIGNAL_KEYS.logs);
+        var logSrc = sourceByKey(SIGNAL_KEYS.logs);
+        if (logHit && logSrc) {
+            try {
+                var logDb = await loadDb(logHit, logSrc.title, cipher);
+                // Loggen sparas bara några dagar: hela urvalet läses, och fönstren väljs efteråt.
+                logRows = runRole(logDb, logSrc.roles.log, { window: { startMs: 0, endMs: 4102444800000 } }, ['time'], run).rows;
+                if (logSrc.roles.coverage) {
+                    var lc = runRole(logDb, logSrc.roles.coverage, {}, ['first', 'last'], run).rows[0];
+                    if (lc) meta.coverage.push(['Signals logg', lc.firstMs ? ProvenanceCore.formatUtc(lc.firstMs) : '', lc.lastMs ? ProvenanceCore.formatUtc(lc.lastMs) : '', Number(lc.rows)]);
+                }
+                input.warnings = input.warnings.concat(logDb.warnings);
+            } catch (e) { input.warnings.push('Signals logg (signal-logs.db) kunde inte läsas: ' + e.message); }
+        }
+        var base = {
+            sha256: sha256, mediaId: fileRow.pk != null && fileRow.pk !== '' ? Number(fileRow.pk) : null, fileName: fileRow.filename, fileAddedMs: fileRow.addedMs,
+            savedBySignal: fileRow.importer === ProvenanceSignal.APP, attachments: attachments, recipients: recipients, log: logRows, wall: wall, centerMs: fileRow.createdMs,
+            sources: { main: { db: 'signal.db', table: 'message', queryId: mainSrc.roles.messages.id }, attachmentsQueryId: mainSrc.roles.attachments.id, log: { db: 'signal-logs.db', table: 'log', queryId: logSrc && logSrc.roles.log ? logSrc.roles.log.id : 'role-log' } },
+        };
+        // Första varvet ger kopplingen; fönstren kring meddelandet och valet läggs till före andra varvet.
+        var first = ProvenanceSignal.build(Object.assign({}, base, { messages: [] }));
+        var extra = [];
+        first.link.matches.forEach(function (m) {
+            var c = m.direction === 'in' ? m.receivedMs : m.sentMs;
+            if (c) extra.push({ id: 'signal-' + m.messageId, label: m.direction === 'in' ? 'när filen togs emot i Signal' : 'när filen skickades i Signal', centerMs: c });
+        });
+        first.link.picks.forEach(function (p) { if (!p.discarded) extra.push({ id: 'signal-pick', label: 'när filen valdes i Signal', centerMs: p.ms }); });
+        if (extra.length) fileRow.extraWindows = (fileRow.extraWindows || []).concat(extra);
+        var wins = ProvenanceCore.windows(fileRow, windowMs);
+        var range = wins.length ? { startMs: Math.min.apply(null, wins.map(function (w) { return w.startMs; })), endMs: Math.max.apply(null, wins.map(function (w) { return w.endMs; })) } : null;
+        var messages = range ? runRole(mainDb, mainSrc.roles.messages, { window: range }, ['sent', 'received', 'server'], run).rows : [];
+        var out = ProvenanceSignal.build(Object.assign({}, base, { messages: messages, keep: function (ms) { return ProvenanceCore.inWindows(ms, wins); } }));
+        input.extraEvents = (input.extraEvents || []).concat(out.events);
+        input.extraNotes = (input.extraNotes || []).concat(out.notes);
+        input.signal = { link: out.link, keySource: cipher.source, shaMissing: !sha256 };
+        if (!sha256) input.warnings.push('Filens SHA-256 kunde inte räknas, så den jämfördes inte med Signals bilagor. Bara Signals logg (MediaStore-id) användes.');
+        if (mainSrc.roles.coverage) {
+            var cov = runRole(mainDb, mainSrc.roles.coverage, {}, ['first', 'last'], run).rows[0];
+            if (cov) meta.coverage.push(['Signal (meddelanden kvar)', cov.firstMs ? ProvenanceCore.formatUtc(cov.firstMs) : '', cov.lastMs ? ProvenanceCore.formatUtc(cov.lastMs) : '', Number(cov.rows)]);
+        }
+        input.warnings = input.warnings.concat(mainDb.warnings);
     }
 
     // ---------- Bildbiblioteket och Snapchats behållare ----------
@@ -1515,20 +1704,11 @@
         fillEntryThumbs(box, hits).catch(function () {});
     }
 
-    // Tumnaglar för bildposter i en vallista: originalet läses ur zippen (små bilder, de första 30).
+    // Tumnaglar för poster i en vallista: små bilder och en bildruta ur videor, läst ur zippen när raden syns.
     async function fillEntryThumbs(box, hits) {
         if (!state.showMedia || !state.zip) return;
         var token = hitToken;
-        var rows = box.querySelectorAll('tr.pick');
-        for (var i = 0; i < hits.length && i < 30; i++) {
-            var e = hits[i];
-            if (ProvenanceMedia.kindOf(e.name) !== 'image' || e.size > MAX_ROW_THUMB) continue;
-            try {
-                var r = await ExtractionCore.readEntry(state.zip.read, e);
-                if (token !== hitToken || !rows[i].isConnected) return;
-                thumbInto(rows[i], r.bytes, ProvenanceMedia.mimeOf(e.name));
-            } catch (err) { /* raden får ingen tumnagel */ }
-        }
+        lazyRowThumbs(box, function (tr, i) { return rowThumb(tr, null, hits[i], token); });
     }
 
     // ---------- Fil från disk ----------
@@ -1634,14 +1814,57 @@
     }
 
     // En summa i listan: var den finns, eller varför den inte hittades.
-    function hashItem(text, res) {
+    // sig: svaret från signalHashLookup, när en summa saknades bland zippens filer.
+    function hashItem(text, res, sig) {
         var hex = String(text).trim().toLowerCase();
         var algo = ProvenanceHashSearch.algoOf(hex);
         var item = { kind: 'hash', hash: hex, algo: algo, foundBy: { algo: algo, value: hex } };
         var hits = res && res.found[hex] || [];
         if (hits.length) item.entries = hits;
-        else item.missing = ProvenanceHashSearch.missingText(algo, res, ExtractionCore.sizeText);
+        else {
+            item.missing = ProvenanceHashSearch.missingText(algo, res, ExtractionCore.sizeText);
+            var sh = sig && sig.found[hex];
+            if (sh && sh.length) item.missing += ' Men summan finns i Signal: ' + sh.map(function (h) { return ProvenanceSignal.attachmentText(h, sig.ctx); }).join(' ');
+            else if (sig && sig.note) item.missing += ' ' + sig.note;
+        }
         return item;
+    }
+
+    // Summor som inte finns som filer i zippen kan finnas bland Signals bilagor, som ligger krypterade.
+    // SHA-256 jämförs med databasens summor; MD5 och SHA-1 kräver att bilagorna dekrypteras.
+    async function signalHashLookup(hashes, entries) {
+        var cipher = signalCipher();
+        if (!cipher.passphrase) return { found: {}, note: 'Signals bilagor söktes inte: databasen är krypterad och nyckeln saknas.' };
+        var keys = AppSecrets.signalKeys([state.signalManual].concat(state.zip.secrets || []));
+        var mainSrc = sourceByKey(SIGNAL_KEYS.main);
+        var db = await loadDb(hitFor(SIGNAL_KEYS.main), mainSrc.title, cipher);
+        var run = { queries: [] };
+        var attachments = runRole(db, mainSrc.roles.attachments, {}, ['sent', 'received', 'server', 'upload'], run).rows;
+        var recipients = {};
+        runRole(db, mainSrc.roles.recipients, {}, [], run).rows.forEach(function (r) { recipients[String(r.id)] = { name: r.name, groupTitle: r.groupTitle || null }; });
+        var fmt = zoneChoice(null).format;
+        var ctx = { recipients: recipients, wall: function (ms) { return fmt(ms); } };
+        var parts = {};
+        entries.forEach(function (e) { if (/org\.thoughtcrime\.securesms\/app_parts\//.test(e.name)) parts[ExtractionCore.baseName(e.name)] = e; });
+        var modern = keys && keys.modernKey ? SqlCipher.base64ToBytes(keys.modernKey) : null;
+        var zero = new Uint8Array(16);
+        var out = await ProvenanceSignal.findByHash(hashes, attachments, {
+            algoOf: ProvenanceHashSearch.algoOf,
+            hasher: function (a) { return ToolboxHashing.createHasher(a); },
+            onProgress: function (n, total) { if (n % 20 === 0 || n === total) setStatus('run-status', escapeHtml('Dekrypterar Signals bilagor… ' + n + ' av ' + total)); },
+            plain: async function (a) {
+                var e = parts[String(a.dataFile).split('/').pop()];
+                if (!e || !modern || !a.random) return null;
+                var bytes = (await ExtractionCore.readEntry(state.zip.read, e)).bytes;
+                // Bilagans nyckel: HMAC-SHA256(modernKey, data_random); AES-256-CTR med noll-IV.
+                var key = SqlCipher.hmac('sha256', modern, [a.random instanceof Uint8Array ? a.random : new Uint8Array(a.random)]);
+                var plain = SqlCipher.ctr(SqlCipher.expandKey(key), zero, bytes);
+                return a.size != null ? plain.subarray(0, Number(a.size)) : plain;
+            },
+        });
+        out.ctx = ctx;
+        if (out.needed && !modern) out.note = 'Signals bilagor söktes bara på SHA-256: bilagenyckeln (modernKey) saknas, så MD5 och SHA-1 kunde inte räknas.';
+        return out;
     }
 
     function foundText(res) {
@@ -1661,6 +1884,7 @@
         $('result').classList.add('display-none');
         var hashes = [];
         var res = null;
+        var sig = null;
         busy(true);
         try {
             setStatus('run-status', 'Läser zippens innehållsförteckning…');
@@ -1669,6 +1893,9 @@
             entries.forEach(function (e) { var b = ExtractionCore.baseName(e.name).toLowerCase(); if (ProvenanceHashSearch.algoOf(b)) hexNames[b] = true; });
             hashes = names.filter(function (n) { return ProvenanceHashSearch.algoOf(n) && !hexNames[n.toLowerCase()]; });
             if (hashes.length) res = await searchHashes(hashes, entries);
+            if (res && !res.stopped && res.missing.length && z.platform === 'Android' && hitFor(SIGNAL_KEYS.main)) {
+                try { sig = await signalHashLookup(res.missing, entries); } catch (e) { sig = { found: {}, note: 'Signals bilagor kunde inte sökas: ' + e.message }; console.warn(e); }
+            }
         } catch (err) {
             batchFailed(err);
             return;
@@ -1682,11 +1909,11 @@
             return;
         }
         if (names.length > 1) {
-            await runBatch(names.map(function (n) { return hashes.indexOf(n) < 0 ? { kind: 'name', name: n } : hashItem(n, res); }), 'names');
+            await runBatch(names.map(function (n) { return hashes.indexOf(n) < 0 ? { kind: 'name', name: n } : hashItem(n, res, sig); }), 'names');
             return;
         }
         if (!hashes.length) { await run({ filename: names[0] }); return; }
-        var item = hashItem(names[0], res);
+        var item = hashItem(names[0], res, sig);
         if (item.missing) { setStatus('run-status', escapeHtml(item.missing + ' Det tog ' + secondsText(res.ms) + '.'), 'warn'); return; }
         var head = ProvenanceHashSearch.label(item.algo) + ' ' + item.hash + ' ';
         if (item.entries.length === 1) {
@@ -1913,31 +2140,24 @@
         if (!z) return;
         var token = hitToken;
         var platform = z.platform;
-        var wanted = hits.slice(0, 60).map(function (h) { return { media: mediaSuffix(h, platform), thumb: ProvenanceMedia.thumbnailSuffix(platform, h) }; });
+        var wanted = hits.map(function (h) { return { media: mediaSuffix(h, platform), thumb: ProvenanceMedia.thumbnailSuffix(platform, h) }; });
         var suffixes = [];
         wanted.forEach(function (w) { if (w.media) suffixes.push(w.media); if (w.thumb) suffixes.push(w.thumb); });
         if (!suffixes.length) return;
         var entries = await ExtractionCore.find(z.read, z.file.size, ProvenanceMedia.suffixKeeper(suffixes));
         if (token !== hitToken) return;
         var rows = $('hits').querySelectorAll('tr.pick');
-        for (var i = 0; i < wanted.length; i++) {
-            var w = wanted[i], tr = rows[i];
-            if (!tr || !tr.isConnected) continue;
+        var found = wanted.map(function (w, i) {
+            var tr = rows[i];
             var me = w.media ? ProvenanceMedia.pickBySuffix(entries, w.media) : null;
-            if (me) {
+            if (tr && me) {
                 tr.querySelector('td.size').textContent = ExtractionCore.sizeText(me.size);
                 tr.querySelector('td.crc').textContent = ExtractionCore.hex(me.crc32);
-            } else tr.querySelector('td.size').innerHTML = '<span class="muted">inte i zippen</span>';
-            if (!state.showMedia) continue;
-            var te = w.thumb ? ProvenanceMedia.pickBySuffix(entries, w.thumb) : null;
-            var src = te && te.size <= MAX_THUMB ? te : me && ProvenanceMedia.kindOf(me.name) === 'image' && me.size <= MAX_ROW_THUMB ? me : null;
-            if (!src) continue;
-            try {
-                var r = await ExtractionCore.readEntry(z.read, src);
-                if (token !== hitToken || !tr.isConnected) return;
-                thumbInto(tr, r.bytes, src === te ? 'image/jpeg' : ProvenanceMedia.mimeOf(src.name));
-            } catch (err) { /* raden får ingen tumnagel */ }
-        }
+            } else if (tr) tr.querySelector('td.size').innerHTML = '<span class="muted">inte i zippen</span>';
+            return { media: me, thumb: w.thumb ? ProvenanceMedia.pickBySuffix(entries, w.thumb) : null };
+        });
+        if (!state.showMedia) return;
+        lazyRowThumbs($('hits'), function (tr, i) { return rowThumb(tr, found[i].thumb, found[i].media, token); });
     }
 
     // ---------- Flera filer: listan ----------
@@ -2757,7 +2977,7 @@
                 '<button type="button" class="secondary save-png" data-i="' + i + '" data-kind="overview"' + (pngs.overview ? '' : ' disabled') + '>Spara bild</button></h3>' +
                 '<div class="timeline-svg">' + overview + '</div>' +
                 '<h3 class="closeup-head"><span>Närbild · ' + escapeHtml(fmt(c.startMs).slice(11)) + ' till ' + escapeHtml(fmt(c.endMs).slice(11)) +
-                ' <span class="muted">(' + escapeHtml(ProvenanceCore.duration(c.endMs - c.centerMs)) + ' åt varje håll, den blå rutan i översikten)</span></span>' +
+                ' <span class="muted">(±' + escapeHtml(ProvenanceCore.duration(c.endMs - c.centerMs)) + ')</span></span>' +
                 '<span class="button-row"><span class="seg" role="group" aria-label="Text i tidslinjen" title="Det viktiga: text bara för den bedömda filen och läget vid T, resten blekt. Allt: text för varje händelse. Exporterna får det som visas.">' +
                 '<button type="button" class="detail' + (state.detail === 'focus' ? ' on' : '') + '" data-detail="focus">Det viktiga</button>' +
                 '<button type="button" class="detail' + (state.detail === 'all' ? ' on' : '') + '" data-detail="all">Allt</button></span>' +
@@ -2863,7 +3083,7 @@
             return '<div class="source-block"><h4>' + escapeHtml(s.label) + '</h4><dl>' +
                 '<dt>Sökväg</dt><dd>' + escapeHtml(s.path) + '</dd><dt>CRC32</dt><dd>' + escapeHtml(s.crc32) + (s.crcOk === false ? ' <span class="err">STÄMMER INTE</span>' : '') + '</dd><dt>SHA-256</dt><dd>' + escapeHtml(s.sha256) + '</dd>' +
                 (s.walPath ? '<dt>-wal</dt><dd>' + escapeHtml(s.walPath) + '</dd><dt>-wal SHA-256</dt><dd>' + escapeHtml(s.walSha256) + '</dd>' : '') +
-                '<dt>WAL</dt><dd>' + escapeHtml(s.walSummary) + '</dd>' + (s.warnings.length ? '<dt>Varning</dt><dd class="warn">' + escapeHtml(s.warnings.join(' ')) + '</dd>' : '') + '</dl></div>';
+                '<dt>WAL</dt><dd>' + escapeHtml(s.walSummary) + '</dd>' + (s.cipher ? '<dt>Kryptering</dt><dd>' + escapeHtml(s.cipher) + '</dd>' : '') + (s.warnings.length ? '<dt>Varning</dt><dd class="warn">' + escapeHtml(s.warnings.join(' ')) + '</dd>' : '') + '</dl></div>';
         }).join('') + (meta.fileEntry ? '<div class="source-block"><h4>Bildfilen</h4><dl><dt>Sökväg</dt><dd>' + escapeHtml(meta.fileEntry.path) + '</dd><dt>CRC32</dt><dd>' + escapeHtml(meta.fileEntry.crc32) + '</dd><dt>SHA-256</dt><dd>' + escapeHtml(meta.fileEntry.sha256) + '</dd></dl></div>' : '') +
             '<h4>SQL</h4>' + meta.queries.map(function (q) {
                 return '<div class="sql-head"><span><strong>' + escapeHtml(q.id) + '</strong> <span class="muted">' + escapeHtml(q.db) + '</span></span>' +
@@ -2980,8 +3200,9 @@
                 loadLocalJson('../../queries/ios/routined/catalog.json', 'ROUTINED_CATALOG'),
                 loadLocalJson('../../queries/ios/snapchat/catalog.json', 'SNAPCHAT_CATALOG'),
                 loadLocalJson('../../queries/android/snapchat/catalog.json', 'SNAPCHAT_ANDROID_CATALOG'),
+                loadLocalJson('../../queries/android/signal/catalog.json', 'SIGNAL_ANDROID_CATALOG'),
             ]);
-            state.sources = ProvenanceRoles.collect({ photos: cats[0], android: cats[1], appUsage: cats[2], routined: cats[3], snapchat: cats[4], snapchatAndroid: cats[5] });
+            state.sources = ProvenanceRoles.collect({ photos: cats[0], android: cats[1], appUsage: cats[2], routined: cats[3], snapchat: cats[4], snapchatAndroid: cats[5], signalAndroid: cats[6] });
             state.databases = ProvenanceRoles.databases(state.sources);
             state.targets = ExtractionCore.targets(state.databases);
         } catch (err) {
@@ -3000,6 +3221,15 @@
     }
 
     $('ex-pick').addEventListener('click', function () { $('ex-input').click(); });
+    // En inklistrad nyckel till Signals databaser gäller från nästa bedömning: de läses då in igen.
+    $('signal-key').addEventListener('input', function () {
+        var v = $('signal-key').value.trim();
+        state.signalManual = v ? Object.assign({ source: 'inklistrad' }, AppSecrets.parseManual(v)) : null;
+        Object.keys(state.loaded).forEach(function (k) {
+            if (/org\.thoughtcrime\.securesms\//.test(k)) { if (state.loaded[k].sqlDb) state.loaded[k].sqlDb.close(); delete state.loaded[k]; }
+        });
+        renderSignalKey();
+    });
     $('fill-sample').addEventListener('click', function () {
         fillSample('camera').catch(function (err) { setStatus('ex-status', escapeHtml(err && err.message ? err.message : String(err)), 'err'); });
     });

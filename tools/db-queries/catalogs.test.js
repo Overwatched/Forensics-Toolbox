@@ -12,6 +12,7 @@ const appUsage = require(path.join(ROOT, 'queries', 'app-usage', 'catalog.json')
 const routined = require(path.join(ROOT, 'queries', 'ios', 'routined', 'catalog.json'));
 const snapchat = require(path.join(ROOT, 'queries', 'ios', 'snapchat', 'catalog.json'));
 const snapchatAndroid = require(path.join(ROOT, 'queries', 'android', 'snapchat', 'catalog.json'));
+const signalAndroid = require(path.join(ROOT, 'queries', 'android', 'signal', 'catalog.json'));
 
 // Rollqueryer (hidden) hör till Härkomst och visas inte i Queries. De kontrolleras för sig.
 const visible = (list) => list.filter((q) => !q.hidden);
@@ -49,6 +50,27 @@ test('snapchat (beta): en rekommenderad query per databas, undertext på alla, t
     assert.match(cache.queries.find((q) => q.id === 'cached-media').sql, /CACHE_FILE_CLAIM[\s\S]*CACHE_FILE_METADATA/);
     const arroyo = snapchat.databases.find((d) => d.id === 'snapchat-arroyo');
     assert.match(arroyo.queries.find((q) => q.id === 'messages').sql, /hex\(substr\(message_content, 7, 16\)\)/, 'avsändar-id ska gå att kontrollera för hand');
+});
+
+test('Signal på Android (beta): krypterade databaser, en rekommenderad query per databas, tider i millisekunder, rollerna Härkomst behöver', () => {
+    assert.deepStrictEqual(signalAndroid.databases.map((d) => d.id), ['signal-android-main', 'signal-android-logs']);
+    for (const db of signalAndroid.databases) {
+        assert.strictEqual(db.cipher, 'signal', db.id + ': krypterad med Signals inställningar');
+        checkGroup(db.id, db.queries, (q) => q.subtitle);
+        assert.ok(db.paths.every((p) => p.startsWith('data/data/org.thoughtcrime.securesms/databases/')), db.id + ': sökvägarna');
+        for (const q of db.queries) {
+            if (/\{\{(cocoa|unix)(Start|End)\}\}/.test(q.sql)) assert.fail(db.id + '/' + q.id + ': Signals tider är millisekunder');
+            if (!q.hidden && /\{\{unixMs/.test(q.sql)) assert.strictEqual(q.timeEpoch, 'unix-ms', db.id + '/' + q.id + ': timeEpoch');
+            if (q.hidden) { assert.strictEqual(q.epoch, 'unixMs', db.id + '/' + q.id + ': epoch'); assert.ok(q.fields, db.id + '/' + q.id + ': fields'); }
+            for (const p of q.params || []) if (!/^time(Start|End)$/.test(p)) assert.ok(signalAndroid.paramLabels[p], db.id + '/' + q.id + ': etikett för ' + p);
+        }
+    }
+    const roles = (id) => signalAndroid.databases.find((d) => d.id === id).queries.filter((q) => q.hidden).map((q) => q.role).sort();
+    assert.deepStrictEqual(roles('signal-android-main'), ['attachments', 'coverage', 'messages', 'recipients']);
+    assert.deepStrictEqual(roles('signal-android-logs'), ['coverage', 'log']);
+    // Fälten som signal.js läser.
+    const att = signalAndroid.databases[0].queries.find((q) => q.role === 'attachments');
+    for (const f of ['id', 'messageId', 'hashStart', 'hashEnd', 'sent', 'received', 'server', 'type', 'threadRecipient', 'fromId', 'toId', 'deletedBy']) assert.ok(att.fields[f], 'attachments.' + f);
 });
 
 test('snapchat på Android (beta): en rekommenderad query per databas, undertext på alla, tider i millisekunder, sökvägar under appens datamapp', () => {

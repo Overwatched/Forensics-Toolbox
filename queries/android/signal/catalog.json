@@ -1,0 +1,261 @@
+{
+  "id": "signal-android",
+  "title": "Signal Android Queries",
+  "sourceNote": "Betafunktion. Signals egna databaser på Android, lästa ur appens datamapp data/data/org.thoughtcrime.securesms (data/user/0 är samma mapp). Databaserna är krypterade med SQLCipher. Queries och Härkomst dekrypterar dem i minnet med nyckeln ur extraktionen (extra/Secrets/secrets.json) eller en nyckel du klistrar in. Tiderna är Unix-millisekunder och visas här med datetime(…/1000, 'unixepoch', 'localtime'). SHA-256 för bilagorna står i base64 i databasen och visas här som hex. Tabeller och kolumner är kontrollerade mot en labbtelefon (Android 13, Signal 8.33, 2026-11-02) och en verklig extraktion (Signal 8.10). Strukturen kan skilja sig mellan Signal-versioner, så kontrollera alltid mot databasen.",
+  "paramLabels": {
+    "sha256": "SHA-256 (hex, 64 tecken)",
+    "threadId": "Tråd (thread._id)"
+  },
+  "databases": [
+    {
+      "id": "signal-android-main",
+      "label": "Android — signal.db (Signal)",
+      "cipher": "signal",
+      "blurb": "Meddelanden, bilagor, kontakter och konversationer. Krypterad med SQLCipher; dekrypteras i minnet med nyckeln ur extraktionen. För varje bilaga finns SHA-256 för originalet före Signals omkodning (data_hash_start) och för den lagrade filen (data_hash_end): en bild ur galleriet som skickats i Signal har originalets summa.",
+      "dbPathHint": "/data/data/org.thoughtcrime.securesms/databases/signal.db (+ -wal). Bilagorna ligger krypterade i app_parts/partN.mms.",
+      "paths": [
+        "data/data/org.thoughtcrime.securesms/databases/signal.db"
+      ],
+      "source": "Kontrollerad mot labbtelefon (Android 13, Signal 8.33.2, 2026-11-02) och en verklig extraktion (Signal 8.10.3). message.type & 31: 20 mottaget, 23 skickat (21, 22 på väg, 24 misslyckat). date_sent är avsändarens klocka, date_server serverns och date_received den här telefonens. data_hash_start var SHA-256 för filen i galleriet för skickade bilder och videor; data_hash_end för den dekrypterade bilagan och för en bild som sparats ur Signal till galleriet. En vidarebefordrad bilaga får samma summor och samma fil. Ett meddelande som raderats för alla står kvar med deleted_by men utan bilaga.",
+      "queries": [
+        {
+          "id": "messages",
+          "title": "Meddelanden i tidsspann",
+          "recommended": true,
+          "timeEpoch": "unix-ms",
+          "params": [
+            "timeStart",
+            "timeEnd"
+          ],
+          "subtitle": "Visar meddelandena i tidsspannet: när de skickades (avsändarens klocka), togs emot och nådde servern, riktning, konversation, avsändare och mottagare, text, antal bilagor, engångsvisning och om de raderats för alla.",
+          "returns": "skickad, mottagen, server, riktning, konversation, från, till, text, bilagor, engångsvisning, raderat, försvinner, id, UTC",
+          "sql": "SELECT\n  datetime(m.date_sent / 1000, 'unixepoch', 'localtime') AS skickad_lokal,\n  datetime(m.date_received / 1000, 'unixepoch', 'localtime') AS mottagen_lokal,\n  CASE WHEN m.date_server > 0 THEN datetime(m.date_server / 1000, 'unixepoch', 'localtime') END AS server_lokal,\n  CASE m.type & 31 WHEN 20 THEN 'mottaget' WHEN 23 THEN 'skickat' WHEN 21 THEN 'skickas' WHEN 22 THEN 'skickas' WHEN 24 THEN 'misslyckades' WHEN 27 THEN 'utkast' ELSE 'typ ' || (m.type & 31) END AS riktning,\n  COALESCE(g.title, COALESCE(NULLIF(tr.nickname_joined_name, ''), NULLIF(tr.system_joined_name, ''), NULLIF(tr.profile_joined_name, ''), tr.username, tr.e164, '#' || tr._id)) AS konversation,\n  COALESCE(NULLIF(fr.nickname_joined_name, ''), NULLIF(fr.system_joined_name, ''), NULLIF(fr.profile_joined_name, ''), fr.username, fr.e164, '#' || fr._id) AS fran,\n  COALESCE(NULLIF(tor.nickname_joined_name, ''), NULLIF(tor.system_joined_name, ''), NULLIF(tor.profile_joined_name, ''), tor.username, tor.e164, '#' || tor._id) AS till,\n  m.body AS text,\n  (SELECT count(*) FROM attachment a WHERE a.message_id = m._id) AS bilagor,\n  m.view_once AS engangsvisning,\n  CASE WHEN m.deleted_by IS NOT NULL OR m.remote_deleted = 1 THEN 'raderat för alla' END AS raderat,\n  CASE WHEN m.expires_in > 0 THEN m.expires_in / 1000 || ' s' END AS forsvinner,\n  m._id AS meddelande_id,\n  m.thread_id AS trad_id,\n  datetime(m.date_sent / 1000, 'unixepoch') AS skickad_utc\nFROM message m\nLEFT JOIN thread t ON t._id = m.thread_id\nLEFT JOIN recipient tr ON tr._id = t.recipient_id\nLEFT JOIN groups g ON g.recipient_id = t.recipient_id\nLEFT JOIN recipient fr ON fr._id = m.from_recipient_id\nLEFT JOIN recipient tor ON tor._id = m.to_recipient_id\nWHERE m.date_sent BETWEEN {{unixMsStart}} AND {{unixMsEnd}}\n   OR m.date_received BETWEEN {{unixMsStart}} AND {{unixMsEnd}}\nORDER BY m.date_received;"
+        },
+        {
+          "id": "attachments",
+          "title": "Bilagor i tidsspann",
+          "timeEpoch": "unix-ms",
+          "params": [
+            "timeStart",
+            "timeEnd"
+          ],
+          "subtitle": "Visar bilagorna i meddelandena i tidsspannet med typ, storlek, mått, SHA-256 för originalet (före Signals omkodning) och för den lagrade filen, filen i app_parts (krypterad), om den skickades eller togs emot och med vem.",
+          "returns": "tid, riktning, konversation, från, typ, filnamn, storlek, mått, SHA-256 original och lagrad, omkodning, fil, uppladdad, id, UTC",
+          "sql": "WITH RECURSIVE\n  b(k) AS (SELECT 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'),\n  h(id, s, e, i, hs, he) AS (\n    SELECT _id, data_hash_start, data_hash_end, 0, '', '' FROM attachment\n    UNION ALL\n    SELECT h.id, h.s, h.e, h.i + 1, h.hs || printf('%06x', (instr(b.k, substr(h.s, 4 * h.i + 1, 1)) - 1) * 262144 + (instr(b.k, substr(h.s, 4 * h.i + 2, 1)) - 1) * 4096 + max(instr(b.k, substr(h.s, 4 * h.i + 3, 1)) - 1, 0) * 64 + max(instr(b.k, substr(h.s, 4 * h.i + 4, 1)) - 1, 0)), h.he || printf('%06x', (instr(b.k, substr(h.e, 4 * h.i + 1, 1)) - 1) * 262144 + (instr(b.k, substr(h.e, 4 * h.i + 2, 1)) - 1) * 4096 + max(instr(b.k, substr(h.e, 4 * h.i + 3, 1)) - 1, 0) * 64 + max(instr(b.k, substr(h.e, 4 * h.i + 4, 1)) - 1, 0))\n    FROM h, b WHERE h.i < 11\n  ),\n  sha(id, sha256_original, sha256_lagrad) AS (\n    SELECT id, CASE WHEN length(s) = 44 THEN substr(hs, 1, 64) END, CASE WHEN length(e) = 44 THEN substr(he, 1, 64) END FROM h WHERE i = 11\n  )\nSELECT\n  datetime(CASE WHEN m.type & 31 = 20 THEN m.date_received ELSE m.date_sent END / 1000, 'unixepoch', 'localtime') AS tid_lokal,\n  CASE m.type & 31 WHEN 20 THEN 'mottaget' WHEN 23 THEN 'skickat' WHEN 21 THEN 'skickas' WHEN 22 THEN 'skickas' WHEN 24 THEN 'misslyckades' WHEN 27 THEN 'utkast' ELSE 'typ ' || (m.type & 31) END AS riktning,\n  COALESCE(g.title, COALESCE(NULLIF(tr.nickname_joined_name, ''), NULLIF(tr.system_joined_name, ''), NULLIF(tr.profile_joined_name, ''), tr.username, tr.e164, '#' || tr._id)) AS konversation,\n  COALESCE(NULLIF(fr.nickname_joined_name, ''), NULLIF(fr.system_joined_name, ''), NULLIF(fr.profile_joined_name, ''), fr.username, fr.e164, '#' || fr._id) AS fran,\n  a.content_type AS typ,\n  a.file_name AS filnamn,\n  a.data_size AS storlek,\n  CASE WHEN a.width > 0 THEN a.width || '×' || a.height END AS matt,\n  sha.sha256_original,\n  sha.sha256_lagrad,\n  CASE WHEN a.data_hash_start = a.data_hash_end THEN 'oförändrad' WHEN a.data_hash_end IS NOT NULL THEN 'omkodad av Signal' END AS omkodning,\n  replace(a.data_file, rtrim(a.data_file, replace(a.data_file, '/', '')), '') AS fil_i_app_parts,\n  CASE WHEN a.upload_timestamp > 0 THEN datetime(a.upload_timestamp / 1000, 'unixepoch', 'localtime') END AS uppladdad_lokal,\n  m.view_once AS engangsvisning,\n  a._id AS bilaga_id,\n  m._id AS meddelande_id,\n  datetime(CASE WHEN m.type & 31 = 20 THEN m.date_received ELSE m.date_sent END / 1000, 'unixepoch') AS tid_utc\nFROM attachment a\nJOIN message m ON m._id = a.message_id\nLEFT JOIN sha ON sha.id = a._id\nLEFT JOIN thread t ON t._id = m.thread_id\nLEFT JOIN recipient tr ON tr._id = t.recipient_id\nLEFT JOIN groups g ON g.recipient_id = t.recipient_id\nLEFT JOIN recipient fr ON fr._id = m.from_recipient_id\nWHERE m.date_sent BETWEEN {{unixMsStart}} AND {{unixMsEnd}}\n   OR m.date_received BETWEEN {{unixMsStart}} AND {{unixMsEnd}}\nORDER BY m.date_received, a.display_order;"
+        },
+        {
+          "id": "attachment-by-sha256",
+          "title": "En bilaga efter SHA-256",
+          "timeEpoch": "unix-ms",
+          "params": [
+            "sha256"
+          ],
+          "subtitle": "Letar upp bilagan vars original eller lagrade fil har den SHA-256 du anger, oavsett tid. En bild som skickats ur galleriet har originalets summa; en mottagen eller sparad bild har den lagrade filens.",
+          "returns": "träff på, tid, riktning, konversation, från, typ, storlek, mått, SHA-256, fil, id, UTC",
+          "sql": "WITH RECURSIVE\n  b(k) AS (SELECT 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'),\n  h(id, s, e, i, hs, he) AS (\n    SELECT _id, data_hash_start, data_hash_end, 0, '', '' FROM attachment\n    UNION ALL\n    SELECT h.id, h.s, h.e, h.i + 1, h.hs || printf('%06x', (instr(b.k, substr(h.s, 4 * h.i + 1, 1)) - 1) * 262144 + (instr(b.k, substr(h.s, 4 * h.i + 2, 1)) - 1) * 4096 + max(instr(b.k, substr(h.s, 4 * h.i + 3, 1)) - 1, 0) * 64 + max(instr(b.k, substr(h.s, 4 * h.i + 4, 1)) - 1, 0)), h.he || printf('%06x', (instr(b.k, substr(h.e, 4 * h.i + 1, 1)) - 1) * 262144 + (instr(b.k, substr(h.e, 4 * h.i + 2, 1)) - 1) * 4096 + max(instr(b.k, substr(h.e, 4 * h.i + 3, 1)) - 1, 0) * 64 + max(instr(b.k, substr(h.e, 4 * h.i + 4, 1)) - 1, 0))\n    FROM h, b WHERE h.i < 11\n  ),\n  sha(id, sha256_original, sha256_lagrad) AS (\n    SELECT id, CASE WHEN length(s) = 44 THEN substr(hs, 1, 64) END, CASE WHEN length(e) = 44 THEN substr(he, 1, 64) END FROM h WHERE i = 11\n  )\nSELECT\n  CASE WHEN sha.sha256_original = lower('{{sha256}}') AND sha.sha256_lagrad = lower('{{sha256}}') THEN 'original och lagrad (oförändrad)'\n       WHEN sha.sha256_original = lower('{{sha256}}') THEN 'originalet före omkodning'\n       ELSE 'den lagrade filen' END AS traff_pa,\n  datetime(CASE WHEN m.type & 31 = 20 THEN m.date_received ELSE m.date_sent END / 1000, 'unixepoch', 'localtime') AS tid_lokal,\n  datetime(m.date_sent / 1000, 'unixepoch', 'localtime') AS skickad_lokal,\n  CASE m.type & 31 WHEN 20 THEN 'mottaget' WHEN 23 THEN 'skickat' WHEN 21 THEN 'skickas' WHEN 22 THEN 'skickas' WHEN 24 THEN 'misslyckades' WHEN 27 THEN 'utkast' ELSE 'typ ' || (m.type & 31) END AS riktning,\n  COALESCE(g.title, COALESCE(NULLIF(tr.nickname_joined_name, ''), NULLIF(tr.system_joined_name, ''), NULLIF(tr.profile_joined_name, ''), tr.username, tr.e164, '#' || tr._id)) AS konversation,\n  COALESCE(NULLIF(fr.nickname_joined_name, ''), NULLIF(fr.system_joined_name, ''), NULLIF(fr.profile_joined_name, ''), fr.username, fr.e164, '#' || fr._id) AS fran,\n  a.content_type AS typ,\n  a.data_size AS storlek,\n  CASE WHEN a.width > 0 THEN a.width || '×' || a.height END AS matt,\n  sha.sha256_original,\n  sha.sha256_lagrad,\n  replace(a.data_file, rtrim(a.data_file, replace(a.data_file, '/', '')), '') AS fil_i_app_parts,\n  a._id AS bilaga_id,\n  m._id AS meddelande_id,\n  datetime(m.date_sent / 1000, 'unixepoch') AS skickad_utc\nFROM attachment a\nJOIN sha ON sha.id = a._id\nJOIN message m ON m._id = a.message_id\nLEFT JOIN thread t ON t._id = m.thread_id\nLEFT JOIN recipient tr ON tr._id = t.recipient_id\nLEFT JOIN groups g ON g.recipient_id = t.recipient_id\nLEFT JOIN recipient fr ON fr._id = m.from_recipient_id\nWHERE sha.sha256_original = lower('{{sha256}}') OR sha.sha256_lagrad = lower('{{sha256}}')\nORDER BY m.date_received;"
+        },
+        {
+          "id": "recipients",
+          "title": "Kontakter och grupper",
+          "timeEpoch": "unix-ms",
+          "params": [],
+          "subtitle": "Alla mottagare i Signal: personer med namn (smeknamn, kontaktbokens namn, profilnamn), användarnamn och telefonnummer, grupper med titel. Det egna kontot står också här.",
+          "returns": "id, typ, namn, profilnamn, användarnamn, telefonnummer, grupptitel, registrerad, blockerad",
+          "sql": "SELECT\n  r._id AS recipient_id,\n  CASE r.type WHEN 0 THEN 'person' WHEN 1 THEN 'MMS-grupp' WHEN 2 THEN 'grupp (v1)' WHEN 3 THEN 'grupp' WHEN 4 THEN 'storylista' WHEN 5 THEN 'samtalslänk' ELSE 'typ ' || r.type END AS typ,\n  COALESCE(NULLIF(r.nickname_joined_name, ''), NULLIF(r.system_joined_name, ''), NULLIF(r.profile_joined_name, ''), r.username, r.e164, '#' || r._id) AS namn,\n  r.profile_joined_name AS profilnamn,\n  r.system_joined_name AS kontaktbokens_namn,\n  r.username AS anvandarnamn,\n  r.e164 AS telefonnummer,\n  g.title AS grupptitel,\n  r.registered AS registrerad,\n  r.blocked AS blockerad,\n  r.aci\nFROM recipient r\nLEFT JOIN groups g ON g.recipient_id = r._id\nORDER BY r._id;"
+        },
+        {
+          "id": "threads",
+          "title": "Konversationer",
+          "timeEpoch": "unix-ms",
+          "params": [],
+          "subtitle": "Konversationerna med senaste aktivitet, motpart eller grupp, antal meddelanden och olästa.",
+          "returns": "senast, konversation, typ, meddelanden, olästa, senast läst, arkiverad, id",
+          "sql": "SELECT\n  datetime(t.date / 1000, 'unixepoch', 'localtime') AS senast_lokal,\n  COALESCE(g.title, COALESCE(NULLIF(tr.nickname_joined_name, ''), NULLIF(tr.system_joined_name, ''), NULLIF(tr.profile_joined_name, ''), tr.username, tr.e164, '#' || tr._id)) AS konversation,\n  CASE WHEN g.title IS NOT NULL THEN 'grupp' ELSE 'enskild' END AS typ,\n  (SELECT count(*) FROM message m WHERE m.thread_id = t._id) AS meddelanden,\n  t.unread_count AS olasta,\n  CASE WHEN t.last_seen > 0 THEN datetime(t.last_seen / 1000, 'unixepoch', 'localtime') END AS senast_last_lokal,\n  t.archived AS arkiverad,\n  t._id AS trad_id\nFROM thread t\nLEFT JOIN recipient tr ON tr._id = t.recipient_id\nLEFT JOIN groups g ON g.recipient_id = t.recipient_id\nORDER BY t.date DESC;"
+        },
+        {
+          "id": "tables",
+          "title": "Hjälp: tabeller och antal rader",
+          "group": "advanced",
+          "params": [],
+          "returns": "tabellnamn",
+          "subtitle": "Listar tabellerna i databasen. Bra för att se om message och attachment finns i den här Signal-versionen.",
+          "sql": "SELECT name AS tabell\nFROM sqlite_master\nWHERE type = 'table'\nORDER BY name;"
+        },
+        {
+          "id": "role-attachments",
+          "hidden": true,
+          "role": "attachments",
+          "title": "Härkomst: alla bilagor",
+          "description": "Används av Härkomst. Alla bilagor med meddelandets tider, riktning och tråd, SHA-256 i base64 som i databasen och data_random (en del av bilagans nyckel). Ingen tidsgräns: filen jämförs med varje bilaga.",
+          "params": [],
+          "epoch": "unixMs",
+          "fields": {
+            "id": "_id",
+            "messageId": "message_id",
+            "contentType": "content_type",
+            "fileName": "file_name",
+            "size": "data_size",
+            "width": "width",
+            "height": "height",
+            "dataFile": "data_file",
+            "random": "data_random",
+            "hashStart": "data_hash_start",
+            "hashEnd": "data_hash_end",
+            "upload": "upload_timestamp",
+            "transform": "transform_properties",
+            "sent": "date_sent",
+            "received": "date_received",
+            "server": "date_server",
+            "type": "type",
+            "threadId": "thread_id",
+            "threadRecipient": "thread_recipient",
+            "fromId": "from_recipient_id",
+            "toId": "to_recipient_id",
+            "viewOnce": "view_once",
+            "deletedBy": "deleted_by",
+            "preflight": "fast_preflight_id"
+          },
+          "sql": "SELECT\n  a._id, a.message_id, a.content_type, a.file_name, a.data_size, a.width, a.height, a.data_file, a.data_random,\n  a.data_hash_start, a.data_hash_end, a.upload_timestamp, a.transform_properties, a.fast_preflight_id,\n  m.date_sent, m.date_received, m.date_server, m.type, m.thread_id, t.recipient_id AS thread_recipient,\n  m.from_recipient_id, m.to_recipient_id, m.view_once, m.deleted_by\nFROM attachment a\nLEFT JOIN message m ON m._id = a.message_id\nLEFT JOIN thread t ON t._id = m.thread_id\nORDER BY a._id;"
+        },
+        {
+          "id": "role-messages",
+          "hidden": true,
+          "role": "messages",
+          "title": "Härkomst: meddelanden i tidsfönstret",
+          "description": "Används av Härkomst. Meddelandena i fönstret med råa tider, riktning, tråd, avsändare och mottagare, antal bilagor och om de raderats. Texten tas inte med.",
+          "params": [
+            "timeStart",
+            "timeEnd"
+          ],
+          "epoch": "unixMs",
+          "fields": {
+            "id": "_id",
+            "sent": "date_sent",
+            "received": "date_received",
+            "server": "date_server",
+            "type": "type",
+            "threadId": "thread_id",
+            "threadRecipient": "thread_recipient",
+            "fromId": "from_recipient_id",
+            "toId": "to_recipient_id",
+            "viewOnce": "view_once",
+            "deletedBy": "deleted_by",
+            "attachments": "n_attachments",
+            "hasBody": "has_body"
+          },
+          "sql": "SELECT\n  m._id, m.date_sent, m.date_received, m.date_server, m.type, m.thread_id, t.recipient_id AS thread_recipient,\n  m.from_recipient_id, m.to_recipient_id, m.view_once, m.deleted_by,\n  (SELECT count(*) FROM attachment a WHERE a.message_id = m._id) AS n_attachments,\n  CASE WHEN length(m.body) > 0 THEN 1 ELSE 0 END AS has_body\nFROM message m\nLEFT JOIN thread t ON t._id = m.thread_id\nWHERE m.date_sent BETWEEN {{unixMsStart}} AND {{unixMsEnd}}\n   OR m.date_received BETWEEN {{unixMsStart}} AND {{unixMsEnd}}\nORDER BY m.date_received;"
+        },
+        {
+          "id": "role-recipients",
+          "hidden": true,
+          "role": "recipients",
+          "title": "Härkomst: kontakter och grupper",
+          "description": "Används av Härkomst. Namn för varje mottagare (smeknamn, kontaktbokens namn, profilnamn, användarnamn, telefonnummer) och gruppernas titel.",
+          "params": [],
+          "epoch": "unixMs",
+          "fields": {
+            "id": "_id",
+            "type": "type",
+            "name": "name",
+            "groupTitle": "title",
+            "username": "username",
+            "phone": "e164"
+          },
+          "sql": "SELECT\n  r._id, r.type,\n  COALESCE(NULLIF(r.nickname_joined_name, ''), NULLIF(r.system_joined_name, ''), NULLIF(r.profile_joined_name, ''), r.username, r.e164, '#' || r._id) AS name,\n  g.title, r.username, r.e164\nFROM recipient r\nLEFT JOIN groups g ON g.recipient_id = r._id\nORDER BY r._id;"
+        },
+        {
+          "id": "role-coverage",
+          "hidden": true,
+          "role": "coverage",
+          "title": "Härkomst: täckning",
+          "params": [],
+          "epoch": "unixMs",
+          "fields": {
+            "first": "first_received",
+            "last": "last_received",
+            "rows": "n_rows"
+          },
+          "sql": "SELECT\n  MIN(date_received) AS first_received,\n  MAX(date_received) AS last_received,\n  COUNT(*) AS n_rows\nFROM message;"
+        }
+      ]
+    },
+    {
+      "id": "signal-android-logs",
+      "label": "Android — signal-logs.db (Signals logg)",
+      "cipher": "signal",
+      "blurb": "Signals egen logg i klartext efter dekrypteringen: vilka vyer som öppnades, när kameran användes, vilken fil i galleriet som valdes (MediaStore-id), när en bilaga lades in, skickades, hämtades, sparades eller raderades. Sparas bara några dagar.",
+      "dbPathHint": "/data/data/org.thoughtcrime.securesms/databases/signal-logs.db (+ -wal). Krypterad med samma nyckel som signal.db.",
+      "paths": [
+        "data/data/org.thoughtcrime.securesms/databases/signal-logs.db"
+      ],
+      "source": "Kontrollerad mot labbtelefon (Android 13, Signal 8.33.2): raderna stämde på millisekunden med appops (kameran) och usagestats (MediaSendV3Activity). En verklig extraktion hade bara loggen från extraktionsdagen (cirka 3 timmar). UUID:n i raderna är maskerade av Signal utom de tre sista tecknen.",
+      "queries": [
+        {
+          "id": "events",
+          "title": "Händelser i loggen i tidsspann",
+          "recommended": true,
+          "timeEpoch": "unix-ms",
+          "params": [
+            "timeStart",
+            "timeEnd"
+          ],
+          "subtitle": "Raderna i Signals logg som säger vad användaren gjorde: kameran och medievalet öppnas, video spelas in, en fil väljs ur galleriet (med MediaStore-id) eller tas med Signals kamera, bilagan läggs in, meddelandet skickas, en bilaga hämtas, sparas till galleriet, vidarebefordras eller raderas för alla.",
+          "returns": "tid, rad, tid UTC",
+          "sql": "SELECT\n  datetime(created_at / 1000, 'unixepoch', 'localtime') AS tid_lokal,\n  substr(body, instr(body, ' GMT') + 13) AS rad,\n  datetime(created_at / 1000, 'unixepoch') AS tid_utc\nFROM log\nWHERE created_at BETWEEN {{unixMsStart}} AND {{unixMsEnd}}\n  AND (\n    body LIKE '%MediaSendV3Activity] onCreate()%'\n    OR body LIKE '%CameraScreenViewModel: Video recording%'\n    OR body LIKE '%CameraScreenViewModel: [Event] SwitchCamera%'\n    OR body LIKE '%AttachmentTable: Inserting attachment %'\n    OR body LIKE '%Inserted attachment at AttachmentId::%'\n    OR body LIKE '%[deleteAttachment] attachmentId%'\n    OR body LIKE '%IndividualSendJobV2: [%] Sent message.%'\n    OR body LIKE '%PushGroupSendJob: %Sending message:%'\n    OR body LIKE '%AttachmentDownloadJob: onAdded() messageId%'\n    OR body LIKE '%AttachmentSaver: Saving%'\n    OR body LIKE '%SaveAttachmentUtil: Save attachments completed%'\n    OR body LIKE '%[deleteAttachmentsForMessage]%'\n    OR body LIKE '%RemoteDeleteSendJob] onSubmit()%'\n    OR body LIKE '%matches the DATA_HASH_START of%'\n    OR body LIKE '%MultiselectForwardActiv: State change: SendPending%'\n    OR body LIKE '%MediaViewerActivity] onCreate()%'\n  )\nORDER BY created_at, _id;"
+        },
+        {
+          "id": "all",
+          "title": "Hela loggen i tidsspann",
+          "timeEpoch": "unix-ms",
+          "params": [
+            "timeStart",
+            "timeEnd"
+          ],
+          "subtitle": "Varje rad i Signals logg i tidsspannet. Loggen sparas bara några dagar, ofta bara timmarna före extraktionen.",
+          "returns": "tid, rad, tid UTC",
+          "sql": "SELECT\n  datetime(created_at / 1000, 'unixepoch', 'localtime') AS tid_lokal,\n  body AS rad,\n  datetime(created_at / 1000, 'unixepoch') AS tid_utc\nFROM log\nWHERE created_at BETWEEN {{unixMsStart}} AND {{unixMsEnd}}\nORDER BY created_at, _id;"
+        },
+        {
+          "id": "tables",
+          "title": "Hjälp: tabeller och antal rader",
+          "group": "advanced",
+          "params": [],
+          "returns": "tabellnamn",
+          "subtitle": "Listar tabellerna i databasen (log, crash, anr).",
+          "sql": "SELECT name AS tabell\nFROM sqlite_master\nWHERE type = 'table'\nORDER BY name;"
+        },
+        {
+          "id": "role-log",
+          "hidden": true,
+          "role": "log",
+          "title": "Härkomst: händelser i loggen i tidsfönstret",
+          "description": "Används av Härkomst. Loggraderna i fönstret som säger vad användaren gjorde, samma urval som Händelser i loggen.",
+          "params": [
+            "timeStart",
+            "timeEnd"
+          ],
+          "epoch": "unixMs",
+          "fields": {
+            "time": "created_at",
+            "body": "body"
+          },
+          "sql": "SELECT\n  created_at, body\nFROM log\nWHERE created_at BETWEEN {{unixMsStart}} AND {{unixMsEnd}}\n  AND (\n    body LIKE '%MediaSendV3Activity] onCreate()%'\n    OR body LIKE '%CameraScreenViewModel: Video recording%'\n    OR body LIKE '%CameraScreenViewModel: [Event] SwitchCamera%'\n    OR body LIKE '%AttachmentTable: Inserting attachment %'\n    OR body LIKE '%Inserted attachment at AttachmentId::%'\n    OR body LIKE '%[deleteAttachment] attachmentId%'\n    OR body LIKE '%IndividualSendJobV2: [%] Sent message.%'\n    OR body LIKE '%PushGroupSendJob: %Sending message:%'\n    OR body LIKE '%AttachmentDownloadJob: onAdded() messageId%'\n    OR body LIKE '%AttachmentSaver: Saving%'\n    OR body LIKE '%SaveAttachmentUtil: Save attachments completed%'\n    OR body LIKE '%[deleteAttachmentsForMessage]%'\n    OR body LIKE '%RemoteDeleteSendJob] onSubmit()%'\n    OR body LIKE '%matches the DATA_HASH_START of%'\n    OR body LIKE '%MultiselectForwardActiv: State change: SendPending%'\n    OR body LIKE '%MediaViewerActivity] onCreate()%'\n  )\nORDER BY created_at, _id;"
+        },
+        {
+          "id": "role-coverage",
+          "hidden": true,
+          "role": "coverage",
+          "title": "Härkomst: täckning",
+          "params": [],
+          "epoch": "unixMs",
+          "fields": {
+            "first": "first_row",
+            "last": "last_row",
+            "rows": "n_rows"
+          },
+          "sql": "SELECT\n  MIN(created_at) AS first_row,\n  MAX(created_at) AS last_row,\n  COUNT(*) AS n_rows\nFROM log;"
+        }
+      ]
+    }
+  ]
+}

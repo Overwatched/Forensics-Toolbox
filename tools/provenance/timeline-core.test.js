@@ -290,3 +290,51 @@ test('filsystemets skapandetid enligt zippen jämförs med Skapad, men motsäger
     assert.match(late.text, /kopieras, tas emot eller återställs/);
     assert.notStrictEqual(later.factors[0].state, 'contradiction');
 });
+
+test('Android: förgrundsloggen slutar före T men kameraappen använde kameran vid T: appen var igång, ingen annan app förlängs', () => {
+    // usagestats skrevs senast T−90 s: Signal öppnades före det och har inget slut. Intervallet slutar där loggen slutar.
+    const usEnd = T - 90 * S;
+    const ev = [{ ms: T - 100 * S, type: 1, app: 'org.thoughtcrime.securesms' }];
+    const iv = core.intervalsFromEvents(ev, usEnd, { db: 'usagestats', table: 'daily' });
+    assert.deepStrictEqual(iv.apps.map((a) => [a.app, a.endMs, !!a.openEnded]), [['org.thoughtcrime.securesms', usEnd, true]]);
+    const file = { pk: 97, filename: '2026-11-02-20-42-21-357.mp4', relativePath: 'DCIM/Camera/', importer: 'org.lineageos.aperture', createdMs: T, addedMs: T - 3 * S };
+    const m = core.build({ platform: 'Android', file, appNames: (id) => ({ 'org.lineageos.aperture': 'Aperture', 'org.thoughtcrime.securesms': 'Signal' }[id] || null),
+        cameraApps: ['org.lineageos.aperture'], appIntervals: iv.apps.map((a) => Object.assign({ stream: 'usagestats' }, a)), screen: [], lock: [], exif: null,
+        cameraUse: [{ startMs: T - 6 * S, endMs: T + 4 * S, app: 'org.lineageos.aperture', source: { db: 'appops', table: 'discrete' } }],
+        coverage: { usagestats: { firstMs: T - 86400 * S, lastMs: usEnd, rows: 50 } }, androidLog: 'usagestats' });
+    const app = m.factors.find((f) => f.id === 'app');
+    assert.strictEqual(app.state, 'support');
+    assert.strictEqual(app.items[0].text, 'Aperture använde kameran vid tidpunkten (appops), så appen var igång.');
+    assert.match(app.items[1].text, /^Förgrundsloggen: Tidpunkten ligger utanför/);
+    assert.deepStrictEqual(app.via, { l1: 'Aperture använder kameran', l2: 'appops, ingen förgrundslogg' });
+    // Skärmen: ingen skärmlogg vid T, men kameran användes. Kameravyn kräver tänd skärm.
+    const screen = m.factors.find((f) => f.id === 'screen');
+    assert.strictEqual(screen.state, 'support');
+    assert.strictEqual(screen.items[0].text, 'Aperture använde kameran vid tidpunkten (appops). Kameravyn visas bara med tänd skärm.');
+    // Utan kameraanvändning vid T: saknas, inte "en annan app var igång".
+    const m2 = core.build(Object.assign({}, { platform: 'Android', file, appNames: () => null, cameraApps: ['org.lineageos.aperture'], appIntervals: iv.apps, screen: [], lock: [], exif: null, cameraUse: [], coverage: { usagestats: { firstMs: T - 86400 * S, lastMs: usEnd, rows: 50 } }, androidLog: 'usagestats' }));
+    assert.strictEqual(m2.factors.find((f) => f.id === 'app').state, 'missing');
+});
+
+test('Android: en fil som en app sparade, utan förgrundslogg vid T men med appens egen loggrad vid T: appen användes och skärmen var tänd', () => {
+    const usEnd = T - 30 * S;
+    const file = { pk: 96, filename: 'signal-2026-11-02-20-41-09-488.jpg', relativePath: 'Pictures/Signal/', importer: 'org.thoughtcrime.securesms', createdMs: T, addedMs: T, createdFrom: 'date_added' };
+    const saved = { ms: T + 300, kind: 'sig-saved', lane: 'signal', app: 'org.thoughtcrime.securesms', active: true, activeText: 'en bilaga sparades till galleriet', isFile: true,
+        text: 'Signals logg: 1 av 1 bilagor sparade till galleriet', plain: 'Den bedömda filen sparas ur Signal till galleriet', source: { db: 'signal-logs.db', table: 'log' } };
+    const incoming = { ms: T - 15 * S, kind: 'sig-message', lane: 'signal', app: 'org.thoughtcrime.securesms', own: false, active: false, text: 'Signal: bild mottagen', plain: 'En bild tas emot i Signal', source: { db: 'signal.db', table: 'message' } };
+    const base = { platform: 'Android', file, appNames: (id) => ({ 'org.thoughtcrime.securesms': 'Signal' }[id] || null), cameraApps: ['org.lineageos.aperture'],
+        appIntervals: [{ startMs: T - 60 * S, endMs: usEnd, app: 'org.thoughtcrime.securesms', stream: 'usagestats', openEnded: true }], screen: [], lock: [], exif: null,
+        coverage: { usagestats: { firstMs: T - 86400 * S, lastMs: usEnd, rows: 50 } }, androidLog: 'usagestats' };
+    const m = core.build(Object.assign({}, base, { extraEvents: [incoming, saved] }));
+    const app = m.factors.find((f) => f.id === 'app');
+    assert.strictEqual(app.state, 'support');
+    assert.strictEqual(app.items[0].text, 'Signal användes vid tidpunkten: en bilaga sparades till galleriet (signal-logs.db).');
+    assert.deepStrictEqual(app.via, { l1: 'Signal: en bilaga sparades till galleriet', l2: 'signal-logs.db, ingen förgrundslogg' });
+    const screen = m.factors.find((f) => f.id === 'screen');
+    assert.strictEqual(screen.state, 'support');
+    assert.strictEqual(screen.items[0].text, 'Signal användes vid tidpunkten: en bilaga sparades till galleriet (signal-logs.db). Det görs med tänd skärm.');
+    // Ett mottaget meddelande är ingen åtgärd i appen: utan loggraden vid T saknas registreringar.
+    const m2 = core.build(Object.assign({}, base, { extraEvents: [incoming] }));
+    assert.strictEqual(m2.factors.find((f) => f.id === 'app').state, 'missing');
+    assert.strictEqual(m2.factors.find((f) => f.id === 'screen').state, 'missing');
+});

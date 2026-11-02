@@ -61,7 +61,9 @@
     }
 
     // Returnerar { bytes, stats }. bytes är en ny Uint8Array; db och wal lämnas orörda.
-    function apply(db, wal) {
+    // opts.page(bytes, sidnummer) -> bytes: körs på varje sida som läggs på, t.ex. för att
+    // dekryptera en SQLCipher-sida. Kontrollsummorna gäller ramarna som de står i filen.
+    function apply(db, wal, opts) {
         db = db instanceof Uint8Array ? db : new Uint8Array(db);
         var stats = {
             walFrames: 0, validFrames: 0, appliedFrames: 0, ignoredFrames: 0,
@@ -122,9 +124,11 @@
         var out = new Uint8Array(commitPages * pageSize);
         out.set(db.subarray(0, Math.min(db.length, out.length)));
         var touched = {};
+        var transform = opts && opts.page;
         committed.forEach(function (fr) {
             if (fr.page < 1 || fr.page > commitPages) return;
-            out.set(wal.subarray(fr.at, fr.at + pageSize), (fr.page - 1) * pageSize);
+            var page = wal.subarray(fr.at, fr.at + pageSize);
+            out.set(transform ? transform(page, fr.page) : page, (fr.page - 1) * pageSize);
             touched[fr.page] = true;
         });
         stats.pages = Object.keys(touched).length;

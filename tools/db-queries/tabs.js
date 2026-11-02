@@ -128,7 +128,7 @@
             : 'Queryn från Härkomst körs mot samma zip.');
         render();
         await window.QueriesRun.run();
-        var box = $('run-box');
+        var box = $('run-result') && $('run-result').innerHTML ? $('run-result') : $('run-box');
         if (box) box.scrollIntoView({ block: 'start' });
     }
 

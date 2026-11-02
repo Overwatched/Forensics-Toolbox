@@ -390,7 +390,7 @@
         return Object.assign({
             kind: 'android',
             extraEvents: snap.events,
-            extraNotes: ['Telefonens logg över vilken app som använde kameran sparas i cirka sju dagar. Kameran igång betyder att kameravyn visades, inte att en bild togs.'].concat(snap.notes),
+            extraNotes: ['Kameran igång betyder att kameravyn visades, inte att en bild togs.'].concat(snap.notes),
             snapchatMemory: snap.memory,
             copies: [],
             note: 'Påhittade testdata: en selfie med Snapchats frontkamera på en Android-telefon, sparad till Memories och galleriet, på samma promenad i Stockholm. Inget kommer från en riktig telefon.',

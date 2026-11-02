@@ -251,7 +251,7 @@
         <section class="step" id="step-6">
             <div class="step-head">
                 <span class="step-num">6</span>
-                <h2>Appens egna register: Snapchat (beta)</h2>
+                <h2>Appens egna register: Snapchat och Signal (beta)</h2>
             </div>
             <p class="shared">En fil i Snapchats cache saknar ändelse och EXIF. Härkomst bedömer den ur Snapchats egna databaser: vem som skickade, när den lästes och om Snapchats kamera spelade in.</p>
             <div class="cols">
@@ -273,6 +273,13 @@
                 </div>
             </div>
             <p class="tools"><a href="../tools/db-queries/queries.html?db=snapchat-cache" data-tool="tools/db-queries/queries.html?db=snapchat-cache">Queries</a> (under Snapchat på startsidan)</p>
+            <p class="shared">Signal (Android) krypterar sina databaser. Med nyckeln ur extraktionen (<code>extra/Secrets/secrets.json</code>) eller en inklistrad nyckel läser Härkomst dem i minnet och jämför filens SHA-256 med varje bilaga, före och efter Signals omkodning.</p>
+            <ul>
+                <li><code>/data/data/org.thoughtcrime.securesms/databases/signal.db</code>: meddelanden (avsändarens, serverns och telefonens tid), bilagor med <code>data_hash_start</code> (originalet, till exempel bilden i galleriet som skickades) och <code>data_hash_end</code> (den lagrade bilagan)</li>
+                <li><code>signal-logs.db</code>: Signals egen logg, några dagar: fil vald ur galleriet (MediaStore-id), bild tagen med Signals kamera, bilaga sparad till galleriet, meddelande raderat för alla</li>
+                <li>Sparad ur Signal: <code>Pictures/Signal/signal-ÅÅÅÅ-MM-DD-TT-MM-SS-mmm.jpg</code>, där tiden är meddelandets (avsändarens klocka)</li>
+            </ul>
+            <p class="tools"><a href="../tools/db-queries/queries.html?db=signal-android-main" data-tool="tools/db-queries/queries.html?db=signal-android-main">Queries</a> (under Signal på startsidan)</p>
         </section>
 
         <section class="step" id="step-7">

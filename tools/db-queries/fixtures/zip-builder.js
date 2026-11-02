@@ -6,7 +6,7 @@ const zip = require('../zip');
 
 // files: [{ name, data, deflate, mtime, ut, utLocal, ntfs }]. zip64: alla storlekar och offset i
 // Zip64-fält, och slutet med Zip64-post och locator, som de stora extraktionerna har.
-// ut: { m, a, c } i innehållsförteckningens UT-fält (som Cellebrite); utLocal: samma men bara m i
+// ut: { m, a, c } i innehållsförteckningens UT-fält (som vissa extraktionsverktyg); utLocal: samma men bara m i
 // innehållsförteckningen och alla tre i den lokala posten (som Info-ZIP); ntfs: { m, a, c } i
 // NTFS-fältet (Unix-sekunder, skrivs som FILETIME).
 // UT-fältet: flaggorna säger vilka tider den lokala posten har; all = false skriver bara ändringen.

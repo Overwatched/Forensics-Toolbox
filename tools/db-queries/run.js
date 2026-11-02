@@ -25,6 +25,9 @@
     var result = $('run-result');
 
     var files = { db: null, wal: null };
+    var keyRow = $('run-key-row');
+    var keyInput = $('run-key');
+    var keyNote = $('run-key-note');
     var opened = null;
     var last = null;
     var sqlPromise = null;
@@ -94,6 +97,7 @@
         else if (files.db) html += '<div class="run-warn">Ingen -wal vald. Poster som bara finns i -wal kommer att saknas.</div>';
         if (files.mismatch) html += '<div class="run-warn">-wal-filen har inte samma namn som databasen. Kontrollera att de hör ihop.</div>';
         fileList.innerHTML = html;
+        showKeyRow();
     }
 
     function reset() {
@@ -107,6 +111,8 @@
     }
 
     $('run-pick').addEventListener('click', function () { input.click(); });
+    // En ny nyckel gäller vid nästa körning: databasen läses då in igen.
+    keyInput.addEventListener('input', function () { closeOpened(); });
 
     input.addEventListener('change', function () {
         var list = Array.prototype.slice.call(input.files || []);
@@ -132,19 +138,48 @@
 
     noWal.addEventListener('change', updateState);
 
+    // Den krypterade databasens nyckel: ur extraktionen (files.cipher) eller inklistrad.
+    function currentCipher() {
+        var db = window.QueriesApp && window.QueriesApp.currentDb ? window.QueriesApp.currentDb() : null;
+        var profile = (files.cipher && files.cipher.profile) || (db && db.cipher) || 'signal';
+        var typed = keyInput.value.trim() ? AppSecrets.parseManual(keyInput.value).dbKey : null;
+        if (typed) return { profile: profile, passphrase: typed, source: 'inklistrad' };
+        if (files.cipher && files.cipher.passphrase) return files.cipher;
+        return { profile: profile, passphrase: null, source: null };
+    }
+
+    function showKeyRow() {
+        var db = window.QueriesApp && window.QueriesApp.currentDb ? window.QueriesApp.currentDb() : null;
+        var need = !!(db && db.cipher) || !!files.encrypted;
+        keyRow.classList.toggle('display-none', !need);
+        if (need && files.cipher && files.cipher.passphrase) keyNote.textContent = 'Nyckeln lästes ur ' + files.cipher.source + '. En inklistrad nyckel går före och sparas inte.';
+    }
+
     async function open() {
-        if (opened && opened.dbFile === files.db && opened.walFile === files.wal) return opened;
+        var cipher = currentCipher();
+        if (opened && opened.dbFile === files.db && opened.walFile === files.wal && opened.passphrase === cipher.passphrase) return opened;
         closeOpened();
         status.textContent = 'Läser in…';
         var SQL = await loadSqlJs();
         var dbRead = await files.db.read();
         var walRead = files.wal ? await files.wal.read() : null;
         var hashes = await Promise.all([sha256(dbRead.bytes), walRead ? sha256(walRead.bytes) : Promise.resolve('')]);
-        var merged = SqliteWal.apply(dbRead.bytes, walRead ? walRead.bytes : new Uint8Array(0));
+        var walBytes = walRead ? walRead.bytes : new Uint8Array(0);
+        var merged;
+        var origin = dbRead.lines.concat(walRead ? walRead.lines : []);
+        if (dbRead.bytes.length >= 16 && !SqlCipher.isPlain(dbRead.bytes)) {
+            files.encrypted = true;
+            showKeyRow();
+            if (!cipher.passphrase) throw new Error(files.db.name + ' är krypterad (SQLCipher). Klistra in nyckeln i rutan ovanför Kör query.');
+            merged = SqlCipher.open(dbRead.bytes, walBytes, cipher.passphrase, cipher.profile, SqliteWal);
+            origin.push(SqlCipher.summary(merged.stats, cipher.source));
+        } else {
+            merged = SqliteWal.apply(dbRead.bytes, walBytes);
+        }
         if (walRead && merged.stats.error) throw new Error(merged.stats.error);
         opened = {
             SQL: SQL, dbFile: files.db, walFile: files.wal, stats: merged.stats, hashes: hashes, bytes: merged.bytes,
-            origin: dbRead.lines.concat(walRead ? walRead.lines : []),
+            origin: origin, passphrase: cipher.passphrase,
         };
         return opened;
     }
@@ -298,7 +333,7 @@
     // Extraktion: databasen och -wal kommer ur en zip. Anropas efter att rätt databas valts,
     // eftersom bytet av databas tömmer rutan.
     function useSources(src) {
-        files = { db: src.db, wal: src.wal || null, mismatch: false, zip: src.zip };
+        files = { db: src.db, wal: src.wal || null, mismatch: false, zip: src.zip, cipher: src.cipher || null };
         noWal.checked = !src.wal;
         input.value = '';
         closeOpened();

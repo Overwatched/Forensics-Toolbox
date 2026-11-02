@@ -15,7 +15,7 @@
         return out;
     }
 
-    // catalogs: { photos, android, appUsage, routined, snapchat, snapchatAndroid } som i Queries. Returnerar källorna i
+    // catalogs: { photos, android, appUsage, routined, snapchat, snapchatAndroid, signalAndroid } som i Queries. Returnerar källorna i
     // den form ExtractionCore.targets() vill ha, med rollerna per källa (och per band för Photos).
     function collect(catalogs) {
         var photos = catalogs.photos || {};
@@ -76,6 +76,18 @@
                     key: db.id, platform: pair[1], title: label, paths: db.paths || [], source: db.source, roles: roles, beta: true,
                     databases: [{ id: db.id, family: db.id, familyTitle: label, label: label, paths: db.paths || [], ios: null }],
                 });
+            });
+        });
+
+        // Signal (beta): två databaser under data/data/org.thoughtcrime.securesms, krypterade med
+        // SQLCipher. cipher följer med källan, så att Härkomst vet att nyckeln behövs.
+        ((catalogs.signalAndroid || {}).databases || []).forEach(function (db) {
+            var roles = roleMap(db.queries);
+            if (!Object.keys(roles).length) return;
+            var label = db.label.replace(/^Android — /, '');
+            sources.push({
+                key: db.id, platform: 'Android', title: label, paths: db.paths || [], source: db.source, roles: roles, beta: true, cipher: db.cipher || null,
+                databases: [{ id: db.id, family: db.id, familyTitle: label, label: label, paths: db.paths || [], ios: null, cipher: db.cipher || null }],
             });
         });
 

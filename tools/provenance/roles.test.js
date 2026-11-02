@@ -14,12 +14,16 @@ const catalogs = {
     routined: require(path.join(ROOT, 'queries', 'ios', 'routined', 'catalog.json')),
     snapchat: require(path.join(ROOT, 'queries', 'ios', 'snapchat', 'catalog.json')),
     snapchatAndroid: require(path.join(ROOT, 'queries', 'android', 'snapchat', 'catalog.json')),
+    signalAndroid: require(path.join(ROOT, 'queries', 'android', 'signal', 'catalog.json')),
 };
 
 test('alla källor och roller finns', () => {
     const sources = roles.collect(catalogs);
     const byKey = Object.fromEntries(sources.map((s) => [s.key, s]));
-    assert.deepStrictEqual(Object.keys(byKey).sort(), ['android-mediastore', 'knowledgec', 'photos', 'routined-cache', 'snapchat-android-arroyo', 'snapchat-android-cache', 'snapchat-android-friends', 'snapchat-android-journal', 'snapchat-android-memories', 'snapchat-android-notifications', 'snapchat-arroyo', 'snapchat-cache', 'snapchat-friends', 'snapchat-notifications', 'wellbeing']);
+    assert.deepStrictEqual(Object.keys(byKey).sort(), ['android-mediastore', 'knowledgec', 'photos', 'routined-cache', 'signal-android-logs', 'signal-android-main', 'snapchat-android-arroyo', 'snapchat-android-cache', 'snapchat-android-friends', 'snapchat-android-journal', 'snapchat-android-memories', 'snapchat-android-notifications', 'snapchat-arroyo', 'snapchat-cache', 'snapchat-friends', 'snapchat-notifications', 'wellbeing']);
+    assert.strictEqual(byKey['signal-android-main'].cipher, 'signal');
+    assert.strictEqual(byKey['signal-android-main'].databases[0].cipher, 'signal');
+    assert.deepStrictEqual(Object.keys(byKey['signal-android-main'].roles).sort(), ['attachments', 'coverage', 'messages', 'recipients']);
     assert.strictEqual(byKey['snapchat-cache'].beta, true);
     assert.strictEqual(byKey['snapchat-cache'].platform, 'iOS');
     assert.strictEqual(byKey['snapchat-android-cache'].platform, 'Android');
