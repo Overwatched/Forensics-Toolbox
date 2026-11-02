@@ -236,6 +236,10 @@
 
     function inRange(ms, range) { return ms != null && ms >= range.startMs && ms <= range.endMs; }
 
+    // Ligger tiden i något av fönstren? Queryerna läser hela spannet från det första fönstrets början
+    // till det sista fönstrets slut; det som ligger mellan fönstren sorteras bort här.
+    function inWindows(ms, wins) { return (wins || []).some(function (w) { return inRange(ms, w); }); }
+
     function fileVerb(type, platform) {
         var t = typeof type === 'string' ? type : type.type;
         if (t === 'camera') return 'tas med kameran';
@@ -498,21 +502,32 @@
         return { list: out, filePos: filePos };
     }
 
-    function factorPosition(input, pos, type) {
+    function factorPosition(input, pos, type, wins) {
         var file = input.file;
         var noun = type && type.type === 'snapchat' ? 'filen' : 'bilden';
         var Noun = noun.charAt(0).toUpperCase() + noun.slice(1);
-        var phone = pos.list.filter(function (p) { return p.kind === 'phone'; });
+        // Bara positionerna i fönstret runt T jämförs. Positioner i ett annat fönster (när filen kom till
+        // telefonen, när Snapchat-meddelandet skickades) visas på kartan men säger inget om T.
+        var span = input.windowMs || 15 * MINUTE;
+        var logged = pos.list.filter(function (p) { return p.kind === 'phone'; });
+        var phone = logged.filter(function (p) { return p.offsetMs != null && Math.abs(p.offsetMs) <= span; });
+        var elsewhere = logged.filter(function (p) { return phone.indexOf(p) < 0; });
+        var otherLabels = (wins || []).filter(function (w) {
+            return w.id !== 'created' && elsewhere.some(function (p) { return inRange(p.ms, w); });
+        }).map(function (w) { return w.label; });
+        var other = elsewhere.length ? { state: 'info', text: elsewhere.length + (elsewhere.length === 1 ? ' position till ligger' : ' positioner till ligger') +
+            (otherLabels.length ? ' i fönstret ' + otherLabels.join(' och ') : ' utanför fönstret runt T') + '. De visas på kartan men räknas inte här, eftersom de inte gäller T.' } : null;
+        var withOther = function (list) { return other ? list.concat([other]) : list; };
         var items = [];
         var near = null;
         phone.forEach(function (p) { if (near === null || Math.abs(p.offsetMs) < Math.abs(near.offsetMs)) near = p; });
         var noPhoneLog = input.platform === 'Android' ? ' (ingen positionslogg läses på Android)' : input.missingDbs && input.missingDbs.routined === 'unread' ? ' (routined Cache.sqlite kunde inte läsas)' : input.missingDbs && input.missingDbs.routined ? ' (routined Cache.sqlite finns inte i extraktionen)' : '';
         if (!pos.filePos) {
             if (!phone.length) {
-                return { id: 'position', title: 'Position', state: 'missing', items: [{ state: 'missing', text: 'Filen har ingen position, och telefonen har inga registrerade positioner i fönstret' + noPhoneLog + '.' }],
+                return { id: 'position', title: 'Position', state: 'missing', items: withOther([{ state: 'missing', text: 'Filen har ingen position, och telefonen har inga registrerade positioner i fönstret' + noPhoneLog + '.' }]),
                     plain: 'Det finns ingen positionsuppgift, varken i ' + noun + ' eller från telefonen.' };
             }
-            return { id: 'position', title: 'Position', state: 'info', items: [{ state: 'info', text: 'Filen har ingen position. Telefonen registrerade ' + phone.length + (phone.length === 1 ? ' position' : ' positioner') + ' i fönstret, närmast ' + duration(near.offsetMs) + (near.offsetMs < 0 ? ' före' : ' efter') + ' ' + noun + '.' }],
+            return { id: 'position', title: 'Position', state: 'info', items: withOther([{ state: 'info', text: 'Filen har ingen position. Telefonen registrerade ' + phone.length + (phone.length === 1 ? ' position' : ' positioner') + ' i fönstret, närmast ' + duration(near.offsetMs) + (near.offsetMs < 0 ? ' före' : ' efter') + ' ' + noun + '.' }]),
                 plain: Noun + ' saknar positionsuppgift. Telefonen registrerade var den var ' + duration(near.offsetMs) + (near.offsetMs < 0 ? ' före' : ' efter') + (noun === 'filen' ? ' tidpunkten.' : ' att bilden togs.') };
         }
         var exifRow = pos.list.filter(function (p) { return p.kind === 'exif' && p.distanceM != null; })[0];
@@ -522,7 +537,7 @@
         else if (memRow) items.push({ state: 'info', text: 'Bildens position kommer ur Snapchats Memories (latitude, longitude), inte ur MediaStore, som saknar position för filen.' });
         if (!phone.length) {
             items.push({ state: 'missing', text: 'Telefonen har inga registrerade positioner i fönstret' + noPhoneLog + '.' });
-            return { id: 'position', title: 'Position', state: memRow && !exifRow ? 'info' : 'missing', items: items, plain: memRow && !exifRow ? 'Snapchat sparade var bilden togs, men det finns ingen annan registrering av var telefonen var vid den tiden.' : 'Bilden har en position, men det finns ingen registrering av var telefonen var vid den tiden.' };
+            return { id: 'position', title: 'Position', state: memRow && !exifRow ? 'info' : 'missing', items: withOther(items), plain: memRow && !exifRow ? 'Snapchat sparade var bilden togs, men det finns ingen annan registrering av var telefonen var vid den tiden.' : 'Bilden har en position, men det finns ingen registrering av var telefonen var vid den tiden.' };
         }
         var tol = Math.max(100, 2 * (Number(near.accuracy) || 0));
         var when = duration(near.offsetMs) + (near.offsetMs < 0 ? ' före' : ' efter');
@@ -535,7 +550,7 @@
         var plain = state === 'support' ? 'Telefonen var på samma plats som bilden togs, ' + when + '.'
             : state === 'contradiction' ? 'Telefonen var ' + metres(near.distanceM) + ' från platsen där bilden ska ha tagits, ' + when + '. Det stämmer inte med att den här telefonen tog bilden där.'
                 : 'Telefonen var ' + metres(near.distanceM) + ' från bildens position, ' + when + '. Så stora avstånd kan bero på GPS-fel.';
-        return { id: 'position', title: 'Position', state: state, items: items, plain: plain };
+        return { id: 'position', title: 'Position', state: state, items: withOther(items), plain: plain };
     }
 
     // Intervallen som täcker ms (med tolerans), de som täcker utan tolerans först.
@@ -818,7 +833,7 @@
             var fApp = factorApp(input, type, events);
             var fCam = factorCamera(input, type, events, fApp);
             var fScreen = factorScreen(input, events);
-            var fPos = factorPosition(input, pos, type);
+            var fPos = factorPosition(input, pos, type, wins);
             factors = [fTime, fApp, fCam, fScreen, fPos];
         } else {
             factors = [factorTime(input, type)];
@@ -900,7 +915,7 @@
         classify: classify, windows: windows, intervalsFromEvents: intervalsFromEvents, mergeIntervals: mergeIntervals,
         buildEvents: buildEvents, narrative: narrative, build: build, summaryText: summaryText, hypothesis: hypothesis, FACTOR_WORDS: FACTOR_WORDS,
         formatWithOffset: formatWithOffset, formatUtc: formatUtc, duration: duration, appName: appName, isCameraApp: isCameraApp, covers: covers,
-        positions: positions, distanceM: distanceM, metres: metres, validCoord: validCoord,
+        positions: positions, distanceM: distanceM, metres: metres, validCoord: validCoord, inWindows: inWindows,
         snapOrigin: snapOrigin, SNAPCHAT: SNAPCHAT, SNAPCHAT_ANDROID: SNAPCHAT_ANDROID, isSnapchatApp: isSnapchatApp, logInfo: logInfo,
         STATE_LABEL: STATE_LABEL, TOLERANCE_MS: TOLERANCE_MS, SAME_TIME_MS: SAME_TIME_MS, LATE_MS: LATE_MS,
     };

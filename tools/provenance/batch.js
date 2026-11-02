@@ -14,6 +14,10 @@
     ];
 
     var EXT = /\.[A-Za-z0-9]{1,5}$/;
+    // MD5, SHA-1 eller SHA-256.
+    var HASH = /^(?:[0-9a-fA-F]{32}|[0-9a-fA-F]{40}|[0-9a-fA-F]{64})$/;
+    // En rad ur md5sum, sha256sum och liknande: summan, mellanslag, filnamnet.
+    var HASH_LINE = /^([0-9a-fA-F]{32}|[0-9a-fA-F]{40}|[0-9a-fA-F]{64})\s+\*?\S/;
 
     function clean(x) { return String(x).trim().replace(/^["'“”‘’]+|["'“”‘’]+$/g, '').trim(); }
 
@@ -22,15 +26,24 @@
         return t.slice(Math.max(t.lastIndexOf('/'), t.lastIndexOf('\\')) + 1);
     }
 
-    // Ett eller flera filnamn: ett per rad (eller med tabb eller semikolon emellan), eller med komma
-    // emellan. Komma delar bara när varje del ser ut som ett filnamn med ändelse, så att
-    // "Bild, kopia.jpg" står kvar. En hel sökväg blir filnamnet. Dubbletter tas bort, ordningen behålls.
+    // Ett eller flera filnamn eller hashsummor: ett per rad (eller med tabb eller semikolon emellan),
+    // eller med komma emellan. Komma delar bara när varje del ser ut som ett filnamn med ändelse eller
+    // en summa, så att "Bild, kopia.jpg" står kvar. Summor med mellanslag emellan delas också, och en
+    // rad ur md5sum (summan och filnamnet) blir summan. En hel sökväg blir filnamnet. Dubbletter tas
+    // bort, ordningen behålls.
     function parseNames(text) {
         var out = [];
         var seen = {};
         String(text == null ? '' : text).split(/\r?\n|\t|;/).forEach(function (piece) {
-            var parts = piece.split(',');
-            if (parts.length > 1 && !parts.every(function (x) { return EXT.test(clean(x)); })) parts = [piece];
+            var words = piece.trim().split(/[\s,]+/).filter(Boolean);
+            var line = HASH_LINE.exec(piece.trim());
+            var parts;
+            if (words.length > 1 && words.every(function (w) { return HASH.test(clean(w)); })) parts = words;
+            else if (line) parts = [line[1]];
+            else {
+                parts = piece.split(',');
+                if (parts.length > 1 && !parts.every(function (x) { var c = clean(x); return EXT.test(c) || HASH.test(c); })) parts = [piece];
+            }
             parts.forEach(function (x) {
                 var name = baseName(clean(x));
                 if (!name || seen[name]) return;

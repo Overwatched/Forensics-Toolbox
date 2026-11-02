@@ -20,6 +20,17 @@ test('ett komma i ett filnamn delar inte namnet', () => {
     assert.deepStrictEqual(B.parseNames('Skärmavbild 2026-10-31 kl. 14.30.00.png'), ['Skärmavbild 2026-10-31 kl. 14.30.00.png']);
 });
 
+test('hashsummor: med komma, mellanslag eller en per rad, och en rad ur md5sum', () => {
+    const md5 = 'd41d8cd98f00b204e9800998ecf8427e';
+    const sha1 = 'da39a3ee5e6b4b0d3255bfef95601890afd80709';
+    const sha256 = 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855';
+    assert.deepStrictEqual(B.parseNames(md5 + ', ' + sha1), [md5, sha1]);
+    assert.deepStrictEqual(B.parseNames(md5 + ' ' + sha256.toUpperCase()), [md5, sha256.toUpperCase()]);
+    assert.deepStrictEqual(B.parseNames(md5 + '  IMG_0042.HEIC\n' + sha256 + ' *Bild kopia.jpg'), [md5, sha256]);
+    assert.deepStrictEqual(B.parseNames('IMG_1.JPG, ' + md5), ['IMG_1.JPG', md5]);
+    assert.deepStrictEqual(B.parseNames('c59503f8d37f48cc8a3aefb4aba984fb'), ['c59503f8d37f48cc8a3aefb4aba984fb']);
+});
+
 test('raden i listan ur en bedömning', () => {
     const model = {
         file: { filename: 'IMG_0042.HEIC', createdMs: Date.UTC(2026, 9, 20, 12, 3, 11), pk: 42 },

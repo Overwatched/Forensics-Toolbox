@@ -64,7 +64,7 @@
             "lastRead": "LAST_READ_TIMESTAMP_MILLIS",
             "user": "USER_ID"
           },
-          "sql": "SELECT\n  c.CACHE_KEY,\n  c.MEDIA_CONTEXT_TYPE,\n  c.EXTERNAL_KEY,\n  c.CREATION_TIMESTAMP_MILLIS,\n  c.EXPIRATION_TIMESTAMP_MILLIS,\n  c.DELETED_TIMESTAMP_MILLIS,\n  m.FILE_SIZE_BYTES,\n  m.LAST_READ_TIMESTAMP_MILLIS,\n  c.USER_ID\nFROM CACHE_FILE_CLAIM c\nLEFT JOIN CACHE_FILE_METADATA m ON m.CACHE_KEY = c.CACHE_KEY AND m.USER_ID = c.USER_ID\nWHERE c.CREATION_TIMESTAMP_MILLIS BETWEEN {{unixMsStart}} AND {{unixMsEnd}}\nORDER BY c.CREATION_TIMESTAMP_MILLIS\nLIMIT 2000;"
+          "sql": "SELECT\n  c.CACHE_KEY,\n  c.MEDIA_CONTEXT_TYPE,\n  c.EXTERNAL_KEY,\n  c.CREATION_TIMESTAMP_MILLIS,\n  c.EXPIRATION_TIMESTAMP_MILLIS,\n  c.DELETED_TIMESTAMP_MILLIS,\n  m.FILE_SIZE_BYTES,\n  m.LAST_READ_TIMESTAMP_MILLIS,\n  c.USER_ID\nFROM CACHE_FILE_CLAIM c\nLEFT JOIN CACHE_FILE_METADATA m ON m.CACHE_KEY = c.CACHE_KEY AND m.USER_ID = c.USER_ID\nWHERE c.CREATION_TIMESTAMP_MILLIS BETWEEN {{unixMsStart}} AND {{unixMsEnd}}\nORDER BY c.CREATION_TIMESTAMP_MILLIS;"
         },
         {
           "id": "role-cache-key",
@@ -157,7 +157,7 @@
             "state": "message_state_type",
             "content": "message_content"
           },
-          "sql": "SELECT\n  client_conversation_id,\n  server_message_id,\n  client_message_id,\n  creation_timestamp,\n  read_timestamp,\n  message_state_type,\n  message_content\nFROM conversation_message\nWHERE creation_timestamp BETWEEN {{unixMsStart}} AND {{unixMsEnd}}\n   OR read_timestamp BETWEEN {{unixMsStart}} AND {{unixMsEnd}}\nORDER BY creation_timestamp\nLIMIT 500;"
+          "sql": "SELECT\n  client_conversation_id,\n  server_message_id,\n  client_message_id,\n  creation_timestamp,\n  read_timestamp,\n  message_state_type,\n  message_content\nFROM conversation_message\nWHERE creation_timestamp BETWEEN {{unixMsStart}} AND {{unixMsEnd}}\n   OR read_timestamp BETWEEN {{unixMsStart}} AND {{unixMsEnd}}\nORDER BY creation_timestamp;"
         },
         {
           "id": "role-coverage",
@@ -259,7 +259,7 @@
             "category": "category",
             "id": "notificationId"
           },
-          "sql": "SELECT\n  timestamp,\n  type,\n  category,\n  notificationId\nFROM ProcessedNotifications\nWHERE timestamp BETWEEN {{unixMsStart}} AND {{unixMsEnd}}\nORDER BY timestamp\nLIMIT 500;"
+          "sql": "SELECT\n  timestamp,\n  type,\n  category,\n  notificationId\nFROM ProcessedNotifications\nWHERE timestamp BETWEEN {{unixMsStart}} AND {{unixMsEnd}}\nORDER BY timestamp;"
         },
         {
           "id": "role-coverage",

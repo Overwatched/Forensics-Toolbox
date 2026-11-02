@@ -202,6 +202,23 @@ test('position: telefonen långt från bildens position är en motsägelse, och 
     assert.match(mid.factors[4].items[0].text, /GPS-fel/);
 });
 
+test('position: bara fönstret runt T jämförs, positioner när filen kom till telefonen räknas inte', () => {
+    const later = T + 3 * 86400 * S;
+    const m = core.build(input({ file: cameraFile({ addedMs: later, modifiedMs: later }), locations: [{ ms: later + 30 * S, lat: 59.36, lon: 18.10, accuracy: 10, type: 1 }] }));
+    assert.deepStrictEqual(m.windows.map((w) => w.id), ['created', 'added']);
+    assert.strictEqual(states(m).position, 'missing');
+    const items = m.factors[4].items.map((i) => i.text);
+    assert.match(items[0], /^Telefonen har inga registrerade positioner i fönstret/);
+    assert.strictEqual(items[items.length - 1], '1 position till ligger i fönstret när filen kom till telefonen. De visas på kartan men räknas inte här, eftersom de inte gäller T.');
+    assert.strictEqual(m.positions.filter((q) => q.kind === 'phone').length, 1);
+    // Med en position i fönstret runt T jämförs bara den, och den andra nämns.
+    const both = core.build(input({ file: cameraFile({ addedMs: later, modifiedMs: later }), locations: [{ ms: T - 40 * S, lat: 59.33258, lon: 18.06398, accuracy: 8, type: 1 }, { ms: later + 30 * S, lat: 59.36, lon: 18.10, accuracy: 10, type: 1 }] }));
+    assert.strictEqual(states(both).position, 'support');
+    assert.match(both.factors[4].items[0].text, /40 s före bilden/);
+    assert.ok(!both.factors[4].items.some((i) => /av 2 registrerade/.test(i.text)));
+    assert.ok(core.inWindows(T, both.windows) && core.inWindows(later, both.windows) && !core.inWindows(T + 86400 * S, both.windows));
+});
+
 test('position: fil utan position, och ingen routined alls', () => {
     const noFile = core.build(input({ file: cameraFile({ latitude: -180, longitude: -180 }) }));
     assert.strictEqual(states(noFile).position, 'info');

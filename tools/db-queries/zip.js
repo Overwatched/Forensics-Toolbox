@@ -262,6 +262,55 @@
         return { bytes: bytes, crcOk: crc32(bytes) === entry.crc32 };
     }
 
+    // Läser en post i bitar och lämnar varje uppackad bit till onChunk(bytes), så att även en post på
+    // flera GB kan hashas utan att ligga i minnet. En liten post läses i samma läsning som sin lokala
+    // post. Ingen CRC32-kontroll här: den görs när filen läses med extract(). Returnerar antalet
+    // uppackade byte. opts.chunk: byte per läsning (testerna använder små bitar).
+    var STREAM_CHUNK = 4 * 1024 * 1024;
+    var LOCAL_SLACK = 4096;   // den lokala postens namn och extrafält ryms nästan alltid i det här
+    async function stream(read, entry, onChunk, opts) {
+        opts = opts || {};
+        if (entry.flags & 1) throw new Error(entry.name + ' är krypterad i zippen och kan inte läsas.');
+        if (entry.method !== 0 && entry.method !== 8) {
+            throw new Error(entry.name + ' är komprimerad med metod ' + entry.method + ', som inte stöds (bara lagrad och deflate).');
+        }
+        var chunk = opts.chunk || STREAM_CHUNK;
+        var first = await read(entry.localOffset, entry.compSize <= chunk ? 30 + LOCAL_SLACK + entry.compSize : 30);
+        if (first.length < 30 || u32(first, 0) !== SIG_LOCAL) throw new Error('Den lokala posten för ' + entry.name + ' är trasig.');
+        var skip = 30 + u16(first, 26) + u16(first, 28);
+        var start = entry.localOffset + skip;
+        var have = Math.max(0, Math.min(first.length - skip, entry.compSize));
+        var pos = 0;
+        async function nextPiece() {
+            if (pos >= entry.compSize) return null;
+            var piece = pos === 0 && have > 0 ? first.subarray(skip, skip + have) : await read(start + pos, Math.min(chunk, entry.compSize - pos));
+            if (!piece.length) throw new Error(entry.name + ' slutar i förtid i zippen.');
+            pos += piece.length;
+            return piece;
+        }
+        var total = 0;
+        if (entry.method === 0) {
+            for (var p = await nextPiece(); p; p = await nextPiece()) { total += p.length; onChunk(p); }
+        } else {
+            if (typeof DecompressionStream !== 'function') throw new Error('Den här webbläsaren kan inte packa upp deflate.');
+            var source = new ReadableStream({
+                pull: async function (ctrl) {
+                    var piece = await nextPiece();
+                    if (piece) ctrl.enqueue(piece); else ctrl.close();
+                },
+            });
+            var reader = source.pipeThrough(new DecompressionStream('deflate-raw')).getReader();
+            for (;;) {
+                var r = await reader.read();
+                if (r.done) break;
+                total += r.value.length;
+                onChunk(r.value);
+            }
+        }
+        if (total !== entry.size) throw new Error(entry.name + ' har fel storlek efter uppackning.');
+        return total;
+    }
+
     // read(offset, length) för en File: läser bara den biten. Chromium vägrar läsa om filen
     // ändrats efter att den valdes, och det blir ett begripligt fel här.
     function fileReader(file) {
@@ -274,7 +323,7 @@
         };
     }
 
-    var api = { scan: scan, extract: extract, crc32: crc32, fileReader: fileReader, readDirectory: readDirectory, cacheDirectory: cacheDirectory, MAX_ENTRY: MAX_ENTRY, MAX_CACHED_DIRECTORY: MAX_CACHED_DIRECTORY };
+    var api = { scan: scan, extract: extract, stream: stream, crc32: crc32, fileReader: fileReader, readDirectory: readDirectory, cacheDirectory: cacheDirectory, MAX_ENTRY: MAX_ENTRY, MAX_CACHED_DIRECTORY: MAX_CACHED_DIRECTORY };
     if (typeof module !== 'undefined' && module.exports) module.exports = api;
     else root.ZipRead = api;
 })(typeof window !== 'undefined' ? window : this);

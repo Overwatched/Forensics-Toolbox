@@ -176,6 +176,48 @@
         return stays;
     }
 
+    // Sammanfattar en positionslogg för kartan, med samma gräns för vistelser som rutten ovan:
+    // positioner i följd inom radius meter från den första, under minst minStayMs, blir en vistelse
+    // med mittpunkt, radie (längst från mittpunkten), första och sista tid och antal. Mellan
+    // vistelserna behålls en position var stepM meter eller var stepMs. En position med keep: true
+    // visas alltid, också inne i en vistelse.
+    // list: [{ at, lat, lon, keep }] i valfri ordning. Ger i tidsordning
+    // { kind: 'stay', from, to, count, lat, lon, radius, members } och { kind: 'point', item, keep }.
+    var SUMMARY = { radius: 100, minStayMs: 5 * 60000, stepM: 250, stepMs: 5 * 60000 };
+    function summarizeTrack(list, opts) {
+        opts = Object.assign({}, SUMMARY, opts || {});
+        var pts = (list || []).slice().sort(function (a, b) { return a.at - b.at; });
+        var out = [];
+        var last = null;
+        var i = 0;
+        while (i < pts.length) {
+            var j = i + 1;
+            while (j < pts.length && haversine(pts[i], pts[j]) <= opts.radius) j++;
+            if (j - i >= 2 && pts[j - 1].at - pts[i].at >= opts.minStayMs) {
+                var members = pts.slice(i, j);
+                var mid = {
+                    lat: members.reduce(function (s, p) { return s + p.lat; }, 0) / members.length,
+                    lon: members.reduce(function (s, p) { return s + p.lon; }, 0) / members.length,
+                };
+                out.push({
+                    kind: 'stay', from: members[0].at, to: members[members.length - 1].at, count: members.length, lat: mid.lat, lon: mid.lon,
+                    radius: Math.max.apply(null, members.map(function (p) { return haversine(mid, p); })), members: members,
+                });
+                members.forEach(function (p) { if (p.keep) out.push({ kind: 'point', item: p, keep: true, inStay: true }); });
+                last = null;
+                i = j;
+                continue;
+            }
+            var p = pts[i];
+            if (p.keep || !last || haversine(last, p) >= opts.stepM || p.at - last.at >= opts.stepMs) {
+                out.push({ kind: 'point', item: p, keep: !!p.keep });
+                last = p;
+            }
+            i++;
+        }
+        return out;
+    }
+
     // En heldragen linje per färg. Ett uppehåll får inte klippa linjen: då försvinner
     // sträckan över vattnet och samma enhet ser ut som flera rutter.
     function routeLines(r, color) {
@@ -729,6 +771,8 @@
         haversine: haversine,
         circlePolygon: circlePolygon,
         visitMinutes: visitMinutes,
+        summarizeTrack: summarizeTrack,
+        SUMMARY: SUMMARY,
         simplify: simplify,
         formatDistance: formatDistance,
         formatDuration: formatDuration,

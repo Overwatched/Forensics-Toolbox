@@ -668,6 +668,9 @@
         var fittedOnce = false;
         var styleError = '';
         var basemap = 'map';
+        // Närliggande punkter slås ihop till en klunga upp till zoom 16. Ett verktyg som redan har
+        // gjort ett urval (Härkomsts sammanfattade positioner) kan stänga av det.
+        var clustering = true;
 
         function setStatus(text, state) {
             el.status.textContent = text;
@@ -973,7 +976,7 @@
             map.addSource('accuracy', { type: 'geojson', data: accuracyGeojson() });
             map.addSource('measure', { type: 'geojson', data: measureGeojson() });
             map.addSource('files', {
-                type: 'geojson', data: geojson(), cluster: true, clusterRadius: 42, clusterMaxZoom: 16,
+                type: 'geojson', data: geojson(), cluster: clustering, clusterRadius: 42, clusterMaxZoom: 16,
             });
             map.addLayer({
                 id: 'accuracy-fill', type: 'fill', source: 'accuracy',
@@ -1883,6 +1886,12 @@
                 else delete hidden[id];
             });
             routeChanged();
+        }
+
+        function setClustering(on) {
+            clustering = on !== false;
+            var src = map && map.getSource('files');
+            if (src && src.setClusterOptions) src.setClusterOptions({ cluster: clustering, clusterRadius: 42, clusterMaxZoom: 16 });
         }
 
         function setPoints(list, noteText) {
@@ -2925,6 +2934,7 @@
                 });
             },
             setPoints: setPoints,
+            setClustering: setClustering,
             focus: function (id) {
                 return start().then(function () {
                     var p = byId[id];

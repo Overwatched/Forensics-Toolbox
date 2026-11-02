@@ -170,6 +170,7 @@
         ].concat(timeRows(fileEntry)).concat([
             ['CRC32', (fileEntry.crc32 || '') + (fileEntry.crcOk === false ? ' (stämmer inte med zippen)' : '')],
             ['MD5', fileEntry.md5 || 'inte beräknad'],
+        ]).concat(fileEntry.sha1 ? [['SHA-1', fileEntry.sha1]] : []).concat([
             ['SHA-256', fileEntry.sha256 || 'inte beräknad'],
         ]);
         return rows.concat(exifSummary(exifRows));

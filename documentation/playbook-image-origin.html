@@ -134,6 +134,7 @@
                 <li>Raden högst upp visar också filen du tittar på: <strong>Visa i EXIF &amp; karta</strong> visar alla taggar och positionen, och <strong>Bedöm i Härkomst</strong> bedömer en fil du har öppnat i EXIF &amp; karta. I Queries bedömer <strong>Bedöm filerna i Härkomst</strong> filnamnen i resultatet som en lista.</li>
                 <li>Skriv filnamnet, eller sök på en tidpunkt när du inte vet namnet och välj ur listan med tumnaglar.</li>
                 <li>Har du filen men inte namnet i telefonen: <em>Eller välj filer från disk…</em> letar efter exakt samma innehåll i zippen.</li>
+                <li>Har du bara en hashsumma, till exempel ur en annan rapport eller en lista med kända filer: skriv MD5, SHA-1 eller SHA-256 i filnamnsrutan, en eller flera. Filerna i zippen läses och hashas, bild- och videofilerna först, tills summan hittas. Hittas den inte har alla filer lästs, och svaret säger hur många. Filkortet och protokollet visar summan du sökte på bredvid filens egen.</li>
                 <li>Flera filer: ett namn per rad, flera filer från disk, eller <strong>Bedöm alla</strong> efter en sökning på tid. Varje fil bedöms för sig och får en rad i listan med typ och faktorer. Klicka på en rad för hela underlaget; <strong>Nästa fil</strong> tar nästa. Kolumnen Undersökaren visar vilka filer du har bedömt.</li>
                 <li>Typen avgörs först: kamerabild, skärmdump eller sparad ur en app. Varje faktor ställer en fråga, till exempel om filens tider stämmer med varandra, svarar i klartext och säger om svaret är förenligt med att telefonen skapade filen, inte förenligt, eller saknas.</li>
                 <li>Tystnad i loggarna redovisas som saknas, aldrig som bevis. Kontrollera täckningen (första och sista posten per ström) i protokollet.</li>
@@ -226,7 +227,7 @@
                 <span class="step-num">5</span>
                 <h2>Position: bildens och telefonens</h2>
             </div>
-            <p class="shared">Avståndet mellan bildens position och telefonens närmaste position är en egen faktor i Härkomst, med tabell och karta.</p>
+            <p class="shared">Avståndet mellan bildens position och telefonens närmaste position i fönstret runt T är en egen faktor i Härkomst, med tabell och karta. Många positioner på samma ställe sammanfattas med <strong>Sammanfatta positionerna</strong>: en ring per vistelse (positioner i följd inom 100 m i minst 5 minuter) med första och sista tid. Positionerna närmast T visas alltid, och alla står kvar under Händelser med källa.</p>
             <div class="cols">
                 <div>
                     <h3>iOS</h3>

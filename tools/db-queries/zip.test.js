@@ -162,3 +162,41 @@ test('alla tider i zippen: UT med tre tider, UT i den lokala posten, och NTFS f�
     assert.ok(Math.abs(e['ntfs.jpg'].crtime - C) < 1e-3);
     assert.deepStrictEqual([e['bara-dos.jpg'].mtime, e['bara-dos.jpg'].timeField, e['bara-dos.jpg'].dosTime], [null, '', '2024-09-27 13:25:36']);
 });
+
+test('stream lämnar posten i bitar: lagrad och deflate, liten och större än en bit, Zip64', async () => {
+    const big = Buffer.alloc(300000);
+    for (let i = 0; i < big.length; i++) big[i] = (i * 7919) % 251;
+    const files = [
+        { name: 'a/liten.jpg', data: 'liten bild' },
+        { name: 'a/tom', data: '' },
+        { name: 'a/stor.mov', data: big },
+        { name: 'a/stor-deflate.mov', data: big, deflate: true },
+        { name: 'a/text.txt', data: 'packad '.repeat(4000), deflate: true },
+    ];
+    for (const zip64 of [false, true]) {
+        const buf = buildZip(files, { zip64 });
+        const read = reader(buf);
+        const entries = (await zip.scan(read, buf.length, () => true)).entries;
+        for (const chunk of [undefined, 4096]) {
+            for (let i = 0; i < files.length; i++) {
+                const parts = [];
+                const n = await zip.stream(read, entries[i], (b) => parts.push(Buffer.from(b)), chunk ? { chunk } : {});
+                const want = Buffer.from(files[i].data);
+                assert.strictEqual(n, want.length, files[i].name);
+                assert.ok(Buffer.concat(parts).equals(want), files[i].name + (chunk ? ' i bitar' : ''));
+                if (chunk && want.length > chunk) assert.ok(parts.length > 1, files[i].name + ' ska komma i flera bitar');
+            }
+        }
+    }
+});
+
+test('stream: krypterad post, okänd metod och avkortad post ger fel', async () => {
+    const buf = buildZip([{ name: 'x.jpg', data: 'abc'.repeat(100) }]);
+    const read = reader(buf);
+    const e = (await zip.scan(read, buf.length, () => true)).entries[0];
+    await assert.rejects(zip.stream(read, Object.assign({}, e, { flags: 1 }), () => {}), /krypterad/);
+    await assert.rejects(zip.stream(read, Object.assign({}, e, { method: 12 }), () => {}), /metod 12/);
+    await assert.rejects(zip.stream(read, Object.assign({}, e, { size: e.size + 1 }), () => {}), /fel storlek/);
+    const cut = buf.subarray(0, 60);
+    await assert.rejects(zip.stream(reader(cut), e, () => {}, { chunk: 16 }), /i förtid|fel storlek/);
+});

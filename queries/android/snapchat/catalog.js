@@ -75,7 +75,7 @@ window.SNAPCHAT_ANDROID_CATALOG = {
             "lastRead": "LAST_READ_TIMESTAMP_MILLIS",
             "user": "USER_ID"
           },
-          "sql": "SELECT\n  c.CACHE_KEY,\n  c.MEDIA_CONTEXT_TYPE,\n  c.EXTERNAL_KEY,\n  c.CREATION_TIMESTAMP_MILLIS,\n  c.EXPIRATION_TIMESTAMP_MILLIS,\n  c.DELETED_TIMESTAMP_MILLIS,\n  m.FILE_SIZE_BYTES,\n  m.LAST_READ_TIMESTAMP_MILLIS,\n  c.USER_ID\nFROM CACHE_FILE_CLAIM c\nLEFT JOIN CACHE_FILE_METADATA m ON m.CACHE_KEY = c.CACHE_KEY AND m.USER_ID = c.USER_ID\nWHERE c.CREATION_TIMESTAMP_MILLIS BETWEEN {{unixMsStart}} AND {{unixMsEnd}}\nORDER BY c.CREATION_TIMESTAMP_MILLIS\nLIMIT 2000;"
+          "sql": "SELECT\n  c.CACHE_KEY,\n  c.MEDIA_CONTEXT_TYPE,\n  c.EXTERNAL_KEY,\n  c.CREATION_TIMESTAMP_MILLIS,\n  c.EXPIRATION_TIMESTAMP_MILLIS,\n  c.DELETED_TIMESTAMP_MILLIS,\n  m.FILE_SIZE_BYTES,\n  m.LAST_READ_TIMESTAMP_MILLIS,\n  c.USER_ID\nFROM CACHE_FILE_CLAIM c\nLEFT JOIN CACHE_FILE_METADATA m ON m.CACHE_KEY = c.CACHE_KEY AND m.USER_ID = c.USER_ID\nWHERE c.CREATION_TIMESTAMP_MILLIS BETWEEN {{unixMsStart}} AND {{unixMsEnd}}\nORDER BY c.CREATION_TIMESTAMP_MILLIS;"
         },
         {
           "id": "role-cache-key",
@@ -185,7 +185,7 @@ window.SNAPCHAT_ANDROID_CATALOG = {
             "isSaved": "is_saved",
             "isViewed": "is_viewed_by_user"
           },
-          "sql": "SELECT\n  client_conversation_id,\n  server_message_id,\n  client_message_id,\n  creation_timestamp,\n  read_timestamp,\n  message_state_type,\n  message_content,\n  sender_id,\n  created_on_device,\n  content_type,\n  remote_media_count,\n  is_saved,\n  is_viewed_by_user\nFROM conversation_message\nWHERE creation_timestamp BETWEEN {{unixMsStart}} AND {{unixMsEnd}}\n   OR read_timestamp BETWEEN {{unixMsStart}} AND {{unixMsEnd}}\nORDER BY creation_timestamp\nLIMIT 500;"
+          "sql": "SELECT\n  client_conversation_id,\n  server_message_id,\n  client_message_id,\n  creation_timestamp,\n  read_timestamp,\n  message_state_type,\n  message_content,\n  sender_id,\n  created_on_device,\n  content_type,\n  remote_media_count,\n  is_saved,\n  is_viewed_by_user\nFROM conversation_message\nWHERE creation_timestamp BETWEEN {{unixMsStart}} AND {{unixMsEnd}}\n   OR read_timestamp BETWEEN {{unixMsStart}} AND {{unixMsEnd}}\nORDER BY creation_timestamp;"
         },
         {
           "id": "role-coverage",
@@ -300,7 +300,7 @@ window.SNAPCHAT_ANDROID_CATALOG = {
             "received": "receiveTimestampMs",
             "json": "json"
           },
-          "sql": "SELECT\n  timestamp,\n  type,\n  notificationId,\n  receiveTimestampMs,\n  json\nFROM Notifications\nWHERE timestamp BETWEEN {{unixMsStart}} AND {{unixMsEnd}}\nORDER BY timestamp\nLIMIT 500;"
+          "sql": "SELECT\n  timestamp,\n  type,\n  notificationId,\n  receiveTimestampMs,\n  json\nFROM Notifications\nWHERE timestamp BETWEEN {{unixMsStart}} AND {{unixMsEnd}}\nORDER BY timestamp;"
         },
         {
           "id": "role-coverage",
@@ -379,7 +379,7 @@ window.SNAPCHAT_ANDROID_CATALOG = {
             "userAgent": "snap_create_user_agent",
             "externalId": "external_id"
           },
-          "sql": "SELECT\n  _id,\n  media_id,\n  media_type,\n  create_time,\n  snap_capture_time,\n  time_zone_id,\n  width,\n  height,\n  duration,\n  front_facing,\n  has_location,\n  latitude,\n  longitude,\n  has_overlay_image,\n  snap_create_user_agent,\n  external_id\nFROM memories_snap\nWHERE snap_capture_time BETWEEN {{unixMsStart}} AND {{unixMsEnd}}\n   OR create_time BETWEEN {{unixMsStart}} AND {{unixMsEnd}}\nORDER BY snap_capture_time\nLIMIT 500;"
+          "sql": "SELECT\n  _id,\n  media_id,\n  media_type,\n  create_time,\n  snap_capture_time,\n  time_zone_id,\n  width,\n  height,\n  duration,\n  front_facing,\n  has_location,\n  latitude,\n  longitude,\n  has_overlay_image,\n  snap_create_user_agent,\n  external_id\nFROM memories_snap\nWHERE snap_capture_time BETWEEN {{unixMsStart}} AND {{unixMsEnd}}\n   OR create_time BETWEEN {{unixMsStart}} AND {{unixMsEnd}}\nORDER BY snap_capture_time;"
         },
         {
           "id": "role-coverage",
@@ -447,7 +447,7 @@ window.SNAPCHAT_ANDROID_CATALOG = {
             "expires": "expiration",
             "path": "path"
           },
-          "sql": "SELECT\n  e.key,\n  e.last_update_time,\n  e.total_size,\n  e.expiration,\n  j.path\nFROM journal_entry e\nJOIN journal j ON j._id = e.journal_id\nWHERE e.last_update_time BETWEEN {{unixMsStart}} AND {{unixMsEnd}}\nORDER BY e.last_update_time\nLIMIT 500;"
+          "sql": "SELECT\n  e.key,\n  e.last_update_time,\n  e.total_size,\n  e.expiration,\n  j.path\nFROM journal_entry e\nJOIN journal j ON j._id = e.journal_id\nWHERE e.last_update_time BETWEEN {{unixMsStart}} AND {{unixMsEnd}}\nORDER BY e.last_update_time;"
         },
         {
           "id": "role-coverage",

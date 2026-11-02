@@ -29,6 +29,8 @@
         showMedia: true,     // bilden visas i appen; av med knappen Dölj bilden
         includePicture: false, // bilden följer med i exporterna bara när rutan är ikryssad
         detail: 'focus',     // tidslinjen: 'focus' = det viktiga med text, resten blekt; 'all' = allt med text
+        mapSummary: false,   // kartan, tabellen och exporterna: telefonens positioner sammanfattade i vistelser
+        hashStop: false,     // Avbryt under en sökning på hashsumma
     };
     var SQL = null;
 
@@ -537,6 +539,9 @@
     function md5Hex(bytes) {
         try { return window.ToolboxHashing ? window.ToolboxHashing.hashBytes(bytes, ['md5']).md5 : ''; } catch (e) { return ''; }
     }
+    function sha1Hex(bytes) {
+        try { return window.ToolboxHashing ? window.ToolboxHashing.hashBytes(bytes, ['sha1']).sha1 : ''; } catch (e) { return ''; }
+    }
     function tick() { return new Promise(function (r) { setTimeout(r, 0); }); }
 
     // Medan en bedömning pågår går det inte att byta eller stänga zippen, fylla med testdata eller
@@ -644,12 +649,14 @@
 
     // Kortet: bilden (eller varför den saknas), knappen Dölj/Visa, raderna med sökväg, storlek,
     // CRC32, MD5, SHA-256 och ett urval EXIF, och rutan för att ta med bilden i exporterna.
-    var MONO_ROWS = { 'Sökväg i zippen': 1, CRC32: 1, MD5: 1, 'SHA-256': 1, 'Telefonens tumnagel': 1 };
+    var MONO_ROWS = { 'Sökväg i zippen': 1, CRC32: 1, MD5: 1, 'SHA-1': 1, 'SHA-256': 1, 'Telefonens tumnagel': 1, 'Sökt på MD5': 1, 'Sökt på SHA-1': 1, 'Sökt på SHA-256': 1 };
     function renderFileCard() {
         var meta = state.meta, pv = state.preview;
         if (!meta) return;
         var rows = ProvenanceMedia.cardRows(meta.fileEntry, meta.exifRows, { sizeText: ExtractionCore.sizeText });
         if (meta.thumbnail) rows.push(['Telefonens tumnagel', meta.thumbnail.path + ' · ' + ExtractionCore.sizeText(meta.thumbnail.size) + ' · SHA-256 ' + meta.thumbnail.sha256]);
+        var fb = meta.foundBy;
+        if (fb) rows.unshift(['Sökt på ' + fb.label, fb.value + (fb.same === true ? ' (samma som filens)' : fb.same === false ? ' (SKILJER SIG från filens ' + fb.own + ')' : ' (filens summa kunde inte kontrolleras)')]);
         var mediaHtml;
         if (pv && pv.url && state.showMedia) {
             mediaHtml = pv.kind === 'video'
@@ -721,8 +728,12 @@
         // Grannar ur samma databas som filen, eller ur bildbiblioteket när filen ligger utanför det.
         var fileRoles = run.fileRoles || {};
         var nbRoles = run.neighbourRoles || fileRoles;
+        // Queryerna läser spannet från det första fönstrets början till det sista fönstrets slut, utan
+        // gräns på antalet rader. Grannarna och positionerna mellan fönstren sorteras bort, så att en bild
+        // som skapades långt innan den kom till telefonen inte får med allt däremellan.
         if (nbRoles.neighbours && range) {
-            input.neighbours = androidCreatedFallback(runRole(run.neighbourDb || run.fileDb, nbRoles.neighbours, { window: range }, ['created', 'added'], run).rows);
+            input.neighbours = androidCreatedFallback(runRole(run.neighbourDb || run.fileDb, nbRoles.neighbours, { window: range }, ['created', 'added'], run).rows)
+                .filter(function (r) { return ProvenanceCore.inWindows(r.createdMs, wins); });
             input.neighbourSource = run.neighbourSource || { db: run.fileLabel, table: input.fileSource.table, column: ProvenanceRoles.fieldSpec(nbRoles.neighbours, 'created').col, queryId: nbRoles.neighbours.id };
         }
         var seq = /^(.*?)(\d+)(\.[^.]+)$/.exec(fileRow.filename || '');
@@ -793,7 +804,7 @@
                 if (rtSrc.roles.location) {
                     input.locationSource = { db: 'Cache.sqlite', table: 'ZRTCLLOCATIONMO', column: 'ZTIMESTAMP, ZLATITUDE, ZLONGITUDE', queryId: rtSrc.roles.location.id };
                     runRole(rtDb, rtSrc.roles.location, { window: range }, ['time'], run).rows.forEach(function (r) {
-                        if (r.timeMs == null) return;
+                        if (r.timeMs == null || !ProvenanceCore.inWindows(r.timeMs, wins)) return;
                         input.locations.push({ ms: r.timeMs, lat: Number(r.latitude), lon: Number(r.longitude), accuracy: Number(r.accuracy), type: Number(r.type) });
                     });
                 }
@@ -902,6 +913,22 @@
         }
 
         if (!run.quiet && !state.preview) state.preview = { source: 'none', kind: null, note: meta.fileMissingReason || 'Filen lästes inte ur zippen.', url: null };
+
+        // Hittad på en hashsumma: summan står i filkortet och protokollet, jämförd med filens egen. En fil
+        // över 200 MB läses inte här, men sökningen räknade summan på samma post.
+        if (run.foundBy) {
+            var fb = run.foundBy;
+            var fe = meta.fileEntry;
+            var own = '';
+            if (fe && fb.algo === 'md5') own = fe.md5;
+            else if (fe && fb.algo === 'sha256') own = fe.sha256;
+            else if (fe && fb.algo === 'sha1' && read && read.bytes) own = fe.sha1 = sha1Hex(read.bytes);
+            if (!own && fe && meta.mediaEntry && z.hashCache) {
+                own = z.hashCache[fb.algo][ProvenanceHashSearch.keyOf(meta.mediaEntry)] || '';
+                if (own && fb.algo === 'sha1') fe.sha1 = own;
+            }
+            meta.foundBy = { algo: fb.algo, label: ProvenanceHashSearch.label(fb.algo), value: fb.value, own: own || '', same: own ? own === fb.value : null };
+        }
 
         // Var finns filen? Alla poster med samma storlek och CRC32, bekräftade med SHA-256.
         if (meta.fileEntry) {
@@ -1357,11 +1384,13 @@
     // cache, vars tidpunkt kommer ur cache_controller. Annars används EXIF-tiden eller zippens ändringstid.
     // priorQueries: queries som redan körts (sökningen i bildbiblioteket utan träff), så att de står i protokollet.
     // opts.quiet: en fil i listan. Inget ritas, och { model, meta } eller { missing } returneras.
+    // opts.foundBy: { algo, value } när filen hittades på en hashsumma.
     async function assessEntry(entry, windowMs, priorQueries, opts) {
         var quiet = !!(opts && opts.quiet);
-        if (!quiet) state.redo = function () { return assessEntry(entry, Number($('window').value) * 60000, priorQueries).then(function () { setStatus('run-status', ''); }); };
+        var foundBy = opts && opts.foundBy || null;
+        if (!quiet) state.redo = function () { return assessEntry(entry, Number($('window').value) * 60000, priorQueries, { foundBy: foundBy }).then(function () { setStatus('run-status', ''); }); };
         var z = state.zip;
-        var runLog = { queries: (priorQueries || []).slice(), fileDb: null, fileLabel: '', fileRoles: null, mediaEntry: entry, quiet: quiet };
+        var runLog = { queries: (priorQueries || []).slice(), fileDb: null, fileLabel: '', fileRoles: null, mediaEntry: entry, quiet: quiet, foundBy: foundBy };
         var name = ExtractionCore.baseName(entry.name);
         var cacheKey = ProvenanceSnapchat.cacheKeyFromPath(entry.name);
         var fileRow = { filename: name, directory: dirName(entry.name), createdMs: null, addedMs: null, modifiedMs: null, importer: null, _raw: {}, zoneName: null, zoneOffset: null };
@@ -1546,6 +1575,139 @@
         }
     }
 
+    // ---------- Sök på hashsumma ----------
+
+    // Raderna i biblioteket vars fil ligger på sökvägen. Hittas ingen behålls alla.
+    function rowsForPath(rows, path) {
+        var lower = String(path).toLowerCase();
+        var platform = state.zip ? state.zip.platform : null;
+        var same = rows.filter(function (r) { var s = mediaSuffix(r, platform); return !!s && lower.endsWith(s.toLowerCase()); });
+        return same.length ? same : rows;
+    }
+
+    function num(n) { return Number(n).toLocaleString('sv-SE'); }
+    function secondsText(ms) {
+        var s = Math.round(ms / 1000);
+        return s < 60 ? s + ' s' : Math.floor(s / 60) + ' min ' + (s % 60) + ' s';
+    }
+
+    // Läser zippens filer och räknar summorna, med förlopp och Avbryt. Summor som redan räknats
+    // (ett tidigare sök i samma zip) läses inte om.
+    async function searchHashes(hashes, entries) {
+        var z = state.zip;
+        if (!z.hashCache) z.hashCache = ProvenanceHashSearch.emptyCache();
+        var labels = [];
+        hashes.forEach(function (h) { var l = ProvenanceHashSearch.label(ProvenanceHashSearch.algoOf(h)); if (labels.indexOf(l) < 0) labels.push(l); });
+        var what = hashes.length === 1 ? labels[0] + ':n' : hashes.length + ' summorna (' + labels.join(', ') + ')';
+        var stopBtn = $('batch-stop');
+        state.hashStop = false;
+        stopBtn.textContent = 'Avbryt sökningen';
+        stopBtn.title = 'Sökningen stannar efter filen som läses nu';
+        stopBtn.disabled = false;
+        stopBtn.classList.remove('display-none');
+        var t0 = performance.now();
+        var shown = 0;
+        setStatus('run-status', escapeHtml('Söker ' + what + ' i zippen…'));
+        try {
+            var res = await ProvenanceHashSearch.search(entries, hashes, z.hashCache, {
+                stream: function (e, onChunk) { return ZipRead.stream(z.read, e, onChunk); },
+                hasher: function (algo) { return ToolboxHashing.createHasher(algo); },
+                shouldStop: function () { return state.hashStop || state.zip !== z; },
+                tick: tick,
+                onProgress: function (p) {
+                    var now = performance.now();
+                    if (now - shown < 250) return;
+                    shown = now;
+                    setStatus('run-status', escapeHtml('Söker ' + what + ' i zippen. ' + p.tierText.charAt(0).toUpperCase() + p.tierText.slice(1) + ': ' + num(p.tierDone) + ' av ' + num(p.tierTotal) +
+                        ' (' + ExtractionCore.sizeText(p.tierBytes) + ' av ' + ExtractionCore.sizeText(p.tierBytesTotal) + '). Hela zippen: ' + ExtractionCore.sizeText(p.doneBytes) + ' av ' +
+                        ExtractionCore.sizeText(p.totalBytes) + ', ' + secondsText(now - t0) + '.'));
+                },
+            });
+            res.ms = performance.now() - t0;
+            res.what = what;
+            return res;
+        } finally {
+            stopBtn.classList.add('display-none');
+            stopBtn.textContent = 'Avbryt listan';
+            stopBtn.title = 'Filen som bedöms nu blir klar, sedan stannar listan';
+        }
+    }
+
+    // En summa i listan: var den finns, eller varför den inte hittades.
+    function hashItem(text, res) {
+        var hex = String(text).trim().toLowerCase();
+        var algo = ProvenanceHashSearch.algoOf(hex);
+        var item = { kind: 'hash', hash: hex, algo: algo, foundBy: { algo: algo, value: hex } };
+        var hits = res && res.found[hex] || [];
+        if (hits.length) item.entries = hits;
+        else item.missing = ProvenanceHashSearch.missingText(algo, res, ExtractionCore.sizeText);
+        return item;
+    }
+
+    function foundText(res) {
+        return res.what.charAt(0).toUpperCase() + res.what.slice(1) + (res.missing.length ? '' : ' hittades') + ' efter ' + num(res.read) + (res.read === 1 ? ' läst fil' : ' lästa filer') +
+            ' (' + ExtractionCore.sizeText(res.bytes) + ') på ' + secondsText(res.ms) + '.';
+    }
+
+    // Rutan har hashsummor. En summa som också är ett filnamn i zippen (Snapchats cachefiler heter 32
+    // hexadecimala tecken, som en MD5) är ett filnamn. Resten söks på innehållet, i en enda läsning av
+    // zippen för alla summor. En ensam summa bedöms direkt; flera namn och summor blir en lista.
+    async function runWithHashes(names) {
+        var z = state.zip;
+        clearBatch();
+        releaseHitUrls();
+        $('hits').classList.add('display-none');
+        $('hits-entries').classList.add('display-none');
+        $('result').classList.add('display-none');
+        var hashes = [];
+        var res = null;
+        busy(true);
+        try {
+            setStatus('run-status', 'Läser zippens innehållsförteckning…');
+            var entries = await ExtractionCore.find(z.read, z.file.size, function (name) { return name.charAt(name.length - 1) !== '/'; });
+            var hexNames = {};
+            entries.forEach(function (e) { var b = ExtractionCore.baseName(e.name).toLowerCase(); if (ProvenanceHashSearch.algoOf(b)) hexNames[b] = true; });
+            hashes = names.filter(function (n) { return ProvenanceHashSearch.algoOf(n) && !hexNames[n.toLowerCase()]; });
+            if (hashes.length) res = await searchHashes(hashes, entries);
+        } catch (err) {
+            batchFailed(err);
+            return;
+        } finally {
+            busy(false);
+        }
+        if (res && res.stopped) {
+            var got = hashes.length - res.missing.length;
+            setStatus('run-status', escapeHtml('Sökningen avbröts efter ' + num(res.done) + ' av ' + num(res.total) + ' filer. ' + (hashes.length > 1 ? got + ' av ' + hashes.length + ' summor hittades innan dess. ' : '') +
+                'Sök igen, så går filerna som redan lästs fort.'), 'warn');
+            return;
+        }
+        if (names.length > 1) {
+            await runBatch(names.map(function (n) { return hashes.indexOf(n) < 0 ? { kind: 'name', name: n } : hashItem(n, res); }), 'names');
+            return;
+        }
+        if (!hashes.length) { await run({ filename: names[0] }); return; }
+        var item = hashItem(names[0], res);
+        if (item.missing) { setStatus('run-status', escapeHtml(item.missing + ' Det tog ' + secondsText(res.ms) + '.'), 'warn'); return; }
+        var head = ProvenanceHashSearch.label(item.algo) + ' ' + item.hash + ' ';
+        if (item.entries.length === 1) {
+            await guarded(function () { return assessFound(item.entries[0], item.foundBy, foundText(res)); });
+            return;
+        }
+        await knownContainers(item.entries.map(function (e) { return e.name; }));
+        renderEntryHits(item.entries, head + 'finns på ' + item.entries.length + ' ställen i zippen. ' + foundText(res) + ' Välj vilken post som ska bedömas.', function (e) {
+            guarded(function () { return assessFound(e, item.foundBy, foundText(res)); });
+        });
+    }
+
+    // En post som hittats på sin summa. En bild i bildbiblioteket (DCIM) bedöms via biblioteket, som
+    // när filen väljs från disk, och annars som en post i zippen.
+    async function assessFound(e, foundBy, note) {
+        var cls = ProvenanceCopies.classifyPath(e.name, placeOpts());
+        if (cls.area === 'library' && /\/DCIM\//.test(e.name)) await run({ filename: ExtractionCore.baseName(e.name), path: e.name, entry: e, foundBy: foundBy });
+        else await assessEntry(e, Number($('window').value) * 60000, [], { foundBy: foundBy });
+        if (!$('result').classList.contains('display-none')) setStatus('run-status', escapeHtml(note || ''));
+    }
+
     // Det sista steget, gemensamt för en riktig extraktion och testdatat: modellen byggs,
     // protokollets huvud fylls i och allt ritas.
     // quiet: en fil i listan. Modellen och metan returneras utan att något ritas.
@@ -1652,10 +1814,15 @@
         if (!z || !z.platform) { setStatus('run-status', 'Öppna en extraktion först, eller fyll med testdata.', 'warn'); return; }
         var fromList = !!(opts && opts.filename);
         var names = fromList ? [opts.filename] : ProvenanceBatch.parseNames($('filename').value);
-        if (!names.length) { setStatus('run-status', 'Ange ett filnamn, eller sök på en tidpunkt.', 'warn'); return; }
+        if (!names.length) { setStatus('run-status', 'Ange ett filnamn eller en hashsumma, eller sök på en tidpunkt.', 'warn'); return; }
+        if (!fromList && names.some(function (n) { return ProvenanceHashSearch.algoOf(n); })) { await runWithHashes(names); return; }
         if (names.length > 1) { await runBatch(names.map(function (n) { return { kind: 'name', name: n }; }), 'names'); return; }
         var filename = names[0];
         var pk = opts && opts.pk != null && typeof opts.pk !== 'object' ? String(opts.pk) : null;
+        // Hittad på en hashsumma: summan följer med till protokollet, och sökvägen väljer raden när
+        // flera rader i biblioteket har samma filnamn.
+        var foundBy = opts && opts.foundBy || null;
+        var foundPath = opts && opts.path || null;
         // En ny sökning här avslutar listan; en fil som öppnas ur listan gör det inte.
         if (!fromList) clearBatch();
         busy(true);
@@ -1664,9 +1831,10 @@
         $('hits-entries').classList.add('display-none');
         $('result').classList.add('display-none');
         try {
-            var runLog = { queries: [] };
+            var runLog = { queries: [], foundBy: foundBy };
             var windowMs = Number($('window').value) * 60000;
             var lib = await libraryPick();
+            if (!lib && opts && opts.entry) { await assessEntry(opts.entry, windowMs, [], { foundBy: foundBy }); return; }
             if (!lib) {
                 setStatus('run-status', 'Bildbibliotekets databas finns inte i zippen. Söker filnamnet i hela zippen…');
                 await runOutsideLibrary(filename, windowMs, []);
@@ -1684,13 +1852,15 @@
             // Exakt ZFILENAME först. En träff på ZORIGINALFILENAME är ofta en molnkopia med annat namn.
             hits.sort(function (a, b) { return (b.filename === filename) - (a.filename === filename) || (a.createdMs || 0) - (b.createdMs || 0); });
             if (pk != null && hits.some(function (h) { return String(h.pk) === pk; })) hits = hits.filter(function (h) { return String(h.pk) === pk; });
+            if (foundPath && hits.length > 1) hits = rowsForPath(hits, foundPath);
+            if (!hits.length && opts && opts.entry) { await assessEntry(opts.entry, windowMs, runLog.queries, { foundBy: foundBy }); return; }
             if (!hits.length) {
                 await runOutsideLibrary(filename, windowMs, runLog.queries);
                 return;
             }
             if (hits.length === 1) {
                 var only = hits[0];
-                state.redo = function () { return run({ pk: only.pk, filename: filename }); };
+                state.redo = function () { return run({ pk: only.pk, filename: filename, foundBy: foundBy, path: foundPath }); };
                 fillZoneSelect(only);
                 progress('Hämtar registreringar…');
                 await assess(only, roles.file, windowMs, runLog);
@@ -1701,10 +1871,10 @@
             renderHits(hits, function (row) {
                 $('hits').classList.add('display-none');
                 // Samma rad igen (tidszon eller fönster ändrat) görs om via run, som hämtar raden på nytt.
-                state.redo = function () { return run({ pk: row.pk, filename: filename }); };
+                state.redo = function () { return run({ pk: row.pk, filename: filename, foundBy: foundBy }); };
                 guarded(function () {
                     progress('Hämtar registreringar…');
-                    var log = { queries: runLog.queries.slice(), fileDb: db, fileLabel: src.title, fileRoles: roles, bandNote: runLog.bandNote };
+                    var log = { queries: runLog.queries.slice(), fileDb: db, fileLabel: src.title, fileRoles: roles, bandNote: runLog.bandNote, foundBy: foundBy };
                     return assess(row, roles.file, Number($('window').value) * 60000, log).then(function () { setStatus('run-status', ''); });
                 });
             });
@@ -1787,10 +1957,12 @@
     // karta. Zippens förteckning och databaserna är redan inlästa, så varje fil kostar bara det som
     // gäller den. Ett klick på en rad gör om bedömningen för den filen och visar den vanliga vyn.
     // Poster: { kind: 'name', name } | { kind: 'row', row } (bildbiblioteket) | { kind: 'entry', entry }
-    // | { kind: 'disk', file }. pk eller path läggs till när undersökaren valt bland flera träffar.
+    // | { kind: 'disk', file } | { kind: 'hash', hash, algo, foundBy, entries eller missing }.
+    // pk eller path läggs till när undersökaren valt bland flera träffar.
 
     function batchItemName(it) {
         if (it.kind === 'name') return it.name;
+        if (it.kind === 'hash') return it.hash;
         if (it.kind === 'disk') return it.file.name;
         if (it.kind === 'row') return it.row.filename;
         return ExtractionCore.baseName(it.entry.name);
@@ -1873,9 +2045,10 @@
             row.target = target;
             if (target.missing) { row.status = 'missing'; row.note = target.missing; return; }
             if (target.ambiguous) { row.status = 'ambiguous'; row.note = target.ambiguous; return; }
+            var foundBy = row.item.foundBy || null;
             var out = target.kind === 'row'
-                ? await assess(target.row, target.query, windowMs, Object.assign({}, target.runLog, { queries: target.runLog.queries.slice(), quiet: true }))
-                : await assessEntry(target.entry, windowMs, target.priorQueries, { quiet: true });
+                ? await assess(target.row, target.query, windowMs, Object.assign({}, target.runLog, { queries: target.runLog.queries.slice(), quiet: true, foundBy: foundBy }))
+                : await assessEntry(target.entry, windowMs, target.priorQueries, { quiet: true, foundBy: foundBy });
             if (!out || out.missing) { row.status = 'error'; row.note = out && out.missing ? out.missing : 'Filen kunde inte bedömas.'; return; }
             setRowSummary(row, out.model, out.meta);
             row.status = 'done';
@@ -1904,11 +2077,13 @@
         if (it.kind === 'name') return resolveName(it.name, it.pk);
         if (it.kind === 'row') return resolveName(it.row.filename, it.pk != null ? it.pk : it.row.pk);
         if (it.kind === 'entry') return { kind: 'entry', entry: it.entry, priorQueries: [] };
+        if (it.kind === 'hash') return resolveFound(it, it.missing ? null : it.entries, ProvenanceHashSearch.label(it.algo) + ':n finns');
         return resolveDisk(it);
     }
 
     // Som run(): exakt ett filnamn i bildbiblioteket, annars samma namn någon annanstans i zippen.
-    async function resolveName(name, pk) {
+    // path: filens sökväg i zippen, när den är känd (hittad på innehållet), väljer bland flera rader.
+    async function resolveName(name, pk, path) {
         var z = state.zip;
         var prior = [];
         var lib = await libraryPick();
@@ -1917,6 +2092,7 @@
             var runLog = { queries: [], fileDb: db, fileLabel: lib.src.title, fileRoles: lib.roles, bandNote: lib.bandNote || '' };
             var hits = androidCreatedFallback(runRole(db, lib.roles.file, { filename: name }, TIME_KEYS, runLog).rows);
             if (pk != null && hits.some(function (h) { return String(h.pk) === String(pk); })) hits = hits.filter(function (h) { return String(h.pk) === String(pk); });
+            if (path && hits.length > 1) hits = rowsForPath(hits, path);
             if (hits.length === 1) return { kind: 'row', row: hits[0], query: lib.roles.file, runLog: runLog };
             if (hits.length > 1) return { ambiguous: hits.length + ' rader i ' + lib.src.title + ' har det namnet. Öppna raden och välj.' };
             prior = runLog.queries;
@@ -1937,15 +2113,28 @@
         var crc = ZipRead.crc32(new Uint8Array(await file.arrayBuffer()));
         var hits = ProvenanceCopies.findCopies(await ExtractionCore.find(z.read, z.file.size, ProvenanceCopies.keeper(file.size, crc, [])), { name: '', size: file.size, crc32: crc }, placeOpts());
         if (!hits.length) return { missing: 'Ingen post i zippen har samma storlek och CRC32, så filen finns inte byte för byte i extraktionen.' };
+        return resolveFound(it, hits, 'Samma innehåll finns');
+    }
+
+    // Poster med samma innehåll (från disk eller en hashsumma). Finns det på flera ställen och ett av
+    // dem är bildbiblioteket bedöms den, som när man väljer den i listan för en ensam fil.
+    async function resolveFound(it, hits, what) {
+        if (!hits) return { missing: it.missing };
         var opts = placeOpts();
         var lib = hits.filter(function (e) { var c = ProvenanceCopies.classifyPath(e.name, opts); return c.area === 'library' && /\/DCIM\//.test(e.name); });
         var pick = hits.length === 1 ? hits[0] : lib.length === 1 ? lib[0] : null;
-        if (!pick) return { ambiguous: 'Samma innehåll finns på ' + hits.length + ' ställen i zippen. Öppna raden och välj.', entries: hits };
+        if (!pick) return { ambiguous: what + ' på ' + hits.length + ' ställen i zippen. Öppna raden och välj.', entries: hits };
         if (ProvenanceCopies.classifyPath(pick.name, opts).area === 'library' && /\/DCIM\//.test(pick.name)) {
-            var t = await resolveName(ExtractionCore.baseName(pick.name), it.pk);
+            var t = await resolveName(ExtractionCore.baseName(pick.name), it.pk, pick.name);
             if (!t.missing) return t;
         }
         return { kind: 'entry', entry: pick, priorQueries: [] };
+    }
+
+    // Vad som söktes, när det inte är filnamnet: summan, eller filens namn på disk.
+    function rowAlias(row) {
+        if (row.item.kind === 'hash') return ProvenanceHashSearch.label(row.item.algo) + ' ' + row.item.hash;
+        return row.summary && row.name !== row.summary.filename ? 'på disk: ' + row.name : '';
     }
 
     function batchRowHtml(row, i, b) {
@@ -1956,7 +2145,7 @@
         var cls = 'batch-row' + (openable ? ' pick' : '') + (b.current === i ? ' current' : '') + (b.open === i ? ' opened' : '');
         if (row.status !== 'done' || !s) {
             var what = row.status === 'waiting' ? (b.current === i ? 'Bedöms…' : 'Väntar') : row.status === 'ambiguous' ? 'Flera träffar' : row.status === 'missing' ? 'Finns inte' : row.status === 'stopped' ? 'Avbruten' : 'Kunde inte bedömas';
-            return '<tr class="' + cls + '" data-i="' + i + '"><td class="thumb-col">' + thumb + '</td><td><strong>' + escapeHtml(row.name) + '</strong></td><td></td>' +
+            return '<tr class="' + cls + '" data-i="' + i + '"><td class="thumb-col">' + thumb + '</td><td><strong>' + escapeHtml(row.item.kind === 'hash' ? rowAlias(row) : row.name) + '</strong></td><td></td>' +
                 '<td class="' + (row.status === 'waiting' ? 'muted' : 'warn') + '">' + escapeHtml(what) + '</td><td colspan="' + (cols.length + 1) + '" class="muted">' + escapeHtml(row.note) + '</td></tr>';
         }
         var cells = cols.map(function (c) {
@@ -1967,7 +2156,7 @@
         var ex = ProvenanceBatch.examinerState(state.examiner[row.key], s.factorIds);
         var exText = ProvenanceBatch.examinerText(state.examiner[row.key], s.factorIds);
         return '<tr class="' + cls + '" data-i="' + i + '" title="' + escapeHtml(s.summary) + '"><td class="thumb-col">' + thumb + '</td>' +
-            '<td><strong>' + escapeHtml(s.filename) + '</strong>' + (row.name !== s.filename ? ' <span class="muted">(på disk: ' + escapeHtml(row.name) + ')</span>' : '') +
+            '<td><strong>' + escapeHtml(s.filename) + '</strong>' + (rowAlias(row) ? ' <span class="muted">(' + escapeHtml(rowAlias(row)) + ')</span>' : '') +
             '<div class="sub">' + escapeHtml(s.place || s.fileNote) + '</div></td>' +
             '<td>' + escapeHtml(s.tText) + '<div class="sub">' + escapeHtml(s.zoneLabel) + '</div></td>' +
             '<td>' + escapeHtml(s.typeLabel) + (s.beta ? ' <span class="badge beta">Beta</span>' : '') + (s.warnings ? '<div class="sub warn">' + s.warnings + (s.warnings === 1 ? ' varning' : ' varningar') + '</div>' : '') + '</td>' +
@@ -2049,19 +2238,21 @@
         var windowMs = Number(b.window) * 60000;
         guarded(async function () {
             var chosen = row.item.pk != null || !!row.item.path;
+            var foundBy = row.item.foundBy || null;
             // Flera träffar och inget val ännu: samma lista att välja ur som för en ensam fil.
             if (row.status === 'ambiguous' && !chosen) {
                 var t0 = row.target || {};
                 if (t0.entries) {
-                    renderEntryHits(t0.entries, 'Samma innehåll som ' + row.name + ' finns på ' + t0.entries.length + ' ställen i zippen. Välj vilken post som ska bedömas.', function (e) {
-                        guarded(function () { return assessEntry(e, Number($('window').value) * 60000, []).then(function () { setStatus('run-status', ''); }); });
+                    var what = row.item.kind === 'hash' ? rowAlias(row) : 'Samma innehåll som ' + row.name;
+                    renderEntryHits(t0.entries, what + ' finns på ' + t0.entries.length + ' ställen i zippen. Välj vilken post som ska bedömas.', function (e) {
+                        guarded(function () { return assessEntry(e, Number($('window').value) * 60000, [], { foundBy: foundBy }).then(function () { setStatus('run-status', ''); }); });
                     });
                 } else await run({ filename: row.name });
                 return;
             }
             var t = row.target && row.target.kind ? row.target : (row.target = await resolveItem(row.item));
-            if (t.kind === 'row') await run({ filename: t.row.filename, pk: t.row.pk });
-            else if (t.kind === 'entry') await assessEntry(t.entry, windowMs, t.priorQueries);
+            if (t.kind === 'row') await run({ filename: t.row.filename, pk: t.row.pk, foundBy: foundBy });
+            else if (t.kind === 'entry') await assessEntry(t.entry, windowMs, t.priorQueries, { foundBy: foundBy });
             else { setStatus('run-status', escapeHtml(t.missing || t.ambiguous || 'Filen kunde inte öppnas.'), 'warn'); return; }
             setStatus('run-status', '');
         });
@@ -2126,7 +2317,7 @@
         if (!b) return;
         saveExaminer();
         var z = state.zip;
-        var rows = b.rows.map(function (r) { return { name: r.name, status: r.status, note: r.note, summary: r.summary, examiner: r.key ? state.examiner[r.key] || null : null }; });
+        var rows = b.rows.map(function (r) { return { name: r.name, searched: r.item.kind === 'hash' ? rowAlias(r) : '', status: r.status, note: r.note, summary: r.summary, examiner: r.key ? state.examiner[r.key] || null : null }; });
         var html = ProvenanceReport.batchTable(rows, {
             extraction: z ? { name: z.file.name } : null,
             deviceLabel: z ? (z.version ? 'iOS ' + z.version : z.androidVersion ? 'Android ' + z.androidVersion : z.platform) : '',
@@ -2281,7 +2472,65 @@
         return mapView;
     }
 
-    // Nålar med noggrannhetsring för alla punkter. Bara bildens nål får en bubbla med vad och när.
+    // Telefonens positioner som kartan, tabellen och exporterna visar dem: alla, eller sammanfattade
+    // med MapCore.summarizeTrack. Sammanfattningen görs per fönster, så att en vistelse aldrig går
+    // över tiden mellan två fönster. Positionerna närmast före och efter T visas alltid, eftersom
+    // positionsfaktorn bygger på dem. rows: bildens egna positioner först, sedan telefonens i tidsordning.
+    function positionView(model) {
+        var phone = model.positions.filter(function (q) { return q.kind === 'phone'; });
+        var view = { summary: !!state.mapSummary && phone.length > 0, total: phone.length, rows: [], stays: 0, shown: phone.length };
+        if (!view.summary) {
+            view.rows = model.positions.map(function (q) { return { kind: 'point', q: q }; });
+            return view;
+        }
+        var before = null, after = null;
+        phone.forEach(function (q) {
+            if (q.offsetMs == null) return;
+            if (q.offsetMs <= 0 && (!before || q.offsetMs > before.offsetMs)) before = q;
+            if (q.offsetMs > 0 && (!after || q.offsetMs < after.offsetMs)) after = q;
+        });
+        var wins = model.windows || [];
+        var groups = wins.map(function () { return []; });
+        var loose = [];
+        phone.forEach(function (q) {
+            for (var i = 0; i < wins.length; i++) if (q.ms >= wins[i].startMs && q.ms <= wins[i].endMs) { groups[i].push(q); return; }
+            loose.push(q);
+        });
+        var items = [];
+        groups.forEach(function (g) {
+            MapCore.summarizeTrack(g.map(function (q) { return { at: q.ms, lat: q.lat, lon: q.lon, keep: q === before || q === after, q: q }; })).forEach(function (it) {
+                if (it.kind !== 'stay') { items.push({ kind: 'point', q: it.item.q, keep: !!it.keep }); return; }
+                items.push({
+                    kind: 'stay', from: it.from, to: it.to, count: it.count, lat: it.lat, lon: it.lon, radius: it.radius,
+                    members: it.members.map(function (m) { return m.q; }), source: it.members[0].q.source,
+                    distanceM: model.filePosition ? ProvenanceCore.distanceM(model.filePosition, it) : null,
+                });
+            });
+        });
+        loose.forEach(function (q) { items.push({ kind: 'point', q: q }); });
+        var at = function (r) { return r.kind === 'stay' ? r.from : r.q.ms; };
+        items.sort(function (a, b) { return at(a) - at(b); });
+        view.stays = items.filter(function (r) { return r.kind === 'stay'; }).length;
+        view.shown = items.length;
+        view.rows = model.positions.filter(function (q) { return q.kind !== 'phone'; }).map(function (q) { return { kind: 'point', q: q }; }).concat(items);
+        return view;
+    }
+
+    function positionNote(view) {
+        if (!view.total) return '';
+        if (!view.summary) return view.total > 30 ? view.total + ' positioner från telefonen. Sammanfatta positionerna ritar en ring per vistelse i stället för en nål per position.' : '';
+        var single = view.shown - view.stays;
+        return view.total + ' positioner från telefonen visas som ' + view.stays + (view.stays === 1 ? ' vistelse' : ' vistelser') + ' och ' + single + (single === 1 ? ' enskild position' : ' enskilda positioner') +
+            '. En vistelse säger var telefonen var vid de registrerade tiderna, inte var den var mellan dem.';
+    }
+
+    // "2026-03-02 08:02:11–09:45:00", med datum två gånger när vistelsen går över midnatt.
+    function spanText(fmt, from, to) {
+        var a = fmt(from), b = fmt(to);
+        return a.slice(0, 10) === b.slice(0, 10) ? a + '–' + b.slice(11) : a + ' – ' + b;
+    }
+
+    // Nålar med noggrannhetsring för alla punkter. Bildens nål och vistelserna får en bubbla.
     function applyBubbles(mv, pts) {
         var standard = MapCore.defaultBubble({});
         standard.pin = true;
@@ -2289,8 +2538,8 @@
         standard.leader = false;
         var perPoint = {};
         pts.forEach(function (p) {
-            if (p.source === 'Telefonen (routined)') return;
-            var cfg = MapCore.defaultBubble({ note: true, time: true });
+            if (p.source === 'Telefonen (routined)' && !p.stay) return;
+            var cfg = p.stay ? MapCore.defaultBubble({ note: true }) : MapCore.defaultBubble({ note: true, time: true });
             cfg.pin = true;
             cfg.leader = true;
             cfg.ring = true;
@@ -2299,18 +2548,31 @@
         mv.setBubbles(standard, perPoint, {});
     }
 
+    function mapTime(ms, fmt) { return ms != null ? { text: fmt(ms), sort: ProvenanceCore.formatUtc(ms).slice(0, 19), zone: '', kind: 'Tid', source: 'harkomst' } : null; }
+
     // Punkterna i samma form som Positioner använder: bilden som röd nål med sin egen källa,
-    // telefonens positioner som egen källa med noggrannhetsring.
-    function mapPoints(model, fmt) {
+    // telefonens positioner som egen källa med noggrannhetsring, en vistelse som en ring med
+    // ankomst och avfärd.
+    function mapPoints(model, fmt, view) {
         var pts = [];
-        model.positions.forEach(function (q, i) {
+        view.rows.forEach(function (r, i) {
+            if (r.kind === 'stay') {
+                pts.push({
+                    id: i + 1, name: 'Vistelse', path: 'routined', lat: r.lat, lon: r.lon, source: 'Telefonen (routined)',
+                    taken: mapTime(r.from, fmt), until: mapTime(r.to, fmt), visit: true, stay: true, accuracy: Math.max(5, Math.round(r.radius)),
+                    type: 'Vistelse', device: '', software: '', mime: '',
+                    note: fmt(r.from).slice(11, 16) + '–' + fmt(r.to).slice(11, 16) + ', ' + r.count + ' positioner',
+                    color: '#bf5af2',
+                });
+                return;
+            }
+            var q = r.q;
             // EXIF-positionen ritas bara när den skiljer sig från databasens, annars ligger två nålar på varandra.
             if ((q.kind === 'exif' || q.kind === 'memory') && q.distanceM != null && q.distanceM <= 50) return;
-            var taken = q.ms != null ? { text: fmt(q.ms), sort: ProvenanceCore.formatUtc(q.ms).slice(0, 19), zone: '', kind: 'Tid', source: 'harkomst' } : null;
             pts.push({
                 id: i + 1, name: q.kind === 'phone' ? 'Telefonen' : model.file.filename, path: q.kind === 'phone' ? 'routined' : q.kind === 'memory' ? 'memories.db' : model.file.filename,
                 lat: q.lat, lon: q.lon, source: q.kind === 'phone' ? 'Telefonen (routined)' : q.kind === 'exif' ? 'Bilden enligt EXIF' : q.kind === 'memory' ? 'Bilden enligt Snapchats Memories' : 'Bilden',
-                taken: taken, until: null, visit: false, accuracy: q.accuracy && q.accuracy > 0 ? q.accuracy : null,
+                taken: mapTime(q.ms, fmt), until: null, visit: false, accuracy: q.accuracy && q.accuracy > 0 ? q.accuracy : null,
                 type: q.kind === 'phone' ? (q.locType === 1 ? 'GNSS' : 'Wi-Fi') : 'Bild', device: '', software: '', mime: '',
                 note: q.kind === 'phone' ? (q.distanceM != null ? ProvenanceCore.metres(q.distanceM) + ' från bilden' : '') : q.label,
                 color: q.kind === 'phone' ? '#bf5af2' : q.kind === 'memory' ? '#c98500' : '#ff3b30',
@@ -2323,11 +2585,17 @@
         var box = $('map-box');
         if (!model.positions.length) { box.classList.add('display-none'); return; }
         box.classList.remove('display-none');
+        var view = positionView(model);
+        $('map-summary').checked = !!state.mapSummary;
+        $('map-summary').disabled = !view.total;
+        $('map-note').textContent = positionNote(view);
         var mv = ensureMap();
         if (!mv) return;
-        var pts = mapPoints(model, fmt);
+        var pts = mapPoints(model, fmt, view);
+        // Sammanfattat är urvalet redan gjort: varje vistelse och position ritas för sig, utan klungor.
+        mv.setClustering(!view.summary);
         applyBubbles(mv, pts);
-        mv.setPoints(pts, pts.length + (pts.length === 1 ? ' position' : ' positioner'));
+        mv.setPoints(pts, view.summary ? view.total + ' positioner som ' + pts.length + ' markeringar' : pts.length + (pts.length === 1 ? ' position' : ' positioner'));
         // Zoom upp till 18, så att nålar som ligger några meter isär inte slås ihop till en klunga.
         await withTimeout(mv.fitView({ maxZoom: 18 }), 15000);
     }
@@ -2349,12 +2617,18 @@
 
     function renderPositions(model, fmt) {
         if (!model.positions.length) { $('positions').innerHTML = ''; return; }
+        var path = function (src) { src = src || {}; return [src.db, src.table, src.column].filter(Boolean).join(' → '); };
         $('positions').innerHTML = '<table><thead><tr><th>Tid (' + escapeHtml(state.meta.zoneLabel) + ')</th><th>Vad</th><th>Latitud</th><th>Longitud</th><th>Noggrannhet</th><th>Från bildens position</th><th>Källa</th></tr></thead><tbody>' +
-            model.positions.map(function (q) {
-                var src = q.source || {};
-                return '<tr class="' + (q.kind === 'phone' ? '' : 'pos-file') + '"><td class="num">' + (q.ms != null ? escapeHtml(fmt(q.ms)) : '') + '</td><td>' + escapeHtml(q.label) + '</td>' +
+            positionView(model).rows.map(function (r) {
+                if (r.kind === 'stay') {
+                    return '<tr class="pos-stay"><td class="num">' + escapeHtml(spanText(fmt, r.from, r.to)) + '</td><td>' + escapeHtml('Vistelse: ' + r.count + ' positioner i följd inom 100 m') + '</td>' +
+                        '<td class="num">' + r.lat.toFixed(6) + '</td><td class="num">' + r.lon.toFixed(6) + '</td><td class="num">' + escapeHtml('radie ' + Math.round(r.radius) + ' m') + '</td>' +
+                        '<td class="num">' + (r.distanceM != null ? escapeHtml(ProvenanceCore.metres(r.distanceM)) : '') + '</td><td class="path">' + escapeHtml(path(r.source)) + '</td></tr>';
+                }
+                var q = r.q;
+                return '<tr class="' + (q.kind === 'phone' ? (r.keep ? 'pos-keep' : '') : 'pos-file') + '"><td class="num">' + (q.ms != null ? escapeHtml(fmt(q.ms)) : '') + '</td><td>' + escapeHtml(q.label + (r.keep ? ', närmast T' : '')) + '</td>' +
                     '<td class="num">' + q.lat.toFixed(6) + '</td><td class="num">' + q.lon.toFixed(6) + '</td><td class="num">' + (q.accuracy ? Math.round(q.accuracy) + ' m' : '') + '</td>' +
-                    '<td class="num">' + (q.distanceM != null ? escapeHtml(ProvenanceCore.metres(q.distanceM)) : '') + '</td><td class="path">' + escapeHtml([src.db, src.table, src.column].filter(Boolean).join(' → ')) + '</td></tr>';
+                    '<td class="num">' + (q.distanceM != null ? escapeHtml(ProvenanceCore.metres(q.distanceM)) : '') + '</td><td class="path">' + escapeHtml(path(q.source)) + '</td></tr>';
             }).join('') + '</tbody></table>';
     }
 
@@ -2656,6 +2930,7 @@
         state.meta.ownAssessment = $('own-assessment').value.trim();
         state.meta.checks = Object.assign({}, state.checked);
         state.meta.mapPng = await mapImage();
+        state.meta.positionView = positionView(state.model);
         // Bilden bara på begäran, förminskad. Sökväg, hashar och EXIF står alltid i protokollet.
         state.meta.previewPng = state.includePicture ? await previewDataUrl() : null;
         state.meta.previewNote = state.preview ? state.preview.note : '';
@@ -2759,7 +3034,11 @@
     $('filename').addEventListener('input', fitNameBox);
 
     // Listan med flera filer.
-    $('batch-stop').addEventListener('click', function () { if (state.batch) { state.batch.stop = true; $('batch-stop').disabled = true; } });
+    $('batch-stop').addEventListener('click', function () {
+        state.hashStop = true;
+        if (state.batch) state.batch.stop = true;
+        $('batch-stop').disabled = true;
+    });
     $('batch-list').addEventListener('click', function (e) {
         var tr = e.target.closest('tr.pick');
         if (tr) openBatchRow(Number(tr.getAttribute('data-i')));
@@ -2807,6 +3086,13 @@
     $('copy-explanation').addEventListener('click', function () { copyExport('explanation'); });
     $('save-protocol').addEventListener('click', function () { saveExport('protocol'); });
     $('save-explanation').addEventListener('click', function () { saveExport('explanation'); });
+    // Sammanfatta positionerna: bara kartan och tabellen ritas om, bedömningen är densamma.
+    $('map-summary').addEventListener('change', function () {
+        state.mapSummary = $('map-summary').checked;
+        if (!state.model || !state.meta) return;
+        renderPositions(state.model, state.meta.format);
+        showMap(state.model, state.meta.format).catch(function (err) { console.warn(err); });
+    });
     $('save-map').addEventListener('click', async function () {
         var png = await mapImage();
         if (!png) { setStatus('export-status', 'Ingen kartbild att spara. Kartan behöver kartfiler i mappen maps.', 'warn'); return; }

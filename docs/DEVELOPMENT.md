@@ -209,6 +209,34 @@ i extraktionen med `-wal` pålagd, och bygger en händelselista i UTC.
   filen i den vanliga vyn. Ett val bland flera träffar sparas på raden (`item.pk` eller `item.path`),
   så att det gäller när listan görs om. Undersökarens text och bockar sparas per fil i
   `state.examiner` (nyckeln innehåller zippen) och finns kvar så länge programmet är öppet.
+  Raden med Tillbaka till listan, Föregående och Nästa fil (`#batch-nav`) ligger i filrutan ovanför
+  vallistan, inte i `#result`, så att den syns också när en rad med flera träffar visar sin vallista.
+- Sök på hashsumma (`hash-search.js`, UMD `ProvenanceHashSearch`): `parseNames()` släpper igenom
+  MD5, SHA-1 och SHA-256 (32, 40 och 64 hexadecimala tecken, med komma, mellanslag eller en per rad,
+  och summan ur en rad från md5sum). `runWithHashes()` i `script.js` tar först bort summor som är ett
+  filnamn i zippen (Snapchats cachenycklar ser ut som MD5) och söker resten i en enda läsning:
+  `plan()` lägger bild- och videofilerna först, sedan filerna utan ändelse och sist resten, i zippens
+  ordning; `search()` läser varje post med `ZipRead.stream()` (i bitar om 4 MB, utan att posten hamnar
+  i minnet, och en liten post i samma läsning som sin lokala post), räknar bara de summor som söks och
+  stannar när alla är hittade. Kopiorna (samma storlek och CRC32) kontrolleras med samma summa. Hittas
+  en summa inte har alla poster lästs, och `missingText()` säger det. Summorna sparas per zip i
+  `state.zip.hashCache` (nyckel `localOffset:namn`), så att en ny sökning inte läser om något.
+  En träff bedöms som en fil från disk (`resolveFound()`: biblioteket när en kopia ligger i DCIM, annars
+  posten), och `foundBy` följer med till filkortet och protokollet, jämförd med filens egen summa.
+  Arkiv-zippen (70 854 poster, 8,9 GB): bild- och videofilerna på några sekunder, hela zippen på 72 s.
+- Positionerna (`role-location`) läses utan `LIMIT`: förut tog queryn de 500 första i tidsordning, och vid
+  ±24 timmar försvann positionerna kring T. Queryerna läser spannet från det första fönstrets början till
+  det sista fönstrets slut; positionerna och grannbilderna sorteras sedan till fönstren
+  (`ProvenanceCore.inWindows()`), så att en bild som kom till telefonen långt efter att den skapades inte
+  får med allt däremellan. Positionsfaktorn jämför bara positionerna i fönstret runt T och nämner de andra.
+  Samma `LIMIT` togs bort i grannbilderna (300) och Snapchats fönsterqueryer (500 och 2000).
+- Kartans sammanfattning: `MapCore.summarizeTrack()` (`tools/_shared/map/map-core.js`) gör vistelser av
+  positioner i följd inom 100 m från den första, under minst 5 minuter (samma gräns som rutten i
+  Positioner), och glesar ut förflyttningen till en position var 250:e meter eller var 5:e minut.
+  `positionView()` i `script.js` sammanfattar per fönster och behåller telefonens positioner närmast före
+  och efter T. Kartan ritar en vistelse som en `visit`-punkt med ring, ankomst och avfärd, utan klungor
+  (`mapView.setClustering(false)`); tabellen och protokollets avsnitt 4 följer läget, och alla positioner
+  står kvar under Händelser.
 - Appbehållare på iOS (`knownContainers()`): GUID:t blir appens id ur behållarens
   `.com.apple.mobile_container_manager.metadata.plist` (`MCMMetadataIdentifier`, läst med
   `tools/ios-keychain/lib/bplist.js`) och namnet ur App-ID. `ProvenanceCopies.classifyPath()` tar

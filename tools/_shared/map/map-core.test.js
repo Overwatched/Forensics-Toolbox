@@ -371,3 +371,41 @@ test('visitMinutes: minuter mellan ankomst och avfärd, bara inom samma zon', ()
     assert.strictEqual(map.visitMinutes(t('2026-03-11 16:10:00', 'UTC'), t('2026-03-11 17:40:00', '')), null);
     assert.strictEqual(map.visitMinutes(t('2026-03-11 16:10:00', ''), null), null);
 });
+
+test('summarizeTrack: en vistelse för positioner som ligger still, förflyttningen glesas ut', () => {
+    const M = 60000;
+    const t0 = Date.UTC(2026, 2, 2, 8, 0, 0);
+    const home = { lat: 59.3300, lon: 18.0600 };
+    const list = [];
+    // Hemma i 40 minuter: en position i minuten, några meter isär.
+    for (let i = 0; i < 40; i++) list.push({ at: t0 + i * M, lat: home.lat + (i % 3) * 0.00002, lon: home.lon + (i % 2) * 0.00003 });
+    // Sedan iväg österut från 150 m bort, en position var 10:e sekund, cirka 15 m isär (5,4 km/h).
+    for (let i = 1; i <= 60; i++) list.push({ at: t0 + 40 * M + i * 10000, lat: home.lat, lon: home.lon + (i + 9) * 0.00026 });
+    const out = map.summarizeTrack(list.slice().reverse());
+    assert.strictEqual(out[0].kind, 'stay');
+    assert.strictEqual(out[0].count, 40);
+    assert.strictEqual(out[0].from, t0);
+    assert.strictEqual(out[0].to, t0 + 39 * M);
+    assert.ok(out[0].radius < 10, 'radien ' + out[0].radius);
+    const moves = out.filter((x) => x.kind === 'point');
+    // 60 positioner på 900 m: den första och sedan en var 250:e meter.
+    assert.ok(moves.length >= 3 && moves.length <= 5, moves.length + ' positioner');
+    assert.ok(moves.every((m, i) => !i || m.item.at > moves[i - 1].item.at));
+});
+
+test('summarizeTrack: en position som ska synas visas också inne i en vistelse; kort stopp är ingen vistelse', () => {
+    const M = 60000;
+    const t0 = Date.UTC(2026, 2, 2, 8, 0, 0);
+    const list = [];
+    for (let i = 0; i < 10; i++) list.push({ at: t0 + i * M, lat: 59.33, lon: 18.06, keep: i === 4 });
+    const out = map.summarizeTrack(list);
+    assert.deepStrictEqual(out.map((x) => x.kind), ['stay', 'point']);
+    assert.strictEqual(out[1].item.at, t0 + 4 * M);
+    assert.strictEqual(out[1].keep, true);
+    assert.strictEqual(out[1].inStay, true);
+    // Tre minuter på samma ställe räcker inte till en vistelse: den första positionen och var 5:e minut visas.
+    const short = map.summarizeTrack([0, 1, 2, 3].map((i) => ({ at: t0 + i * M, lat: 59.33, lon: 18.06 })));
+    assert.deepStrictEqual(short.map((x) => x.kind), ['point']);
+    assert.deepStrictEqual(map.summarizeTrack([]), []);
+    assert.strictEqual(map.SUMMARY.radius, 100);
+});

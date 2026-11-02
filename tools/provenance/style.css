@@ -195,11 +195,16 @@ pre.sql { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 12px; w
 .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
 .copy-stage { position: fixed; left: -10000px; top: 0; width: 600px; height: 1px; overflow: hidden; opacity: 0; }
 
+.map-toggle { margin-top: 0; color: var(--text); }
+.map-note { margin: 6px 0 0; font-size: 13px; color: var(--text); }
+.map-note:empty { display: none; }
 .prov-map { height: 440px; border-radius: 10px; overflow: hidden; border: 1px solid var(--border); margin-top: 8px; position: relative; }
 .prov-map .map { height: 100%; }
 #positions { max-height: 320px; margin-top: 10px; }
 #positions td.num { font-variant-numeric: tabular-nums; white-space: nowrap; }
 .pos-file td { background: var(--accent-soft); }
+.pos-stay td { background: rgba(191, 90, 242, 0.10); }
+.pos-keep td { font-weight: 600; }
 
 .badge.beta { background: var(--warn-soft); color: var(--warn); vertical-align: middle; margin-left: 4px; }
 .step-label .badge.beta { font-size: 10px; }
@@ -240,7 +245,7 @@ pre.sql { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 12px; w
 .dot.support { background: var(--ok); opacity: 1; }
 .dot.contradiction { background: var(--error); opacity: 1; }
 .dot.missing { background: var(--warn); opacity: 1; }
-.batch-nav { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 12px; padding: 10px 14px; border: 1px solid var(--accent); border-radius: 12px; background: var(--accent-soft); }
+.batch-nav { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-top: 10px; padding: 10px 14px; border: 1px solid var(--accent); border-radius: 12px; background: var(--accent-soft); }
 .batch-nav .grow { flex: 1; }
 
 .sql-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-top: 10px; }

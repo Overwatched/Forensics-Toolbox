@@ -16,7 +16,7 @@
         <header class="page-header">
             <h1>Härkomst</h1>
             <p>Tidslinje för en bildfil: när den skapades, vilken app som var igång och om kameran var igång.
-                Öppna extraktionen, ange filnamnet eller en tidpunkt, och få ett protokoll med alla källor eller en
+                Öppna extraktionen, ange filnamnet, en hashsumma eller en tidpunkt, och få ett protokoll med alla källor eller en
                 förklaring i vanlig svenska, båda att klistra in i Word. Filen visas med sökväg, MD5 och SHA-256 så att
                 det går att fastställa att det är rätt fil. Zippen läses bara, och <code>-wal</code> läses alltid med.
                 <span class="badge beta">Beta</span> Filer utanför bildbiblioteket, Snapchats egna register och
@@ -50,8 +50,8 @@
             <div class="step-label">2. Fil</div>
             <div class="field-row">
                 <div class="param-block grow">
-                    <label class="field-label" for="filename">Filnamn, exakt som i biblioteket. Flera filer: ett per rad eller med komma emellan</label>
-                    <textarea id="filename" class="name-box" rows="1" spellcheck="false" autocomplete="off" placeholder="IMG_0042.HEIC, IMG_0043.HEIC"></textarea>
+                    <label class="field-label" for="filename">Filnamn, exakt som i biblioteket, eller MD5, SHA-1 eller SHA-256. Flera: ett per rad eller med komma emellan</label>
+                    <textarea id="filename" class="name-box" rows="1" spellcheck="false" autocomplete="off" placeholder="IMG_0042.HEIC, IMG_0043.HEIC eller en MD5"></textarea>
                 </div>
                 <div class="param-block">
                     <label class="field-label" for="window">Fönster runt tidpunkten</label>
@@ -78,7 +78,11 @@
             <p class="muted">Finns namnet inte i bildbiblioteket söks hela zippen, till exempel Snapchats cache. <span class="badge beta">Beta</span>
                 Har flera filer samma namn visas en lista med tumnagel, storlek och CRC32 att välja ur.
                 Flera filer (namn per rad eller med komma emellan, eller flera filer från disk) bedöms en i taget och visas i en lista.
-                Enter bedömer, Skift+Enter ger en ny rad.</p>
+                Enter bedömer, Skift+Enter ger en ny rad.
+                En hashsumma (MD5 32 tecken, SHA-1 40, SHA-256 64) söks på innehållet: zippen har bara CRC32, så filerna läses och
+                hashas, bild- och videofilerna först, sedan filerna utan ändelse och sist resten, tills summan hittas. Hittas den inte har
+                alla filer lästs. Det tar från sekunder till några minuter efter zippens storlek, och summor som redan räknats läses inte om.
+                Heter en fil exakt som summan, som Snapchats cachefiler, bedöms den filen. En lista ur md5sum går att klistra in.</p>
             <div class="field-row time-row">
                 <div class="param-block">
                     <label class="field-label" for="when-date">Eller en tidpunkt, när filen borde ha skapats</label>
@@ -99,6 +103,13 @@
             </div>
             <div id="run-status" class="status"></div>
             <button type="button" class="secondary display-none" id="batch-stop" title="Filen som bedöms nu blir klar, sedan stannar listan">Avbryt listan</button>
+            <div class="batch-nav display-none" id="batch-nav">
+                <button type="button" class="secondary" id="batch-back">← Tillbaka till listan</button>
+                <span id="batch-pos" class="muted"></span>
+                <span class="grow"></span>
+                <button type="button" class="secondary" id="batch-prev">Föregående</button>
+                <button type="button" class="secondary" id="batch-next">Nästa fil</button>
+            </div>
             <div id="hits" class="display-none"></div>
             <div id="hits-entries" class="display-none"></div>
             <input type="file" id="disk-input" multiple hidden>
@@ -118,13 +129,6 @@
         </section>
 
         <section id="result" class="display-none">
-            <div class="batch-nav display-none" id="batch-nav">
-                <button type="button" class="secondary" id="batch-back">← Tillbaka till listan</button>
-                <span id="batch-pos" class="muted"></span>
-                <span class="grow"></span>
-                <button type="button" class="secondary" id="batch-prev">Föregående</button>
-                <button type="button" class="secondary" id="batch-next">Nästa fil</button>
-            </div>
             <div class="box" id="file-card-box">
                 <div class="step-label">3. Filen</div>
                 <p class="muted">Bilden eller videon som bedöms, med sökväg i zippen, storlek, CRC32, MD5 och SHA-256, så att det går att
@@ -169,10 +173,13 @@
                 <div class="box-head">
                     <div class="step-label">6. Positioner</div>
                     <div class="button-row">
+                        <label class="chk-line map-toggle" title="Positioner i följd inom 100 m i minst 5 minuter blir en vistelse. Mellan vistelserna visas en position var 250:e meter eller var 5:e minut."><input type="checkbox" id="map-summary"> Sammanfatta positionerna</label>
                         <button type="button" class="secondary" id="save-map">Spara kartbild</button>
                     </div>
                 </div>
-                <p class="muted" id="map-intro">Bildens position enligt databasen och EXIF, och telefonens positioner från routined i fönstret. Nålen för bilden är röd. Kartbilden följer med i båda exporterna.</p>
+                <p class="muted" id="map-intro">Bildens position enligt databasen och EXIF, och telefonens positioner från routined i fönstret. Nålen för bilden är röd. Kartbilden följer med i båda exporterna.
+                    <strong>Sammanfatta positionerna</strong> ritar en ring per vistelse, alltså positioner i följd inom 100 m i minst 5 minuter, med första och sista tid, och mellan vistelserna en position var 250:e meter eller var 5:e minut. Bildens position och telefonens positioner närmast före och efter T visas alltid. Tabellen och exporterna följer läget; alla positioner finns kvar under Händelser med källa.</p>
+                <p class="map-note" id="map-note"></p>
                 <div id="map-host" class="prov-map"></div>
                 <div id="positions" class="result-scroll"></div>
             </div>
@@ -235,6 +242,7 @@
     <script src="snapchat.js"></script>
     <script src="copies.js"></script>
     <script src="batch.js"></script>
+    <script src="hash-search.js"></script>
     <script src="timeline-core.js"></script>
     <script src="timeline-svg.js"></script>
     <script src="media-card.js"></script>

@@ -191,3 +191,32 @@ test('listan med flera filer för Word: en rad per fil, hasharna i en egen tabel
     assert.strictEqual(tables.length, 2, 'bedömningen och hasharna i två tabeller');
     assert.ok(report.plainText(html).includes('IMG_0050.PNG'));
 });
+
+test('sammanfattade positioner: protokollet har en rad per vistelse och säger hur urvalet gjordes', () => {
+    const m = model();
+    const phone = m.positions.filter((q) => q.kind === 'phone');
+    const view = {
+        summary: true, total: 143, stays: 1, shown: 2,
+        rows: [{ kind: 'point', q: m.positions[0] },
+            { kind: 'stay', from: T - 3600 * S, to: T - 600 * S, count: 142, lat: 59.33, lon: 18.06, radius: 42, distanceM: 350, source: phone[0].source, members: [] },
+            { kind: 'point', q: phone[0], keep: true }],
+    };
+    const html = report.protocol(m, Object.assign({}, META, { positionView: view }));
+    for (const needle of ['Sammanfattade: 143 positioner från telefonen visas som 1 vistelse och 1 enskild position', 'Vistelse: 142 positioner i följd inom 100 m', 'radie 42 m', '350 m',
+        '2025-09-24 13:31:09 – 2025-09-24 14:21:09', 'Telefonen (GNSS), närmast T', 'Alla positioner finns under 6. Händelser']) {
+        assert.ok(html.includes(needle), 'protokollet saknar: ' + needle);
+    }
+    const plain = report.explanation(m, Object.assign({}, META, { positionView: view }));
+    assert.ok(plain.includes('Där telefonen låg still i minst fem minuter visas en ring'));
+    assert.ok(!report.explanation(m, META).includes('låg still'));
+});
+
+test('hittad på en hashsumma: summan och jämförelsen står i protokollet och i listan för Word', () => {
+    const md5 = 'd41d8cd98f00b204e9800998ecf8427e';
+    const html = report.protocol(model(), Object.assign({}, META, { foundBy: { algo: 'md5', label: 'MD5', value: md5, own: md5, same: true } }));
+    assert.ok(html.includes('<b>Sökt på MD5:</b> ' + md5 + ', angiven av undersökaren. Filens MD5 är densamma.'));
+    const diff = report.protocol(model(), Object.assign({}, META, { foundBy: { algo: 'sha1', label: 'SHA-1', value: 'a'.repeat(40), own: 'b'.repeat(40), same: false } }));
+    assert.ok(diff.includes('<b>Filens SHA-1 skiljer sig: ' + 'b'.repeat(40) + '.</b>'));
+    const rows = [{ name: md5, searched: 'MD5 ' + md5, status: 'missing', note: 'Ingen fil i zippen har den MD5:n.', summary: null }];
+    assert.ok(report.batchTable(rows, {}).includes('<b>MD5 ' + md5 + '</b>'));
+});

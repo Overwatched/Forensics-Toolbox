@@ -106,13 +106,18 @@
         if (model.warnings.length) out += p('<b>Varningar:</b> ' + model.warnings.map(esc).join(' '));
 
         out += h(2, '1. Filen');
+        if (meta.foundBy) {
+            var fb = meta.foundBy;
+            out += p('<b>Sökt på ' + esc(fb.label) + ':</b> ' + esc(fb.value) + ', angiven av undersökaren. ' +
+                (fb.same === true ? 'Filens ' + esc(fb.label) + ' är densamma.' : fb.same === false ? '<b>Filens ' + esc(fb.label) + ' skiljer sig: ' + esc(fb.own) + '.</b>' : 'Filens ' + esc(fb.label) + ' kunde inte kontrolleras.'));
+        }
         out += table(['Kolumn', 'Värde'], meta.fileRows || []);
         if (meta.fileEntry) {
             var fe = meta.fileEntry;
             out += p('<b>Bildfilen i zippen:</b> ' + esc(fe.path) + ' (' + esc(fe.size) + ' byte, ändrad ' + esc(fe.mtime) +
                 (fe.created ? ', skapad ' + esc(fe.created) : '') + (fe.accessed ? ', senast läst ' + esc(fe.accessed) : '') +
                 (fe.timeField ? ' enligt zippens ' + esc(fe.timeField) : '') +
-                ', CRC32 ' + esc(fe.crc32) + (fe.crcOk === false ? ' STÄMMER INTE' : '') + (fe.md5 ? ', MD5 ' + esc(fe.md5) : '') + (fe.sha256 ? ', SHA-256 ' + esc(fe.sha256) : '') + ')');
+                ', CRC32 ' + esc(fe.crc32) + (fe.crcOk === false ? ' STÄMMER INTE' : '') + (fe.md5 ? ', MD5 ' + esc(fe.md5) : '') + (fe.sha1 ? ', SHA-1 ' + esc(fe.sha1) : '') + (fe.sha256 ? ', SHA-256 ' + esc(fe.sha256) : '') + ')');
             // Telefonens egen tumnagel (iOS: PhotoData/Thumbnails/V2/…/5005.JPG) med egen hash, så att den inte tas för originalet.
             if (meta.thumbnail) {
                 out += p('<b>Telefonens egen tumnagel i zippen:</b> ' + esc(meta.thumbnail.path) + ' (' + esc(meta.thumbnail.size) + ' byte' + (meta.thumbnail.crc32 ? ', CRC32 ' + esc(meta.thumbnail.crc32) : '') +
@@ -163,9 +168,23 @@
 
         out += h(2, '4. Positioner');
         if (model.positions && model.positions.length) {
-            out += table(['Tid (' + meta.zoneLabel + ')', 'UTC', 'Vad', 'Latitud', 'Longitud', 'Noggrannhet', 'Från bildens position', 'Källa'], model.positions.map(function (q) {
-                return [q.ms != null ? fmt(q.ms) : '', q.ms != null ? fmtUtc(q.ms) : '', q.label, q.lat.toFixed(6), q.lon.toFixed(6), q.accuracy ? Math.round(q.accuracy) + ' m' : '',
-                    q.distanceM != null ? (q.distanceM < 1000 ? Math.round(q.distanceM) + ' m' : (q.distanceM / 1000).toFixed(1).replace('.', ',') + ' km') : '', sourceText(q.source)];
+            var view = meta.positionView && meta.positionView.summary ? meta.positionView : null;
+            if (view) {
+                out += p(esc('Sammanfattade: ' + view.total + ' positioner från telefonen visas som ' + view.stays + (view.stays === 1 ? ' vistelse' : ' vistelser') + ' och ' + (view.shown - view.stays) +
+                    (view.shown - view.stays === 1 ? ' enskild position' : ' enskilda positioner') + '. En vistelse är positioner i följd inom 100 m från den första, under minst 5 minuter. ' +
+                    'Mellan vistelserna visas en position var 250:e meter eller var 5:e minut, och telefonens positioner närmast före och efter T visas alltid. ' +
+                    'En vistelse säger var telefonen var vid de registrerade tiderna, inte var den var mellan dem. Alla positioner finns under 6. Händelser, och queryn står i bilagan.'));
+            }
+            var metresText = function (m) { return m != null ? (m < 1000 ? Math.round(m) + ' m' : (m / 1000).toFixed(1).replace('.', ',') + ' km') : ''; };
+            var rows = view ? view.rows : model.positions.map(function (q) { return { kind: 'point', q: q }; });
+            out += table(['Tid (' + meta.zoneLabel + ')', 'UTC', 'Vad', 'Latitud', 'Longitud', 'Noggrannhet', 'Från bildens position', 'Källa'], rows.map(function (r) {
+                if (r.kind === 'stay') {
+                    return [fmt(r.from) + ' – ' + fmt(r.to), fmtUtc(r.from) + ' – ' + fmtUtc(r.to), 'Vistelse: ' + r.count + ' positioner i följd inom 100 m', r.lat.toFixed(6), r.lon.toFixed(6),
+                        'radie ' + Math.round(r.radius) + ' m', metresText(r.distanceM), sourceText(r.source)];
+                }
+                var q = r.q;
+                return [q.ms != null ? fmt(q.ms) : '', q.ms != null ? fmtUtc(q.ms) : '', q.label + (r.keep ? ', närmast T' : ''), q.lat.toFixed(6), q.lon.toFixed(6), q.accuracy ? Math.round(q.accuracy) + ' m' : '',
+                    metresText(q.distanceM), sourceText(q.source)];
             }));
             out += imageHtml(meta.mapPng, 'Karta med positionerna');
         } else {
@@ -259,7 +278,7 @@
             (head.createdText ? ' · skapad ' + esc(head.createdText) : '') + (head.toolVersion ? ' · Forensics Toolbox ' + esc(head.toolVersion) : ''));
         out += table(['Fil', 'T', 'Typ', 'Faktorer', 'Programmets sammanvägning', 'Undersökarens bedömning'], rows.map(function (r) {
             var s = r.summary;
-            if (r.status !== 'done' || !s) return [{ html: '<b>' + esc(r.name) + '</b>' }, '', BATCH_STATUS[r.status] || BATCH_STATUS.waiting, '', r.note || '', ''];
+            if (r.status !== 'done' || !s) return [{ html: '<b>' + esc(r.searched || r.name) + '</b>' }, '', BATCH_STATUS[r.status] || BATCH_STATUS.waiting, '', r.note || '', ''];
             var factors = s.factorIds.map(function (id) {
                 var f = s.factors[id];
                 var label = labels[f.state] || f.state;
@@ -270,7 +289,7 @@
             var text = ex.text && String(ex.text).trim() ? esc(String(ex.text).trim()).replace(/\n/g, '<br>') : '<i>Ej ifylld</i>';
             var checked = s.factorIds.filter(function (id) { return ex.checked && ex.checked[id]; }).map(function (id) { return s.factors[id].title; });
             return [
-                { html: '<b>' + esc(s.filename) + '</b>' + (r.name && r.name !== s.filename ? '<br>på disk: ' + esc(r.name) : '') },
+                { html: '<b>' + esc(s.filename) + '</b>' + (r.searched ? '<br>sökt på ' + esc(r.searched) : r.name && r.name !== s.filename ? '<br>på disk: ' + esc(r.name) : '') },
                 s.tText + (s.zoneLabel ? ' (' + s.zoneLabel + ')' : ''),
                 s.typeLabel + (s.place ? ', ' + s.place : ''),
                 { html: factors },
@@ -332,7 +351,8 @@
             out += imageHtml(meta.mapPng, 'Karta med positionerna');
             var phone = (model.positions || []).filter(function (q) { return q.kind === 'phone'; });
             if (phone.length || model.filePosition) {
-                out += p(esc((model.filePosition ? 'Nålen för bilden är platsen som står i bilden. ' : '') + (phone.length ? 'De andra nålarna är platser som telefonen själv registrerade i fönstret.' : '')));
+                out += p(esc((model.filePosition ? 'Nålen för bilden är platsen som står i bilden. ' : '') + (phone.length ? 'De andra nålarna är platser som telefonen själv registrerade i fönstret.' : '') +
+                    (meta.positionView && meta.positionView.summary && meta.positionView.stays ? ' Där telefonen låg still i minst fem minuter visas en ring med första och sista tiden i stället för en nål per position.' : '')));
             }
         }
 
