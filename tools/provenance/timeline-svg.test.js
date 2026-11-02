@@ -34,7 +34,7 @@ test('översikten har en rad per jämförelse, T-kolumnen, banden i radens färg
     assert.match(out, /^<svg xmlns="http:\/\/www\.w3\.org\/2000\/svg" width="1100"/);
     assert.deepStrictEqual(rowLabels(out), ['Fil', 'App', 'Kamera', 'Skärm', 'Lås', 'Position']);
     for (const needle of ['stroke-dasharray="4 3"', 'T 14:31:09', 'Vid T · 14:31:09', '<polygon', 'fill="' + tl.COLORS.camera + '"', 'fill="' + tl.COLORS.phone + '"', 'fill="' + tl.COLORS.off + '"',
-        'fill-opacity="0.09"', '<circle', 'Forensics Toolbox 1.30', '14:20', '14:45', 'fill-opacity="0.10"', '<title>Närbild 14:29:39 till 14:32:39</title>', '>Närbild<', '>Stöd<', '>Kamera i förgrunden<', '>tänd<', '>olåst<']) {
+        'fill-opacity="0.09"', '<circle', 'Forensics Toolbox 1.30', '14:20', '14:45', 'fill-opacity="0.10"', '<title>Närbild 14:29:39 till 14:32:39</title>', '>Närbild<', '>Förenligt<', '>Kamera i förgrunden<', '>tänd<', '>olåst<']) {
         assert.ok(out.includes(needle), 'saknar ' + needle);
     }
     assert.ok(!out.includes('>Snapchat<'), 'ingen Snapchat-rad utan Snapchat-händelser');

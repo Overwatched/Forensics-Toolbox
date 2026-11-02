@@ -190,35 +190,84 @@
 
     // --- Kö -----------------------------------------------------------------------
 
+    // Returnerar raderna för filerna, nya eller redan inlästa.
     function addFiles(items) {
         var skipped = 0;
         var added = 0;
+        var out = [];
+        var fresh = [];
         if (!busy && !queue.length) batch = { total: 0, done: 0, started: Date.now() };
         items.forEach(function (it) {
             var file = it.file;
             if (SKIP_NAMES.test(file.name)) { skipped++; return; }
             var path = it.path || file.name;
             var key = path + '|' + file.size + '|' + file.lastModified;
-            if (seen[key]) return;
+            if (seen[key]) {
+                var had = rows.filter(function (r) { return r.key === key && !removed.has(r.id); })[0];
+                if (had) out.push(had);
+                return;
+            }
             seen[key] = true;
             var row = {
-                id: nextId++, path: path, name: file.name, size: file.size,
+                id: nextId++, key: key, path: path, name: file.name, size: file.size,
                 modified: localTime(file.lastModified), file: file, status: 'queued', tags: null, summary: null, hay: '',
+                zipTimes: it.times || null, fsTimes: null,
             };
             rows.push(row);
             queue.push(row);
+            out.push(row);
+            fresh.push(row);
             added++;
         });
         if (!added) {
             showToast(skipped ? 'Bara systemfiler — inget att läsa' : 'Filerna är redan inlästa');
-            return;
+            return out;
         }
         batch.total += added;
         if (skipped) showToast(skipped + ' systemfiler hoppades över');
         results.classList.remove('display-none');
         updateProgress();
         scheduleRender();
-        pump();
+        // Filsystemets tider läses innan filerna läses in, så att åtkomsttiden är den från när filen valdes.
+        readFsTimes(fresh).then(pump);
+        return out;
+    }
+
+    // Skapad, ändrad, senast läst och ändrad metadata ur filsystemet, för filer från disk i appen.
+    // Webbläsaren ger bara ändringstiden. Väntar högst två sekunder.
+    function readFsTimes(list) {
+        if (!window.forensicsMedia || !forensicsMedia.times) return Promise.resolve();
+        var jobs = [];
+        list.forEach(function (r) {
+            var p = r.zipTimes ? '' : filePath(r.file);
+            if (p) jobs.push(forensicsMedia.times(p).then(function (t) { if (t) r.fsTimes = t; }, function () {}));
+        });
+        if (!jobs.length) return Promise.resolve();
+        return Promise.race([Promise.all(jobs), new Promise(function (resolve) { setTimeout(resolve, 2000); })]);
+    }
+
+    // Filens tider: ur zippen för en fil från Härkomst, annars ur filsystemet. [[rubrik, värde, källa]]
+    function timeRows(row) {
+        var z = row.zipTimes;
+        if (z) {
+            var src = 'zippen' + (z.field ? ', ' + z.field : '');
+            return [['Ändrad', z.modified, src], ['Skapad', z.created, src], ['Senast läst', z.accessed, src]].filter(function (r) { return r[1]; });
+        }
+        var t = row.fsTimes;
+        if (!t) return [['Ändrad', row.modified, 'filsystemet']];
+        return [
+            ['Skapad', localTime(t.createdMs), 'filsystemet'],
+            ['Ändrad', localTime(t.modifiedMs), 'filsystemet'],
+            ['Senast läst', localTime(t.accessedMs), 'filsystemet, när filen valdes'],
+            ['Ändrad metadata', localTime(t.changedMs), 'filsystemet (ctime)'],
+        ].filter(function (r) { return r[1]; });
+    }
+
+    // Tiderna i exporterna: { skapad, ändrad, senastLäst, ändradMetadata, källa }.
+    function timesOut(row) {
+        var out = {};
+        timeRows(row).forEach(function (r) { out[r[0]] = r[1]; out['källa ' + r[0].toLowerCase()] = r[2]; });
+        return out;
     }
 
     function pump() {
@@ -371,6 +420,7 @@
         seen = {};
         batch = { total: 0, done: 0, started: 0 };
         closeDetail();
+        if (announced) announceFile(null);
         filter = 'all';
         searchInput.value = '';
         query = '';
@@ -663,6 +713,7 @@
             queue = queue.filter(function (q) { return q !== r; });
         });
         if (selected && removed.has(selected.id)) closeDetail();
+        if (announced && removed.has(announced.id)) announceFile(null);
         render();
         showRemovalToast(list.length);
     }
@@ -952,7 +1003,7 @@
         dl.textContent = '';
         var s = row.summary;
         summaryRow(dl, 'Storlek', humanSize(row.size) + ' (' + row.size.toLocaleString('sv-SE') + ' byte)');
-        summaryRow(dl, 'Ändrad', row.modified, 'filsystemet');
+        timeRows(row).forEach(function (t) { summaryRow(dl, t[0], t[1], t[2]); });
         if (!s) {
             summaryRow(dl, 'Status', row === busy ? 'Läser…' : 'Väntar på ExifTool');
             $('detail-groups').textContent = '';
@@ -1028,6 +1079,7 @@
 
     function openDetail(row) {
         selected = row;
+        announceFile(row);
         tagSearch.value = '';
         detail.classList.remove('display-none');
         backdrop.classList.remove('display-none');
@@ -1063,7 +1115,7 @@
                 engine: engine.version,
                 exported: localTime(Date.now()),
                 files: exportRows().map(function (r) {
-                    return { path: r.path, size: r.size, modified: r.modified, summary: r.summary, tags: r.tags };
+                    return { path: r.path, size: r.size, modified: r.modified, times: timesOut(r), summary: r.summary, tags: r.tags };
                 }),
             };
             download(JSON.stringify(data, null, 2), 'application/json;charset=utf-8', 'exif-' + stamp() + '.json');
@@ -1144,6 +1196,14 @@
         return window.parent && window.parent !== window;
     }
 
+    // Filen man senast öppnade, till raden högst upp i huvudfönstret: därifrån kan den bedömas i Härkomst.
+    var announced = null;
+    function announceFile(row) {
+        if (!inToolbox()) return;
+        announced = row;
+        window.parent.postMessage({ source: 'forensics-toolbox', type: 'current-file', name: row ? row.name : null, path: row ? row.path : '' }, '*');
+    }
+
     function sendToPositions(focusExifId) {
         if (!inToolbox()) {
             showToast('Öppna verktygslådan för att visa bilderna tillsammans med andra positioner.');
@@ -1179,11 +1239,28 @@
     }
 
     window.addEventListener('message', function (e) {
+        if (e.source !== window.parent) return;
         var data = e.data;
-        if (!data || data.source !== 'forensics-toolbox' || data.type !== 'show-exif') return;
-        var row = rows.filter(function (r) { return r.id === data.exifId; })[0];
-        if (row) openDetail(row);
-        else showToast('Bilden finns inte kvar i listan.');
+        if (!data || data.source !== 'forensics-toolbox') return;
+        if (data.type === 'show-exif') {
+            var row = rows.filter(function (r) { return r.id === data.exifId; })[0];
+            if (row) openDetail(row);
+            else showToast('Bilden finns inte kvar i listan.');
+            return;
+        }
+        // Filer från Härkomst (lästa ur extraktionen): de läses som filer från disk, och en ensam fil öppnas.
+        if (data.type === 'exif-files' && Array.isArray(data.files)) {
+            var got = addFiles(data.files.filter(function (f) { return f && f.file; }));
+            if (got && got.length) {
+                showToast(got.length === 1 ? got[0].name + ' från Härkomst' : got.length + ' filer från Härkomst');
+                if (data.open && got.length === 1) openDetail(got[0]);
+            }
+            return;
+        }
+        // Huvudfönstret vill bedöma den öppnade filen i Härkomst.
+        if (data.type === 'deliver-file' && data.to === 'provenance' && announced && announced.file) {
+            window.parent.postMessage({ source: 'forensics-toolbox', type: 'file-for', to: 'provenance', files: [{ file: announced.file, path: announced.path }] }, '*');
+        }
     });
 
     document.querySelectorAll('.view-switch [data-view]').forEach(function (b) {
@@ -1283,7 +1360,7 @@
     tagSearch.addEventListener('input', renderGroups);
     $('copy-json').addEventListener('click', function () {
         if (!selected) return;
-        copyText(JSON.stringify({ path: selected.path, size: selected.size, modified: selected.modified, tags: selected.tags }, null, 2));
+        copyText(JSON.stringify({ path: selected.path, size: selected.size, modified: selected.modified, times: timesOut(selected), tags: selected.tags }, null, 2));
     });
 
     startEngine();

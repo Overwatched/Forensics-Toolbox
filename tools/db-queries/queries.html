@@ -25,13 +25,13 @@
             <div id="ex-full">
                 <div class="ex-head">
                     <div>
-                        <div class="step-label">Öppna en extraktion</div>
-                        <p class="muted">Välj extraktionens zip-fil, så letar appen upp databaserna och deras
+                        <div class="step-label"><span class="standalone-only">Öppna en extraktion</span><span class="hub-only">Extraktionen</span></div>
+                        <p class="muted"><span class="standalone-only">Välj extraktionens zip-fil, så letar appen upp databaserna och deras</span><span class="hub-only">Öppna extraktionen i raden högst upp, så letar appen upp databaserna och deras</span>
                             <code>-wal</code>. Zippen läses bara. Inget packas upp eller sparas på disk.</p>
                     </div>
                     <div class="button-row">
-                        <button type="button" id="ex-pick">Öppna extraktion (zip)…</button>
-                        <button type="button" class="secondary display-none" id="ex-close">Stäng extraktionen</button>
+                        <button type="button" id="ex-pick" class="standalone-only">Öppna extraktion (zip)…</button>
+                        <button type="button" class="secondary display-none standalone-only" id="ex-close">Stäng extraktionen</button>
                     </div>
                 </div>
                 <div id="ex-status" class="run-status"></div>
@@ -51,7 +51,7 @@
             </div>
             <div id="ex-compact" class="ex-compact display-none">
                 Ur <span id="ex-compact-name"></span>
-                <button type="button" class="link-btn" id="ex-close-compact">Stäng extraktionen</button>
+                <button type="button" class="link-btn standalone-only" id="ex-close-compact">Stäng extraktionen</button>
             </div>
         </div>
         <div id="db-overview" class="db-overview"></div>
@@ -103,6 +103,7 @@
                         <button type="button" id="run-button" disabled>Kör query</button>
                         <button type="button" class="secondary" id="run-csv" disabled>Spara CSV</button>
                         <button type="button" class="secondary" id="run-map" disabled>Visa på karta</button>
+                        <button type="button" class="secondary hub-only" id="run-provenance" disabled title="Filnamnen i resultatet (ZFILENAME, _display_name) bedöms i Härkomst, en rad per fil">Bedöm filerna i Härkomst</button>
                     </div>
                     <div id="run-status" class="run-status"></div>
                     <div id="run-result" class="result-scroll run-result"></div>

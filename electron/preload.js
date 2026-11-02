@@ -13,5 +13,7 @@ if (location.protocol === 'file:') {
         },
         allow: function (filePath) { return ipcRenderer.invoke('media-allow', filePath); },
         revoke: function (filePath) { return ipcRenderer.invoke('media-revoke', filePath); },
+        // Filsystemets tider (skapad, ändrad, senast läst, ändrad metadata) utan att filen läses.
+        times: function (filePath) { return ipcRenderer.invoke('media-times', filePath); },
     });
 }

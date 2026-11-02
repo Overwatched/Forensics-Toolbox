@@ -188,6 +188,8 @@
         announce();
         render();
         layout();
+        // Vad Queries vet om extraktionen, till raden högst upp i huvudfönstret.
+        if (window.parent !== window) window.parent.postMessage({ source: 'forensics-toolbox', type: 'extraction-info', file: file, info: { device: current.version ? 'iOS ' + current.version : '' } }, '*');
     }
 
     // Från Härkomst: samma zip (namn, storlek och ändringstid) öppnas bara en gång.
@@ -216,7 +218,8 @@
         shared = { seq: msg.seq, file: msg.file || null, from: msg.from || '' };
         return serial(function () {
             if (shared.file ? current && sameFile(current.file, shared.file) : !current) return null;
-            if (tabUsesZip()) {
+            // Byte eller stängning i raden högst upp gäller fliken som visas, även om den använder en databas.
+            if (tabUsesZip() && !msg.force) {
                 var where = shared.from ? ' i ' + shared.from : '';
                 offer(shared.file
                     ? escapeHtml(shared.file.name) + ' öppnades' + escapeHtml(where) + '. Den här fliken använder fortfarande ' + escapeHtml(current.file.name) +

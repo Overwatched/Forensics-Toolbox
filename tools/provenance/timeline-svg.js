@@ -2,8 +2,8 @@
 // Lås, Position och Snapchat (de rader som har något att visa). Ett band i radens färg betyder
 // "på" (kameran igång, skärmen tänd, telefonen olåst), ett grått band "av", ingenting = ingen
 // registrering. T är en kolumn genom alla rader med en prick där den korsar ett band, och till
-// höger står kolumnen "Vid T" som säger läget per rad i klartext, med faktorns ord (Stöd,
-// Motsägelse, Saknas, Upplysning) som på faktorkorten. Översikten markerar närbildens ruta
+// höger står kolumnen "Vid T" som säger läget per rad i klartext, med lägets ord (Förenligt,
+// Inte förenligt, Saknas, Upplysning) som på faktorkorten. Översikten markerar närbildens ruta
 // (opts.zoom), närbilden (opts.labels) skriver ut händelserna på bilden. Fasta ljusa färger så
 // att bilden ser likadan ut i rapporten som på skärmen. Testas i Node.
 (function (root) {
@@ -17,7 +17,7 @@
         off: '#e5e5ea', offStroke: '#c7c7cc',
         status: { support: '#248a3d', contradiction: '#d70015', missing: '#c77700', info: '#007aff', na: '#8e8e93' },
     };
-    var STATE_LABEL = { support: 'Stöd', contradiction: 'Motsägelse', missing: 'Saknas', info: 'Upplysning', na: 'Inte tillämplig' };
+    var STATE_LABEL = { support: 'Förenligt', contradiction: 'Inte förenligt', missing: 'Saknas', info: 'Upplysning', na: 'Inte tillämplig' };
     var ROWS = [
         { id: 'file', label: 'Fil', factor: 'time' },
         { id: 'app', label: 'App', factor: 'app' },
@@ -27,7 +27,7 @@
         { id: 'location', label: 'Position', factor: 'position' },
         { id: 'snapchat', label: 'Snapchat', factor: null },
     ];
-    var LEFT = 96, RIGHT = 14, GAP = 16, COL = 300, PILL_W = 104, TOP = 44, FOOTER = 56, CHAR_W = 5.9;
+    var LEFT = 96, RIGHT = 14, GAP = 16, COL = 308, PILL_W = 112, TOP = 44, FOOTER = 56, CHAR_W = 5.9;
     var ROW_H = 36, ROW_H_LABELS = 50;
     var MAX_LANES = 5, LANE_H = 13, DODGE_MAX = 40, LEGEND_H = 16, FADE = 0.3;
     var SNAP_APPS = { 'com.toyopagroup.picaboo': 1, 'com.snapchat.android': 1 };

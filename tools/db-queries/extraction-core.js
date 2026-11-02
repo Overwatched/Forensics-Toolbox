@@ -26,6 +26,18 @@
         return e.dosTime ? e.dosTime + ' (zon okänd)' : '';
     }
 
+    // Zippens tider för en post: ändrad, skapad och senast läst (som text och i ms), och fältet de
+    // kommer ur. NTFS-fältets skapandetid är filens; UT-fältets tredje tid är skapandetid enligt
+    // Info-ZIP:s beskrivning av fältet, men vad verktyget som gjorde zippen lade där syns inte i zippen.
+    function entryTimes(e) {
+        var utc = function (s) { return s ? new Date(s * 1000).toISOString().slice(0, 19).replace('T', ' ') + ' UTC' : ''; };
+        return {
+            modified: entryTime(e), created: utc(e.crtime), accessed: utc(e.atime),
+            modifiedMs: e.mtime ? e.mtime * 1000 : null, createdMs: e.crtime ? e.crtime * 1000 : null, accessedMs: e.atime ? e.atime * 1000 : null,
+            field: e.timeField === 'NTFS' ? 'NTFS-fältet' : e.timeField === 'UT' ? 'UT-fältet' : '',
+        };
+    }
+
     function hex(n) { return ('0000000' + n.toString(16)).slice(-8); }
 
     function baseName(name) { return name.slice(name.lastIndexOf('/') + 1); }
@@ -145,7 +157,7 @@
     var api = {
         use: function (d) { Object.keys(d).forEach(function (k) { deps[k] = d[k]; }); },
         targets: targets, dbForVersion: dbForVersion, open: open, find: find,
-        readEntry: readEntry, zipSource: zipSource, loadDatabase: loadDatabase, walSummary: walSummary,
+        readEntry: readEntry, zipSource: zipSource, loadDatabase: loadDatabase, walSummary: walSummary, entryTimes: entryTimes,
         sha256: sha256, entryTime: entryTime, hex: hex, sizeText: sizeText, baseName: baseName,
     };
     if (typeof module !== 'undefined' && module.exports) module.exports = api;

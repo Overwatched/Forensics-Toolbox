@@ -48,7 +48,7 @@
         var file = model.file || {};
         var fe = meta && meta.fileEntry;
         var factors = {};
-        (model.factors || []).forEach(function (f) { factors[f.id] = { state: f.state, title: f.title }; });
+        (model.factors || []).forEach(function (f) { factors[f.id] = { state: f.state, title: f.title, verdict: f.verdict || '' }; });
         return {
             key: opts.key || '',
             filename: file.filename || '',

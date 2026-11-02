@@ -29,15 +29,15 @@
             <div class="box-head">
                 <div>
                     <div class="step-label">1. Extraktion</div>
-                    <p class="muted">Välj extraktionens zip-fil. Appen letar upp Photos.sqlite, knowledgeC, routined, MediaStore,
+                    <p class="muted"><span class="standalone-only">Välj extraktionens zip-fil.</span><span class="hub-only">Öppna extraktionen i raden högst upp, så finns den också i Queries och EXIF &amp; karta.</span> Appen letar upp Photos.sqlite, knowledgeC, routined, MediaStore,
                         Wellbeing och Snapchats databaser med deras <code>-wal</code>. Inget packas upp eller skrivs.</p>
                 </div>
                 <div class="button-row">
-                    <button type="button" id="ex-pick">Öppna extraktion (zip)…</button>
+                    <button type="button" id="ex-pick" class="standalone-only">Öppna extraktion (zip)…</button>
                     <button type="button" class="secondary" id="fill-sample">Fyll med testdata</button>
                     <button type="button" class="secondary" id="fill-sample-snap">Testdata: Snapchat (beta)</button>
                     <button type="button" class="secondary" id="fill-sample-android">Testdata: Snapchat på Android (beta)</button>
-                    <button type="button" class="secondary display-none" id="ex-close">Stäng extraktionen</button>
+                    <button type="button" class="secondary display-none standalone-only" id="ex-close">Stäng extraktionen</button>
                 </div>
             </div>
             <div id="ex-status" class="status"></div>
@@ -50,8 +50,8 @@
             <div class="step-label">2. Fil</div>
             <div class="field-row">
                 <div class="param-block grow">
-                    <label class="field-label" for="filename">Filnamn, exakt som i biblioteket. Flera filer: ett namn per rad</label>
-                    <textarea id="filename" class="name-box" rows="1" spellcheck="false" autocomplete="off" placeholder="IMG_0042.HEIC"></textarea>
+                    <label class="field-label" for="filename">Filnamn, exakt som i biblioteket. Flera filer: ett per rad eller med komma emellan</label>
+                    <textarea id="filename" class="name-box" rows="1" spellcheck="false" autocomplete="off" placeholder="IMG_0042.HEIC, IMG_0043.HEIC"></textarea>
                 </div>
                 <div class="param-block">
                     <label class="field-label" for="window">Fönster runt tidpunkten</label>
@@ -108,6 +108,7 @@
             <div class="box-head">
                 <div class="step-label">3. Filerna</div>
                 <div class="button-row">
+                    <button type="button" class="secondary hub-only" id="batch-exif" title="Filerna läses ur zippen och visas med alla EXIF-taggar, och positionerna på kartan">Visa listan i EXIF &amp; karta</button>
                     <button type="button" class="secondary" id="batch-copy" title="En rad per fil med typ, faktorerna, programmets sammanvägning och din egen bedömning, och sökväg, MD5 och SHA-256 per fil">Kopiera listan för Word</button>
                     <button type="button" class="secondary" id="batch-save">Spara listan som HTML</button>
                 </div>

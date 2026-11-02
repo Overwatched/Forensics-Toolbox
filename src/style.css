@@ -372,6 +372,82 @@ body {
     height: 100vh;
     position: relative;
     background: var(--bg);
+    display: flex;
+    flex-direction: column;
+}
+
+.content > .tool-host {
+    flex: 1;
+    min-height: 0;
+    height: auto;
+}
+
+/* Raden högst upp i Härkomst, Queries och EXIF & karta: extraktionen och filen man tittar på. */
+.context-bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px 22px;
+    padding: 8px 18px;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+    font-size: 13px;
+}
+
+.context-bar[hidden],
+.context-bar [hidden] {
+    display: none !important;
+}
+
+.cb-group {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+}
+
+.cb-label {
+    font-size: 10.5px;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+}
+
+.cb-value {
+    font-weight: 600;
+    color: var(--text);
+    max-width: 420px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.cb-meta {
+    color: var(--text-muted);
+    white-space: nowrap;
+}
+
+.cb-btn {
+    font: inherit;
+    font-size: 12.5px;
+    font-weight: 600;
+    padding: 4px 10px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: transparent;
+    color: var(--accent);
+    cursor: pointer;
+}
+
+.cb-btn:hover {
+    background: var(--surface-hover);
+    border-color: var(--border-hover);
+}
+
+.cb-btn.cb-quiet {
+    color: var(--text-muted);
 }
 
 .tool-host {

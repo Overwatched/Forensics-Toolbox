@@ -140,3 +140,25 @@ test('innehållsförteckningen läses från disk en gång och sedan ur minnet', 
     assert.strictEqual(tooBig.read, counting, 'över gränsen används disken som förut');
     assert.strictEqual(tooBig.entries, 3);
 });
+
+test('alla tider i zippen: UT med tre tider, UT i den lokala posten, och NTFS före UT', async () => {
+    const M = 1759303248, A = 1759303300, C = 1759300000;
+    const buf = buildZip([
+        { name: 'cellebrite.jpg', data: 'a', ut: { m: M, a: A, c: C } },
+        { name: 'infozip.jpg', data: 'b', utLocal: { m: M, a: A, c: C } },
+        { name: 'ntfs.jpg', data: 'c', ntfs: { m: M + 0.25, a: A, c: C }, mtime: M - 3600 },
+        { name: 'bara-dos.jpg', data: 'd' },
+    ]);
+    const read = reader(buf);
+    const e = Object.fromEntries((await zip.scan(read, buf.length, () => true)).entries.map((x) => [x.name, x]));
+    assert.deepStrictEqual([e['cellebrite.jpg'].mtime, e['cellebrite.jpg'].atime, e['cellebrite.jpg'].crtime, e['cellebrite.jpg'].timeField], [M, A, C, 'UT']);
+    // Info-ZIP: innehållsförteckningen har bara ändringen; resten kommer ur den lokala posten när posten läses.
+    assert.deepStrictEqual([e['infozip.jpg'].mtime, e['infozip.jpg'].atime, e['infozip.jpg'].crtime], [M, null, null]);
+    await zip.extract(read, e['infozip.jpg']);
+    assert.deepStrictEqual([e['infozip.jpg'].mtime, e['infozip.jpg'].atime, e['infozip.jpg'].crtime], [M, A, C]);
+    // NTFS går före UT och har delar av sekunder.
+    assert.strictEqual(e['ntfs.jpg'].timeField, 'NTFS');
+    assert.ok(Math.abs(e['ntfs.jpg'].mtime - (M + 0.25)) < 1e-3, 'ändringstiden ur NTFS, inte UT');
+    assert.ok(Math.abs(e['ntfs.jpg'].crtime - C) < 1e-3);
+    assert.deepStrictEqual([e['bara-dos.jpg'].mtime, e['bara-dos.jpg'].timeField, e['bara-dos.jpg'].dosTime], [null, '', '2024-09-27 13:25:36']);
+});

@@ -108,8 +108,8 @@ test('skärmdump: kameran inte tillämplig, appen på skärmen är upplysningen'
 test('EXIF i filen skiljer sig från databasen: motsägelse i skapandetiden', () => {
     const m = core.build(input({ exif: { read: true, takenMs: T - 3 * 3600 * S, takenText: '2025-09-24 11:31:09 +02:00', make: 'Samsung', model: 'SM-G991B' } }));
     assert.strictEqual(states(m).time, 'contradiction');
-    assert.ok(m.factors[0].items.some((i) => /EXIF-tiden i själva filen .* skiljer sig 3 h 0 min/.test(i.text)));
-    assert.ok(m.factors[0].items.some((i) => /Make\/Model i filen \(Samsung SM-G991B\) skiljer sig/.test(i.text)));
+    assert.ok(m.factors[0].items.some((i) => /^Tiden i själva bildfilen \(EXIF\) är 2025-09-24 11:31:09 \+02:00: 3 h 0 min före Skapad\./.test(i.text)));
+    assert.ok(m.factors[0].items.some((i) => /^Kameramodellen i bildfilen \(Make\/Model Samsung SM-G991B\) är inte densamma/.test(i.text)));
 });
 
 test('mottagen bild: två fönster, och alternativet "mottagen" får stöd', () => {
@@ -233,9 +233,11 @@ test('Tillagd före Skapad sägs som före, inte efter', () => {
     const m = core.build(input({ file: cameraFile({ addedMs: T - 2 * 3600 * S, modifiedMs: T - 2 * 3600 * S }) }));
     const item = m.factors[0].items[0];
     assert.strictEqual(item.state, 'info');
-    assert.match(item.text, /^Tillagd i biblioteket 2 h 0 min före Skapad\. Skapad ligger efter tiden då filen lades till\./);
+    assert.match(item.text, /^Skapad 12:31:09, tillagd i biblioteket 10:31:09: 2 h 0 min före\. Filen lades alltså till innan den skapades\./);
     const close = core.build(input({ file: cameraFile({ addedMs: T - 20 * S }) }));
-    assert.match(close.factors[0].items[0].text, /^Tillagd i biblioteket 20 s före Skapad\. Filen hamnade/);
+    assert.match(close.factors[0].items[0].text, /^Skapad 12:31:09, tillagd i biblioteket 12:30:49: 20 s före\. Filen kom till biblioteket när den skapades\./);
+    const same = core.build(input()).factors[0];
+    assert.match(same.items[0].text, /: samma sekund\. Filen kom till biblioteket när den skapades\./);
 });
 
 test('ett hopslaget intervall med öppet slut är fortfarande öppet, och får ingen påhittad sluttid', () => {
@@ -257,4 +259,17 @@ test('en databas som inte gick att läsa sägs som oläst, inte som saknad', () 
     assert.match(m.factors[1].items[0].text, /^knowledgeC kunde inte läsas/);
     assert.match(m.factors[3].items[0].text, /^knowledgeC kunde inte läsas/);
     assert.match(m.factors[4].items.map((i) => i.text).join(' '), /routined Cache\.sqlite kunde inte läsas/);
+});
+
+test('filsystemets skapandetid enligt zippen jämförs med Skapad, men motsäger inget', () => {
+    const same = core.build(input({ fileEntry: { name: 'x', size: 1, mtimeMs: T + 1000, createdMs: T, timeField: 'NTFS-fältet' } }));
+    const item = same.factors[0].items.find((i) => /skapandetid i filsystemet/.test(i.text));
+    assert.strictEqual(item.state, 'support');
+    assert.match(item.text, /^Filens skapandetid i filsystemet \(enligt zippens NTFS-fältet\) är 12:31:09: samma sekund som Skapad\.$/);
+    const later = core.build(input({ fileEntry: { name: 'x', size: 1, mtimeMs: T, createdMs: T + 3 * 86400 * S, timeField: 'UT-fältet' } }));
+    const late = later.factors[0].items.find((i) => /skapandetid i filsystemet/.test(i.text));
+    assert.strictEqual(late.state, 'info');
+    assert.match(late.text, /3 d|72 h/);
+    assert.match(late.text, /kopieras, tas emot eller återställs/);
+    assert.notStrictEqual(later.factors[0].state, 'contradiction');
 });

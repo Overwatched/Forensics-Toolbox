@@ -61,7 +61,47 @@
             pad(time >> 11) + ':' + pad((time >> 5) & 63) + ':' + pad((time & 31) * 2);
     }
 
-    // Extrafälten: 0x0001 (Zip64-storlekar och offset) och 0x5455 (unixtid för ändring).
+    // Windows FILETIME (100 ns sedan 1601-01-01 UTC) -> Unix-sekunder med decimaler. 0 = saknas.
+    function filetime(b, at) {
+        var v = u32(b, at) + u32(b, at + 4) * 0x100000000;
+        return v ? v / 1e7 - 11644473600 : null;
+    }
+
+    // Tiderna i ett extrafält: 0x5455 (UT, Unix-sekunder: ändring, och i vissa zippar åtkomst och
+    // skapande, enligt flaggorna) och 0x000A (NTFS: ändring, åtkomst och skapande i UTC med 100 ns).
+    // Returnerar { m, a, c, field } eller null.
+    function readTimes(b, id, body, len) {
+        var end = body + len;
+        if (id === 0x5455 && len >= 1) {
+            var fl = b[body], q = body + 1, t = { m: null, a: null, c: null, field: 'UT' };
+            if ((fl & 1) && q + 4 <= end) { t.m = u32(b, q) || null; q += 4; }
+            if ((fl & 2) && q + 4 <= end) { t.a = u32(b, q) || null; q += 4; }
+            if ((fl & 4) && q + 4 <= end) { t.c = u32(b, q) || null; q += 4; }
+            return t;
+        }
+        if (id === 0x000a && len >= 4) {
+            // Fyra reserverade byte, sedan attribut; attribut 1 (24 byte) har ändring, åtkomst och skapande.
+            for (var r = body + 4; r + 4 <= end; r += 4 + u16(b, r + 2)) {
+                if (u16(b, r) === 1 && u16(b, r + 2) >= 24 && r + 28 <= end) {
+                    return { m: filetime(b, r + 4), a: filetime(b, r + 12), c: filetime(b, r + 20), field: 'NTFS' };
+                }
+            }
+        }
+        return null;
+    }
+
+    // NTFS går före UT, eftersom tiderna är exaktare. only: bara tider som saknas fylls i (den lokala
+    // posten kan ha fler UT-tider än innehållsförteckningen).
+    function setTimes(e, t, only) {
+        if (!t) return;
+        if (!only && e.timeField === 'NTFS' && t.field === 'UT') return;
+        if (t.m && !(only && e.mtime)) e.mtime = t.m;
+        if (t.a && !(only && e.atime)) e.atime = t.a;
+        if (t.c && !(only && e.crtime)) e.crtime = t.c;
+        if (!e.timeField || t.field === 'NTFS') e.timeField = t.field;
+    }
+
+    // Extrafälten: 0x0001 (Zip64-storlekar och offset) och tiderna (UT och NTFS).
     function readExtra(b, start, end, e) {
         var at = start;
         while (at + 4 <= end) {
@@ -74,10 +114,22 @@
                 if (e.size === 0xffffffff && p + 8 <= body + len) { e.size = u64(b, p); p += 8; }
                 if (e.compSize === 0xffffffff && p + 8 <= body + len) { e.compSize = u64(b, p); p += 8; }
                 if (e.localOffset === 0xffffffff && p + 8 <= body + len) { e.localOffset = u64(b, p); p += 8; }
-            } else if (id === 0x5455 && len >= 5 && (b[body] & 1)) {
-                e.mtime = u32(b, body + 1);
+            } else {
+                setTimes(e, readTimes(b, id, body, len));
             }
             at = body + len;
+        }
+    }
+
+    // Tiderna i den lokala postens extrafält: Info-ZIP skriver bara ändringstiden i
+    // innehållsförteckningen och åtkomst och skapande i den lokala posten.
+    function readLocalTimes(b, e) {
+        var at = 0;
+        while (at + 4 <= b.length) {
+            var len = u16(b, at + 2);
+            if (at + 4 + len > b.length) break;
+            setTimes(e, readTimes(b, u16(b, at), at + 4, len), true);
+            at += 4 + len;
         }
     }
 
@@ -115,7 +167,7 @@
                         compSize: u32(buf, at + 20),
                         size: u32(buf, at + 24),
                         localOffset: u32(buf, at + 42),
-                        mtime: null,
+                        mtime: null, atime: null, crtime: null, timeField: '',
                     };
                     readExtra(buf, at + 46 + nameLen, at + 46 + nameLen + extraLen, e);
                     kept.push(e);
@@ -200,6 +252,10 @@
         var local = await read(entry.localOffset, 30);
         if (u32(local, 0) !== SIG_LOCAL) throw new Error('Den lokala posten för ' + entry.name + ' är trasig.');
         var start = entry.localOffset + 30 + u16(local, 26) + u16(local, 28);
+        // Saknas åtkomst- eller skapandetid i innehållsförteckningen kan den lokala posten ha dem.
+        if (u16(local, 28) && entry.timeField !== 'NTFS' && (!entry.atime || !entry.crtime)) {
+            readLocalTimes(await read(entry.localOffset + 30 + u16(local, 26), u16(local, 28)), entry);
+        }
         var raw = await read(start, entry.compSize);
         var bytes = entry.method === 8 ? await (opts.inflate || inflateRaw)(raw) : raw;
         if (bytes.length !== entry.size) throw new Error(entry.name + ' har fel storlek efter uppackning.');

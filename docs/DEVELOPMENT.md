@@ -127,6 +127,18 @@ npm test
   zippen, och bytet erbjuds i flikens notis; startsidan och nya flikar följer. Öppningarna i Queries
   görs i tur och ordning (`serial()` i `extraction.js`), så att läget och en query från Härkomst inte
   läser samma zip två gånger.
+- Raden högst upp (`#context-bar` i `Toolbox.html`) visas i Härkomst, Queries och EXIF & karta
+  (`CONTEXT_TOOLS`). Där öppnas, byts och stängs extraktionen; ändringen skickas med `force` till verktyget
+  som visas, som då byter även om det visar något. Inne i huvudfönstret döljer verktygen sina egna knappar
+  för att öppna och stänga (`body.in-hub .standalone-only`). Verktygen rapporterar
+  `{ type: 'extraction-info', file, info: { device } }` (iOS 26.0, Android 13) och
+  `{ type: 'current-file', name, path, place }` (filen som visas, `name: null` när den inte visas längre).
+- Mellan verktygen: raden ber verktyget som har filen om den (`{ type: 'deliver-file', to }`), verktyget
+  svarar `{ type: 'file-for', to, files: [{ file, path }] }`, och huvudfönstret öppnar målet och skickar
+  `exif-files` (EXIF & karta läser filerna som från disk och öppnar en ensam fil) eller `provenance-files`
+  (Härkomst letar upp samma innehåll i extraktionen). Härkomst läser filen ur zippen först när den behövs
+  (`entriesAsFiles()`, högst 1 GB åt gången). Queries skickar filnamnen i ett resultat med `ZFILENAME`,
+  `_display_name` eller `filename` som `{ type: 'names-for', to: 'provenance', names, zipName }`.
 
 ### Queries: flikar och SQL från Härkomst (`tools/db-queries/`)
 
@@ -150,7 +162,9 @@ i extraktionen med `-wal` pålagd, och bygger en händelselista i UTC.
 
 - `roles.js` samlar rollerna per källa och Photos-band och fyller i platshållarna med tal.
 - `timeline-core.js` avgör typ av fil (kamerabild, skärmdump, sparad ur app), bedömer
-  skapandetid, app igång, kamera igång och skärm som stöd, motsägelse eller saknas, och har
+  skapandetid, app igång, kamera igång och skärm som förenligt, inte förenligt eller saknas (`STATE_LABEL`),
+  ger varje faktor dess fråga och svar i klartext (`FACTOR_WORDS`, `describeFactor()`: `question`, `verdict`,
+  `meaning` mot `hypothesis()`), och har
   förklaringens ordförråd. Allt testas i Node.
 - `timeline-svg.js` ritar tidslinjen med en rad per jämförelse (Fil, App, Kamera, Skärm, Lås,
   Position, Snapchat): översikten över hela fönstret med närbildens ruta (`opts.zoom`) och
@@ -173,6 +187,12 @@ i extraktionen med `-wal` pålagd, och bygger en händelselista i UTC.
   `{ type: 'open-query', file, path, sql, queryId, timeColumns }` till huvudfönstret
   (`src/script.js`), som öppnar Queries och skickar vidare. Filen (File-objektet för zippen) går
   med i `postMessage`; Queries öppnar den bara om den inte redan är öppen (namn, storlek, ändringstid).
+- Zippens tider (`zip.js`): UT-fältet 0x5455 (Unix-sekunder; ändring, och åtkomst och skapande när
+  flaggorna säger det, som i Cellebrites FFS-zippar) och NTFS-fältet 0x000A (FILETIME; ändring, åtkomst
+  och skapande, som i Arkiv-zippen), som går före UT. Info-ZIP skriver bara ändringen i
+  innehållsförteckningen; åtkomst och skapande läses ur den lokala posten när posten läses (`extract`).
+  Posten får `mtime`, `atime`, `crtime` (Unix-sekunder) och `timeField`; `ExtractionCore.entryTimes()` ger
+  dem som text. Utan något av fälten finns bara DOS-tiden (lokal tid, zon okänd).
 - Extraktionen läses med `tools/db-queries/extraction-core.js`, som Queries också använder. Bara
   läsning: testet i `zip.test.js` grep:ar alla filer i `tools/provenance/` efter skrivande API:er.
   Härkomst läser zippens innehållsförteckning en gång per öppnad zip (`ZipRead.cacheDirectory`)

@@ -4,8 +4,34 @@
 const zlib = require('node:zlib');
 const zip = require('../zip');
 
-// files: [{ name, data, deflate, mtime }]. zip64: alla storlekar och offset i Zip64-fält,
-// och slutet med Zip64-post och locator, som de stora extraktionerna har.
+// files: [{ name, data, deflate, mtime, ut, utLocal, ntfs }]. zip64: alla storlekar och offset i
+// Zip64-fält, och slutet med Zip64-post och locator, som de stora extraktionerna har.
+// ut: { m, a, c } i innehållsförteckningens UT-fält (som Cellebrite); utLocal: samma men bara m i
+// innehållsförteckningen och alla tre i den lokala posten (som Info-ZIP); ntfs: { m, a, c } i
+// NTFS-fältet (Unix-sekunder, skrivs som FILETIME).
+// UT-fältet: flaggorna säger vilka tider den lokala posten har; all = false skriver bara ändringen.
+function utField(t, all) {
+    const vals = [t.m, t.a, t.c];
+    const flags = vals.reduce((f, v, i) => (v ? f | (1 << i) : f), 0);
+    const written = all ? vals.filter(Boolean) : [t.m];
+    const b = Buffer.alloc(5 + written.length * 4);
+    b.writeUInt16LE(0x5455, 0);
+    b.writeUInt16LE(1 + written.length * 4, 2);
+    b[4] = flags;
+    written.forEach((v, i) => b.writeUInt32LE(v, 5 + i * 4));
+    return b;
+}
+
+function ntfsField(t) {
+    const b = Buffer.alloc(4 + 4 + 4 + 24);
+    b.writeUInt16LE(0x000a, 0);
+    b.writeUInt16LE(32, 2);
+    b.writeUInt16LE(1, 8);
+    b.writeUInt16LE(24, 10);
+    [t.m, t.a, t.c].forEach((v, i) => b.writeBigUInt64LE(BigInt(Math.round((v + 11644473600) * 1e7)), 12 + i * 8));
+    return b;
+}
+
 function buildZip(files, opts) {
     opts = opts || {};
     const parts = [];
@@ -28,7 +54,7 @@ function buildZip(files, opts) {
         local.writeUInt16LE(name.length, 26);
         // Ett extrafält i den lokala posten som inte finns i innehållsförteckningen: datan
         // måste räknas från den lokala postens längder.
-        const localExtra = Buffer.from([0x99, 0x99, 4, 0, 1, 2, 3, 4]);
+        const localExtra = Buffer.concat([Buffer.from([0x99, 0x99, 4, 0, 1, 2, 3, 4])].concat(f.utLocal ? [utField(f.utLocal, true)] : []));
         local.writeUInt16LE(localExtra.length, 28);
         parts.push(local, name, localExtra, body);
 
@@ -50,6 +76,9 @@ function buildZip(files, opts) {
             ut.writeUInt32LE(f.mtime, 5);
             extras.push(ut);
         }
+        if (f.ut) extras.push(utField(f.ut, true));
+        if (f.utLocal) extras.push(utField(f.utLocal, false));
+        if (f.ntfs) extras.push(ntfsField(f.ntfs));
         const extra = Buffer.concat(extras);
         const c = Buffer.alloc(46);
         c.writeUInt32LE(0x02014b50, 0);

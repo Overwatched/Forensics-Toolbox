@@ -13,7 +13,15 @@
     var runButton = $('run-button');
     var csvButton = $('run-csv');
     var mapButton = $('run-map');
+    var provButton = $('run-provenance');
     var status = $('run-status');
+    // Kolumnerna med filnamn i Photos.sqlite och MediaStore: de kan bedömas i Härkomst.
+    var NAME_COLUMN = /^(ZFILENAME|_display_name|filename)$/i;
+    var MAX_NAMES = 400;
+    function nameColumn(columns) {
+        for (var i = 0; i < columns.length; i++) if (NAME_COLUMN.test(String(columns[i]))) return i;
+        return -1;
+    }
     var result = $('run-result');
 
     var files = { db: null, wal: null };
@@ -68,6 +76,7 @@
         last = null;
         csvButton.disabled = true;
         mapButton.disabled = true;
+        provButton.disabled = true;
         setResult('');
     }
 
@@ -207,6 +216,7 @@
             csvButton.disabled = !res.columns.length;
             var geo = MapImport.guessColumns(res.columns.map(String));
             mapButton.disabled = !(count && geo.lat >= 0 && geo.lon >= 0);
+            provButton.disabled = !(count && nameColumn(res.columns) >= 0);
         } catch (err) {
             status.innerHTML = '<span class="run-warn">' + escapeHtml(err && err.message ? err.message : String(err)) + '</span>';
         } finally {
@@ -266,6 +276,25 @@
         status.textContent = text;
     });
 
+    // Filnamnen i resultatet till Härkomst, som bedömer dem i en lista. Zippens namn följer med, så att
+    // Härkomst kan säga till om den har en annan zip öppen.
+    provButton.addEventListener('click', function () {
+        if (!last) return;
+        var i = nameColumn(last.columns);
+        if (i < 0) return;
+        var seen = {};
+        var names = [];
+        last.rows.forEach(function (r) {
+            var v = r[i];
+            if (v == null || v === '' || seen[v]) return;
+            seen[v] = true;
+            names.push(String(v));
+        });
+        if (!names.length) { status.textContent = 'Resultatet har inga filnamn.'; return; }
+        window.parent.postMessage({ source: 'forensics-toolbox', type: 'names-for', to: 'provenance', names: names.slice(0, MAX_NAMES), zipName: files.zip || '' }, '*');
+        status.textContent = (names.length > MAX_NAMES ? 'De första ' + MAX_NAMES + ' av ' + names.length : names.length) + (names.length === 1 ? ' filnamn skickades' : ' filnamn skickades') + ' till Härkomst.';
+    });
+
     // Extraktion: databasen och -wal kommer ur en zip. Anropas efter att rätt databas valts,
     // eftersom bytet av databas tömmer rutan.
     function useSources(src) {
@@ -283,7 +312,7 @@
     function snapshot() {
         return {
             files: files, noWal: noWal.checked, opened: opened, last: last,
-            statusHtml: status.innerHTML, resultHtml: result.innerHTML, csv: !csvButton.disabled, map: !mapButton.disabled,
+            statusHtml: status.innerHTML, resultHtml: result.innerHTML, csv: !csvButton.disabled, map: !mapButton.disabled, prov: !provButton.disabled,
         };
     }
 
@@ -297,6 +326,7 @@
         setResult(s.resultHtml || '');
         csvButton.disabled = !s.csv;
         mapButton.disabled = !s.map;
+        provButton.disabled = !s.prov;
         updateState();
     }
 

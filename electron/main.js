@@ -180,6 +180,9 @@ app.whenReady().then(() => {
     ipcMain.handle('media-revoke', function (event, filePath) {
         return fromAppPage(event) ? media.revoke(filePath) : false;
     });
+    ipcMain.handle('media-times', function (event, filePath) {
+        return fromAppPage(event) ? media.times(filePath) : null;
+    });
     maps.stripIdentifyingHeaders(session.defaultSession);
 
     buildMenu();

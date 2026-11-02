@@ -1,5 +1,17 @@
 Automatiskt byggd från commit `{{SHA}}`.
 
+## Nytt i 1.35
+
+- **Raden högst upp.** I Härkomst, Queries och EXIF & karta visar en rad högst upp extraktionen (namn, storlek, iOS- eller Android-version) med **Öppna**, **Byt** och **Stäng**, och filen du tittar på. Inne i appen öppnas och stängs extraktionen där; Härkomst och Queries har inte längre egna knappar för det. Ett byte i raden gäller alltid vyn du står i.
+- **Vandra mellan vyerna med filen.** **Visa i EXIF & karta** läser filen ur zippen och visar alla EXIF-taggar och positionen. Från Härkomsts lista går alla filerna dit med **Visa listan i EXIF & karta**. **Bedöm i Härkomst** letar upp en fil från EXIF & karta i extraktionen och bedömer den. I Queries bedömer **Bedöm filerna i Härkomst** filnamnen i resultatet (`ZFILENAME`, `_display_name`) som en lista.
+- **Faktorerna säger vad de prövar.** Varje faktor har en fråga, till exempel "Stämmer filens egna tider med varandra?", ett svar i klartext ("Tiderna stämmer", "Kameran användes") och vad svaret betyder för hypotesen. Lägena heter **Förenligt**, **Inte förenligt**, **Saknas** och **Upplysning** i stället för stöd och motsägelse, på korten, i tidslinjen, i protokollet och i listan.
+- **Tiderna i Skapandetid skrivs ut.** "Skapad 00:49:54, tillagd i biblioteket 00:49:55: 1 s efter", "Tiden i själva bildfilen (EXIF) är …: samma sekund som Skapad" och "Kameramodellen i bildfilen … är densamma som i databasen" i stället för förkortade jämförelser.
+- **Alla tider i zippen.** Zippens tider läses ur både UT-fältet (ändrad, och i Cellebrites zippar också senast läst och skapad) och NTFS-fältet (ändrad, senast läst och skapad i UTC, som vissa extraktionsverktyg skriver i stället för UT-fältet). Förut lästes bara ändringstiden, och utan UT-fält bara DOS-tiden utan zon. Filkortet, protokollet och "Var finns filen?" visar tiderna med vilket fält de kommer ur, och Skapandetid jämför filsystemets skapandetid med Skapad.
+- **Filsystemets tider i EXIF & karta.** En fil från disk visar skapad, ändrad, senast läst och ändrad metadata. Tiderna läses innan filen läses in, så att åtkomsttiden är den från när filen valdes. Tiderna följer med i JSON-exporten.
+- **Komma i filnamnsrutan.** Rubriken och exemplet visar att flera filnamn kan skrivas med komma emellan.
+- **Rättat: MediaStore-rader utan tid.** En rad helt utan tid stoppade bedömningen med "no such column: Infinity". Nu bedöms den med en varning.
+- Provkört i appen mot labbzippen (Android 13), en iOS 26-extraktion och en Cellebrite-extraktion (iOS 18.5). Zipparna läses bara.
+
 ## Nytt i 1.34
 
 - **Flera filer på en gång.** Klistra in filnamn i Härkomst, ett per rad, välj flera filer från disk, eller tryck **Bedöm alla** efter en sökning på tid. Varje fil bedöms med samma kod som en ensam fil och får en rad i listan: tumnagel, fil och plats, T, typ, faktorerna som färgade prickar och om undersökaren har bedömt filen. Ett klick öppnar den vanliga vyn med **Föregående**, **Nästa** och **Tillbaka till listan**. Zippen och databaserna är redan inlästa, så det går fort: 28 filer i en iOS 26-extraktion tog 4,5 s.

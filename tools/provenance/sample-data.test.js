@@ -38,7 +38,7 @@ test('testdatat ger en kamerabild med stöd på alla faktorer', () => {
     assert.deepStrictEqual(Object.fromEntries(m.factors.map((f) => [f.id, f.state])), { time: 'support', app: 'support', camera: 'support', screen: 'support', position: 'support' });
     assert.deepStrictEqual(m.positions.map((q) => q.kind), ['file', 'exif', 'phone', 'phone', 'phone', 'phone', 'phone']);
     assert.strictEqual(m.windows.length, 1);
-    assert.match(m.summary, /förenligt .* Alla kontrollerade faktorer ger stöd/);
+    assert.match(m.summary, /förenligt .* Alla faktorer som gick att bedöma är förenliga med det/);
 });
 
 test('förklaringen berättar Snapchat-historien i ordning', () => {
@@ -87,7 +87,7 @@ test('Snapchat-testdatat är en inspelning utanför biblioteket med stöd på al
     assert.strictEqual(m.factors.find((f) => f.id === 'camera').title, 'Snapchats kamera');
     assert.strictEqual(m.factors.find((f) => f.id === 'app').title, 'Snapchat igång');
     assert.match(m.factors.find((f) => f.id === 'position').plain, /^Filen saknar positionsuppgift/);
-    assert.match(m.summary, /förenligt med att filen skapades med Snapchat på den här telefonen\. Alla kontrollerade faktorer ger stöd/);
+    assert.match(m.summary, /förenligt med att filen skapades med Snapchat på den här telefonen\. Alla faktorer som gick att bedöma är förenliga med det/);
     assert.strictEqual(m.windows.length, 1);
     assert.strictEqual(m.beta, true);
     assert.deepStrictEqual(m.copies.map((c) => c.area), ['snapchat', 'snapchat']);

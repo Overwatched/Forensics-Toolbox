@@ -96,6 +96,22 @@ async function allow(filePath) {
     return true;
 }
 
+// Filsystemets tider för en fil som undersökaren valt: skapad (birthtime, där filsystemet har den),
+// ändrad, senast läst och ändrad metadata (ctime). stat läser inget innehåll och ändrar inga tider.
+async function times(filePath) {
+    if (!filePath || typeof filePath !== 'string') return null;
+    try {
+        const st = await fs.promises.stat(await fs.promises.realpath(filePath));
+        if (!st.isFile()) return null;
+        return {
+            createdMs: st.birthtimeMs > 0 ? st.birthtimeMs : null,
+            modifiedMs: st.mtimeMs, accessedMs: st.atimeMs, changedMs: st.ctimeMs,
+        };
+    } catch (err) {
+        return null;
+    }
+}
+
 async function revoke(filePath) {
     try {
         const real = await fs.promises.realpath(filePath);
@@ -155,4 +171,5 @@ module.exports = {
     readRange: readRange,
     mediaRequestHandler: mediaRequestHandler,
     handleMediaProtocol: handleMediaProtocol,
+    times: times,
 };

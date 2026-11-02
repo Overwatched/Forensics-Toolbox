@@ -6,7 +6,10 @@
     'use strict';
 
     var $ = function (id) { return document.getElementById(id); };
+    // Inne i Forensics Toolbox öppnas extraktionen i raden högst upp, och vissa knappar finns bara där.
+    if (window.parent !== window) document.body.classList.add('in-hub');
     var MAX_MEDIA = 200 * 1024 * 1024;
+    var MAX_HANDOVER = 1024 * 1024 * 1024;   // högst så mycket läses ur zippen åt EXIF & karta på en gång
     var MAX_PREVIEW = 24 * 1024 * 1024;   // originalet visas direkt upp till så här stort, annars telefonens tumnagel
     var MAX_THUMB = 4 * 1024 * 1024;      // större "tumnaglar" läses inte
     var MAX_ROW_THUMB = 8 * 1024 * 1024;  // originalbilder som får bli tumnagel i vallistan
@@ -144,8 +147,16 @@
             : '<p class="muted">Ingen av databaserna hittades i zippen.</p>';
     }
 
+    // Filer och filnamn från andra verktyg väntar på att en pågående öppning blir klar.
+    var zipReady = Promise.resolve();
+    function openZip(file, opts) {
+        var p = openZipNow(file, opts);
+        zipReady = p.catch(function () {});
+        return p;
+    }
+
     // opts.from: verktyget där zippen öppnades, när Härkomst följer extraktionen dit.
-    async function openZip(file, opts) {
+    async function openZipNow(file, opts) {
         opts = opts || {};
         closeZip();
         setStatus('ex-status', 'Läser zippens innehållsförteckning…');
@@ -193,10 +204,12 @@
         $('file-box').classList.toggle('display-none', !platform);
         fillZoneSelect(null);
         if (platform) $('filename').focus();
+        toHub({ type: 'extraction-info', file: file, info: { device: opened.version ? 'iOS ' + opened.version : state.zip.androidVersion ? 'Android ' + state.zip.androidVersion : platform || '' } });
     }
 
     function closeZip() {
         saveExaminer();
+        if (state.zip) toHub({ type: 'current-file', name: null });
         Object.keys(state.loaded).forEach(function (k) { if (state.loaded[k].sqlDb) state.loaded[k].sqlDb.close(); });
         state.loaded = {};
         state.zip = null;
@@ -226,6 +239,11 @@
     var shared = { seq: 0, pending: null };
 
     function sameZipFile(a, b) { return !!a && !!b && a.name === b.name && a.size === b.size && a.lastModified === b.lastModified; }
+
+    function toHub(msg) {
+        if (window.parent === window) return;
+        window.parent.postMessage(Object.assign({ source: 'forensics-toolbox' }, msg), '*');
+    }
 
     // Undersökaren öppnade eller stängde en zip här: huvudfönstret och de andra verktygen får veta det.
     function announceExtraction() {
@@ -266,9 +284,90 @@
         hideFollowOffer();
         var cur = state.zip ? state.zip.file : null;
         if (msg.file ? sameZipFile(cur, msg.file) : !cur) return;
-        if (showingWork()) { offerFollow(msg); return; }
+        if (showingWork() && !msg.force) { offerFollow(msg); return; }
         if (msg.file) openZip(msg.file, { from: msg.from }).catch(zipFailed);
         else closeZip();
+    }
+
+    // ---------- Mellan verktygen ----------
+
+    // Filen som visas, till raden högst upp: namn, sökväg och plats. Testdata och filer som inte
+    // lästes ur zippen har ingen fil att visa någon annanstans.
+    function announceFile() {
+        var m = state.model, meta = state.meta;
+        if (!state.zip || !m || !meta || !meta.mediaEntry) { toHub({ type: 'current-file', name: null }); return; }
+        toHub({ type: 'current-file', name: m.file.filename, path: meta.mediaEntry.name, place: ProvenanceCopies.classifyPath(meta.mediaEntry.name, placeOpts()).label });
+    }
+
+    // Poster ur zippen som filer åt EXIF & karta: varje fil högst MAX_MEDIA och sammanlagt högst
+    // MAX_HANDOVER. Sökvägen säger vilken zip och vilken post filen kommer från.
+    async function entriesAsFiles(entries) {
+        var z = state.zip;
+        var out = [], total = 0, skipped = 0;
+        for (var i = 0; i < entries.length; i++) {
+            var e = entries[i];
+            if (e.size > MAX_MEDIA || total + e.size > MAX_HANDOVER) { skipped++; continue; }
+            if (entries.length > 1) progress('Läser ' + (i + 1) + ' av ' + entries.length + ' ur zippen…');
+            var r = await ExtractionCore.readEntry(z.read, e);
+            total += e.size;
+            var t = ProvenanceMedia.entryMs(e, searchZone());
+            var zt = ExtractionCore.entryTimes(e);
+            out.push({ file: new File([r.bytes], ExtractionCore.baseName(e.name), t && t.ms ? { lastModified: t.ms } : {}), path: z.file.name + ' › ' + e.name,
+                times: { modified: zt.modified, created: zt.created, accessed: zt.accessed, field: zt.field } });
+        }
+        return { files: out, skipped: skipped };
+    }
+
+    // Huvudfönstret ber om filen som visas, för att visa den i EXIF & karta.
+    async function handOver(to) {
+        var meta = state.meta;
+        if (to !== 'exif' || !state.zip || !meta || !meta.mediaEntry) return;
+        var got = await entriesAsFiles([meta.mediaEntry]);
+        if (!got.files.length) { showToast('Filen är för stor för att visas i EXIF & karta'); return; }
+        toHub({ type: 'file-for', to: 'exif', files: got.files });
+    }
+
+    // Listan i EXIF & karta: filerna som lästes ur zippen, med alla taggar och positionerna på kartan.
+    async function batchToExif() {
+        var b = state.batch, z = state.zip;
+        if (!b || !z || isBusy()) return;
+        var wanted = {};
+        b.rows.forEach(function (r) { if (r.status === 'done' && r.summary && r.summary.path) wanted[r.summary.path] = true; });
+        if (!Object.keys(wanted).length) { setStatus('run-status', 'Ingen fil i listan lästes ur zippen.', 'warn'); return; }
+        busy(true);
+        try {
+            var entries = await ExtractionCore.find(z.read, z.file.size, function (name) { return wanted[name] === true; });
+            var got = await entriesAsFiles(entries);
+            setStatus('run-status', got.files.length + (got.files.length === 1 ? ' fil skickades' : ' filer skickades') + ' till EXIF & karta.' + (got.skipped ? ' ' + got.skipped + ' var för stora och hoppades över.' : ''));
+            if (got.files.length) toHub({ type: 'file-for', to: 'exif', files: got.files });
+        } finally { busy(false); }
+    }
+
+    // Filer från EXIF & karta: samma innehåll letas upp i extraktionen, som med Välj filer från disk.
+    function receiveFiles(list) {
+        zipReady.then(function () {
+            var files = (list || []).map(function (f) { return f && f.file; }).filter(Boolean);
+            if (!files.length) return;
+            if (!state.zip || !state.zip.platform) { setStatus('ex-status', 'Öppna en extraktion i raden högst upp, så letar Härkomst upp filen i den.', 'warn'); return; }
+            if (isBusy()) { setStatus('run-status', 'Vänta tills bedömningen är klar och försök igen.', 'warn'); return; }
+            if (files.length === 1) runDiskFile(files[0]);
+            else runBatch(files.map(function (f) { return { kind: 'disk', file: f }; }), 'disk').catch(batchFailed);
+        });
+    }
+
+    // Filnamn ur ett resultat i Queries. Kommer de från en annan zip än den som är öppen här körs de inte.
+    function receiveNames(names, zipName) {
+        zipReady.then(function () {
+            if (!state.zip || !state.zip.platform) { setStatus('ex-status', 'Öppna en extraktion i raden högst upp, så bedöms filerna i den.', 'warn'); return; }
+            if (isBusy()) { setStatus('run-status', 'Vänta tills bedömningen är klar och försök igen.', 'warn'); return; }
+            $('filename').value = names.join('\n');
+            fitNameBox();
+            if (zipName && zipName !== state.zip.file.name) {
+                setStatus('run-status', escapeHtml('Filnamnen kommer från en query mot ' + zipName + ', men Härkomst har ' + state.zip.file.name + ' öppen. Byt extraktion i raden högst upp, eller tryck Bedöm härkomst för att leta efter namnen här.'), 'warn');
+                return;
+            }
+            run();
+        });
     }
 
     function zipFailed(err) {
@@ -443,7 +542,7 @@
     // Medan en bedömning pågår går det inte att byta eller stänga zippen, fylla med testdata eller
     // starta en ny körning: annars kunde svar ur två extraktioner hamna i samma protokoll.
     var BUSY_IDS = ['run', 'run-time', 'ex-pick', 'ex-close', 'disk-pick', 'fill-sample', 'fill-sample-snap', 'fill-sample-android',
-        'batch-copy', 'batch-save', 'batch-back', 'batch-prev', 'batch-next'];
+        'batch-copy', 'batch-save', 'batch-exif', 'batch-back', 'batch-prev', 'batch-next'];
     var busyCount = 0;
     var redoPending = false;
     function busy(on) {
@@ -606,7 +705,8 @@
         var fmt = zone.format;
         var cams = cameraApps();
         var wins = ProvenanceCore.windows(fileRow, windowMs);
-        var range = { startMs: Math.min.apply(null, wins.map(function (w) { return w.startMs; })), endMs: Math.max.apply(null, wins.map(function (w) { return w.endMs; })) };
+        // Utan tidpunkt finns inga fönster, och inga registreringar läses kring filen.
+        var range = wins.length ? { startMs: Math.min.apply(null, wins.map(function (w) { return w.startMs; })), endMs: Math.max.apply(null, wins.map(function (w) { return w.endMs; })) } : null;
         var input = {
             platform: platform, file: fileRow, appNames: appName, cameraApps: cams, windowMs: windowMs, format: fmt,
             fileSource: run.fileSource || { db: run.fileLabel, table: platform === 'Android' ? 'files' : fileQuery.sql.indexOf('ZGENERICASSET') >= 0 ? 'ZGENERICASSET' : 'ZASSET', column: ProvenanceRoles.fieldSpec(fileQuery, 'created').col, queryId: fileQuery.id },
@@ -621,7 +721,7 @@
         // Grannar ur samma databas som filen, eller ur bildbiblioteket när filen ligger utanför det.
         var fileRoles = run.fileRoles || {};
         var nbRoles = run.neighbourRoles || fileRoles;
-        if (nbRoles.neighbours) {
+        if (nbRoles.neighbours && range) {
             input.neighbours = androidCreatedFallback(runRole(run.neighbourDb || run.fileDb, nbRoles.neighbours, { window: range }, ['created', 'added'], run).rows);
             input.neighbourSource = run.neighbourSource || { db: run.fileLabel, table: input.fileSource.table, column: ProvenanceRoles.fieldSpec(nbRoles.neighbours, 'created').col, queryId: nbRoles.neighbours.id };
         }
@@ -638,7 +738,9 @@
         }
 
         // App, skärm, lås: knowledgeC på iOS, Wellbeing på Android.
-        if (platform === 'iOS') {
+        if (!range) {
+            input.warnings.push('Filen har ingen tidpunkt i databasen, så inga registreringar kring den kunde läsas.');
+        } else if (platform === 'iOS') {
             var kc = hitFor('knowledgec');
             // En databas som inte går att läsa (annat schema, trasig fil) stoppar inte bedömningen:
             // faktorerna säger att den inte kunde läsas, och felet står bland varningarna.
@@ -737,8 +839,10 @@
 
         // Snapchats egna register (beta): cachade filer, meddelanden, konton, notiser och på Android
         // Memories och filhanterarens journal i fönstret.
-        try { await addSnapchat(input, meta, range, run); }
-        catch (e) { input.warnings.push('Snapchats register kunde inte läsas: ' + e.message); console.warn(e); }
+        if (range) {
+            try { await addSnapchat(input, meta, range, run); }
+            catch (e) { input.warnings.push('Snapchats register kunde inte läsas: ' + e.message); console.warn(e); }
+        }
 
         // Bildfilen: EXIF, CRC32, MD5, SHA-256, filsystemets tid och bilden till kortet.
         progress('Läser bildfilen ur zippen…');
@@ -750,8 +854,11 @@
             var media = run.mediaEntry ? { entry: run.mediaEntry, paired: null, reason: '' } : await findMedia(fileRow, platform);
             if (media.entry) {
                 var read = await readMedia(media.entry);
-                meta.fileEntry = { path: media.entry.name, size: media.entry.size, mtime: ExtractionCore.entryTime(media.entry), crc32: ExtractionCore.hex(media.entry.crc32), crcOk: read.crcOk, md5: read.md5 || '', sha256: read.sha256 || '' };
-                input.fileEntry = { name: media.entry.name, size: media.entry.size, mtimeMs: media.entry.mtime ? media.entry.mtime * 1000 : null };
+                // Tiderna efter läsningen: den lokala posten kan ha fler tider än innehållsförteckningen.
+                var times = ExtractionCore.entryTimes(media.entry);
+                meta.fileEntry = { path: media.entry.name, size: media.entry.size, mtime: times.modified, created: times.created, accessed: times.accessed, timeField: times.field, crc32: ExtractionCore.hex(media.entry.crc32), crcOk: read.crcOk, md5: read.md5 || '', sha256: read.sha256 || '' };
+                meta.mediaEntry = media.entry;
+                input.fileEntry = { name: media.entry.name, size: media.entry.size, mtimeMs: times.modifiedMs, createdMs: times.createdMs, timeField: times.field };
                 fileSha = read.sha256 || '';
                 if (read.bytes) {
                     progress('Läser EXIF ur bildfilen…');
@@ -1221,7 +1328,7 @@
             if (i < 10 && fileSha && e.size <= MAX_MEDIA) {
                 try { shaOk = (await ExtractionCore.sha256((await ExtractionCore.readEntry(z.read, e)).bytes)) === fileSha; } catch (err) { shaOk = null; }
             }
-            out.push({ name: e.name, size: e.size, crc32: ExtractionCore.hex(e.crc32), mtime: ExtractionCore.entryTime(e), mtimeMs: e.mtime ? e.mtime * 1000 : null, area: cls.area, label: cls.label, plain: cls.plain, shaOk: shaOk, entry: e });
+            out.push({ name: e.name, size: e.size, crc32: ExtractionCore.hex(e.crc32), mtime: ExtractionCore.entryTime(e), mtimeMs: e.mtime ? e.mtime * 1000 : null, created: ExtractionCore.entryTimes(e).created, area: cls.area, label: cls.label, plain: cls.plain, shaOk: shaOk, entry: e });
         }
         return out;
     }
@@ -1234,9 +1341,10 @@
             $('copies').innerHTML = '<p class="muted">' + escapeHtml(state.meta.copiesNote || 'Ingen annan post i zippen har samma storlek och CRC32 som filen.') + '</p>';
             return;
         }
-        $('copies').innerHTML = '<table><thead><tr><th>Sökväg i zippen</th><th>Plats</th><th>Storlek</th><th>Ändrad (enligt zippen)</th><th>CRC32</th><th>SHA-256</th></tr></thead><tbody>' +
+        var created = list.some(function (c) { return c.created; });
+        $('copies').innerHTML = '<table><thead><tr><th>Sökväg i zippen</th><th>Plats</th><th>Storlek</th><th>Ändrad (enligt zippen)</th>' + (created ? '<th>Skapad (enligt zippen)</th>' : '') + '<th>CRC32</th><th>SHA-256</th></tr></thead><tbody>' +
             list.map(function (c) {
-                return '<tr><td class="path">' + escapeHtml(c.name) + '</td><td>' + escapeHtml(c.label) + '</td><td>' + escapeHtml(ExtractionCore.sizeText(c.size)) + '</td><td>' + escapeHtml(c.mtime) + '</td><td class="path">' + escapeHtml(c.crc32) + '</td>' +
+                return '<tr><td class="path">' + escapeHtml(c.name) + '</td><td>' + escapeHtml(c.label) + '</td><td>' + escapeHtml(ExtractionCore.sizeText(c.size)) + '</td><td>' + escapeHtml(c.mtime) + '</td>' + (created ? '<td>' + escapeHtml(c.created || '') + '</td>' : '') + '<td class="path">' + escapeHtml(c.crc32) + '</td>' +
                     '<td>' + (c.shaOk === true ? '<span class="ok">samma som filen</span>' : c.shaOk === false ? '<span class="err">skiljer sig</span>' : '<span class="muted">inte kontrollerad</span>') + '</td></tr>';
             }).join('') + '</tbody></table>';
     }
@@ -1463,6 +1571,7 @@
         state.meta = meta;
         await render();
         noteBatchDetail(model, meta);
+        announceFile();
         return { model: model, meta: meta };
     }
 
@@ -1853,7 +1962,7 @@
         var cells = cols.map(function (c) {
             var f = s.factors[c[0]];
             if (!f) return '<td class="f-col"></td>';
-            return '<td class="f-col"><span class="dot ' + escapeHtml(f.state) + '" title="' + escapeHtml(f.title + ': ' + (ProvenanceCore.STATE_LABEL[f.state] || f.state)) + '"></span></td>';
+            return '<td class="f-col"><span class="dot ' + escapeHtml(f.state) + '" title="' + escapeHtml(f.title + ': ' + (f.verdict || ProvenanceCore.STATE_LABEL[f.state] || f.state)) + '"></span></td>';
         }).join('');
         var ex = ProvenanceBatch.examinerState(state.examiner[row.key], s.factorIds);
         var exText = ProvenanceBatch.examinerText(state.examiner[row.key], s.factorIds);
@@ -1876,7 +1985,7 @@
         var assessed = b.rows.filter(function (r) { return r.key && ProvenanceBatch.examinerState(state.examiner[r.key], r.summary ? r.summary.factorIds : []).written; }).length;
         $('batch-note').textContent = b.rows.length + ' filer, fönster ' + windowText(b.window) + ', tidszon: ' + zoneText(b.zone) + '. ' +
             (b.running ? '' : c.done + ' har underlag, ' + assessed + ' har din egen bedömning. ') +
-            'Prickarna är faktorernas läge: grön stöd, röd motsägelse, gul saknas, grå inte tillämplig eller upplysning. ' +
+            'Prickarna är faktorernas läge: grön förenligt, röd inte förenligt, gul saknas, grå inte tillämplig eller upplysning. ' +
             'Klicka på en rad för hela underlaget, tidslinjen och exporterna för den filen.';
     }
 
@@ -2439,11 +2548,16 @@
             (m.type.flags.length ? ' · ' + escapeHtml(m.type.flags.join(', ')) : '') + ' · ' + escapeHtml(meta.deviceLabel) + ' · T = ' + escapeHtml(fmt(m.file.createdMs || 0)) + ' (' + escapeHtml(meta.zoneLabel) + ')</div>' +
             '<div class="summary-text"><span class="badge">Programmets sammanvägning</span>' + escapeHtml(m.summary) + '</div>' +
             (m.warnings.length ? '<div class="warnings">' + m.warnings.map(escapeHtml).join('<br>') + '</div>' : '');
+        // Faktorns fråga, svaret i faktorns egna ord (färgen är läget) och vad svaret betyder för hypotesen.
         $('factors').innerHTML = m.factors.map(function (f) {
             var at = state.checked[f.id];
-            return '<div class="factor' + (at ? ' checked' : '') + '" data-factor="' + escapeHtml(f.id) + '"><h3>' + badge(m, f.state) + escapeHtml(f.title) +
-                '<label class="chk" title="Bocka i när du själv har kontrollerat faktorn mot källan och SQL:en. Följer med i protokollet med klockslag."><input type="checkbox" data-factor="' + escapeHtml(f.id) + '"' + (at ? ' checked' : '') + '>Kontrollerad</label></h3><ul>' +
-                f.items.map(function (i) { return '<li>' + escapeHtml(i.text) + '</li>'; }).join('') + '</ul><div class="plain">' + escapeHtml(f.plain) + '</div></div>';
+            var label = m.stateLabel[f.state] || f.state;
+            return '<div class="factor' + (at ? ' checked' : '') + '" data-factor="' + escapeHtml(f.id) + '"><h3>' + escapeHtml(f.title) +
+                '<span class="badge ' + escapeHtml(f.state) + '" title="' + escapeHtml(label) + '">' + escapeHtml(f.verdict || label) + '</span>' +
+                '<label class="chk" title="Bocka i när du själv har kontrollerat faktorn mot källan och SQL:en. Följer med i protokollet med klockslag."><input type="checkbox" data-factor="' + escapeHtml(f.id) + '"' + (at ? ' checked' : '') + '>Kontrollerad</label></h3>' +
+                (f.question ? '<p class="question">' + escapeHtml(f.question) + '</p>' : '') +
+                (f.meaning ? '<p class="meaning ' + escapeHtml(f.state) + '">' + escapeHtml(f.meaning) + '</p>' : '') +
+                '<ul>' + f.items.map(function (i) { return '<li>' + escapeHtml(i.text) + '</li>'; }).join('') + '</ul><div class="plain">' + escapeHtml(f.plain) + '</div></div>';
         }).join('');
         $('factors').querySelectorAll('input[data-factor]').forEach(function (cb) {
             cb.addEventListener('change', function () {
@@ -2654,6 +2768,7 @@
     $('batch-prev').addEventListener('click', function () { var b = state.batch; var i = b ? nextOpenable(b, b.open, -1) : -1; if (i >= 0) openBatchRow(i); });
     $('batch-next').addEventListener('click', function () { var b = state.batch; var i = b ? nextOpenable(b, b.open, 1) : -1; if (i >= 0) openBatchRow(i); });
     $('batch-copy').addEventListener('click', function () { exportBatch(false); });
+    $('batch-exif').addEventListener('click', function () { batchToExif().catch(batchFailed); });
     $('batch-save').addEventListener('click', function () { exportBatch(true); });
     $('run-status').addEventListener('click', function (e) {
         if (e.target.id === 'batch-time' && state.timeItems && !isBusy()) runBatch(state.timeItems, 'time').catch(batchFailed);
@@ -2703,7 +2818,10 @@
         var data = event.data;
         if (!data || (data.source !== 'forensics-toolbox' && data.source !== 'verktygslada')) return;
         if (data.type === 'provenance-file' && typeof data.file === 'string') $('filename').value = data.file;
-        if (data.type === 'extraction') followExtraction({ file: data.file || null, seq: Number(data.seq) || 0, from: data.from || '' });
+        if (data.type === 'extraction') followExtraction({ file: data.file || null, seq: Number(data.seq) || 0, from: data.from || '', force: !!data.force });
+        if (data.type === 'deliver-file') handOver(data.to).catch(function (err) { console.warn(err); });
+        if (data.type === 'provenance-files') receiveFiles(data.files);
+        if (data.type === 'provenance-names' && Array.isArray(data.names)) receiveNames(data.names.map(String), data.zipName || '');
     });
 
     init();

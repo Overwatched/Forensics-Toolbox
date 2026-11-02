@@ -41,6 +41,12 @@
 
     function kv(rows) { return table(null, rows.map(function (r) { return [{ html: '<b>' + esc(r[0]) + '</b>' }, r[1]]; })); }
 
+    // "Tiderna stämmer (förenligt)": faktorns eget svar och läget, eller bara läget.
+    function verdictText(model, f) {
+        var label = model.stateLabel[f.state] || f.state;
+        return f.verdict && f.verdict !== label ? f.verdict + ' (' + label.toLowerCase() + ')' : label;
+    }
+
     function stateTag(model, state) {
         return '<span style="color: ' + (STATE_COLOR[state] || '#444') + '; font-weight: bold;">' + esc(model.stateLabel[state] || state) + '</span>';
     }
@@ -104,6 +110,8 @@
         if (meta.fileEntry) {
             var fe = meta.fileEntry;
             out += p('<b>Bildfilen i zippen:</b> ' + esc(fe.path) + ' (' + esc(fe.size) + ' byte, ändrad ' + esc(fe.mtime) +
+                (fe.created ? ', skapad ' + esc(fe.created) : '') + (fe.accessed ? ', senast läst ' + esc(fe.accessed) : '') +
+                (fe.timeField ? ' enligt zippens ' + esc(fe.timeField) : '') +
                 ', CRC32 ' + esc(fe.crc32) + (fe.crcOk === false ? ' STÄMMER INTE' : '') + (fe.md5 ? ', MD5 ' + esc(fe.md5) : '') + (fe.sha256 ? ', SHA-256 ' + esc(fe.sha256) : '') + ')');
             // Telefonens egen tumnagel (iOS: PhotoData/Thumbnails/V2/…/5005.JPG) med egen hash, så att den inte tas för originalet.
             if (meta.thumbnail) {
@@ -124,7 +132,8 @@
         out += p('<b>Programmets sammanvägning:</b> ' + esc(model.summary));
         var checks = meta.checks || {};
         model.factors.forEach(function (f) {
-            out += h(3, f.title + ': ' + model.stateLabel[f.state]);
+            out += h(3, f.title + ': ' + verdictText(model, f));
+            if (f.question) out += p('<b>Frågan:</b> ' + esc(f.question) + ' <b>Svar:</b> ' + esc((f.verdict || model.stateLabel[f.state]) + '. ' + (f.meaning || '')));
             out += '<ul style="' + FONT + ' font-size: 10pt; margin: 2px 0 6px 18px;">' + f.items.map(function (i) {
                 return '<li>' + stateTag(model, i.state) + ' ' + esc(i.text) + '</li>';
             }).join('') + '</ul>';
@@ -166,8 +175,9 @@
         out += h(2, '5. Var filen finns i extraktionen');
         if (meta.fileEntry) out += p('<b>Den bedömda filen:</b> ' + esc(meta.fileEntry.path));
         if (model.copies && model.copies.length) {
-            out += table(['Sökväg i zippen', 'Plats', 'Storlek', 'Ändrad enligt zippen', 'CRC32', 'SHA-256'], model.copies.map(function (c) {
-                return [c.name, c.label, c.size + ' byte', c.mtime || '', c.crc32 || '', c.shaOk === true ? 'samma som filen' : c.shaOk === false ? 'SKILJER SIG' : 'inte kontrollerad'];
+            var created = model.copies.some(function (c) { return c.created; });
+            out += table(['Sökväg i zippen', 'Plats', 'Storlek', 'Ändrad enligt zippen'].concat(created ? ['Skapad enligt zippen'] : []).concat(['CRC32', 'SHA-256']), model.copies.map(function (c) {
+                return [c.name, c.label, c.size + ' byte', c.mtime || ''].concat(created ? [c.created || ''] : []).concat([c.crc32 || '', c.shaOk === true ? 'samma som filen' : c.shaOk === false ? 'SKILJER SIG' : 'inte kontrollerad']);
             }));
         } else {
             out += p(meta.copiesNote || 'Ingen annan post i zippen har samma storlek och CRC32.');
@@ -252,7 +262,9 @@
             if (r.status !== 'done' || !s) return [{ html: '<b>' + esc(r.name) + '</b>' }, '', BATCH_STATUS[r.status] || BATCH_STATUS.waiting, '', r.note || '', ''];
             var factors = s.factorIds.map(function (id) {
                 var f = s.factors[id];
-                return esc(f.title) + ': <span style="color: ' + (STATE_COLOR[f.state] || '#444') + '; font-weight: bold;">' + esc(labels[f.state] || f.state) + '</span>';
+                var label = labels[f.state] || f.state;
+                var text = f.verdict && f.verdict !== label ? f.verdict + ' (' + label.toLowerCase() + ')' : label;
+                return esc(f.title) + ': <span style="color: ' + (STATE_COLOR[f.state] || '#444') + '; font-weight: bold;">' + esc(text) + '</span>';
             }).join('<br>');
             var ex = r.examiner || {};
             var text = ex.text && String(ex.text).trim() ? esc(String(ex.text).trim()).replace(/\n/g, '<br>') : '<i>Ej ifylld</i>';

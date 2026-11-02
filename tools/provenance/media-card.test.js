@@ -174,3 +174,15 @@ test('EXIF-tid utan zon räknas om med förskjutningen vid tagningen, inte dagen
     assert.deepStrictEqual(media.exifTakenMs({ sort: '2026-07-01 12:00:00', zone: 'UTC' }, sthlm), { ms: Date.UTC(2026, 6, 1, 12, 0, 0), assumed: false });
     assert.deepStrictEqual(media.exifTakenMs(null, sthlm), { ms: null, assumed: false });
 });
+
+test('filkortet visar zippens alla tider med fältet de kommer ur', () => {
+    const rows = media.cardRows({ path: 'a/IMG_0049.HEIC', size: 10, mtime: '2025-10-01 07:20:48 UTC', created: '2025-10-01 07:20:47 UTC', accessed: '2025-10-02 09:00:00 UTC', timeField: 'NTFS-fältet', crc32: 'deadbeef' }, []);
+    const get = (k) => (rows.find((r) => r[0] === k) || [])[1];
+    assert.strictEqual(get('Ändrad enligt zippen'), '2025-10-01 07:20:48 UTC (NTFS-fältet)');
+    assert.strictEqual(get('Skapad enligt zippen'), '2025-10-01 07:20:47 UTC (NTFS-fältet)');
+    assert.strictEqual(get('Senast läst enligt zippen'), '2025-10-02 09:00:00 UTC (NTFS-fältet)');
+    // Bara DOS-tid: ingen skapad- eller åtkomstrad, och ingen fältmärkning.
+    const dos = media.cardRows({ path: 'a/b.jpg', size: 1, mtime: '2025-10-01 09:20:48 (zon okänd)', timeField: '' }, []);
+    assert.strictEqual(dos.filter((r) => /Skapad|Senast läst/.test(r[0])).length, 0);
+    assert.strictEqual(dos.find((r) => r[0] === 'Ändrad enligt zippen')[1], '2025-10-01 09:20:48 (zon okänd)');
+});

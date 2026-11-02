@@ -31,7 +31,7 @@
                 <div class="sidebar-header-text">
                     <h1>Forensics Toolbox</h1>
                     <div class="version-row">
-                        <p>Version 1.34</p>
+                        <p>Version 1.35</p>
                         <div id="net-status" class="net-status">
                             <span id="net-status-text"></span>
                         </div>
@@ -368,6 +368,25 @@
                         <li>Rensa clipboard-historiken efter känslig data. (⊞ Win + V)</li>
                     </ul>
                 </div>
+            </div>
+
+            <!-- Extraktionen och filen man tittar på, i Härkomst, Queries och EXIF & karta. -->
+            <div id="context-bar" class="context-bar" hidden>
+                <div class="cb-group">
+                    <span class="cb-label">Extraktion</span>
+                    <span class="cb-value" id="cb-zip">Ingen öppen</span>
+                    <span class="cb-meta" id="cb-zip-meta"></span>
+                    <button type="button" class="cb-btn" id="cb-open">Öppna extraktion (zip)…</button>
+                    <button type="button" class="cb-btn cb-quiet" id="cb-close" hidden>Stäng</button>
+                </div>
+                <div class="cb-group" id="cb-file" hidden>
+                    <span class="cb-label">Fil</span>
+                    <span class="cb-value" id="cb-file-name"></span>
+                    <span class="cb-meta" id="cb-file-meta"></span>
+                    <button type="button" class="cb-btn" data-to="provenance" title="Bedöm filens härkomst i extraktionen">Bedöm i Härkomst</button>
+                    <button type="button" class="cb-btn" data-to="exif" title="Alla EXIF-taggar och positionen på kartan">Visa i EXIF &amp; karta</button>
+                </div>
+                <input type="file" id="cb-input" accept=".zip,application/zip" hidden>
             </div>
 
             <div id="tool-host" class="tool-host" hidden></div>

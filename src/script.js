@@ -37,7 +37,20 @@ function initToolNav() {
     // öppnades eller stängdes i något verktyg, med ett löpnummer, och skickar läget till ett verktyg
     // när det visas. Verktyget följer bara en ändring det inte redan har sett, så att till exempel
     // testdata i Härkomst inte byts bort bara för att verktyget visas igen.
-    let extraction = { file: null, seq: 0, from: '' };
+    let extraction = { file: null, seq: 0, from: '', info: null };
+
+    // Verktygen som visar raden högst upp (extraktionen och filen man tittar på), och deras namn i
+    // meddelandena mellan verktygen.
+    const CONTEXT_TOOLS = {
+        'tools/provenance/index.html': 'provenance',
+        'tools/db-queries/queries.html': 'queries',
+        'tools/exif-viewer/index.html': 'exif',
+    };
+    const TOOL_PATH = { provenance: 'tools/provenance/index.html', queries: 'tools/db-queries/queries.html', exif: 'tools/exif-viewer/index.html' };
+    let activePath = '';
+    // Filen man senast tittade på i Härkomst eller EXIF & karta: { name, path, place, owner, from }.
+    // owner är verktygets sökväg; verktyget lämnar ut filen när någon vill visa den någon annanstans.
+    let current = null;
 
     function sameFile(a, b) {
         return !!a && !!b && a.name === b.name && a.size === b.size && a.lastModified === b.lastModified;
@@ -61,8 +74,58 @@ function initToolNav() {
             '. Härkomst och Queries använder samma extraktion.' : '';
     }
 
-    function sendExtraction(frame) {
-        postToFrame(frame, { source: 'forensics-toolbox', type: 'extraction', file: extraction.file, seq: extraction.seq, from: extraction.from });
+    // force: verktyget som visas följer alltid, när undersökaren själv bytt eller stängt i raden högst upp.
+    function sendExtraction(frame, force) {
+        postToFrame(frame, { source: 'forensics-toolbox', type: 'extraction', file: extraction.file, seq: extraction.seq, from: extraction.from, force: !!force });
+    }
+
+    // Ny eller stängd extraktion. Laddade verktyg får läget direkt och följer efter sina egna regler;
+    // verktyget som ändrade får numret tillbaka, så att det inte följer sin egen ändring.
+    function setExtraction(file, from, source, force) {
+        if (!(file ? sameFile(file, extraction.file) : !extraction.file)) {
+            extraction = { file: file, seq: extraction.seq + 1, from: from || '', info: null };
+            if (current && current.owner === TOOL_PATH.provenance) current = null;
+        }
+        renderBar();
+        frames.forEach((frame, path) => {
+            if (!frame.dataset.ready) return;
+            if (frame === source) sendExtraction(frame);
+            else if (CONTEXT_TOOLS[path] && CONTEXT_TOOLS[path] !== 'exif') sendExtraction(frame, force && path === activePath);
+        });
+    }
+
+    function byId(id) { return document.getElementById(id); }
+
+    function renderBar() {
+        renderExtraction();
+        const bar = byId('context-bar');
+        if (!bar) return;
+        const kind = CONTEXT_TOOLS[activePath];
+        bar.hidden = !kind;
+        if (!kind) return;
+        const f = extraction.file;
+        byId('cb-zip').textContent = f ? f.name : 'Ingen öppen';
+        byId('cb-zip').title = f ? f.name : '';
+        byId('cb-zip-meta').textContent = f ? [sizeText(f.size), extraction.info && extraction.info.device].filter(Boolean).join(' · ') : '';
+        byId('cb-open').textContent = f ? 'Byt…' : 'Öppna extraktion (zip)…';
+        byId('cb-close').hidden = !f;
+        const file = f ? current : null;
+        byId('cb-file').hidden = !file;
+        if (!file) return;
+        byId('cb-file-name').textContent = file.name;
+        byId('cb-file-name').title = file.path || file.name;
+        byId('cb-file-meta').textContent = [file.place, file.from ? 'i ' + file.from : ''].filter(Boolean).join(' · ');
+        bar.querySelectorAll('[data-to]').forEach((b) => { b.hidden = b.dataset.to === kind; });
+    }
+
+    // Öppnar ett verktyg och skickar meddelandet när ramen är laddad.
+    function deliver(to, payload) {
+        const path = TOOL_PATH[to];
+        if (!openTool(path)) return;
+        const frame = frames.get(path);
+        const send = () => postToFrame(frame, payload);
+        if (frame && frame.dataset.ready) send();
+        else if (frame) frame.addEventListener('load', send, { once: true });
     }
 
     function frameOf(win) {
@@ -159,6 +222,8 @@ function initToolNav() {
         placeholder.style.display = 'none';
         host.hidden = false;
         showFrame(frame);
+        activePath = path;
+        renderBar();
         return true;
     }
 
@@ -194,13 +259,39 @@ function initToolNav() {
         // Ett verktyg öppnade eller stängde en zip. Verktyget får numret tillbaka, så att det inte
         // följer sin egen ändring; de andra får läget när de visas.
         if (data.type === 'extraction-changed') {
-            const file = data.file || null;
             const frame = frameOf(event.source);
-            if (!(file ? sameFile(file, extraction.file) : !extraction.file)) {
-                extraction = { file: file, seq: extraction.seq + 1, from: frame ? frame.title : '' };
-                renderExtraction();
+            setExtraction(data.file || null, frame ? frame.title : '', frame, false);
+            return;
+        }
+        // Vad verktyget vet om extraktionen (iOS 26.0, Android 13), till raden högst upp.
+        if (data.type === 'extraction-info') {
+            if (data.file && sameFile(data.file, extraction.file) && data.info && data.info.device) {
+                extraction.info = { device: String(data.info.device) };
+                renderBar();
             }
-            if (frame) sendExtraction(frame);
+            return;
+        }
+        // Filen verktyget visar, eller name: null när den inte visas längre.
+        if (data.type === 'current-file') {
+            const frame = frameOf(event.source);
+            const owner = frame ? frame.dataset.tool : '';
+            if (data.name) {
+                current = { name: String(data.name), path: data.path ? String(data.path) : '', place: data.place ? String(data.place) : '', owner: owner, from: frame ? frame.title : '' };
+            } else if (current && current.owner === owner) current = null;
+            renderBar();
+            return;
+        }
+        // Filer från ett verktyg till ett annat: till EXIF & karta som filer att läsa, till Härkomst som
+        // filer att leta upp i extraktionen.
+        if (data.type === 'file-for' && TOOL_PATH[data.to] && Array.isArray(data.files)) {
+            deliver(data.to, data.to === 'exif'
+                ? { source: 'forensics-toolbox', type: 'exif-files', files: data.files, open: data.files.length === 1 }
+                : { source: 'forensics-toolbox', type: 'provenance-files', files: data.files });
+            return;
+        }
+        // Filnamn ur ett resultat i Queries, att bedöma i Härkomst.
+        if (data.type === 'names-for' && data.to === 'provenance' && Array.isArray(data.names)) {
+            deliver('provenance', { source: 'forensics-toolbox', type: 'provenance-names', names: data.names, zipName: data.zipName || '' });
             return;
         }
         // Härkomst → Queries: zippen (File), databasens sökväg och exakt den SQL som kördes.
@@ -219,6 +310,26 @@ function initToolNav() {
         if (data.type !== 'open-tool' || typeof data.src !== 'string') return;
         openTool(data.src);
     });
+
+    // Raden högst upp: öppna, byta och stänga extraktionen, och visa filen i ett annat verktyg.
+    const bar = byId('context-bar');
+    if (bar) {
+        byId('cb-open').addEventListener('click', () => byId('cb-input').click());
+        byId('cb-input').addEventListener('change', () => {
+            const input = byId('cb-input');
+            const file = input.files && input.files[0];
+            input.value = '';
+            if (file) setExtraction(file, '', null, true);
+        });
+        byId('cb-close').addEventListener('click', () => setExtraction(null, '', null, true));
+        bar.addEventListener('click', (e) => {
+            const b = e.target.closest('[data-to]');
+            if (!b || !current) return;
+            // Har målverktyget redan filen räcker det att visa verktyget; annars lämnar ägaren ut den.
+            if (CONTEXT_TOOLS[current.owner] === b.dataset.to) { openTool(TOOL_PATH[b.dataset.to]); return; }
+            postToFrame(frames.get(current.owner), { source: 'forensics-toolbox', type: 'deliver-file', to: b.dataset.to });
+        });
+    }
 
     window.__toolboxBroadcastTheme = broadcastTheme;
     window.__toolboxOpenTool = openTool;

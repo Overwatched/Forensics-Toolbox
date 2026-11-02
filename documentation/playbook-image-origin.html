@@ -130,11 +130,12 @@
                 <h2>Öppna extraktionen i Härkomst</h2>
             </div>
             <ul>
-                <li>Välj extraktionens zip. Inget packas upp, och databasernas <code>-wal</code> läses alltid med. Zippen följer med till Queries, så den behöver bara öppnas en gång.</li>
+                <li>Öppna extraktionens zip i raden högst upp. Inget packas upp, och databasernas <code>-wal</code> läses alltid med. Zippen följer med till Queries och EXIF &amp; karta, så den behöver bara öppnas en gång.</li>
+                <li>Raden högst upp visar också filen du tittar på: <strong>Visa i EXIF &amp; karta</strong> visar alla taggar och positionen, och <strong>Bedöm i Härkomst</strong> bedömer en fil du har öppnat i EXIF &amp; karta. I Queries bedömer <strong>Bedöm filerna i Härkomst</strong> filnamnen i resultatet som en lista.</li>
                 <li>Skriv filnamnet, eller sök på en tidpunkt när du inte vet namnet och välj ur listan med tumnaglar.</li>
                 <li>Har du filen men inte namnet i telefonen: <em>Eller välj filer från disk…</em> letar efter exakt samma innehåll i zippen.</li>
                 <li>Flera filer: ett namn per rad, flera filer från disk, eller <strong>Bedöm alla</strong> efter en sökning på tid. Varje fil bedöms för sig och får en rad i listan med typ och faktorer. Klicka på en rad för hela underlaget; <strong>Nästa fil</strong> tar nästa. Kolumnen Undersökaren visar vilka filer du har bedömt.</li>
-                <li>Typen avgörs först: kamerabild, skärmdump eller sparad ur en app. Varje faktor bedöms som stöd, motsägelse eller saknas.</li>
+                <li>Typen avgörs först: kamerabild, skärmdump eller sparad ur en app. Varje faktor ställer en fråga, till exempel om filens tider stämmer med varandra, svarar i klartext och säger om svaret är förenligt med att telefonen skapade filen, inte förenligt, eller saknas.</li>
                 <li>Tystnad i loggarna redovisas som saknas, aldrig som bevis. Kontrollera täckningen (första och sista posten per ström) i protokollet.</li>
             </ul>
             <p class="tools"><a href="../tools/provenance/index.html" data-tool="tools/provenance/index.html">Härkomst</a></p>

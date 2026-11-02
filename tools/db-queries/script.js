@@ -1,3 +1,6 @@
+// Inne i Forensics Toolbox öppnas extraktionen i raden högst upp, och vissa knappar finns bara där.
+if (window.parent !== window) document.body.classList.add('in-hub');
+
 const dbSelect = document.getElementById('db-select');
 const querySelect = document.getElementById('query-select');
 const paramsEl = document.getElementById('params');
@@ -1003,7 +1006,7 @@ window.addEventListener('message', function (event) {
     // Extraktionen i programmet: zippen som senast öppnades eller stängdes i något verktyg.
     if (data.type === 'extraction' && window.QueriesExtraction) {
         window.QueriesApp.ready.then(function () {
-            return window.QueriesExtraction.follow({ file: data.file || null, seq: Number(data.seq) || 0, from: data.from || '' });
+            return window.QueriesExtraction.follow({ file: data.file || null, seq: Number(data.seq) || 0, from: data.from || '', force: !!data.force });
         }).catch(function (err) { console.warn('Extraktionen kunde inte öppnas', err); });
         return;
     }

@@ -1,6 +1,6 @@
 // Kärnan i Härkomst: gör om rollqueryernas rader till en händelselista i UTC, avgör vilken
 // sorts fil det är, bedömer de tre faktorerna (skapandetid, app igång, kamera igång) som
-// stöd, motsägelse eller saknas, och skriver förklaringens meningar. Ingen DOM, ingen SQL.
+// förenligt, inte förenligt eller saknas, och skriver förklaringens meningar. Ingen DOM, ingen SQL.
 // Bedömningen är hypotesstöd: "förenligt med", aldrig en slutsats. Testas i Node.
 (function (root) {
     'use strict';
@@ -26,7 +26,9 @@
         return stream === 'usagestats' ? { label: 'usagestats', key: 'usagestats', screenKey: 'usagestats' } : { label: 'Wellbeing', key: 'wellbeing', screenKey: 'wellbeing' };
     }
 
-    var STATE_LABEL = { support: 'Stöd', contradiction: 'Motsägelse', missing: 'Saknas', info: 'Upplysning', na: 'Inte tillämplig' };
+    // Läget för en faktor eller en rad: om det är förenligt med hypotesen i sammanvägningen
+    // (att telefonen skapade filen på det sätt typen säger), inte förenligt, eller inte går att bedöma.
+    var STATE_LABEL = { support: 'Förenligt', contradiction: 'Inte förenligt', missing: 'Saknas', info: 'Upplysning', na: 'Inte tillämplig' };
 
     function pad(n) { return (n < 10 ? '0' : '') + n; }
 
@@ -365,17 +367,22 @@
         var items = [];
         var state = 'missing';
         if (!file.createdMs) {
-            return { id: 'time', title: 'Skapandetid', state: 'missing', items: ['Skapandetiden saknas i databasen.'],
+            return { id: 'time', title: 'Skapandetid', state: 'missing', items: [{ state: 'missing', text: 'Skapandetiden saknas i databasen.' }],
                 plain: 'Det går inte att se när filen skapades.' };
         }
+        // Klockslag i rapportens zon, med datum bara när det är ett annat än T:s.
+        var fmt = input.format || formatUtc;
+        var dayOf = function (ms) { return fmt(ms).slice(0, 10); };
+        var at = function (ms) { return dayOf(ms) === dayOf(file.createdMs) ? fmt(ms).slice(11, 19) : fmt(ms).slice(0, 19); };
+        var apart = function (ms, ref) { return Math.abs(ms) < 1000 ? 'samma sekund som ' + ref : duration(ms) + (ms < 0 ? ' före ' : ' efter ') + ref; };
         if (file.createdFrom === 'date_added') {
-            items.push({ state: 'info', text: 'datetaken saknas i MediaStore, så T är date_added: när filen lades till i galleriet, inte när bilden togs. Så ser filer ut som en app sparar till galleriet utan EXIF-tid.' });
+            items.push({ state: 'info', text: 'Tagningstiden (datetaken) saknas i MediaStore, så T är när filen lades till i galleriet (date_added), inte när bilden togs. Så ser filer ut som en app sparar till galleriet utan tid i EXIF.' });
         } else if (file.addedMs) {
             var diff = file.addedMs - file.createdMs;
-            var side = diff < 0 ? ' före' : ' efter';
-            if (Math.abs(diff) <= SAME_TIME_MS) items.push({ state: 'support', text: 'Tillagd i biblioteket ' + duration(diff) + side + ' Skapad. Filen hamnade i biblioteket direkt när den skapades.' });
-            else if (diff > LATE_MS) items.push({ state: 'contradiction', text: 'Tillagd i biblioteket ' + duration(diff) + ' efter Skapad. Filen kom till biblioteket långt efter att den skapades, vilket är vanligt för mottagna eller synkade bilder.' });
-            else items.push({ state: 'info', text: 'Tillagd i biblioteket ' + duration(diff) + side + ' Skapad.' + (diff < 0 ? ' Skapad ligger efter tiden då filen lades till. Det händer när tiden har ändrats i efterhand eller när klockan i enheten som tog bilden gick fel.' : '') });
+            var pair = 'Skapad ' + at(file.createdMs) + ', tillagd i biblioteket ' + at(file.addedMs) + ': ';
+            if (Math.abs(diff) <= SAME_TIME_MS) items.push({ state: 'support', text: pair + (Math.abs(diff) < 1000 ? 'samma sekund' : duration(diff) + (diff < 0 ? ' före' : ' efter')) + '. Filen kom till biblioteket när den skapades.' });
+            else if (diff > LATE_MS) items.push({ state: 'contradiction', text: pair + duration(diff) + ' senare. Så ser bilder ut som har tagits emot, synkats eller förts över från en annan enhet.' });
+            else items.push({ state: 'info', text: pair + duration(diff) + (diff < 0 ? ' före' : ' efter') + '.' + (diff < 0 ? ' Filen lades alltså till innan den skapades. Det händer när tiden har ändrats i efterhand eller när klockan i enheten som tog bilden gick fel.' : '') });
         } else if (type.type === 'snapchat') {
             items.push({ state: 'info', text: 'Filen ligger utanför bildbiblioteket, så det finns ingen Tillagd-tid. T är tiden då Snapchat registrerade filen i sin cache.' });
         } else {
@@ -394,13 +401,13 @@
             // Mottagen via chatten: tiden inuti filen hör till avsändaren, så den jämförs med när meddelandet skickades.
             var mdiff = input.exif.takenMs - scm;
             var cdiff = input.exif.takenMs - file.createdMs;
-            if (Math.abs(mdiff) <= SAME_TIME_MS) items.push({ state: 'support', text: 'EXIF-tiden i själva filen (' + input.exif.takenText + ') stämmer med när meddelandet skickades (' + formatUtc(scm) + ').' });
-            else items.push({ state: 'info', text: 'EXIF-tiden i själva filen (' + input.exif.takenText + ') skiljer sig ' + duration(mdiff) + ' från när meddelandet skickades (' + formatUtc(scm) + ').' });
+            if (Math.abs(mdiff) <= SAME_TIME_MS) items.push({ state: 'support', text: 'Tiden i själva bildfilen (EXIF) är ' + input.exif.takenText + ' och stämmer med när meddelandet skickades (' + formatUtc(scm) + ').' });
+            else items.push({ state: 'info', text: 'Tiden i själva bildfilen (EXIF) är ' + input.exif.takenText + ', ' + duration(mdiff) + (mdiff < 0 ? ' före' : ' efter') + ' att meddelandet skickades (' + formatUtc(scm) + ').' });
             if (Math.abs(cdiff) > SAME_TIME_MS) items.push({ state: 'info', text: 'Filen lades i cachen på den här telefonen ' + duration(cdiff) + (cdiff < 0 ? ' efter' : ' före') + ' tiden inuti filen.' });
         } else if (input.exif && input.exif.takenMs) {
             var ediff = input.exif.takenMs - file.createdMs;
-            if (Math.abs(ediff) <= SAME_TIME_MS) items.push({ state: 'support', text: 'EXIF-tiden i själva filen (' + input.exif.takenText + ') stämmer med Skapad' + (Math.abs(ediff) > 1000 ? ' inom ' + duration(ediff) : '') + '.' });
-            else items.push({ state: 'contradiction', text: 'EXIF-tiden i själva filen (' + input.exif.takenText + ') skiljer sig ' + duration(ediff) + ' från Skapad.' });
+            if (Math.abs(ediff) <= SAME_TIME_MS) items.push({ state: 'support', text: 'Tiden i själva bildfilen (EXIF) är ' + input.exif.takenText + ': ' + apart(ediff, 'Skapad') + '.' });
+            else items.push({ state: 'contradiction', text: 'Tiden i själva bildfilen (EXIF) är ' + input.exif.takenText + ': ' + duration(ediff) + (ediff < 0 ? ' före' : ' efter') + ' Skapad. Det kan bero på att filen har redigerats, fått en ny tid eller kommer från en annan enhet.' });
         } else if (input.exif && input.exif.read) {
             items.push({ state: 'info', text: 'Filen har ingen EXIF-tid' + (type.type === 'screenshot' ? ', vilket är normalt för en skärmdump' : '') + '.' });
         } else {
@@ -409,12 +416,19 @@
         if (input.exif && (input.exif.make || input.exif.model) && (file.cameraMake || file.cameraModel)) {
             var fileDev = lower((input.exif.make || '') + ' ' + (input.exif.model || '')).replace(/\s+/g, ' ').trim();
             var dbDev = lower((file.cameraMake || '') + ' ' + (file.cameraModel || '')).replace(/\s+/g, ' ').trim();
-            if (fileDev === dbDev || fileDev.indexOf(dbDev) >= 0 || dbDev.indexOf(fileDev) >= 0) items.push({ state: 'support', text: 'Make/Model i filen (' + (input.exif.make || '') + ' ' + (input.exif.model || '') + ') stämmer med databasen.' });
-            else items.push({ state: 'contradiction', text: 'Make/Model i filen (' + (input.exif.make || '') + ' ' + (input.exif.model || '') + ') skiljer sig från databasen (' + (file.cameraMake || '') + ' ' + (file.cameraModel || '') + ').' });
+            if (fileDev === dbDev || fileDev.indexOf(dbDev) >= 0 || dbDev.indexOf(fileDev) >= 0) items.push({ state: 'support', text: 'Kameramodellen i bildfilen (Make/Model ' + ((input.exif.make || '') + ' ' + (input.exif.model || '')).trim() + ') är densamma som i databasen.' });
+            else items.push({ state: 'contradiction', text: 'Kameramodellen i bildfilen (Make/Model ' + ((input.exif.make || '') + ' ' + (input.exif.model || '')).trim() + ') är inte densamma som i databasen (' + ((file.cameraMake || '') + ' ' + (file.cameraModel || '')).trim() + ').' });
         }
         if (input.fileEntry && input.fileEntry.mtimeMs) {
             var fdiff = input.fileEntry.mtimeMs - file.createdMs;
-            items.push({ state: Math.abs(fdiff) <= SAME_TIME_MS ? 'support' : 'info', text: 'Filsystemets ändringstid enligt zippen ligger ' + duration(fdiff) + (fdiff < 0 ? ' före' : ' efter') + ' Skapad.' });
+            items.push({ state: Math.abs(fdiff) <= SAME_TIME_MS ? 'support' : 'info', text: 'Filens ändringstid i filsystemet (enligt zippen) är ' + at(input.fileEntry.mtimeMs) + ': ' + apart(fdiff, 'Skapad') + '.' });
+        }
+        // Skapandetiden i filsystemet: när filen kom till på telefonen. Senare än Skapad är vanligt för
+        // filer som har kopierats, tagits emot eller återställts, så den motsäger inget.
+        if (input.fileEntry && input.fileEntry.createdMs) {
+            var cdiff2 = input.fileEntry.createdMs - file.createdMs;
+            items.push({ state: Math.abs(cdiff2) <= SAME_TIME_MS ? 'support' : 'info', text: 'Filens skapandetid i filsystemet (enligt zippens ' + (input.fileEntry.timeField || 'extrafält') + ') är ' + at(input.fileEntry.createdMs) + ': ' + apart(cdiff2, 'Skapad') + '.' +
+                (cdiff2 > SAME_TIME_MS ? ' Filen kom alltså till i filsystemet senare än den skapades, som när en fil kopieras, tas emot eller återställs.' : '') });
         }
         if (items.some(function (i) { return i.state === 'contradiction'; })) state = 'contradiction';
         else if (items.some(function (i) { return i.state === 'support'; })) state = 'support';
@@ -818,6 +832,8 @@
             return { window: w, lines: n.lines, notes: n.notes };
         });
         var summary = summaryText(type, factors, input.appNames);
+        var hyp = hypothesis(type, input.appNames);
+        factors.forEach(function (f) { Object.assign(f, describeFactor(f, type, hyp)); });
         return {
             platform: input.platform, file: file, type: type, windows: wins, events: events, outside: built.outside,
             factors: factors, alternatives: alts, narrative: perWindow, warnings: warnings, summary: summary,
@@ -828,26 +844,61 @@
     }
 
     // En mening som sammanfattar, alltid "förenligt"/"inte förenligt"/"går inte att bedöma".
-    function summaryText(type, factors, names) {
-        var core = factors.filter(function (f) { return f.id !== 'screen' && f.state !== 'na' && f.state !== 'info'; });
-        var hyp = type.type === 'screenshot' ? 'att skärmdumpen togs på den här telefonen'
+    // Hypotesen som faktorerna prövas mot, i samma ord som sammanvägningen.
+    function hypothesis(type, names) {
+        return type.type === 'screenshot' ? 'att skärmdumpen togs på den här telefonen'
             : type.type === 'saved' && type.memory ? 'att ' + (type.memory.video ? 'videon spelades in' : 'bilden togs') + ' med Snapchats ' + (type.memory.front ? 'frontkamera' : 'bakre kamera') + ' på den här telefonen och sparades till galleriet'
             : type.type === 'saved' ? 'att filen sparades på den här telefonen av ' + (type.importer ? appName(type.importer, names) : 'appen')
                 : type.type === 'snapchat' ? (type.origin === 'recorded' || type.origin === 'sent' ? 'att filen skapades med Snapchat på den här telefonen'
                     : type.origin === 'received' ? 'att filen togs emot i Snapchat på den här telefonen' + (type.who ? ' från ' + type.who : '')
                         : 'att filen hanterades av Snapchat på den här telefonen')
                     : 'att bilden togs med den här telefonens kamera';
-        if (core.some(function (f) { return f.state === 'contradiction'; })) return 'Materialet är inte förenligt med ' + hyp + ' utan vidare: minst en faktor motsäger det.';
+    }
+
+    // Vad varje faktor frågar och svaret i klartext. Läget styr färgen; svaret är faktorns eget ord,
+    // och meningen säger vad svaret betyder för hypotesen. Nycklarna är faktorernas rubriker.
+    var FACTOR_WORDS = {
+        'Skapandetid': { q: 'Stämmer filens egna tider med varandra: Skapad, Tillagd, tiden i bildfilen och filsystemets tid?', support: 'Tiderna stämmer', contradiction: 'Tiderna går isär', info: 'Kan inte jämföras', missing: 'Tid saknas' },
+        'App igång': { q: 'Var appen som skapade filen igång vid T?', support: 'Appen var igång', contradiction: 'En annan app var igång', missing: 'Inte registrerat' },
+        'App på skärmen': { q: 'Vilken app var på skärmen när skärmdumpen togs?', missing: 'Inte registrerat' },
+        'Snapchat igång': { q: 'Var Snapchat igång när filen skapades?', support: 'Snapchat var igång', contradiction: 'Snapchat var inte igång', missing: 'Inte registrerat' },
+        'Kamera igång': { q: 'Användes kameran när bilden togs?', support: 'Kameran användes', contradiction: 'Kameran användes inte', missing: 'Inte registrerat', na: 'Frågas inte' },
+        'Skaparappen igång': { q: 'Var appen som sparade filen igång när den sparades?', support: 'Appen var igång', contradiction: 'En annan app var igång', missing: 'Inte registrerat' },
+        'Snapchats kamera': { q: 'Spelades filen in med Snapchats kamera på den här telefonen?', support: 'Snapchats kamera', missing: 'Inte registrerat', na: 'Frågas inte' },
+        'Skärm': { q: 'Var skärmen tänd, alltså användes telefonen vid T?', support: 'Skärmen var tänd', contradiction: 'Skärmen var släckt', missing: 'Inte registrerat' },
+        'Position': { q: 'Var telefonen där bilden säger att den togs?', support: 'Positionerna stämmer', contradiction: 'Positionerna går isär', missing: 'Position saknas' },
+    };
+
+    function describeFactor(f, type, hyp) {
+        var w = FACTOR_WORDS[f.title] || {};
+        var q = w.q || '';
+        if (f.id === 'app' && type.type === 'camera') q = 'Var kameraappen igång när bilden togs?';
+        if (f.id === 'camera' && f.title === 'Kamera igång' && type.type === 'saved') q = 'Använde appen som sparade filen kameran när bilden togs?';
+        return {
+            question: q,
+            verdict: w[f.state] || STATE_LABEL[f.state] || f.state,
+            meaning: f.state === 'support' ? 'Förenligt med ' + hyp + '.'
+                : f.state === 'contradiction' ? 'Inte förenligt med ' + hyp + ' utan vidare.'
+                    : f.state === 'missing' ? 'Registreringar saknas, så faktorn säger inget åt något håll.'
+                        : f.state === 'na' ? 'Frågan gäller inte den här typen av fil.'
+                            : 'En upplysning som inte väger åt något håll.',
+        };
+    }
+
+    function summaryText(type, factors, names) {
+        var core = factors.filter(function (f) { return f.id !== 'screen' && f.state !== 'na' && f.state !== 'info'; });
+        var hyp = hypothesis(type, names);
+        if (core.some(function (f) { return f.state === 'contradiction'; })) return 'Materialet är inte förenligt med ' + hyp + ' utan vidare: minst en faktor är inte förenlig med det.';
         var support = core.filter(function (f) { return f.state === 'support'; }).length;
         var missing = core.filter(function (f) { return f.state === 'missing'; }).length;
-        if (support && !missing) return 'Materialet är förenligt med ' + hyp + '. Alla kontrollerade faktorer ger stöd.';
+        if (support && !missing) return 'Materialet är förenligt med ' + hyp + '. Alla faktorer som gick att bedöma är förenliga med det.';
         if (support) return 'Materialet är förenligt med ' + hyp + ', men ' + missing + (missing === 1 ? ' faktor' : ' faktorer') + ' går inte att bedöma för att registreringar saknas.';
         return 'Det går inte att bedöma ' + hyp + ' utifrån det här materialet: registreringar saknas.';
     }
 
     var api = {
         classify: classify, windows: windows, intervalsFromEvents: intervalsFromEvents, mergeIntervals: mergeIntervals,
-        buildEvents: buildEvents, narrative: narrative, build: build, summaryText: summaryText,
+        buildEvents: buildEvents, narrative: narrative, build: build, summaryText: summaryText, hypothesis: hypothesis, FACTOR_WORDS: FACTOR_WORDS,
         formatWithOffset: formatWithOffset, formatUtc: formatUtc, duration: duration, appName: appName, isCameraApp: isCameraApp, covers: covers,
         positions: positions, distanceM: distanceM, metres: metres, validCoord: validCoord,
         snapOrigin: snapOrigin, SNAPCHAT: SNAPCHAT, SNAPCHAT_ANDROID: SNAPCHAT_ANDROID, isSnapchatApp: isSnapchatApp, logInfo: logInfo,

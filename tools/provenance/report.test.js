@@ -45,7 +45,7 @@ test('protokollet innehåller källor, hashar, sökvägar, kolumnnamn, query-id,
     const html = report.protocol(model(), META);
     for (const needle of [SHA, 'b'.repeat(64), 'deadbeef', 'filesystem1/private/var/mobile/Media/DCIM/100APPLE/IMG_0042.HEIC', 'ZDATECREATED', 'role-app-usage', "ZSTREAMNAME = '/app/usage'",
         '12 av 12 ramar', 'utan -wal', 'knowledgeC.db → ZOBJECT /app/usage → ZSTARTDATE, ZENDDATE, ZVALUESTRING', 'data:image/png;base64,AAAA', 'Europe/Stockholm', '2025-09-24 14:31:09', '2025-09-24 12:31:09 UTC',
-        'Kamerabild', 'ZIMPORTEDBY 1', 'Stöd', 'Alternativa förklaringar', 'Strömmarnas täckning', 'iOS 26.0', 'Forensics Toolbox 1.26',
+        'Kamerabild', 'ZIMPORTEDBY 1', 'Förenligt', 'Frågan:', 'Tiderna stämmer (förenligt)', 'Alternativa förklaringar', 'Strömmarnas täckning', 'iOS 26.0', 'Forensics Toolbox 1.26',
         '2. Underlag för bedömning', 'Den slutliga bedömningen gör undersökaren', 'Programmets sammanvägning:', 'Undersökarens bedömning', 'Ej ifylld.', 'data:image/png;base64,CCCC', 'Närbild:',
         '4. Positioner', 'Bilden enligt databasen', 'Telefonen (GNSS)', '59.332550', 'Cache.sqlite → ZRTCLLOCATIONMO → ZTIMESTAMP, ZLATITUDE, ZLONGITUDE', 'role-location', 'data:image/png;base64,BBBB', 'ZLATITUDE, ZLONGITUDE']) {
         assert.ok(html.includes(needle), 'protokollet saknar: ' + needle);
@@ -179,9 +179,9 @@ test('listan med flera filer för Word: en rad per fil, hasharna i en egen tabel
         { name: 'IMG_0042.HEIC', status: 'done', summary: done, examiner: { text: 'Tagen med kameran.\nKontrollerat.', checked: { time: 1 } } },
         { name: 'saknas.jpg', status: 'missing', note: 'Finns varken i bildbiblioteket eller någon annanstans i zippen.' },
         { name: 'IMG_0050.PNG', status: 'done', summary: Object.assign({}, done, { filename: 'IMG_0050.PNG' }), examiner: null },
-    ], { extraction: { name: 'EXTRACTION_FFS.zip' }, windowText: '±15 min', zoneText: 'varje bilds egen zon', stateLabel: { support: 'Stöd', contradiction: 'Motsägelse' } });
+    ], { extraction: { name: 'EXTRACTION_FFS.zip' }, windowText: '±15 min', zoneText: 'varje bilds egen zon', stateLabel: { support: 'Förenligt', contradiction: 'Inte förenligt' } });
     assert.ok(html.includes('Härkomst, 3 filer') && html.includes('EXTRACTION_FFS.zip') && html.includes('fönster ±15 min'));
-    assert.ok(html.includes('Skapandetid: <span') && html.includes('>Stöd</span>') && html.includes('>Motsägelse</span>'));
+    assert.ok(html.includes('Skapandetid: <span') && html.includes('>Förenligt</span>') && html.includes('>Inte förenligt</span>'));
     assert.ok(html.includes('Tagen med kameran.<br>Kontrollerat.') && html.includes('Kontrollerade: 1 av 2 (Skapandetid)'));
     assert.ok(html.includes('<i>Ej ifylld</i>'), 'en fil utan undersökarens text ska säga det');
     assert.ok(html.includes('Finns inte i zippen') && html.includes('1 av filerna är inte bedömda'));

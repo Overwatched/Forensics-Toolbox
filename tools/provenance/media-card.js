@@ -147,7 +147,18 @@
         return out;
     }
 
-    // Raderna i kortet. fileEntry: { path, size, mtime, crc32, crcOk, md5, sha256 }. opts.sizeText(byte) -> text.
+    // Zippens tider för filen: ändrad, och skapad och senast läst när zippen har dem, med fältet de
+    // kommer ur (UT-fältet, NTFS-fältet). fileEntry: { mtime, created, accessed, timeField }.
+    function timeRows(fileEntry) {
+        var tag = function (v) { return v && fileEntry.timeField ? v + ' (' + fileEntry.timeField + ')' : v || ''; };
+        var rows = [['Ändrad enligt zippen', tag(fileEntry.mtime)]];
+        if (fileEntry.created) rows.push(['Skapad enligt zippen', tag(fileEntry.created)]);
+        if (fileEntry.accessed) rows.push(['Senast läst enligt zippen', tag(fileEntry.accessed)]);
+        return rows;
+    }
+
+    // Raderna i kortet. fileEntry: { path, size, mtime, created, accessed, timeField, crc32, crcOk, md5, sha256 }.
+    // opts.sizeText(byte) -> text.
     function cardRows(fileEntry, exifRows, opts) {
         opts = opts || {};
         if (!fileEntry) return [];
@@ -156,11 +167,11 @@
             ['Filnamn', baseName(fileEntry.path)],
             ['Sökväg i zippen', fileEntry.path],
             ['Storlek', size],
-            ['Ändrad enligt zippen', fileEntry.mtime || ''],
+        ].concat(timeRows(fileEntry)).concat([
             ['CRC32', (fileEntry.crc32 || '') + (fileEntry.crcOk === false ? ' (stämmer inte med zippen)' : '')],
             ['MD5', fileEntry.md5 || 'inte beräknad'],
             ['SHA-256', fileEntry.sha256 || 'inte beräknad'],
-        ];
+        ]);
         return rows.concat(exifSummary(exifRows));
     }
 
@@ -297,7 +308,7 @@
     var api = {
         decodeUserComment: decodeUserComment,
         kindOf: kindOf, mimeOf: mimeOf, baseName: baseName, thumbnailSuffix: thumbnailSuffix, suffixKeeper: suffixKeeper, pickBySuffix: pickBySuffix,
-        previewPlan: previewPlan, exifSummary: exifSummary, cardRows: cardRows, parseLocal: parseLocal, parseWhen: parseWhen, dateText: dateText, timeText: timeText, dayRange: dayRange, zoneOffsetAt: zoneOffsetAt, toUtcMs: toUtcMs, exifTakenMs: exifTakenMs,
+        previewPlan: previewPlan, exifSummary: exifSummary, cardRows: cardRows, timeRows: timeRows, parseLocal: parseLocal, parseWhen: parseWhen, dateText: dateText, timeText: timeText, dayRange: dayRange, zoneOffsetAt: zoneOffsetAt, toUtcMs: toUtcMs, exifTakenMs: exifTakenMs,
         nearestFirst: nearestFirst, deltaText: deltaText, mediaKeeper: mediaKeeper, entryMs: entryMs, dataUrl: dataUrl, THUMB_FILE: THUMB_FILE,
     };
     if (typeof module !== 'undefined' && module.exports) module.exports = api;
