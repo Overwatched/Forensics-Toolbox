@@ -1,7 +1,8 @@
 // Flikar i Queries: varje flik har sin egen databas, query, SQL och sitt eget resultat. Läget
 // sparas när man byter flik och läggs tillbaka när man kommer tillbaka, så att en query från
 // Härkomst öppnas i en ny flik utan att det man redan har uppe försvinner. Varje flik har också
-// sin egen zip; en ny flik börjar med programmets extraktion (extraction.js).
+// sin egen zip och sin egen databas från disk; en ny flik börjar med programmets extraktion och
+// utan fil (extraction.js).
 (function () {
     'use strict';
 
@@ -73,6 +74,7 @@
         active = tabs.length - 1;
         setNote('');
         restore(null);
+        window.QueriesExtraction.fresh();
         render();
         // En query från Härkomst öppnar sin egen zip; en tom flik får programmets extraktion.
         if (!key) window.QueriesExtraction.adoptShared();

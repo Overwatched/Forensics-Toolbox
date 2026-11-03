@@ -1,23 +1,7 @@
-// Delar av "Kör i appen" som inte behöver webbläsaren: para ihop databas och -wal,
-// CSV-export och positioner till kartan. Testas i Node.
+// Delar av "Kör i appen" som inte behöver webbläsaren: CSV-export, positioner till kartan och
+// tiderna i UTC. Testas i Node.
 (function (root) {
     'use strict';
-
-    // Databasen är filen som inte slutar på -wal, -shm eller -journal. -wal ska höra till
-    // samma databas, annars varnar vi.
-    function pairFiles(names) {
-        var db = null;
-        var wal = null;
-        var other = [];
-        names.forEach(function (name, i) {
-            if (/-wal$/i.test(name)) { if (wal === null) wal = i; else other.push(i); }
-            else if (/-(shm|journal)$/i.test(name)) other.push(i);
-            else if (db === null) db = i;
-            else other.push(i);
-        });
-        var mismatch = db !== null && wal !== null && names[wal].replace(/-wal$/i, '') !== names[db];
-        return { db: db, wal: wal, other: other, mismatch: mismatch };
-    }
 
     function csvCell(v) {
         if (v === null || v === undefined) return '';
@@ -106,7 +90,7 @@
         };
     }
 
-    var api = { pairFiles: pairFiles, toCsv: toCsv, cellText: cellText, toPoints: toPoints, epochText: epochText, withUtcColumns: withUtcColumns };
+    var api = { toCsv: toCsv, cellText: cellText, toPoints: toPoints, epochText: epochText, withUtcColumns: withUtcColumns };
     if (typeof module !== 'undefined' && module.exports) module.exports = api;
     else root.QueryRunCore = api;
 })(typeof window !== 'undefined' ? window : this);

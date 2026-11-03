@@ -144,14 +144,43 @@ npm test
 
 - Arbetsbänken (1.38): sidopanelen (`.side`, klistrad i fönstret) har **Översikt** överst, en sökruta och
   databaserna per OS och kategori (`CATEGORIES` i `script.js`: Operativsystemet, Snapchat, Signal; en databas
-  utan `category` hör till operativsystemet). En databas per familj (`familyKey()`), och den valda är utfälld
-  med sina queries (★ = rekommenderad, "Hjälp:"/"Tips:" grå). Photos.sqlite har knappar per iOS-version
-  (`pickVersion()`: ur zippen behålls posten och queryn, `extraction.repick(dbId)`). Med en extraktion öppen
-  står zippens databaser först och resten under en ihopfälld **Inte i extraktionen**. Sökningen matchar
-  familjens namn eller queryns titel, beskrivning och `returns`, och fäller ut alla träffar. `renderSide()`
-  ritar om panelen vid varje byte.
+  utan `category` hör till operativsystemet). En databas per familj (`familyKey()`) med sina queries
+  (★ = rekommenderad, "Hjälp:"/"Tips:" grå). Photos.sqlite har knappar per iOS-version (`pickVersion()`:
+  filen eller posten i zippen och queryn står kvar, `extraction.repick(dbId)`). Med en extraktion eller en
+  fil öppen står deras databaser först och resten under en ihopfälld **Inte i extraktionen** (bara en fil:
+  **Andra databaser**). Sökningen matchar familjens namn eller queryns titel, beskrivning och `returns`, och
+  fäller ut alla träffar. `renderSide()` ritar om panelen vid varje byte.
+- Fälla ut och ihop (1.39): ett klick på en databas fäller ut eller ihop dess queries (`toggleFamily()`),
+  också den valda, och ändrar inte arbetsytan; en query öppnas med ett klick på den (`pickQuery()`). Den
+  valda databasen fälls ut när den väljs (`shownKey`, `curCollapsed`) och visas i accentfärg när den är
+  ihopfälld. Databaser som undersökaren fällt ut (`userOpen`) står kvar; den som bara fälldes ut för att den
+  valdes fälls ihop när en annan väljs. Under en sökning gäller `searchClosed`, som töms när sökningen
+  ändras. **Inte i extraktionen** fälls ut en gång när den valda databasen ligger där, och läget sparas från
+  klicket på rubriken (`missingOpen`).
+- Knappen högst upp (1.39): en knapp för både extraktion och databas. I Forensics Toolbox är det
+  huvudfönstrets `#cb-open`, som i Queries heter **Öppna extraktion eller databas…** (`#cb-input` med
+  `multiple`, utan `accept`) och skickar filerna till Queries (`open-files`); i de andra verktygen tar den
+  bara en zip. Fristående har Queries en egen rad (`.q-bar`, `#open-pick`). `QueriesExtraction.openPicked()`
+  läser de första 16 byten och avgör med `identify.js` (`kindOf()`, `sortPicked()`): en zip öppnas som
+  extraktion och meddelas huvudfönstret (`extraction-changed` med `bar: true`, så att den räknas som öppnad
+  i raden); en ensam `-wal` läggs till filen från disk; `-shm` hoppas över. En SQLite-fil läses in med
+  `QueriesRun.load()` (`-wal` pålagd, SHA-256) och `DbIdentify.rank()` provar varje katalogdatabas queries
+  med `prepare()` mot filens schema. Queries som går att förbereda mot en tom databas (schemafrågor) räknas
+  inte. Bäst är den där alla queries passar, sedan den som visas, filens namn, extraktionens (eller den
+  visades) operativsystem, störst andel och flest av filens kolumner (`specificity()`: Snapchats arroyo.db på
+  Android har kolumner som iOS saknar). `conclude()` ger familjerna filen gäller: alla där alla queries
+  passar eller minst hälften. Utan träff känns filen igen på namnet (`fromName()`), en krypterad fil bara
+  bland databaserna med `cipher`. Photos.sqlite för varje iOS-version känns igen på schemat
+  (`identify.test.js` med `fixtures/photos-schema.json`).
+- Källan i fliken: `source` i `script.js` är `{ zip }` eller `{ file }`, och `extraction.js` har `current`
+  (zippen) och `loose` (filen från disk, med den inlästa databasen så att första körningen inte läser om).
+  Filen gäller familjerna den känns igen som, eller alla som inte finns i zippen när den inte känns igen
+  (`looseCovers()`); i sina familjer går den före zippen. **Stäng filen** i källraden eller översikten går
+  tillbaka till zippens databas (`reattach()`). Öppnas en zip medan en query visas utan fil används zippens
+  databas direkt, med samma query (`selectDb(id, { keepQuery })`). Spårbarheten börjar med
+  `Från disk: <namn> (<byte>, ändrad <tid>)` för filer från disk.
 - Översikten (`#start`): ingen databas vald. Zippens databaser i en tabell med sökväg, storlek, tid och `-wal`
-  (`extraction.js`, `render()`); fristående finns **Öppna extraktion (zip)…** där.
+  (`extraction.js`, `render()`), och filen från disk på en rad under med vad den känns igen som.
 - Arbetsytan (`#workspace`), uppifrån: queryrutan (`.q-card`: var databasen hör hemma, namn, märke,
   beskrivning, fälten och **Kör query** på en rad med CSV, karta och Härkomst till höger, tidsspannet i klartext
   och sist raden **Källa** med filerna, platsen i zippen när databasen finns på flera ställen, noter och
@@ -165,9 +194,9 @@ npm test
   Smalare än 980 px står sidopanelen överst.
 - `tabs.js`: varje flik är ett sparat läge. Vid byte sparas `QueriesApp.snapshot()`,
   `QueriesRun.snapshot()` (filer, inläst databas, resultat) och `QueriesExtraction.snapshot()`, och
-  den andra flikens läge läggs tillbaka med `restore()`. Extraktionen hör till fliken
-  (`QueriesExtraction.snapshot()` ger `{ ex, chosen }`), och en ny flik får programmets extraktion
-  (`adoptShared()`), fristående den zip som är öppen.
+  den andra flikens läge läggs tillbaka med `restore()`. Extraktionen och filen från disk hör till fliken
+  (`QueriesExtraction.snapshot()` ger `{ ex, chosen, loose }`), och en ny flik får programmets extraktion
+  (`adoptShared()`), fristående den zip som är öppen, men ingen fil (`fresh()`).
 - `openFromProvenance()`: samma zip, sökväg och SQL visar den flik som redan finns, annars används
   en tom flik eller öppnas en ny. `QueriesApp.showCustom()` visar SQL:en utan fält,
   `QueriesRun.run()` kör den, och `QueryRunCore.withUtcColumns()` lägger en kolumn `<namn> (UTC)`

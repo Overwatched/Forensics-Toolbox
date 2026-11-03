@@ -1,4 +1,5 @@
-// Inne i Forensics Toolbox öppnas extraktionen i raden högst upp, och vissa knappar finns bara där.
+// Inne i Forensics Toolbox öppnas extraktionen eller databasen i raden högst upp, och vissa knappar
+// finns bara där.
 if (window.parent !== window) document.body.classList.add('in-hub');
 
 const paramsEl = document.getElementById('params');
@@ -56,8 +57,14 @@ let currentQueryId = '';
 let paramMemory = {};
 // Fliken under resultatet som visas (sql, trace eller about), tom när den är ihopfälld.
 let pane = 'sql';
-// "Inte i extraktionen" i sidopanelen är utfälld.
+// Sidopanelen: "Inte i extraktionen" är utfälld, databaserna som undersökaren fällt ut, om den valda
+// databasen är ihopfälld, och de som fällts ihop under en sökning (töms när sökningen ändras).
 let missingOpen = false;
+const userOpen = new Set();
+let curCollapsed = false;
+const searchClosed = new Set();
+// Familjen som senast var vald: när en annan väljs fälls den ut, också under "Inte i extraktionen".
+let shownKey = null;
 
 function escapeHtml(s) {
     return String(s)
@@ -73,8 +80,8 @@ function showToast(text) {
     setTimeout(() => toast.classList.remove('show'), 1200);
 }
 
-// source är satt när databasen kom ur en öppnad extraktion, och extraction beskriver zippens
-// databaser så länge en extraktion är öppen.
+// source säger var databasens fil kom ifrån: { zip } ur en öppnad extraktion, { file } från disk.
+// extraction beskriver zippens och filens databaser så länge något är öppet (extraction.js).
 let source = null;
 let extraction = null;
 // Satt när SQL:en kom från Härkomst: { queryId, title, db, from }. Då visas exakt den SQL:en, utan fält.
@@ -775,12 +782,16 @@ function catalogFamilies() {
     return families;
 }
 
+// opts.source: var filen kommer ifrån. opts.keepQuery: queryn som visas står kvar om den finns i
+// databasen (samma fil med en annan iOS-version, eller en fil som öppnas medan queryn visas).
 function selectDb(id, opts) {
     if (!id || !databases.some((d) => d.id === id)) return;
+    const keep = opts && opts.keepQuery && !custom ? currentQueryId : '';
     source = (opts && opts.source) || null;
     currentDbId = id;
     sqlDirty = false;
     onDbChange();
+    if (keep && keep !== currentQueryId && (currentDb().queries || []).some((q) => q.id === keep)) selectQuery(keep);
     window.scrollTo(0, 0);
 }
 
@@ -806,28 +817,47 @@ function goHome() {
     onDbChange();
 }
 
-// Databasen ur zippen när den finns där, annars katalogens databas (filerna läses in för hand).
+// Databasen ur zippen eller filen från disk när den finns där, annars katalogens databas utan fil.
 function pickFamily(key, dbId) {
-    if (extraction && extraction.families.has(key)) extraction.pick(key);
+    if (extraction && extraction.covers(key)) extraction.pick(key, dbId);
     else selectDb(dbId);
 }
 
-// Klick på databasens rad: den rekommenderade queryn. Är databasen redan vald händer inget,
-// utom när filerna lästs in för hand och databasen finns i zippen: då hämtas den därifrån.
-function pickDbRow(key, dbId) {
-    const cur = currentDb();
-    const inZip = !!extraction && extraction.families.has(key);
-    if (cur && familyKey(cur) === key && !custom && (source || !inZip)) return;
-    pickFamily(key, dbId);
-}
-
+// Klick på en query. Är databasen redan vald byts bara queryn, utom när databasen visas utan fil
+// och filen nu finns i zippen eller på disk: då hämtas den därifrån.
 function pickQuery(key, dbId, queryId) {
     const cur = currentDb();
-    if (!cur || familyKey(cur) !== key) pickFamily(key, dbId);
+    const covered = !!extraction && extraction.covers(key);
+    if (!cur || familyKey(cur) !== key || (!source && covered)) pickFamily(key, dbId);
     selectQuery(queryId);
 }
 
-// Photos.sqlite: en annan iOS-version byter katalogens databas men behåller filen ur zippen och queryn.
+// Klick på databasens rad fäller ut eller ihop dess queries, också den valda databasens. Det som
+// visas till höger ändras inte.
+function isFamilyOpen(key, searching) {
+    if (searching) return !searchClosed.has(key);
+    const cur = currentDb();
+    return userOpen.has(key) || (!!cur && familyKey(cur) === key && !curCollapsed);
+}
+
+function toggleFamily(key) {
+    const searching = !!sideSearch.value.trim();
+    const open = isFamilyOpen(key, searching);
+    if (searching) {
+        if (open) searchClosed.add(key);
+        else searchClosed.delete(key);
+    } else {
+        const cur = currentDb();
+        const isCur = !!cur && familyKey(cur) === key;
+        if (open) userOpen.delete(key);
+        else userOpen.add(key);
+        if (isCur) curCollapsed = open;
+    }
+    renderSide();
+}
+
+// Photos.sqlite: en annan iOS-version byter katalogens databas men behåller filen (ur zippen eller
+// från disk) och queryn.
 function pickVersion(dbId) {
     const cur = currentDb();
     if (!cur || cur.id === dbId) return;
@@ -851,42 +881,48 @@ function queryMatches(q, terms) {
     return terms.every((t) => hay.includes(t));
 }
 
-// Sidopanelen: databaserna per operativsystem och kategori, den valda utfälld med sina queries.
-// Med en extraktion öppen står zippens databaser först och de andra under "Inte i extraktionen".
-// En sökning fäller ut alla databaser med träffar.
+// Sidopanelen: databaserna per operativsystem och kategori. Ett klick på en databas fäller ut eller
+// ihop dess queries, och den valda databasen fälls ut när den väljs. Med en extraktion eller en fil
+// öppen står deras databaser först och de andra under "Inte i extraktionen" (eller "Andra
+// databaser"). En sökning fäller ut alla databaser med träffar.
 function renderSide() {
     const cur = currentDb();
     const curKey = cur ? familyKey(cur) : null;
     const active = cur && !custom ? currentQuery() : null;
     const terms = sideSearch.value.trim().toLowerCase().split(/\s+/).filter(Boolean);
+    const split = !!extraction && extraction.families.size > 0;
+    const fresh = curKey !== shownKey;
+    if (fresh) {
+        shownKey = curKey;
+        curCollapsed = false;
+    }
 
     sideHome.classList.toggle('active', !cur);
     if (cur) sideHome.removeAttribute('aria-current');
     else sideHome.setAttribute('aria-current', 'page');
-    sideHomeSub.textContent = extraction ? extraction.title : 'Ingen extraktion öppen';
+    sideHomeSub.textContent = extraction ? extraction.title : 'Inget öppet';
 
     const found = [];
     const missing = [];
     catalogFamilies().forEach((f) => {
         const isCur = f.key === curKey;
-        const inZip = !!extraction && extraction.families.has(f.key);
-        const db = isCur ? cur : (inZip && extraction.dbFor(f.key)) || f.items[f.items.length - 1];
+        const covered = !!extraction && extraction.covers(f.key);
+        const db = isCur ? cur : (covered && extraction.dbFor(f.key)) || f.items[f.items.length - 1];
         let queries = db.queries || [];
-        let open = isCur;
         if (terms.length) {
             const famHit = terms.every((t) => f.title.toLowerCase().includes(t));
             if (!famHit) queries = queries.filter((q) => queryMatches(q, terms));
             if (!famHit && !queries.length) return;
-            open = true;
         }
-        const row = { f: f, db: db, queries: queries, open: open, isCur: isCur };
-        (extraction && !inZip ? missing : found).push(row);
+        const row = { f: f, db: db, queries: queries, open: isFamilyOpen(f.key, terms.length > 0), isCur: isCur };
+        (split && !extraction.families.has(f.key) ? missing : found).push(row);
     });
+    if (fresh && missing.some((r) => r.isCur)) missingOpen = true;
 
     let html = sideSections(found, active);
     if (missing.length) {
-        const open = terms.length > 0 || missingOpen || missing.some((r) => r.isCur);
-        html += '<details class="side-missing"' + (open ? ' open' : '') + '><summary>Inte i extraktionen <span class="side-count">' +
+        const open = terms.length > 0 || missingOpen;
+        html += '<details class="side-missing"' + (open ? ' open' : '') + '><summary>' + escapeHtml(extraction.missingLabel) + ' <span class="side-count">' +
             missing.length + '</span></summary>' + sideSections(missing, active) + '</details>';
     }
     // Panelen ritas om vid varje klick: knappen som hade fokus får det tillbaka, så att man kan
@@ -991,17 +1027,22 @@ async function init() {
 }
 
 sideTree.addEventListener('click', (e) => {
+    // Rubriken "Inte i extraktionen": klicket fäller ut eller ihop, och läget sparas till nästa gång panelen ritas.
+    const summary = e.target.closest('.side-missing > summary');
+    if (summary) {
+        missingOpen = !summary.parentElement.open;
+        return;
+    }
     const b = e.target.closest('button');
     if (!b) return;
     if (b.hasAttribute('data-ver')) pickVersion(b.getAttribute('data-ver'));
     else if (b.hasAttribute('data-q')) pickQuery(b.getAttribute('data-family'), b.getAttribute('data-db'), b.getAttribute('data-q'));
-    else if (b.hasAttribute('data-family')) pickDbRow(b.getAttribute('data-family'), b.getAttribute('data-db'));
+    else if (b.hasAttribute('data-family')) toggleFamily(b.getAttribute('data-family'));
 });
-// toggle bubblar inte, så den fångas på vägen ned.
-sideTree.addEventListener('toggle', (e) => {
-    if (e.target.classList && e.target.classList.contains('side-missing')) missingOpen = e.target.open;
-}, true);
-sideSearch.addEventListener('input', renderSide);
+sideSearch.addEventListener('input', () => {
+    searchClosed.clear();
+    renderSide();
+});
 sideSearch.addEventListener('keydown', (e) => {
     if (e.key !== 'Escape' || !sideSearch.value) return;
     sideSearch.value = '';
@@ -1076,6 +1117,12 @@ window.addEventListener('message', function (event) {
         window.QueriesApp.ready.then(function () {
             return window.QueriesExtraction.follow({ file: data.file || null, seq: Number(data.seq) || 0, from: data.from || '', force: !!data.force });
         }).catch(function (err) { console.warn('Extraktionen kunde inte öppnas', err); });
+        return;
+    }
+    // Knappen i raden högst upp: en zip eller en databas, som extraction.js känner igen.
+    if (data.type === 'open-files' && Array.isArray(data.files) && window.QueriesExtraction) {
+        ready.then(() => window.QueriesExtraction.openPicked(data.files))
+            .catch((err) => console.warn('Filerna kunde inte öppnas', err));
         return;
     }
     if (data.type === 'select-db' && data.db && databases.length) {
@@ -1164,13 +1211,14 @@ window.QueriesApp = {
     tabLabel: tabLabel,
     databases: () => databases,
     selectDb: selectDb,
-    // { families: Set, title, dbFor(family), pick(family), repick(dbId) } när en extraktion är öppen, annars null.
+    // { families: Set, missingLabel, title, covers(family), dbFor(family), pick(family, dbId), repick(dbId) }
+    // när en extraktion eller en fil från disk är öppen, annars null. Källan ändras av extraction.js.
     setExtraction: (ex) => {
         extraction = ex;
-        if (!ex) source = null;
         renderSide();
     },
-    fromExtraction: () => !!source,
+    source: () => source,
+    fromExtraction: () => !!(source && source.zip),
 };
 
 init();

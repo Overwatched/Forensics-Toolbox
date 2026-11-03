@@ -1,13 +1,13 @@
 // Körningen i Queries: databasen och dess -wal läses in, WAL-ramarna läggs på en kopia i minnet
 // och queryn körs med sql.js. Källfilerna öppnas bara för läsning. Källan står längst ned i
-// queryrutan, resultatet under den och spårbarheten i fliken Spårbarhet.
+// queryrutan, resultatet under den och spårbarheten i fliken Spårbarhet. Filerna väljs med knappen
+// högst upp (extraction.js), som också känner igen vilken databas det är.
 (function () {
     'use strict';
 
     var MAX_SHOWN = 2000;
 
     var $ = function (id) { return document.getElementById(id); };
-    var input = $('run-input');
     var fileList = $('run-file-list');
     var noWalLabel = $('run-nowal-label');
     var noWal = $('run-nowal');
@@ -58,13 +58,14 @@
         return Array.prototype.map.call(new Uint8Array(digest), function (b) { return (b < 16 ? '0' : '') + b.toString(16); }).join('');
     }
 
-    // En källa är en vald fil eller en post i en zip. read() ger { bytes, lines }, där lines
-    // beskriver var bytena kom ifrån (till status och CSV-huvudet).
+    // En källa är en fil från disk eller en post i en zip. read() ger { bytes, lines }, där lines
+    // beskriver var bytena kom ifrån (till spårbarheten och CSV-huvudet).
     function fileSource(file) {
         return {
             name: file.name,
             read: async function () {
-                return { bytes: new Uint8Array(await file.arrayBuffer()), lines: [] };
+                var line = 'Från disk: ' + file.name + ' (' + file.size + ' byte, ändrad ' + new Date(file.lastModified).toISOString() + ')';
+                return { bytes: new Uint8Array(await file.arrayBuffer()), lines: [line] };
             },
         };
     }
@@ -88,21 +89,16 @@
         trace.innerHTML = TRACE_EMPTY;
     }
 
-    // Källan på en rad: filerna och var de kom ifrån. Utan databas blir "Välj databas och -wal…"
-    // en vanlig knapp, eftersom det är det som ska göras härnäst.
+    // Källan på en rad: filerna och var de kom ifrån.
     function updateState() {
         var ready = !!files.db && (!!files.wal || noWal.checked);
         runButton.disabled = !ready;
         noWalLabel.classList.toggle('display-none', !files.db || !!files.wal || !!files.zip);
-        var pick = $('run-pick');
-        pick.textContent = files.db ? 'Andra filer…' : 'Välj databas och -wal…';
-        pick.classList.toggle('link-btn', !!files.db);
-        pick.classList.toggle('pick-btn', !files.db);
         var name = function (f) { return '<strong>' + escapeHtml(f.name) + '</strong>'; };
         var html;
-        if (!files.db) html = 'Ingen databas vald. Filerna läses bara.';
+        if (!files.db) html = 'Ingen databas öppen. Öppna den, eller extraktionen, med knappen högst upp.';
         else {
-            html = name(files.db) + (files.wal ? ' och ' + name(files.wal) : '') + (files.zip ? ' ur ' + escapeHtml(files.zip) : '');
+            html = name(files.db) + (files.wal ? ' och ' + name(files.wal) : '') + (files.zip ? ' ur ' + escapeHtml(files.zip) : ' från disk');
             if (files.cipher && files.cipher.passphrase && !keyInput.value.trim()) html += ', nyckeln ur ' + escapeHtml(files.cipher.source);
             html += '.';
             if (!files.wal && files.zip) html += ' <span class="run-warn">Extraktionen har ingen -wal för databasen: allt som finns i databasfilen kommer med.</span>';
@@ -116,7 +112,6 @@
     function reset() {
         files = { db: null, wal: null };
         noWal.checked = false;
-        input.value = '';
         keyWanted = false;
         closeOpened();
         clearResult();
@@ -124,35 +119,12 @@
         updateState();
     }
 
-    $('run-pick').addEventListener('click', function () { input.click(); });
     // En ny nyckel gäller vid nästa körning: databasen läses då in igen.
     keyInput.addEventListener('input', function () { closeOpened(); updateState(); });
     $('run-key-other').addEventListener('click', function () {
         keyWanted = true;
         showKeyRow();
         keyInput.focus();
-    });
-
-    input.addEventListener('change', function () {
-        var list = Array.prototype.slice.call(input.files || []);
-        if (!list.length) return;
-        var pair = QueryRunCore.pairFiles(list.map(function (f) { return f.name; }));
-        // Bara en -wal vald: behåll databasen som redan är vald.
-        if (pair.db === null && pair.wal !== null && files.db && !files.zip) {
-            files.wal = fileSource(list[pair.wal]);
-            files.mismatch = list[pair.wal].name.replace(/-wal$/i, '') !== files.db.name;
-        } else {
-            files = {
-                db: pair.db === null ? null : fileSource(list[pair.db]),
-                wal: pair.wal === null ? null : fileSource(list[pair.wal]),
-                mismatch: pair.mismatch,
-            };
-        }
-        noWal.checked = false;
-        closeOpened();
-        clearResult();
-        status.textContent = files.db ? '' : 'Välj själva databasen också, inte bara -wal eller -shm.';
-        updateState();
     });
 
     noWal.addEventListener('change', updateState);
@@ -180,32 +152,49 @@
                 : 'Klistra in den här. Den sparas inte.';
     }
 
-    async function open() {
-        var cipher = currentCipher();
-        if (opened && opened.dbFile === files.db && opened.walFile === files.wal && opened.passphrase === cipher.passphrase) return opened;
-        closeOpened();
-        status.textContent = 'Läser in…';
+    // Läser databasen och -wal, räknar SHA-256 och lägger WAL-ramarna på en kopia i minnet. En
+    // krypterad databas dekrypteras med cipher.passphrase; utan nyckel kastas ett fel med code
+    // 'ENCRYPTED'. Används också när en fil öppnas, så att schemat kan provas (extraction.js).
+    async function load(src, cipher) {
+        cipher = cipher || { profile: null, passphrase: null, source: null };
         var SQL = await loadSqlJs();
-        var dbRead = await files.db.read();
-        var walRead = files.wal ? await files.wal.read() : null;
+        var dbRead = await src.db.read();
+        var walRead = src.wal ? await src.wal.read() : null;
         var hashes = await Promise.all([sha256(dbRead.bytes), walRead ? sha256(walRead.bytes) : Promise.resolve('')]);
         var walBytes = walRead ? walRead.bytes : new Uint8Array(0);
         var merged;
         var origin = dbRead.lines.concat(walRead ? walRead.lines : []);
-        if (dbRead.bytes.length >= 16 && !SqlCipher.isPlain(dbRead.bytes)) {
-            files.encrypted = true;
-            showKeyRow();
-            if (!cipher.passphrase) throw new Error(files.db.name + ' är krypterad (SQLCipher). Klistra in nyckeln i rutan Nyckel under Källa.');
+        var encrypted = dbRead.bytes.length >= 16 && !SqlCipher.isPlain(dbRead.bytes);
+        if (encrypted) {
+            if (!cipher.passphrase) {
+                var err = new Error(src.db.name + ' är krypterad (SQLCipher). Klistra in nyckeln i rutan Nyckel under Källa.');
+                err.code = 'ENCRYPTED';
+                throw err;
+            }
             merged = SqlCipher.open(dbRead.bytes, walBytes, cipher.passphrase, cipher.profile, SqliteWal);
             origin.push(SqlCipher.summary(merged.stats, cipher.source));
         } else {
             merged = SqliteWal.apply(dbRead.bytes, walBytes);
         }
         if (walRead && merged.stats.error) throw new Error(merged.stats.error);
-        opened = {
-            SQL: SQL, dbFile: files.db, walFile: files.wal, stats: merged.stats, hashes: hashes, bytes: merged.bytes,
-            origin: origin, passphrase: cipher.passphrase,
+        return {
+            SQL: SQL, dbFile: src.db, walFile: src.wal || null, stats: merged.stats, hashes: hashes, bytes: merged.bytes,
+            origin: origin, passphrase: cipher.passphrase, encrypted: encrypted,
         };
+    }
+
+    async function open() {
+        var cipher = currentCipher();
+        if (opened && opened.dbFile === files.db && opened.walFile === files.wal && opened.passphrase === cipher.passphrase) return opened;
+        closeOpened();
+        status.textContent = 'Läser in…';
+        try {
+            opened = await load(files, cipher);
+        } catch (err) {
+            if (err && err.code === 'ENCRYPTED') { files.encrypted = true; showKeyRow(); }
+            throw err;
+        }
+        if (opened.encrypted) { files.encrypted = true; showKeyRow(); }
         return opened;
     }
 
@@ -273,7 +262,9 @@
                 : '');
             trace.innerHTML = hashLines(o).map(escapeHtml).join('<br>');
             if (warn) document.dispatchEvent(new CustomEvent('queries:show-pane', { detail: 'trace' }));
+            // Utan rader ger sql.js inga kolumner: exempelraderna ska inte stå kvar under "0 rader".
             if (res.columns.length) renderTable(res);
+            else setResult('<p class="muted run-empty">Queryn gav inga rader.</p>');
             csvButton.disabled = !res.columns.length;
             var geo = MapImport.guessColumns(res.columns.map(String));
             mapButton.disabled = !(count && geo.lat >= 0 && geo.lon >= 0);
@@ -356,13 +347,14 @@
         status.textContent = (names.length > MAX_NAMES ? 'De första ' + MAX_NAMES + ' av ' + names.length : names.length) + (names.length === 1 ? ' filnamn skickades' : ' filnamn skickades') + ' till Härkomst.';
     });
 
-    // Extraktion: databasen och -wal kommer ur en zip. Anropas efter att rätt databas valts,
-    // eftersom bytet av databas tömmer rutan.
+    // Databasen och -wal ur en zip (src.zip) eller från disk. Anropas efter att rätt databas valts,
+    // eftersom bytet av databas tömmer rutan. Ur zippen finns ingen -wal att välja; från disk måste
+    // undersökaren bocka i att det inte finns någon. src.opened: filerna är redan inlästa.
     function useSources(src) {
-        files = { db: src.db, wal: src.wal || null, mismatch: false, zip: src.zip, cipher: src.cipher || null };
-        noWal.checked = !src.wal;
-        input.value = '';
+        files = { db: src.db, wal: src.wal || null, mismatch: !!src.mismatch, zip: src.zip, cipher: src.cipher || null };
+        noWal.checked = !!src.zip && !src.wal;
         closeOpened();
+        if (src.opened && src.opened.dbFile === files.db && src.opened.walFile === files.wal) opened = src.opened;
         clearResult();
         status.textContent = '';
         updateState();
@@ -393,7 +385,10 @@
         updateState();
     }
 
-    window.QueriesRun = { useSources: useSources, run: runQuery, snapshot: snapshot, restore: restore };
+    window.QueriesRun = {
+        useSources: useSources, run: runQuery, snapshot: snapshot, restore: restore,
+        load: load, fileSource: fileSource, sql: loadSqlJs,
+    };
 
     document.addEventListener('queries:db-change', reset);
     // En annan query i samma databas: filerna och den inlästa databasen står kvar, resultatet töms.

@@ -60,8 +60,39 @@ body {
 
 .muted { color: var(--text-muted); }
 .display-none { display: none !important; }
-/* Inne i Forensics Toolbox öppnas extraktionen i raden högst upp; fristående har verktyget egna knappar. */
+/* Inne i Forensics Toolbox öppnas extraktionen och databasen i raden högst upp; fristående har verktyget en egen rad. */
 body.in-hub .standalone-only, body:not(.in-hub) .hub-only { display: none !important; }
+
+/* Fristående: raden högst upp med knappen för extraktion eller databas, som raden i Forensics Toolbox. */
+.q-bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px 10px;
+    margin: 0 0 12px;
+    padding: 8px 12px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    font-size: 13px;
+}
+.q-bar-label { font-size: 10.5px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; color: var(--text-muted); }
+.q-bar-value { max-width: 420px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.q-bar-meta { color: var(--text-muted); white-space: nowrap; }
+button.q-bar-btn {
+    flex: none;
+    min-width: 0;
+    padding: 4px 10px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: transparent;
+    color: var(--accent);
+    font: inherit;
+    font-size: 12.5px;
+    font-weight: 600;
+}
+button.q-bar-btn:hover { background: var(--surface-hover); border-color: var(--border-hover); }
+button.q-bar-btn.q-bar-quiet { color: var(--text-muted); }
 
 select, input[type="text"], textarea, .sql-view {
     width: 100%;
@@ -150,12 +181,6 @@ mark.sql-default {
     line-height: 1.45;
 }
 .banner.error { color: var(--error); }
-
-.button-row {
-    display: flex;
-    gap: 10px;
-    flex-wrap: wrap;
-}
 
 button {
     flex: 1;
@@ -321,6 +346,8 @@ button.side-db {
 }
 button.side-db:hover { background: var(--surface-hover); }
 .side-fam.current > .side-db { font-weight: 700; }
+/* Den valda databasen ihopfälld: färgen visar var queryn som visas finns. */
+.side-fam.current > .side-db[aria-expanded="false"] { color: var(--accent); }
 .side-chev { flex: none; color: var(--text-muted); transition: transform 0.12s; }
 .side-db[aria-expanded="true"] .side-chev { transform: rotate(90deg); }
 .side-name { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -398,11 +425,23 @@ button.side-q.active { background: var(--accent-soft); color: var(--accent); fon
     border-radius: 12px;
     font-size: 13px;
 }
-.ex-box .button-row { margin-bottom: 8px; }
-.ex-box .button-row button { flex: 0 0 auto; min-width: 0; padding: 10px 16px; white-space: nowrap; }
 .run-status { color: var(--text-muted); word-break: break-word; }
 .run-warn { color: var(--error); }
 .ex-summary { font-weight: 600; margin-top: 4px; }
+.ex-file { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; word-break: break-word; }
+.ex-list > .ex-file:not(:first-child) { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border); }
+.ex-file-label { font-size: 11px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; color: var(--text-muted); }
+.ex-file button.ex-use {
+    flex: none;
+    min-width: 0;
+    padding: 0;
+    background: none;
+    color: var(--accent);
+    font: inherit;
+    font-weight: 600;
+}
+.ex-file button.ex-use:hover { background: none; text-decoration: underline; }
+.ex-file .link-btn { font-size: 12.5px; }
 .ex-table { border-collapse: collapse; font-size: 12.5px; margin-top: 8px; width: 100%; }
 .ex-table th, .ex-table td {
     border-bottom: 1px solid var(--border);
@@ -475,7 +514,6 @@ button.run-button { flex: none; min-width: 0; padding: 10px 20px; }
 .run-file-list strong { font-weight: 600; color: var(--text); }
 .q-source select.ex-switch { width: auto; max-width: 480px; padding: 4px 30px 4px 8px; border-radius: 8px; font-size: 12.5px; }
 .q-source button.link-btn { font-size: 12.5px; }
-button.pick-btn { flex: none; min-width: 0; padding: 6px 12px; font-size: 13px; }
 .run-nowal { display: inline-flex; align-items: center; gap: 6px; color: var(--text); }
 .run-key { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; font-size: 12.5px; color: var(--text-muted); }
 .run-key label { font-weight: 600; color: var(--text); }
@@ -492,6 +530,7 @@ button.pick-btn { flex: none; min-width: 0; padding: 6px 12px; font-size: 13px; 
 .r-card .run-status { margin: 6px 6px 4px; font-size: 12.5px; line-height: 1.5; }
 .r-card .run-status:empty { display: none; }
 .r-card .run-status .link-btn { margin-left: 4px; }
+.run-result .run-empty { margin: 2px 6px 4px; font-size: 13px; }
 .result-scroll { overflow-x: auto; }
 .run-result { max-height: 70vh; overflow: auto; }
 .run-result table, .result-preview table { border-collapse: collapse; font-size: 12.5px; white-space: nowrap; }

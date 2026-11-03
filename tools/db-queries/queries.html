@@ -13,6 +13,16 @@
     <div id="container">
         <div id="load-error" class="banner error display-none"></div>
 
+        <!-- Fristående: en knapp för både extraktion och databas. I Forensics Toolbox finns den i raden högst upp. -->
+        <div class="q-bar standalone-only">
+            <span class="q-bar-label">Extraktion</span>
+            <span class="q-bar-value" id="bar-zip">Ingen öppen</span>
+            <span class="q-bar-meta" id="bar-meta"></span>
+            <button type="button" class="q-bar-btn" id="open-pick" title="En zip öppnas som extraktion. En databas, med sin -wal, öppnas med sina queries.">Öppna extraktion eller databas…</button>
+            <button type="button" class="q-bar-btn q-bar-quiet display-none" id="ex-close">Stäng</button>
+            <input type="file" id="open-input" multiple hidden>
+        </div>
+
         <div id="tabs" class="q-tabs" role="tablist" aria-label="Flikar"></div>
         <div id="tab-note" class="tab-note display-none"></div>
 
@@ -30,16 +40,11 @@
             <main class="bench-main">
                 <section id="start" class="start">
                     <h1>Queries</h1>
-                    <p class="start-intro"><span class="hub-only">Öppna en extraktion i raden högst upp, så hittar Queries databaserna och deras <code>-wal</code>.</span><span class="standalone-only">Öppna en extraktion, så hittar Queries databaserna och deras <code>-wal</code>.</span>
-                        Zippen läses bara. Utan extraktion väljer du en databas till vänster och läser in filerna själv.</p>
+                    <p class="start-intro">Öppna en extraktion (zip) eller en databas med knappen högst upp. Queries känner igen vilket det är:
+                        i en extraktion hittas databaserna och deras <code>-wal</code>, och en databas öppnas med sina queries. Filerna läses bara.</p>
                     <section class="ex-box" id="ex-box">
-                        <div class="button-row standalone-only">
-                            <button type="button" id="ex-pick">Öppna extraktion (zip)…</button>
-                            <button type="button" class="secondary display-none" id="ex-close">Stäng extraktionen</button>
-                        </div>
                         <div id="ex-status" class="run-status"></div>
                         <div id="ex-list" class="ex-list"></div>
-                        <input type="file" id="ex-input" accept=".zip,application/zip" hidden>
                     </section>
                 </section>
 
@@ -67,9 +72,8 @@
                             <span id="run-file-list" class="run-file-list"></span>
                             <select id="ex-switch" class="ex-switch display-none" aria-label="Databasen i extraktionen"></select>
                             <span id="ex-notes" class="ex-note"></span>
-                            <button type="button" class="link-btn" id="run-pick">Välj databas och -wal…</button>
+                            <button type="button" class="link-btn display-none" id="file-close">Stäng filen</button>
                             <button type="button" class="link-btn display-none" id="run-key-other">Annan nyckel…</button>
-                            <input type="file" id="run-input" multiple hidden>
                             <label class="run-nowal display-none" id="run-nowal-label"><input type="checkbox" id="run-nowal"> Det finns ingen -wal</label>
                         </div>
                         <div class="run-key display-none" id="run-key-row">
@@ -144,6 +148,7 @@
     <script src="zip.js"></script>
     <script src="locate.js"></script>
     <script src="extraction-core.js"></script>
+    <script src="identify.js"></script>
     <script src="extraction.js"></script>
     <script src="tabs.js"></script>
 </body>

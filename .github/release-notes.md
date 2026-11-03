@@ -1,5 +1,13 @@
 Automatiskt byggd från commit `{{SHA}}`.
 
+## Nytt i 1.39
+
+- **En knapp för extraktion och databas i Queries.** Knappen högst upp heter **Öppna extraktion eller databas…** och tar emot en extraktion (zip) eller en databas med sin `-wal`. Queries känner igen vad du valde: en zip öppnas som extraktion, och en databas känns igen på sina tabeller och öppnas med sina queries, Photos.sqlite med rätt iOS-version. Knappen **Välj databas och -wal…** är borttagen.
+- **Databasen från disk** står i källraden med **Stäng filen**, och spårbarheten visar filens namn, storlek, ändringstid och SHA-256. En `-wal` som väljs ensam läggs till databasen. Passar inte alla queries, eller ingen, står det i källraden. Med en extraktion öppen går filen före zippen för sin databas tills den stängs.
+- **Listan till vänster går att fälla ihop.** Ett klick på en databas fäller ut eller ihop dess queries, också den som är vald, och en query öppnas med ett klick på den.
+- **Öppnar du extraktionen medan en query visas** används databasen ur zippen direkt, med samma query.
+- **Rättat:** efter en körning utan rader stod de påhittade exempelraderna kvar. Nu står det att queryn inte gav några rader.
+
 ## Nytt i 1.38
 
 - **Queries är en arbetsbänk.** Databaserna och deras queries står i en lista till vänster, grupperade per operativsystem och app. Med en extraktion öppen står zippens databaser först, och resten ligger under **Inte i extraktionen**. Sökrutan överst hittar en query på namn eller beskrivning, till exempel "sha" eller "bilagor".

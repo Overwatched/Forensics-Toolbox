@@ -1,17 +1,10 @@
-// Kör i appen: filerna paras ihop, CSV-filen går att läsa tillbaka och positionerna
-// får tid, zon och noggrannhet.
+// Kör i appen: CSV-filen går att läsa tillbaka och positionerna får tid, zon och noggrannhet.
+// Hur valda filer paras ihop testas i identify.test.js.
 
 const test = require('node:test');
 const assert = require('node:assert');
 const run = require('./run-core');
 const imp = require('../_shared/map/import-core');
-
-test('databas och -wal paras ihop, -shm hoppas över', () => {
-    const p = run.pairFiles(['Cache.sqlite-shm', 'Cache.sqlite-wal', 'Cache.sqlite']);
-    assert.deepStrictEqual([p.db, p.wal, p.other, p.mismatch], [2, 1, [0], false]);
-    assert.strictEqual(run.pairFiles(['Cache.sqlite', 'Local.sqlite-wal']).mismatch, true);
-    assert.strictEqual(run.pairFiles(['Cache.sqlite-wal']).db, null);
-});
 
 test('CSV citerar komma, citattecken och radbrytning', () => {
     const csv = run.toCsv(['a', 'b'], [['x,y', 'säger "hej"'], [null, 'rad\nbrytning']]);

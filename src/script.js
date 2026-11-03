@@ -107,7 +107,13 @@ function initToolNav() {
         byId('cb-zip').textContent = f ? f.name : 'Ingen öppen';
         byId('cb-zip').title = f ? f.name : '';
         byId('cb-zip-meta').textContent = f ? [sizeText(f.size), extraction.info && extraction.info.device].filter(Boolean).join(' · ') : '';
-        byId('cb-open').textContent = f ? 'Byt…' : 'Öppna extraktion (zip)…';
+        // I Queries tar knappen emot både en extraktion och en databas, och Queries känner igen vilket.
+        const queries = kind === 'queries';
+        byId('cb-open').textContent = queries ? 'Öppna extraktion eller databas…' : f ? 'Byt…' : 'Öppna extraktion (zip)…';
+        byId('cb-open').title = queries ? 'En zip öppnas som extraktion i alla verktyg. En databas, med sin -wal, öppnas i Queries.' : '';
+        byId('cb-input').multiple = queries;
+        if (queries) byId('cb-input').removeAttribute('accept');
+        else byId('cb-input').setAttribute('accept', '.zip,application/zip');
         byId('cb-close').hidden = !f;
         const file = f ? current : null;
         byId('cb-file').hidden = !file;
@@ -258,9 +264,10 @@ function initToolNav() {
         }
         // Ett verktyg öppnade eller stängde en zip. Verktyget får numret tillbaka, så att det inte
         // följer sin egen ändring; de andra får läget när de visas.
+        // bar: zippen valdes i raden högst upp och skickades vidare till Queries, som öppnade den.
         if (data.type === 'extraction-changed') {
             const frame = frameOf(event.source);
-            setExtraction(data.file || null, frame ? frame.title : '', frame, false);
+            setExtraction(data.file || null, frame && !data.bar ? frame.title : '', frame, false);
             return;
         }
         // Vad verktyget vet om extraktionen (iOS 26.0, Android 13), till raden högst upp.
@@ -311,15 +318,22 @@ function initToolNav() {
         openTool(data.src);
     });
 
-    // Raden högst upp: öppna, byta och stänga extraktionen, och visa filen i ett annat verktyg.
+    // Raden högst upp: öppna, byta och stänga extraktionen (i Queries också öppna en databas), och
+    // visa filen i ett annat verktyg.
     const bar = byId('context-bar');
     if (bar) {
         byId('cb-open').addEventListener('click', () => byId('cb-input').click());
         byId('cb-input').addEventListener('change', () => {
             const input = byId('cb-input');
-            const file = input.files && input.files[0];
+            const files = Array.from(input.files || []);
             input.value = '';
-            if (file) setExtraction(file, '', null, true);
+            if (!files.length) return;
+            // Queries avgör själv om filerna är en extraktion eller en databas med sin -wal.
+            if (CONTEXT_TOOLS[activePath] === 'queries') {
+                deliver('queries', { source: 'forensics-toolbox', type: 'open-files', files: files });
+                return;
+            }
+            setExtraction(files[0], '', null, true);
         });
         byId('cb-close').addEventListener('click', () => setExtraction(null, '', null, true));
         bar.addEventListener('click', (e) => {
