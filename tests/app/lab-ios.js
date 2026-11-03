@@ -1,6 +1,6 @@
 // Kontrollerna mot iOS-labbtelefonen: zippen och nyckelringen väljs tillsammans i raden högst upp,
-// Härkomst bedömer filerna och kopplingen till Signal och WhatsApp jämförs med det som står i
-// facit/lab-ios-signal-whatsapp.json. Körs bara när labbmappen finns. Läser bara filerna.
+// Härkomst bedömer filerna och kopplingen till Signal, WhatsApp och Telegram jämförs med det som står
+// i facit/lab-ios-signal-whatsapp.json. Körs bara när labbmappen finns. Läser bara filerna.
 'use strict';
 
 const fs = require('node:fs');
@@ -31,8 +31,8 @@ async function assess(c, name) {
         const m = ProvenanceApp.model();
         if (!m || m.file.filename !== ${JSON.stringify(name)}) return { error: document.getElementById('run-status').innerText };
         const f = Object.fromEntries(m.factors.map(x => [x.id, { state: x.state, verdict: x.verdictText || '' }]));
-        return { T: m.file.createdMs, type: m.type.label, factors: f, versions: ProvenanceApp.meta().appVersionsText || '',
-            events: m.events.filter(e => /^(sig|wa)-/.test(e.kind)).map(e => ({ kind: e.kind, isFile: !!e.isFile, near: !!e.near, messageId: e.messageId, ms: e.ms, own: !!e.own })) };
+        return { T: m.file.createdMs, type: m.type.label, factors: f, titles: Object.fromEntries(m.factors.map(x => [x.id, x.title])), versions: ProvenanceApp.meta().appVersionsText || '',
+            events: m.events.filter(e => /^(sig|wa|tg)-/.test(e.kind)).map(e => ({ kind: e.kind, isFile: !!e.isFile, near: !!e.near, messageId: e.messageId, ms: e.ms, own: !!e.own, viewOnce: !!e.viewOnce })) };
     })()`);
 }
 
@@ -42,18 +42,27 @@ function check(f, d) {
     if (f.T) expect(d.T != null && Math.abs(d.T - ms(f.T)) <= tol, 'T: ' + iso(d.T) + ', väntat ' + f.T);
     Object.keys(f.factors || {}).forEach((id) => expect(d.factors[id] && d.factors[id].state === f.factors[id], 'Faktorn ' + id + ' är ' + JSON.stringify(d.factors[id]) + ', väntat ' + f.factors[id]));
     Object.keys(f.verdicts || {}).forEach((id) => expect(d.factors[id] && d.factors[id].verdict === f.verdicts[id], 'Svaret för ' + id + ' är ' + JSON.stringify(d.factors[id] && d.factors[id].verdict) + ', väntat ' + f.verdicts[id]));
-    if (f.whatsapp) {
-        const e = d.events.find((x) => x.kind === 'wa-message' && x.isFile);
-        expect(e, 'Inget WhatsApp-meddelande är märkt som filens');
-        expect(e.messageId === f.whatsapp.messageId, 'WhatsApp-meddelandet är ' + e.messageId + ', väntat ' + f.whatsapp.messageId);
-        expect(e.own === (f.whatsapp.direction === 'out'), 'Riktningen i WhatsApp');
-        expect(Math.abs(e.ms - ms(f.whatsapp.at)) <= tol, 'WhatsApp-meddelandets tid ' + iso(e.ms) + ', väntat ' + f.whatsapp.at);
-    }
-    if (f.nearby) {
-        const e = d.events.find((x) => x.kind === 'wa-message' && x.near);
-        expect(e && e.messageId === f.nearby.messageId, 'Den möjliga kopplingen är ' + (e ? e.messageId : 'ingen') + ', väntat ' + f.nearby.messageId);
-        expect(Math.abs(e.ms - d.T - f.nearby.afterMs) <= tol, 'Meddelandet ' + (e.ms - d.T) + ' ms efter T, väntat ' + f.nearby.afterMs);
-    }
+    // Meddelandet som är märkt som filens, och den möjliga kopplingen, i WhatsApp och Telegram.
+    const linked = (want, kind, app) => {
+        if (!want) return;
+        const e = d.events.find((x) => x.kind === kind && x.isFile);
+        expect(e, 'Inget ' + app + '-meddelande är märkt som filens');
+        expect(e.messageId === want.messageId, app + '-meddelandet är ' + e.messageId + ', väntat ' + want.messageId);
+        expect(e.own === (want.direction === 'out'), 'Riktningen i ' + app);
+        expect(Math.abs(e.ms - ms(want.at)) <= tol, app + '-meddelandets tid ' + iso(e.ms) + ', väntat ' + want.at);
+        if (want.viewOnce) expect(e.viewOnce, app + '-meddelandet är inte märkt för engångsvisning');
+    };
+    const nearby = (want, kind, app) => {
+        if (!want) return;
+        const e = d.events.find((x) => x.kind === kind && x.near);
+        expect(e && e.messageId === want.messageId, 'Den möjliga kopplingen i ' + app + ' är ' + (e ? e.messageId : 'ingen') + ', väntat ' + want.messageId);
+        expect(Math.abs(e.ms - d.T - want.afterMs) <= tol, 'Meddelandet ' + (e.ms - d.T) + ' ms efter T, väntat ' + want.afterMs);
+    };
+    linked(f.whatsapp, 'wa-message', 'WhatsApp');
+    linked(f.telegram, 'tg-message', 'Telegram');
+    nearby(f.nearby, 'wa-message', 'WhatsApp');
+    nearby(f.telegramNearby, 'tg-message', 'Telegram');
+    if (f.cameraTitle) expect(d.titles.camera === f.cameraTitle, 'Kamerafaktorn heter ' + d.titles.camera + ', väntat ' + f.cameraTitle);
     if (f.typeLabel) expect(d.type === f.typeLabel, 'Typen är ' + d.type);
     (facit.versions || []).forEach((v) => expect(d.versions.includes(v), 'Appversionen ' + v + ' saknas i protokollet: ' + d.versions));
     return 'T ' + (d.T ? iso(d.T).slice(11, 23) + 'Z' : '–');

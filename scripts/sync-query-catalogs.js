@@ -19,6 +19,7 @@ const CATALOGS = [
     { dir: 'queries/android/signal', global: 'SIGNAL_ANDROID_CATALOG', name: 'android/signal/catalog.json' },
     { dir: 'queries/ios/signal', global: 'SIGNAL_IOS_CATALOG', name: 'ios/signal/catalog.json' },
     { dir: 'queries/ios/whatsapp', global: 'WHATSAPP_IOS_CATALOG', name: 'ios/whatsapp/catalog.json' },
+    { dir: 'queries/ios/telegram', global: 'TELEGRAM_IOS_CATALOG', name: 'ios/telegram/catalog.json' },
 ];
 
 function render(catalog) {

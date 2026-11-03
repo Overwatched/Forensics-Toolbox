@@ -147,3 +147,8 @@ test('lookup csv marks unknown ids', function () {
     assert.equal(csv[1], 'com.apple.camera,1,Kamera,Förinstallerat iOS,iOS,exakt,Tagen med iPhones kamera');
     assert.equal(csv[2], 'com.example.x,1,,,,okänd,');
 });
+
+test('CSV: en cell som kan bli en formel får en apostrof', () => {
+    const csv = catalog.lookupToCsv([{ input: '=cmd|"/c calc"', count: 1, entry: null, platform: 'ios', match: '' }]);
+    assert.equal(csv.split('\r\n')[1].split(',')[0], '"\'=cmd|""/c calc"""');
+});

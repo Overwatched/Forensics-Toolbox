@@ -10,7 +10,7 @@
     var TABLE = 'border-collapse: collapse; margin: 6px 0 12px;';
     var STATE_COLOR = { support: '#1a7f37', contradiction: '#c62828', missing: '#8a6d00', info: '#444', na: '#777' };
     var ROLE_NOTE = 'Programmet sammanställer telefonens registreringar och säger vad de är förenliga med. Den slutliga bedömningen gör undersökaren, efter egen kontroll av källorna.';
-    var BETA_NOTE = 'Tolkningarna av Snapchat, Signal, WhatsApp och Androids systemloggar är kontrollerade mot få extraktioner. Kontrollera uppgifterna mot källorna.';
+    var BETA_NOTE = 'Tolkningarna av Snapchat, Signal, WhatsApp, Telegram och Androids systemloggar är kontrollerade mot få extraktioner. Kontrollera uppgifterna mot källorna.';
 
     // En mening om kopiorna, med platsernas betydelse i klartext.
     function plainCopies(copies) {
@@ -85,7 +85,7 @@
 
     // meta: { extraction: { name, size, lastModified }, deviceLabel, zoneLabel, zoneNote, toolVersion, createdText,
     //         format(ms), formatUtc(ms), fileRows: [[kolumn, värde]], exifRows: [[tagg, värde]], fileEntry: { path, size, mtime, crc32, sha256 } | null,
-    //         sources: [{ label, path, size, mtime, crc32, sha256, walPath, walCrc32, walSha256, walSummary, cipher, warnings: [] }],
+    //         sources: [{ label, path, size, mtime, crc32, sha256, walPath, walCrc32, walSha256, walSummary, cipher, derived, warnings: [] }],
     //         queries: [{ id, db, title, sql }], coverage: [[ström, första, sista, rader]], timelinePngs: [dataUrl per fönster],
     //         appVersionsText: appversionerna i klartext (ProvenanceAppVersions.text) }
     function protocol(model, meta) {
@@ -213,6 +213,7 @@
             if (s.walPath) rows.push(['-wal', s.walPath], ['-wal CRC32', s.walCrc32], ['-wal SHA-256', s.walSha256]);
             rows.push(['WAL', s.walSummary]);
             if (s.cipher) rows.push(['Kryptering', s.cipher]);
+            if (s.derived) rows.push(['Avkodning', s.derived]);
             if (s.warnings && s.warnings.length) rows.push(['Varningar', s.warnings.join(' ')]);
             out += kv(rows);
         });

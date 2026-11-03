@@ -489,13 +489,14 @@ function visibleQueries(list) {
     return (list || []).filter((q) => !q.hidden);
 }
 
-function buildDatabases(photos, android, appUsage, routined, snapchat, snapchatAndroid, signalAndroid, signalIos, whatsappIos) {
+function buildDatabases(photos, android, appUsage, routined, snapchat, snapchatAndroid, signalAndroid, signalIos, whatsappIos, telegramIos) {
     routined = routined || {};
     snapchat = snapchat || {};
     snapchatAndroid = snapchatAndroid || {};
     signalAndroid = signalAndroid || {};
     signalIos = signalIos || {};
     whatsappIos = whatsappIos || {};
+    telegramIos = telegramIos || {};
     const out = [];
     paramLabels = Object.assign(
         {
@@ -510,7 +511,8 @@ function buildDatabases(photos, android, appUsage, routined, snapchat, snapchatA
         snapchatAndroid.paramLabels || {},
         signalAndroid.paramLabels || {},
         signalIos.paramLabels || {},
-        whatsappIos.paramLabels || {}
+        whatsappIos.paramLabels || {},
+        telegramIos.paramLabels || {}
     );
     paramDefaults = Object.assign({}, routined.paramDefaults || {});
 
@@ -648,8 +650,9 @@ function buildDatabases(photos, android, appUsage, routined, snapchat, snapchatA
 
     // Signal (beta): databaserna är krypterade med SQLCipher. Nyckeln läses ur extraktionen
     // (extra/Secrets/secrets.json på Android, nyckelringen bredvid zippen på iOS) eller klistras in.
-    // WhatsApp (beta) på iOS är okrypterad.
-    [[signalAndroid, 'Android', 'signal'], [signalIos, 'iOS', 'signal'], [whatsappIos, 'iOS', 'whatsapp']].forEach(([cat, os, category]) => {
+    // WhatsApp (beta) på iOS är okrypterad. Telegram (beta) på iOS lagrar i ett eget format, som
+    // avkodas i minnet när databasen öppnas (postbox.js, derive).
+    [[signalAndroid, 'Android', 'signal'], [signalIos, 'iOS', 'signal'], [whatsappIos, 'iOS', 'whatsapp'], [telegramIos, 'iOS', 'telegram']].forEach(([cat, os, category]) => {
         (cat.databases || []).forEach((db) => {
             const label = db.label.replace(/^(Android|iOS) — /, '');
             out.push({
@@ -665,6 +668,7 @@ function buildDatabases(photos, android, appUsage, routined, snapchat, snapchatA
                 source: db.source,
                 note: cat.sourceNote,
                 cipher: db.cipher || null,
+                derive: db.derive || null,
                 runnable: true,
                 queries: visibleQueries(db.queries).map((q) => ({
                     id: q.id,
@@ -754,8 +758,15 @@ const CATEGORIES = {
             iOS: 'WhatsApps databas i appgruppen: meddelanden, mediefiler med bildbibliotekets id, chattar och samtal.',
         },
     },
+    telegram: {
+        title: 'Telegram',
+        beta: true,
+        intro: {
+            iOS: 'Telegrams databaser i appgruppen: meddelanden, samtal, kontakter och chattar, och lagringsdatabasen som kopplar filerna till chattar, meddelanden och bildbiblioteket. Telegrams eget format avkodas i minnet.',
+        },
+    },
 };
-const CATEGORY_ORDER = ['system', 'snapchat', 'signal', 'whatsapp'];
+const CATEGORY_ORDER = ['system', 'snapchat', 'signal', 'whatsapp', 'telegram'];
 
 function categoryOf(d) {
     return d.category || 'system';
@@ -1021,7 +1032,7 @@ function applyDeepLink() {
 
 async function init() {
     try {
-        const [photos, android, appUsage, routined, snapchat, snapchatAndroid, signalAndroid, signalIos, whatsappIos] = await Promise.all([
+        const [photos, android, appUsage, routined, snapchat, snapchatAndroid, signalAndroid, signalIos, whatsappIos, telegramIos] = await Promise.all([
             loadLocalJson('../../queries/ios/photos-sqlite/catalog.json', 'PHOTOS_SQLITE_CATALOG'),
             loadLocalJson('../../queries/android/catalog.json', 'ANDROID_QUERIES_CATALOG'),
             loadLocalJson('../../queries/app-usage/catalog.json', 'APP_USAGE_CATALOG'),
@@ -1031,8 +1042,9 @@ async function init() {
             loadLocalJson('../../queries/android/signal/catalog.json', 'SIGNAL_ANDROID_CATALOG'),
             loadLocalJson('../../queries/ios/signal/catalog.json', 'SIGNAL_IOS_CATALOG'),
             loadLocalJson('../../queries/ios/whatsapp/catalog.json', 'WHATSAPP_IOS_CATALOG'),
+            loadLocalJson('../../queries/ios/telegram/catalog.json', 'TELEGRAM_IOS_CATALOG'),
         ]);
-        databases = buildDatabases(photos, android, appUsage, routined, snapchat, snapchatAndroid, signalAndroid, signalIos, whatsappIos);
+        databases = buildDatabases(photos, android, appUsage, routined, snapchat, snapchatAndroid, signalAndroid, signalIos, whatsappIos, telegramIos);
         renderSide();
         applyDeepLink();
         readyResolve();

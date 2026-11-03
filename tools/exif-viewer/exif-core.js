@@ -505,9 +505,11 @@
 
     // --- Export --------------------------------------------------------------------
 
+    // En cell som börjar med =, +, -, @, tabb eller vagnretur får en apostrof först, så att Excel inte
+    // tolkar den som en formel. Ett vanligt tal (en negativ longitud) lämnas som det är.
     function csvCell(value) {
         var s = str(value);
-        if (/^[=+\-@\t\r]/.test(s)) s = "'" + s;
+        if (/^[=+\-@\t\r]/.test(s) && !/^[+-]?(\d+([.,]\d*)?|[.,]\d+)([eE][+-]?\d+)?$/.test(s)) s = "'" + s;
         return /[",\n\r;]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
     }
 

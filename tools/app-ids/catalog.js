@@ -363,8 +363,11 @@
         });
     }
 
+    // En cell som börjar med =, +, -, @, tabb eller vagnretur får en apostrof först, så att Excel inte
+    // tolkar den som en formel. Ett vanligt tal lämnas som det är.
     function csvField(value) {
         var text = value == null ? '' : String(value);
+        if (/^[=+\-@\t\r]/.test(text) && !/^[+-]?(\d+([.,]\d*)?|[.,]\d+)([eE][+-]?\d+)?$/.test(text)) text = "'" + text;
         if (/[",\n\r]/.test(text)) return '"' + text.replace(/"/g, '""') + '"';
         return text;
     }

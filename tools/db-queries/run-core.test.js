@@ -13,6 +13,12 @@ test('CSV citerar komma, citattecken och radbrytning', () => {
     assert.deepStrictEqual(back[1], ['x,y', 'säger "hej"']);
 });
 
+test('CSV: en cell som kan bli en formel får en apostrof, tal lämnas', () => {
+    const csv = run.toCsv(['namn', 'tal'], [['=HYPERLINK("http://x")', -73.98], ['@SUM(A1)', '+46701234567'], ['-1+1', '1e-5'], ['\tdold', 'vanlig']]);
+    const rows = csv.trim().split('\r\n').slice(1);
+    assert.deepStrictEqual(rows, ['"\'=HYPERLINK(""http://x"")",-73.98', "'@SUM(A1),+46701234567", "'-1+1,1e-5", "'\tdold,vanlig"]);
+});
+
 test('positioner: UTC-tid, noggrannhet och typ', () => {
     const cols = ['tid_lokal', 'tid_utc', 'latitud', 'longitud', 'noggrannhet_m', 'typ'];
     const rows = [

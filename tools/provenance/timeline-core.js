@@ -19,6 +19,7 @@
     var SIGNAL_IOS = 'org.whispersystems.signal';
     var WHATSAPP = 'net.whatsapp.WhatsApp';
     var WHATSAPP_BUSINESS = 'net.whatsapp.WhatsAppSMB';
+    var TELEGRAM = 'ph.telegra.Telegraph';
 
     function isSnapchatApp(id) { return id === SNAPCHAT || id === SNAPCHAT_ANDROID; }
 
@@ -675,6 +676,8 @@
             return { id: 'camera', title: 'Kamera igång', state: 'na', items: [{ state: 'na', text: 'Filen är ' + type.chat.appName + 's kopia av en fil som ' + via + ' i appen (meddelande ' + type.chat.messageId + '), så kameran frågas inte.' }],
                 plain: 'Filen ' + via + ' i ' + type.chat.appName + ', så frågan om kameran ställs inte.' };
         }
+        var tgCam = type.type === 'saved' && type.importer === TELEGRAM && input.telegram && input.telegram.link ? input.telegram.link.camera : null;
+        if (tgCam) return factorTelegramCamera(tgCam);
         var li = logInfo(input);
         // Android: tagningstiden enligt Snapchats Memories är då kameran måste ha varit igång; T är exporten.
         var tCam = file.capturedMs || T;
@@ -721,6 +724,21 @@
         var reason = anyCamInWindow ? 'Kameran var igång i fönstret, men inte vid själva tidpunkten.' : coverageReason(streamKey, input.coverage, input.missingDbs, T, kcLabel);
         return { id: 'camera', title: 'Kamera igång', state: 'missing', items: [{ state: 'missing', text: reason }],
             plain: 'Det finns ingen registrering av om kameran var igång vid den här tiden. Det betyder inte att den inte var det.' };
+    }
+
+    // Telegrams kamera för en fil som Telegram sparat i bildbiblioteket: originalnamnet (camphoto_…,
+    // camvideo_…) är det Telegrams kamera gav filerna i labbet, och samma fil (SHA-256) i Telegrams tmp/
+    // binder. Utan filen i tmp/ är namnet en upplysning.
+    function factorTelegramCamera(c) {
+        var what = c.video ? 'videon' : 'bilden';
+        if (c.same) {
+            return { id: 'camera', title: 'Telegrams kamera', state: 'support',
+                items: [{ state: 'support', text: 'Originalnamnet ' + c.name + ' är namnet Telegrams kamera ger ' + (c.video ? 'en video' : 'en bild') + ', och samma fil (SHA-256) ligger kvar i Telegrams behållare (' + c.path + ').' }],
+                plain: (c.video ? 'Videon spelades in' : 'Bilden togs') + ' med Telegrams kamera på den här telefonen.' };
+        }
+        return { id: 'camera', title: 'Telegrams kamera', state: 'info',
+            items: [{ state: 'info', text: 'Originalnamnet ' + c.name + ' är namnet Telegrams kamera ger ' + (c.video ? 'en video' : 'en bild') + '. ' + (!c.path ? 'Filen finns inte kvar i Telegrams tmp/.' : c.same === false ? 'Filen ' + c.path + ' i Telegrams behållare har en annan SHA-256.' : 'Filen ' + c.path + ' finns i Telegrams behållare, men summorna kunde inte jämföras.') }],
+            plain: 'Namnet tyder på att ' + what + ' kom från Telegrams kamera.' };
     }
 
     // Kameran för en fil i Snapchats cache: Snapchat använder sin egen kamera, så svaret kommer ur
@@ -899,6 +917,71 @@
             plain: 'Filen finns inte bland WhatsApps mediefiler.' };
     }
 
+    // Telegram (beta, iOS): hör filen till ett meddelande i Telegram? Filen själv under postbox/media/,
+    // en bild ur bildbiblioteket enligt lagringsdatabasen (ph-<ZUUID> med den uppladdade bildens storlek)
+    // eller en bild som Telegram sparat med ett skickat meddelande strax efter (bara tiden binder).
+    // input.telegram = { link, error } ur ProvenanceTelegram.build.
+    function factorTelegram(input, type) {
+        var t = input.telegram || {};
+        var title = 'Telegram';
+        var fmt = input.format || formatUtc;
+        var T = input.file.createdMs;
+        var at = function (ms) { return T && fmt(ms).slice(0, 10) === fmt(T).slice(0, 10) ? fmt(ms).slice(11, 19) : fmt(ms).slice(0, 19); };
+        var after = function (ms) { return T ? (ms >= T ? duration(ms - T) + ' efter T' : at(ms)) : at(ms); };
+        if (t.error) {
+            return { id: 'telegram', title: title, state: 'missing', items: [{ state: 'missing', text: t.error }],
+                plain: 'Telegrams databas kunde inte läsas.', verdictText: 'Kunde inte läsas' };
+        }
+        var link = t.link || {};
+        var storageNote = link.storageRead ? '' : ' Telegrams lagringsdatabas finns inte i zippen, så val ur bildbiblioteket syns inte.';
+        var savedBy = !type.chat && type.importer === TELEGRAM;
+        // Telegrams egen fil under postbox/media/: resursen säger vilket meddelande den hör till.
+        var own = type.chat && type.chat.app === TELEGRAM ? (link.matches || [])[0] || null : null;
+        if (own) {
+            var dir = own.direction === 'in' ? 'mottaget från ' : 'skickat till ';
+            if (own.gone) {
+                return { id: 'telegram', title: title, state: 'info', verdictText: 'Meddelandet finns inte kvar',
+                    items: [{ state: 'info', text: 'Filen är Telegrams egen (' + own.path + '). Lagringsdatabasen säger att den hör till meddelande ' + own.messageId + ' i chatten ' + own.chat + ', men meddelandet finns inte kvar i t7.' }],
+                    plain: 'Filen är Telegrams, men meddelandet den hörde till finns inte kvar.' };
+            }
+            return { id: 'telegram', title: title, state: 'support', verdictText: own.direction === 'in' ? 'Mottagen i Telegram' : 'Skickad i Telegram',
+                items: [{ state: 'support', text: 'Filen är Telegrams egen (' + own.path + '): resursen i meddelande ' + own.messageId + ', ' + dir + own.who + ' ' + at(own.timeMs) + (own.viewOnce ? ', engångsvisning' : '') + '.' }],
+                plain: 'Filen är Telegrams kopia i meddelande ' + own.messageId + ', ' + dir + own.who + ' ' + at(own.timeMs) + '.' };
+        }
+        var picks = link.picks || [];
+        var sent = [];
+        picks.forEach(function (p) { if (p.messages.length === 1) sent.push({ pick: p, m: p.messages[0] }); });
+        if (sent.length) {
+            var lead = sent[0];
+            var items = sent.map(function (x) {
+                return { state: savedBy ? 'support' : 'info', text: 'Vald ur bildbiblioteket i Telegram och skickad till ' + x.m.who + ' ' + at(x.m.timeMs) + ' (meddelande ' + x.m.messageId + (x.m.viewOnce ? ', engångsvisning' : '') + '): lagringsdatabasen har bibliotekets id (' + x.pick.resourceId + '), och den uppladdade bilden är ' + x.pick.size + ' byte, lika stor som bilden i meddelandet.' };
+            });
+            return { id: 'telegram', title: title, state: savedBy ? 'support' : 'info', items: items, verdictText: 'Skickad i Telegram',
+                plain: 'Filen valdes ur bildbiblioteket och skickades i Telegram till ' + lead.m.who + ', ' + after(lead.m.timeMs) + (lead.m.viewOnce ? ', för engångsvisning' : '') + '. ' + (savedBy ? '' : 'Det säger inget om hur den skapades.') };
+        }
+        if (picks.length) {
+            var p0 = picks[0];
+            var many = p0.messages.length > 1;
+            return { id: 'telegram', title: title, state: 'info', verdictText: 'Vald i Telegram',
+                items: [{ state: 'info', text: 'Telegram läste filen ur bildbiblioteket för chatten ' + (p0.chat || '') + ' (' + p0.resourceId + ', ' + (p0.size || 0) + ' byte). ' + (many ? p0.messages.length + ' meddelanden har en bild av samma storlek (' + p0.messages.map(function (m) { return m.messageId; }).join(', ') + '), så det går inte att säga vilket.' : 'Inget meddelande i chatten har en bild av samma storlek. Bilden kan ha skickats och raderats, eller valts utan att skickas.') }],
+                plain: many ? 'Filen valdes ur bildbiblioteket i Telegram, men flera meddelanden passar.' : 'Filen valdes ur bildbiblioteket i Telegram, men meddelandet finns inte kvar.' };
+        }
+        var near = (link.nearby || [])[0] || null;
+        if (savedBy && near) {
+            return { id: 'telegram', title: title, state: 'info', verdictText: 'Möjlig koppling',
+                items: [{ state: 'info', text: 'Telegram sparade filen. En ' + near.kind + ' skickades i Telegram till ' + near.who + ' ' + at(near.timeMs) + ', ' + duration(near.afterMs) + ' efter att filen skapades (meddelande ' + near.messageId + '). Bara tiden binder ihop dem: Telegram skickar en omkodad kopia.' }],
+                plain: 'Telegram sparade filen, och en ' + near.kind + ' skickades i Telegram ' + duration(near.afterMs) + ' senare. Det kan vara samma ' + near.kind + '; bara tiden binder ihop dem.' };
+        }
+        if (savedBy) {
+            return { id: 'telegram', title: title, state: 'missing', verdictText: 'Hittas inte',
+                items: [{ state: 'missing', text: 'Telegram sparade filen, men inget meddelande med en ' + (link.camera && link.camera.video ? 'video' : 'bild') + ' skickades i Telegram strax efter. Filen kan ha tagits emot, tagits med Telegrams kamera utan att skickas, eller meddelandet kan ha raderats.' + storageNote }],
+                plain: 'Telegram sparade filen, men den hittas inte bland Telegrams meddelanden.' };
+        }
+        return { id: 'telegram', title: title, state: 'info', verdictText: 'Ingen koppling',
+            items: [{ state: 'info', text: 'Varken filen själv, bildbibliotekets id i lagringsdatabasen eller ett meddelande pekar på filen bland Telegrams ' + (link.media || 0) + ' meddelanden med media.' + storageNote }],
+            plain: 'Ingen av Telegrams poster pekar på filen. Telegram kodar om bilder, så en skickad bild känns bara igen på lagringsdatabasens post för bildbiblioteket, som kan saknas om cachen har tömts.' };
+    }
+
     function factorScreen(input, events) {
         var T = input.file.createdMs;
         var on = events.filter(function (e) { return e.kind === 'screen' && covers(e, T); });
@@ -913,7 +996,7 @@
                 return { id: 'screen', title: 'Skärm', state: 'support',
                     items: [{ state: 'support', text: act.camera ? who + ' använde kameran vid tidpunkten (' + act.db + '). Kameravyn visas bara med tänd skärm.' : who + ' användes vid tidpunkten: ' + act.text + ' (' + act.db + '). Det görs med tänd skärm.' },
                         { state: 'info', text: 'Skärmloggen: ' + reason }],
-                    plain: 'Skärmen var tänd: telefonen användes.', via: { l1: 'tänd enligt ' + (act.camera ? 'kameran' : who + 's logg'), l2: 'ingen skärmlogg vid T' } };
+                    plain: 'Skärmen var tänd: telefonen användes.', via: { l1: 'tänd enligt ' + (act.camera ? 'kameran' : who + (/log/i.test(act.db) ? 's logg' : 's databas')), l2: 'ingen skärmlogg vid T' } };
             }
             return { id: 'screen', title: 'Skärm', state: 'missing', items: [{ state: 'missing', text: reason }], plain: 'Det finns ingen registrering av om skärmen var tänd.' };
         }
@@ -1039,6 +1122,7 @@
             factors = [fTime, fApp, fCam, fScreen, fPos];
             if (input.signal) factors.push(factorSignal(input, type));
             if (input.whatsapp) factors.push(factorWhatsApp(input, type));
+            if (input.telegram) factors.push(factorTelegram(input, type));
         } else {
             factors = [factorTime(input, type)];
             warnings.push('Skapandetiden saknas, så app, kamera och skärm kan inte bedömas.');
@@ -1057,7 +1141,7 @@
             platform: input.platform, file: file, type: type, windows: wins, events: events, outside: built.outside,
             factors: factors, alternatives: alts, narrative: perWindow, warnings: warnings, summary: summary,
             positions: pos.list, filePosition: pos.filePos, copies: input.copies || [],
-            beta: !!(type.snapchat || (input.extraEvents || []).length || input.signal || input.whatsapp),
+            beta: !!(type.snapchat || (input.extraEvents || []).length || input.signal || input.whatsapp || input.telegram),
             stateLabel: STATE_LABEL,
         };
     }
@@ -1088,6 +1172,8 @@
         'Skärm': { q: 'Var skärmen tänd, alltså användes telefonen vid T?', support: 'Skärmen var tänd', contradiction: 'Skärmen var släckt', missing: 'Inte registrerat' },
         'Position': { q: 'Var telefonen där bilden säger att den togs?', support: 'Positionerna stämmer', contradiction: 'Positionerna går isär', missing: 'Position saknas' },
         'Signal': { q: 'Finns filen bland Signals bilagor, och vad hände med den i Signal?', support: 'Bilaga ur Signal', contradiction: 'Togs emot i Signal', info: 'Upplysning', missing: 'Hittas inte' },
+        'Telegram': { q: 'Hör filen till ett meddelande i Telegram, och vad hände med den där?', support: 'Fil ur Telegram', contradiction: 'Togs emot i Telegram', info: 'Upplysning', missing: 'Hittas inte' },
+        'Telegrams kamera': { q: 'Togs filen med Telegrams kamera på den här telefonen?', support: 'Telegrams kamera', info: 'Upplysning', missing: 'Inte registrerat' },
         'WhatsApp': { q: 'Finns filen bland WhatsApps mediefiler, och vad hände med den i WhatsApp?', support: 'Fil ur WhatsApp', contradiction: 'Togs emot i WhatsApp', info: 'Upplysning', missing: 'Hittas inte' },
     };
 
@@ -1123,7 +1209,7 @@
         buildEvents: buildEvents, narrative: narrative, build: build, summaryText: summaryText, hypothesis: hypothesis, FACTOR_WORDS: FACTOR_WORDS,
         formatWithOffset: formatWithOffset, formatUtc: formatUtc, duration: duration, appName: appName, isCameraApp: isCameraApp, covers: covers,
         positions: positions, distanceM: distanceM, metres: metres, validCoord: validCoord, inWindows: inWindows, activityAt: activityAt,
-        snapOrigin: snapOrigin, SNAPCHAT: SNAPCHAT, SNAPCHAT_ANDROID: SNAPCHAT_ANDROID, SIGNAL_ANDROID: SIGNAL_ANDROID, SIGNAL_IOS: SIGNAL_IOS, WHATSAPP: WHATSAPP, isSnapchatApp: isSnapchatApp, logInfo: logInfo, factorSignal: factorSignal, factorWhatsApp: factorWhatsApp,
+        snapOrigin: snapOrigin, SNAPCHAT: SNAPCHAT, SNAPCHAT_ANDROID: SNAPCHAT_ANDROID, SIGNAL_ANDROID: SIGNAL_ANDROID, SIGNAL_IOS: SIGNAL_IOS, WHATSAPP: WHATSAPP, TELEGRAM: TELEGRAM, isSnapchatApp: isSnapchatApp, logInfo: logInfo, factorSignal: factorSignal, factorWhatsApp: factorWhatsApp, factorTelegram: factorTelegram, factorTelegramCamera: factorTelegramCamera,
         STATE_LABEL: STATE_LABEL, TOLERANCE_MS: TOLERANCE_MS, SAME_TIME_MS: SAME_TIME_MS, LATE_MS: LATE_MS,
     };
     if (typeof module !== 'undefined' && module.exports) module.exports = api;

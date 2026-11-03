@@ -536,8 +536,12 @@
         if (kind === 'csv') {
             var lines = ['namn,lat,lon,tid,kalla'];
             points.forEach(function (p) {
+                // En cell som börjar med =, +, -, @, tabb eller vagnretur får en apostrof först, så att Excel
+                // inte tolkar den som en formel. Ett vanligt tal (en negativ longitud) lämnas som det är.
                 lines.push([p.name, p.lat, p.lon, p.taken ? p.taken.text : '', p.layer || ''].map(function (v) {
-                    return '"' + String(v).replace(/"/g, '""') + '"';
+                    var s = String(v);
+                    if (/^[=+\-@\t\r]/.test(s) && !/^[+-]?(\d+([.,]\d*)?|[.,]\d+)([eE][+-]?\d+)?$/.test(s)) s = "'" + s;
+                    return '"' + s.replace(/"/g, '""') + '"';
                 }).join(','));
             });
             download(lines.join('\n') + '\n', 'text/csv', 'positioner.csv');

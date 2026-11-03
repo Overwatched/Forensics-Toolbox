@@ -30,7 +30,7 @@ function catalogDatabases() {
         queries: b.queries.filter((q) => visible.has(q.id)),
     }));
     const shown = (list) => (list || []).filter((q) => !q.hidden);
-    [['app-usage', null], ['ios/routined', 'iOS'], ['ios/snapchat', 'iOS'], ['android/snapchat', 'Android'], ['android/signal', 'Android'], ['ios/signal', 'iOS'], ['ios/whatsapp', 'iOS']].forEach(([p, os]) => {
+    [['app-usage', null], ['ios/routined', 'iOS'], ['ios/snapchat', 'iOS'], ['android/snapchat', 'Android'], ['android/signal', 'Android'], ['ios/signal', 'iOS'], ['ios/whatsapp', 'iOS'], ['ios/telegram', 'iOS']].forEach(([p, os]) => {
         json(p).databases.forEach((d) => out.push({
             id: d.id, family: d.id, os: os || (/android|wellbeing/i.test(d.label) ? 'Android' : 'iOS'),
             paths: d.paths || [], cipher: d.cipher || null, queries: shown(d.queries),
@@ -174,3 +174,21 @@ test('SQLCipher med okrypterat huvud (Signal på iOS) räknas som krypterad, en 
     assert.strictEqual(DbIdentify.kindOf(head(80, random).subarray(0, 16), 'signal.sqlite'), 'sqlite', 'bara 16 byte: går inte att avgöra');
     assert.strictEqual(DbIdentify.fromName('signal.sqlite', catalogDatabases(), { encrypted: true }).best, 'signal-ios-main');
 });
+
+test('Telegrams databaser känns igen när formatet avkodats, inte annars', async () => {
+    const SQL = await loadSql();
+    const PB = require('./postbox.js');
+    const E = require('./fixtures/postbox-encode');
+    const KIM = E.peer(0, 7000000002);
+    const postbox = E.postboxDb(SQL, { messages: [{ peer: KIM, timestamp: 1793000000, id: 1, text: 'Hej' }], peers: [{ peer: KIM, value: E.user({ id: 7000000002, fn: 'Kim' }) }] });
+    const storage = E.storageDb(SQL, { entries: [{ id: 'telegram-cloud-document-1-99' }] });
+    const databases = catalogDatabases();
+    const best = (bytes, opts) => DbIdentify.conclude(DbIdentify.rank(SQL, bytes, databases, opts));
+    const p = best(postbox, { name: 'db_sqlite', attach: PB.attach });
+    assert.deepStrictEqual([p.best, p.partial], ['telegram-ios-postbox', false]);
+    assert.deepStrictEqual([best(storage, { name: 'db_sqlite', attach: PB.attach }).best], ['telegram-ios-storage']);
+    // Utan avkodningen finns inga tg_-tabeller, och bara nyckelkontrollen och tabellistan passar.
+    const raw = DbIdentify.rank(SQL, postbox, databases, { name: 'db_sqlite', attach: () => null }).find((r) => r.id === 'telegram-ios-postbox');
+    assert.ok(raw && !raw.full, 'utan tg_-tabellerna passar inte alla queries');
+});
+

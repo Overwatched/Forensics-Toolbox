@@ -409,6 +409,12 @@
         loaded.label = label;
         loaded.keySource = cipher ? cipher.source : null;
         loaded.sqlDb = new SQL.Database(loaded.bytes);
+        // Telegrams databaser: tabellerna tg_… avkodas i minnet ur Telegrams eget format (postbox.js).
+        if (window.TelegramPostbox) {
+            try { loaded.derived = window.TelegramPostbox.attach(loaded.sqlDb); }
+            catch (e) { loaded.warnings.push(label + ': Telegrams format kunde inte avkodas: ' + e.message); }
+            if (loaded.derived && loaded.derived.errors) loaded.warnings.push(loaded.derived.line);
+        }
         state.loaded[key] = loaded;
         return loaded;
     }
@@ -914,6 +920,12 @@
             try { await addWhatsApp(input, meta, windowMs, run, fileSha, zone); }
             catch (e) { input.whatsapp = { error: 'WhatsApps databas kunde inte läsas: ' + e.message }; console.warn(e); }
         }
+        // Telegram på iOS (beta): filen själv under postbox/media/, val ur bildbiblioteket enligt
+        // lagringsdatabasen och meddelandena kring T.
+        if (platform === 'iOS' && hitFor(TELEGRAM_KEYS.main) && fileRow.createdMs) {
+            try { await addTelegram(input, meta, windowMs, run, fileSha); }
+            catch (e) { input.telegram = { error: 'Telegrams databas kunde inte läsas: ' + e.message }; console.warn(e); }
+        }
 
         var wins = ProvenanceCore.windows(fileRow, windowMs);
         // Utan tidpunkt finns inga fönster, och inga registreringar läses kring filen.
@@ -1065,7 +1077,7 @@
             meta.sources.push({
                 label: l.label, path: l.dbEntry.name, size: l.dbEntry.size, mtime: ExtractionCore.entryTime(l.dbEntry), crc32: ExtractionCore.hex(l.dbEntry.crc32), crcOk: l.crcOk, sha256: l.hashes.db,
                 walPath: l.walEntry ? l.walEntry.name : '', walCrc32: l.walEntry ? ExtractionCore.hex(l.walEntry.crc32) : '', walSha256: l.hashes.wal, walSummary: ExtractionCore.walSummary(l), warnings: l.warnings,
-                cipher: l.stats && l.stats.cipher ? SqlCipher.summary(l.stats, l.keySource) : '',
+                cipher: l.stats && l.stats.cipher ? SqlCipher.summary(l.stats, l.keySource) : '', derived: l.derived ? l.derived.line : '',
             });
         });
         meta.extraction = { name: z.file.name, size: z.file.size, lastModified: new Date(z.file.lastModified).toISOString() };
@@ -1384,6 +1396,7 @@
     var SIGNAL_KEYS = { main: 'signal-android-main', logs: 'signal-android-logs' };
     var SIGNAL_IOS_KEYS = { main: 'signal-ios-main' };
     var WHATSAPP_KEYS = { main: 'whatsapp-ios-chat' };
+    var TELEGRAM_KEYS = { main: 'telegram-ios-postbox', storage: 'telegram-ios-storage' };
 
     function signalIos() { return !!(state.zip && state.zip.platform === 'iOS' && hitFor(SIGNAL_IOS_KEYS.main)); }
 
@@ -1615,12 +1628,101 @@
         input.warnings = input.warnings.concat(db.warnings);
     }
 
+    // Telegrams meddelandedatabas och lagringsdatabasen för samma konto (telegram-data/account-<id>/).
+    // Har telefonen flera konton läses det första, och en varning säger det.
+    function telegramHits() {
+        var found = state.zip.found;
+        var mains = found.filter(function (f) { return f.key === TELEGRAM_KEYS.main; });
+        if (!mains.length) return null;
+        var dir = function (name) { var i = name.indexOf('/postbox/'); return i >= 0 ? name.slice(0, i) : name; };
+        var main = mains[0];
+        var storage = found.find(function (f) { return f.key === TELEGRAM_KEYS.storage && dir(f.db.name) === dir(main.db.name); }) || null;
+        return { main: main, storage: storage, accounts: mains.length, account: dir(main.db.name).slice(dir(main.db.name).lastIndexOf('/') + 1) };
+    }
+
+    // Telegrams kamera: en fil som Telegram sparat med kamerans namn (camphoto_…, camvideo_…) kan finnas
+    // kvar som tmp/<namnet> i Telegrams behållare. Samma SHA-256 binder.
+    async function telegramCamera(fileRow, sha256) {
+        var name = fileRow.originalFilename || '';
+        if (!ProvenanceTelegram.isTelegramApp(fileRow.importer) || !ProvenanceTelegram.isCameraName(name)) return null;
+        var z = state.zip;
+        var tail = '/tmp/' + name;
+        var hits = await ExtractionCore.find(z.read, z.file.size, function (n) { return n.slice(-tail.length) === tail; });
+        for (var i = 0; i < hits.length; i++) {
+            if (await containerId(hits[i].name) !== ProvenanceTelegram.APP) continue;
+            var path = hits[i].name.replace(/^.*\/(Containers\/)/, '$1');
+            if (!sha256 || hits[i].size > MAX_MEDIA) return { path: path, same: null };
+            var read = await ExtractionCore.readEntry(z.read, hits[i]);
+            return { path: path, same: (await ExtractionCore.sha256(read.bytes)) === sha256 };
+        }
+        return { path: null, same: null };
+    }
+
+    // Telegram på iOS: resurserna (alla) mot filens sökväg, lagringsdatabasens val ur bildbiblioteket mot
+    // filens ZUUID, och meddelandena i fönstret.
+    async function addTelegram(input, meta, windowMs, run, sha256) {
+        progress('Läser Telegrams databaser (beta)…');
+        var fileRow = input.file;
+        var hits = telegramHits();
+        var src = sourceByKey(TELEGRAM_KEYS.main);
+        var db = await loadDb(hits.main, src.title);
+        if (!db.derived) throw new Error(ExtractionCore.baseName(hits.main.db.name) + ' har inte Telegrams tabeller t7 och t2');
+        var resources = runRole(db, src.roles.resources, {}, ['time'], run).rows;
+        var storage = [];
+        var storageRead = false;
+        if (hits.storage) {
+            var ssrc = sourceByKey(TELEGRAM_KEYS.storage);
+            try {
+                var sdb = await loadDb(hits.storage, ssrc.title);
+                storage = runRole(sdb, ssrc.roles.storage, {}, [], run).rows;
+                storageRead = true;
+                input.warnings = input.warnings.concat(sdb.warnings);
+            } catch (e) { input.warnings.push('Telegrams lagringsdatabas kunde inte läsas: ' + e.message); }
+        }
+        if (hits.accounts > 1) input.warnings.push('Telegram har ' + hits.accounts + ' konton på telefonen. Bara ' + hits.account + ' lästes.');
+        var cam = null;
+        try { cam = await telegramCamera(fileRow, sha256); } catch (e) { input.warnings.push('Telegrams kamerafil kunde inte läsas: ' + e.message); }
+        var base = {
+            path: meta.mediaEntry ? meta.mediaEntry.name : null, uuid: fileRow.uuid || null, createdMs: fileRow.createdMs,
+            video: Number(fileRow.kind) === 1 || /\.(mp4|mov|m4v)$/i.test(fileRow.filename || ''),
+            savedByTelegram: ProvenanceTelegram.isTelegramApp(fileRow.importer), originalFilename: fileRow.originalFilename || null, camera: cam,
+            resources: resources, storage: storage, storageRead: storageRead, centerMs: fileRow.createdMs,
+            sources: { main: { db: 'db_sqlite', table: 'tg_message (ur t7)', queryId: src.roles.messages.id } },
+        };
+        // Första varvet ger kopplingen; fönstren kring meddelandet läggs till före andra varvet.
+        var first = ProvenanceTelegram.build(Object.assign({}, base, { messages: [] }));
+        var extra = [];
+        var linked = first.link.matches.slice();
+        first.link.picks.forEach(function (p) { if (p.messages.length === 1) linked.push(p.messages[0]); });
+        linked.forEach(function (m) {
+            if (m.timeMs) extra.push({ id: 'telegram-' + m.messageId, label: m.direction === 'in' ? 'när filen togs emot i Telegram' : 'när filen skickades i Telegram', centerMs: m.timeMs });
+        });
+        if (extra.length) fileRow.extraWindows = (fileRow.extraWindows || []).concat(extra);
+        var wins = ProvenanceCore.windows(fileRow, windowMs);
+        var range = wins.length ? { startMs: Math.min.apply(null, wins.map(function (w) { return w.startMs; })), endMs: Math.max.apply(null, wins.map(function (w) { return w.endMs; })) } : null;
+        var messages = range ? runRole(db, src.roles.messages, { window: range }, ['time'], run).rows : [];
+        var out = ProvenanceTelegram.build(Object.assign({}, base, { messages: messages, keep: function (ms) { return ProvenanceCore.inWindows(ms, wins); } }));
+        input.extraEvents = (input.extraEvents || []).concat(out.events);
+        input.extraNotes = (input.extraNotes || []).concat(out.notes);
+        input.telegram = { link: out.link };
+        // Är filen Telegrams egen (under postbox/media/), bedöms den som en fil som togs emot eller skickades i Telegram.
+        var own = out.link.matches.find(function (m) { return m.by.indexOf('path') >= 0; });
+        if (own && !fileRow.importer) {
+            fileRow.chatMedia = { app: ProvenanceTelegram.APP, appName: 'Telegram', direction: own.direction, who: own.who, messageId: own.messageId, path: own.path, source: 'db_sqlite, t7' };
+        }
+        if (src.roles.coverage) {
+            var cov = runRole(db, src.roles.coverage, {}, ['first', 'last'], run).rows[0];
+            if (cov) meta.coverage.push(['Telegram (meddelanden kvar)', cov.firstMs ? ProvenanceCore.formatUtc(cov.firstMs) : '', cov.lastMs ? ProvenanceCore.formatUtc(cov.lastMs) : '', Number(cov.rows)]);
+        }
+        input.warnings = input.warnings.concat(db.warnings);
+    }
+
     // ---------- Appversioner ----------
 
     // Versionen för apparna som bedömningen läste, till protokollet: på iOS ur appens Info.plist i
     // paketet (versionen som var installerad vid extraktionen), på Android ur packages.xml, Snapchats
     // Memories (versionen när snappen togs) och Signals logg (versionen på raden närmast T).
-    var APP_BUNDLES = { 'com.toyopagroup.picaboo': 'Snapchat.app', 'org.whispersystems.signal': 'Signal.app', 'net.whatsapp.WhatsApp': 'WhatsApp.app' };
+    var APP_BUNDLES = { 'com.toyopagroup.picaboo': 'Snapchat.app', 'org.whispersystems.signal': 'Signal.app', 'net.whatsapp.WhatsApp': 'WhatsApp.app', 'ph.telegra.Telegraph': 'Telegram.app' };
 
     async function iosBundleVersion(bundleId) {
         var z = state.zip;
@@ -1677,7 +1779,7 @@
                 if (!ua && !wua && !sp) out.push({ app: 'Snapchat', source: 'varken packages.xml eller en sparad snap med version finns i zippen' });
             }
         }
-        // På iOS: versionen ur appens Info.plist i paketet, för Signal och WhatsApp när de lästes.
+        // På iOS: versionen ur appens Info.plist i paketet, för Signal, WhatsApp och Telegram när de lästes.
         var iosApp = async function (bundle, name) {
             var b = await iosBundleVersion(bundle);
             out.push(b ? { app: name, version: b.version, build: b.build, source: b.path.replace(/^.*\/(Bundle\/Application\/)/, '$1'), note: 'installerad version när extraktionen gjordes' }
@@ -1685,6 +1787,7 @@
         };
         if (z.platform === 'iOS' && input.signal && !input.signal.error) await iosApp(ProvenanceSignal.APP_IOS, 'Signal');
         if (z.platform === 'iOS' && input.whatsapp && !input.whatsapp.error) await iosApp(ProvenanceWhatsApp.APP, 'WhatsApp');
+        if (z.platform === 'iOS' && input.telegram && !input.telegram.error) await iosApp(ProvenanceTelegram.APP, 'Telegram');
         if (z.platform !== 'iOS' && input.signal && !input.signal.error) {
             var lv = input.signalLogVersion;
             if (lv) out.push({ app: 'Signal', version: lv.version, source: 'Signals logg (signal-logs.db)', note: 'versionen på raden närmast T, ' + fmtU(lv.ms) });
@@ -3383,7 +3486,7 @@
             return '<div class="source-block"><h4>' + escapeHtml(s.label) + '</h4><dl>' +
                 '<dt>Sökväg</dt><dd>' + escapeHtml(s.path) + '</dd><dt>CRC32</dt><dd>' + escapeHtml(s.crc32) + (s.crcOk === false ? ' <span class="err">STÄMMER INTE</span>' : '') + '</dd><dt>SHA-256</dt><dd>' + escapeHtml(s.sha256) + '</dd>' +
                 (s.walPath ? '<dt>-wal</dt><dd>' + escapeHtml(s.walPath) + '</dd><dt>-wal SHA-256</dt><dd>' + escapeHtml(s.walSha256) + '</dd>' : '') +
-                '<dt>WAL</dt><dd>' + escapeHtml(s.walSummary) + '</dd>' + (s.cipher ? '<dt>Kryptering</dt><dd>' + escapeHtml(s.cipher) + '</dd>' : '') + (s.warnings.length ? '<dt>Varning</dt><dd class="warn">' + escapeHtml(s.warnings.join(' ')) + '</dd>' : '') + '</dl></div>';
+                '<dt>WAL</dt><dd>' + escapeHtml(s.walSummary) + '</dd>' + (s.cipher ? '<dt>Kryptering</dt><dd>' + escapeHtml(s.cipher) + '</dd>' : '') + (s.derived ? '<dt>Avkodning</dt><dd>' + escapeHtml(s.derived) + '</dd>' : '') + (s.warnings.length ? '<dt>Varning</dt><dd class="warn">' + escapeHtml(s.warnings.join(' ')) + '</dd>' : '') + '</dl></div>';
         }).join('') + (meta.fileEntry ? '<div class="source-block"><h4>Bildfilen</h4><dl><dt>Sökväg</dt><dd>' + escapeHtml(meta.fileEntry.path) + '</dd><dt>CRC32</dt><dd>' + escapeHtml(meta.fileEntry.crc32) + '</dd><dt>SHA-256</dt><dd>' + escapeHtml(meta.fileEntry.sha256) + '</dd></dl></div>' : '') +
             '<h4>SQL</h4>' + meta.queries.map(function (q) {
                 return '<div class="sql-head"><span><strong>' + escapeHtml(q.id) + '</strong> <span class="muted">' + escapeHtml(q.db) + '</span></span>' +
@@ -3503,8 +3606,9 @@
                 loadLocalJson('../../queries/android/signal/catalog.json', 'SIGNAL_ANDROID_CATALOG'),
                 loadLocalJson('../../queries/ios/signal/catalog.json', 'SIGNAL_IOS_CATALOG'),
                 loadLocalJson('../../queries/ios/whatsapp/catalog.json', 'WHATSAPP_IOS_CATALOG'),
+                loadLocalJson('../../queries/ios/telegram/catalog.json', 'TELEGRAM_IOS_CATALOG'),
             ]);
-            state.sources = ProvenanceRoles.collect({ photos: cats[0], android: cats[1], appUsage: cats[2], routined: cats[3], snapchat: cats[4], snapchatAndroid: cats[5], signalAndroid: cats[6], signalIos: cats[7], whatsappIos: cats[8] });
+            state.sources = ProvenanceRoles.collect({ photos: cats[0], android: cats[1], appUsage: cats[2], routined: cats[3], snapchat: cats[4], snapchatAndroid: cats[5], signalAndroid: cats[6], signalIos: cats[7], whatsappIos: cats[8], telegramIos: cats[9] });
             state.databases = ProvenanceRoles.databases(state.sources);
             state.targets = ExtractionCore.targets(state.databases);
         } catch (err) {

@@ -13,7 +13,7 @@
     var COLORS = {
         bg: '#ffffff', text: '#1c1c1e', muted: '#6e6e73', grid: '#e5e5ea', lane: '#f7f7f9', t: '#d70015', zoom: '#007aff',
         file: '#1c1c1e', neighbour: '#a2a2a8', exif: '#eb6834',
-        phone: '#1f6fd0', camera: '#008300', snapchat: '#c98500', signal: '#2c6bed', location: '#6250d6', other: '#8e8e93',
+        phone: '#1f6fd0', camera: '#008300', snapchat: '#c98500', signal: '#2c6bed', whatsapp: '#1a9b52', telegram: '#1d93cf', location: '#6250d6', other: '#8e8e93',
         off: '#e5e5ea', offStroke: '#c7c7cc',
         status: { support: '#248a3d', contradiction: '#d70015', missing: '#c77700', info: '#007aff', na: '#8e8e93' },
     };
@@ -27,6 +27,8 @@
         { id: 'location', label: 'Position', factor: 'position' },
         { id: 'snapchat', label: 'Snapchat', factor: null },
         { id: 'signal', label: 'Signal', factor: 'signal' },
+        { id: 'whatsapp', label: 'WhatsApp', factor: 'whatsapp' },
+        { id: 'telegram', label: 'Telegram', factor: 'telegram' },
     ];
     var LEFT = 96, RIGHT = 14, GAP = 16, COL = 308, PILL_W = 112, TOP = 44, FOOTER = 56, CHAR_W = 5.9;
     var ROW_H = 36, ROW_H_LABELS = 50;
@@ -84,6 +86,7 @@
             if (r.id === 'location') return !!f.position;
             if (r.id === 'snapchat') return ev.some(function (e) { return /^snap-/.test(e.kind); });
             if (r.id === 'signal') return !!f.signal || ev.some(function (e) { return /^sig-/.test(e.kind); });
+            if (CHATS[r.id]) return !!f[r.id] || ev.some(function (e) { return e.kind.indexOf(CHATS[r.id].prefix) === 0; });
             return false;
         }).map(function (r) { return { id: r.id, label: r.label, factor: r.factor ? f[r.factor] || null : null }; });
     }
@@ -151,6 +154,32 @@
         return cands.length ? nearest(cands, T) : null;
     }
 
+    // Chattapparna med egna rader: WhatsApp och Telegram. Meddelandena är trianglar, skickat uppåt och
+    // mottaget nedåt, i appens färg.
+    var CHATS = { whatsapp: { prefix: 'wa-', name: 'WhatsApp' }, telegram: { prefix: 'tg-', name: 'Telegram' } };
+    function chatOf(e) { return /^wa-/.test(e.kind) ? 'whatsapp' : /^tg-/.test(e.kind) ? 'telegram' : null; }
+
+    // Kort text för ett meddelande i WhatsApp eller Telegram. null = bara markören med sin tooltip.
+    function chatLabel(e) {
+        var c = CHATS[chatOf(e)];
+        if (!c) return null;
+        if (e.isFile) return e.own ? 'Filen skickas i ' + c.name : 'Filen tas emot i ' + c.name;
+        if (e.call) return e.own ? 'Samtal' : 'Samtal tas emot';
+        if (!e.media && !e.near) return null;
+        var what = e.mediaKind === 'video' ? 'Video' : e.mediaKind === 'bild' ? 'Bild' : 'Fil';
+        if (e.near) return what + ' skickas, möjlig koppling';
+        return what + (e.own ? (e.fromLibrary ? ' ur biblioteket skickas' : ' skickas') : ' tas emot');
+    }
+
+    // Händelsen i chattappens rad som kolumnen Vid T beskriver: det som rör filen, annars den närmaste med text.
+    function chatAtT(ev, T, id) {
+        var mine = ev.filter(function (e) { return chatOf(e) === id; });
+        var file = mine.filter(function (e) { return e.isFile || e.near; });
+        if (file.length) return nearest(file, T);
+        var cands = mine.filter(function (e) { return chatLabel(e); });
+        return cands.length ? nearest(cands, T) : null;
+    }
+
     // Snapchat-händelsen som kolumnen Vid T beskriver: den närmaste som säger något om en snap.
     function snapAtT(ev, T) {
         var cands = ev.filter(function (e) { return (/^snap-(message|cache|read)$/.test(e.kind) && (e.isFile || e.own || e.sent || e.context === 34 || e.kind === 'snap-message')) || (e.kind === 'snap-memory' && (e.isFile || e.captured)); });
@@ -172,6 +201,7 @@
         if (snap) keep.add(snap);
         var sig = sigAtT(ev, T);
         if (sig) keep.add(sig);
+        Object.keys(CHATS).forEach(function (id) { var c = chatAtT(ev, T, id); if (c) keep.add(c); });
         var near = nearest((positions || []).filter(function (p) { return p.kind === 'phone'; }), T);
         if (near) ev.forEach(function (e) { if (e.kind === 'location' && e.ms === near.ms) keep.add(e); });
         return keep;
@@ -252,6 +282,12 @@
                 if (!sg) return { state: st, l1: row.factor ? row.factor.verdict || '–' : '–', l2: '' };
                 return { state: st, l1: sigLabel(sg) || 'Signal-händelse', l2: Math.abs(sg.ms - T) <= 1000 ? 'vid T' : when(sg.ms) };
             }
+            case 'whatsapp':
+            case 'telegram': {
+                var ch = chatAtT(ev, T, row.id);
+                if (!ch) return { state: st, l1: row.factor ? row.factor.verdict || '–' : '–', l2: '' };
+                return { state: st, l1: chatLabel(ch) || CHATS[row.id].name + '-meddelande', l2: Math.abs(ch.ms - T) <= 1000 ? 'vid T' : when(ch.ms) };
+            }
         }
         return { state: st, l1: '', l2: '' };
     }
@@ -286,6 +322,14 @@
             if (e.kind === 'sig-message' && e.own) return '<polygon points="' + cx.toFixed(1) + ',' + (mid - gr - 1) + ' ' + (cx + gr + 1).toFixed(1) + ',' + (mid + gr) + ' ' + (cx - gr - 1).toFixed(1) + ',' + (mid + gr) + '" fill="' + COLORS.signal + '"' + gstroke + '>' + title + '</polygon>';
             if (e.kind === 'sig-message') return '<polygon points="' + cx.toFixed(1) + ',' + (mid + gr + 1) + ' ' + (cx + gr + 1).toFixed(1) + ',' + (mid - gr) + ' ' + (cx - gr - 1).toFixed(1) + ',' + (mid - gr) + '" fill="' + COLORS.signal + '"' + gstroke + '>' + title + '</polygon>';
             return '<circle cx="' + cx.toFixed(1) + '" cy="' + mid + '" r="' + (e.plain || e.isFile ? gr : 3.5) + '" fill="' + COLORS.signal + '"' + (e.plain || e.isFile ? '' : ' fill-opacity="0.55"') + gstroke + '>' + title + '</circle>';
+        }
+        if (chatOf(e)) {
+            var cr = e.isFile ? 7 : 4.5;
+            var cfill = COLORS[chatOf(e)];
+            var cstroke = e.isFile ? ' stroke="' + COLORS.file + '" stroke-width="1.5"' : '';
+            var faint = e.plain || e.isFile || e.near ? '' : ' fill-opacity="0.55"';
+            if (e.own) return '<polygon points="' + cx.toFixed(1) + ',' + (mid - cr - 1) + ' ' + (cx + cr + 1).toFixed(1) + ',' + (mid + cr) + ' ' + (cx - cr - 1).toFixed(1) + ',' + (mid + cr) + '" fill="' + cfill + '"' + faint + cstroke + '>' + title + '</polygon>';
+            return '<polygon points="' + cx.toFixed(1) + ',' + (mid + cr + 1) + ' ' + (cx + cr + 1).toFixed(1) + ',' + (mid - cr) + ' ' + (cx - cr - 1).toFixed(1) + ',' + (mid - cr) + '" fill="' + cfill + '"' + faint + cstroke + '>' + title + '</polygon>';
         }
         if (/^snap-/.test(e.kind)) {
             var sr = e.isFile ? 7 : 4.5;
@@ -448,6 +492,15 @@
                     out += faded(marker(e, px, mid, fmt), e);
                     if (labels && important(e)) { var s = sigLabel(e); if (s) texts += label(px, s, fmtTime(fmt, e.ms), !!e.isFile); }
                 });
+            } else if (CHATS[r.id]) {
+                var cprev = null;
+                events.filter(function (e) { return chatOf(e) === r.id; }).sort(function (a, b) { return a.ms - b.ms; }).forEach(function (e) {
+                    var r0 = e.isFile ? 7 : 4.5, px = x(e.ms);
+                    if (cprev && px < cprev.px + cprev.r + r0 + 2 && cprev.px + cprev.r + r0 + 2 - px <= DODGE_MAX) px = cprev.px + cprev.r + r0 + 2;
+                    cprev = { px: px, r: r0 };
+                    out += faded(marker(e, px, mid, fmt), e);
+                    if (labels && important(e)) { var s = chatLabel(e); if (s) texts += label(px, s, fmtTime(fmt, e.ms), !!e.isFile); }
+                });
             } else if (r.id === 'file') {
                 // Filens egna tidpunkter inom två sekunder blir en grupp: skapad-raden i fetstil, resten på en andra rad.
                 var pts = events.filter(function (e) { return e.lane === 'file'; });
@@ -565,6 +618,13 @@
             if (has(function (e) { return /^sig-/.test(e.kind) && e.kind !== 'sig-message'; })) items.push(['●', 'Signals logg', COLORS.signal]);
             if (has(function (e) { return /^sig-/.test(e.kind) && e.isFile; })) items.push(['◉', 'Svart kant: den bedömda filen', COLORS.file]);
         }
+        Object.keys(CHATS).forEach(function (id) {
+            if (ids.indexOf(id) < 0) return;
+            var mine = function (e) { return chatOf(e) === id; };
+            if (has(function (e) { return mine(e) && e.own; })) items.push(['▲', 'Skickat i ' + CHATS[id].name, COLORS[id]]);
+            if (has(function (e) { return mine(e) && !e.own; })) items.push(['▼', 'Mottaget i ' + CHATS[id].name, COLORS[id]]);
+            if (has(function (e) { return mine(e) && e.isFile; })) items.push(['◉', 'Svart kant: den bedömda filen', COLORS.file]);
+        });
         if (ids.indexOf('snapchat') >= 0) {
             if (has(kind('snap-message'))) items.push(['▲', 'Snap/meddelande', COLORS.snapchat]);
             if (has(kind('snap-read'))) items.push(['○', 'Öppnad', COLORS.snapchat]);
@@ -614,7 +674,7 @@
         var items = legendItems(rows, inWindow, !!opts.zoom);
         if (focus) {
             var keep = focusSet(model, ctx.T, ctx.positions);
-            var hidden = inWindow.filter(function (e) { return !keep.has(e) && (e.lane === 'file' || e.kind === 'location' || /^snap-/.test(e.kind) || /^sig-/.test(e.kind)); }).length;
+            var hidden = inWindow.filter(function (e) { return !keep.has(e) && (e.lane === 'file' || e.kind === 'location' || /^snap-/.test(e.kind) || /^sig-/.test(e.kind) || !!chatOf(e)); }).length;
             if (hidden) items.splice(items.length - 1, 0, ['○', 'Blek: annan händelse i fönstret (' + hidden + '), står i tabellen', COLORS.muted]);
         }
         var lg = legend(items, b.bottom + 32, width - RIGHT);
@@ -629,7 +689,7 @@
         return out + '</svg>';
     }
 
-    var api = { svg: svg, rowsFor: rowsFor, stateAt: stateAt, tMarker: tMarker, snapLabel: snapLabel, fileLabel: fileLabel, legendItems: legendItems, focusSet: focusSet, tickStep: tickStep, dur: dur, ROWS: ROWS, COLORS: COLORS, STATE_LABEL: STATE_LABEL };
+    var api = { svg: svg, rowsFor: rowsFor, stateAt: stateAt, tMarker: tMarker, snapLabel: snapLabel, fileLabel: fileLabel, chatLabel: chatLabel, legendItems: legendItems, focusSet: focusSet, tickStep: tickStep, dur: dur, ROWS: ROWS, COLORS: COLORS, STATE_LABEL: STATE_LABEL };
     if (typeof module !== 'undefined' && module.exports) module.exports = api;
     else root.ProvenanceTimeline = api;
 })(typeof window !== 'undefined' ? window : this);

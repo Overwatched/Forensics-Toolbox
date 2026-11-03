@@ -462,6 +462,43 @@ Plan och provkörning: [PLAN-harkomst.md](PLAN-harkomst.md).
   (`FT_LAB_IOS_DIR`) mot `facit/lab-ios-signal-whatsapp.json`. De förväntningarna är inget facit ur
   anteckningar, utan kontrollerade mellan källorna i extraktionen.
 
+#### Telegram på iOS (beta, 1.42)
+
+- **Databaserna** ligger i appgruppen `group.ph.telegra.Telegraph` under `telegram-data/account-<id>/`:
+  meddelandena i `postbox/db/db_sqlite` och lagringsdatabasen i `postbox/media/storage/db/db_sqlite`. De är
+  inte krypterade när ingen lösenkod är satt i Telegram. Tabellerna `t0`, `t1`, … har nyckel och värde som
+  blobbar i Telegrams eget format (Postbox).
+- `tools/db-queries/postbox.js` (`TelegramPostbox`) avkodar formatet till tillfälliga tabeller i minnet när
+  databasen öppnas: `tg_message`, `tg_resource` och `tg_peer` ur `t7` och `t2`, och `tg_storage` ur `t15` och
+  `t16`. Queries, Härkomst och igenkänningen (`DbIdentify.rank`) anropar `attach`. Tabellerna finns inte i
+  filen, och spårbarheten och protokollet säger att de avkodades.
+  - **Formatet:** varje objekt bär sin klass som MurmurHash3 av klassnamnet (frö `0xF7CA7FD2`).
+  - **Nyckeln i `t7`** är peer, namnrymd, tid (unixsekunder) och id, i big endian.
+  - **Värdet** har flaggor (4 = mottaget), avsändare, text, attribut och media.
+  - **En post som inte går att avkoda** står med i tabellen, med nyckelns uppgifter och felet i `decode_error`.
+- `queries/ios/telegram/catalog.json` har två databaser med `derive`. Queryn **Kontroll: meddelandenas
+  nycklar i t7** läser tid, id och peer ur nycklarna med vanlig SQL, så att avkodningen kan kontrolleras i
+  ett annat verktyg.
+- `tools/provenance/telegram.js` (`ProvenanceTelegram`) kopplar filen till Telegram på tre sätt:
+  - **Filen själv** under `postbox/media/`: filnamnet är resursens id.
+  - **En bild ur bildbiblioteket:** lagringsdatabasens resurs `ph-<ZUUID>_L0_001-…` har chatten och den
+    uppladdade bildens storlek, och meddelandet är det i samma chatt med en bild av samma storlek.
+  - **En bild som Telegram sparat:** den får en möjlig koppling till det första skickade meddelandet med en
+    bild eller video inom en minut.
+- `timeline-core.js` har faktorn **Telegram** (`factorTelegram`) och **Telegrams kamera**
+  (`factorTelegramCamera`). Den senare gäller en fil som Telegram sparat med originalnamnet `camphoto_…` eller
+  `camvideo_…`: samma SHA-256 som filen i Telegrams `tmp/` binder. Appversionen kommer ur `Telegram.app/Info.plist`.
+- Kontrollerat mot en labbtelefon (iOS 26.4.1, Telegram 13.1.2, 2026-11-03), inte mot anteckningar. Bara det
+  första kontot läses när telefonen har flera, och en varning säger det.
+- **Tidslinjen** har rader för WhatsApp och Telegram, med meddelandena som trianglar.
+- **CSV:** alla CSV-exporter (Queries, EXIF & karta, Positioner, App-id) sätter en apostrof före en cell som
+  börjar med `=`, `+`, `-`, `@`, tabb eller vagnretur, så att Excel inte tolkar den som en formel. Vanliga tal
+  lämnas som de är.
+- **Tester:**
+  - `tools/db-queries/fixtures/postbox-encode.js` kodar påhittade databaser i Telegrams format åt
+    enhetstesterna och röktestet.
+  - `tests/app/lab-ios.js` kontrollerar Telegram-kopplingarna mot labbzippen.
+
 #### Appversioner i protokollet (1.40)
 
 - `tools/provenance/app-versions.js` (`ProvenanceAppVersions`): versionen för apparna som bedömningen läste.

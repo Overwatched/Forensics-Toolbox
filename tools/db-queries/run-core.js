@@ -3,10 +3,17 @@
 (function (root) {
     'use strict';
 
+    // En cell som börjar med =, +, -, @, tabb eller vagnretur kan bli en formel när filen öppnas i Excel
+    // eller LibreOffice, och texten i en chatt eller ett filnamn väljer någon annan. Den får en apostrof
+    // först. Ett vanligt tal (-73.98, +46701234567, 1e-5) lämnas som det är.
+    function formulaSafe(s) {
+        return /^[=+\-@\t\r]/.test(s) && !/^[+-]?(\d+([.,]\d*)?|[.,]\d+)([eE][+-]?\d+)?$/.test(s) ? "'" + s : s;
+    }
+
     function csvCell(v) {
         if (v === null || v === undefined) return '';
         if (v instanceof Uint8Array) v = '0x' + Array.prototype.map.call(v, function (b) { return (b < 16 ? '0' : '') + b.toString(16); }).join('');
-        var s = String(v);
+        var s = formulaSafe(String(v));
         return /[",;\r\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
     }
 

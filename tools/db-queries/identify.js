@@ -130,14 +130,19 @@
     // queries som går att förbereda. Bara databaser där minst en går, bäst först: alla queries
     // passar, den som redan är vald (opts.prefer), filens namn, extraktionens operativsystem
     // (opts.os), störst andel, flest queries, flest av filens kolumner. Inom en familj vinner den
-    // senaste (Photos.sqlite för den nyaste iOS-versionen), annars katalogens ordning.
+    // senaste (Photos.sqlite för den nyaste iOS-versionen), annars katalogens ordning. Telegrams
+    // tabeller (tg_…) avkodas först, eftersom queryerna läser dem (opts.attach, annars postbox.js).
     function rank(SQL, bytes, databases, opts) {
         opts = opts || {};
         var map = checks(SQL, databases);
         var named = byName(opts.name, databases).map(function (d) { return d.id; });
         var db = new SQL.Database(bytes);
         var out = [];
+        var attach = opts.attach || (root.TelegramPostbox && root.TelegramPostbox.attach);
         try {
+            if (attach) {
+                try { attach(db); } catch (e) { /* inte Telegrams format: tabellerna saknas, och queryerna passar inte */ }
+            }
             var words = null;
             databases.forEach(function (d, i) {
                 var list = map[d.id] || [];

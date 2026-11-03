@@ -182,6 +182,9 @@ test('CSV skyddar mot formler och citerar fält', () => {
     assert.ok(line.startsWith('"mapp/=HYPERLINK(""x"").jpg",10,'), line);
     const evil = core.toCsv([{ path: '=cmd', size: 1, modified: '', summary: core.summarize({}, '=cmd') }]);
     assert.ok(evil.split('\r\n')[1].startsWith("'=cmd"));
+    // En negativ longitud är ett tal och får ingen apostrof.
+    const west = core.toCsv([{ path: '-12.5', size: 1, modified: '', summary: core.summarize({}, 'a.jpg') }]);
+    assert.ok(west.split('\r\n')[1].startsWith('-12.5,'), west);
 });
 
 // Bygger en minimal ZIP med deflate, som en .docx.

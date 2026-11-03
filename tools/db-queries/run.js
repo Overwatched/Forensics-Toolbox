@@ -264,6 +264,12 @@
             // En ny kopia för varje körning, så att en redigerad query som ändrar något
             // inte påverkar nästa körning.
             var db = new o.SQL.Database(o.bytes);
+            // Telegrams databaser: tabellerna tg_… avkodas i minnet ur Telegrams eget format (postbox.js).
+            // De avkodade raderna sparas med den öppnade filen, så nästa körning går fortare.
+            var derived = null;
+            var deriveError = '';
+            try { derived = window.TelegramPostbox ? window.TelegramPostbox.attach(db, o.derived || (o.derived = {})) : null; }
+            catch (e) { deriveError = 'Telegrams format kunde inte avkodas: ' + (e && e.message ? e.message : e); }
             var started = performance.now();
             var all;
             try { all = db.exec(sql); } finally { db.close(); }
@@ -282,11 +288,13 @@
             if (!o.stats.error) lines.push(walSummary(o));
             if (utc.added) lines.push('Kolumnerna som slutar på (UTC) är omräknade av Forensics Toolbox på samma sätt som i Härkomst. Råvärdet står i kolumnen till vänster.');
             var warn = o.origin.some(function (l) { return /STÄMMER INTE/.test(l); });
+            var deriveWarn = deriveError || (derived && derived.errors ? derived.line : '');
             status.innerHTML = lines.map(escapeHtml).join(' ') +
-                (o.stats.error ? '<br><span class="run-warn">' + escapeHtml(walSummary(o)) + '</span>' : '') + (warn
+                (o.stats.error ? '<br><span class="run-warn">' + escapeHtml(walSummary(o)) + '</span>' : '') +
+                (deriveWarn ? '<br><span class="run-warn">' + escapeHtml(deriveWarn) + '</span>' : '') + (warn
                 ? '<br><span class="run-warn">CRC32 stämmer inte för en fil ur zippen.</span> <button type="button" class="link-btn" data-show-pane="trace">Visa spårbarheten</button>'
                 : '');
-            trace.innerHTML = hashLines(o).map(escapeHtml).join('<br>');
+            trace.innerHTML = hashLines(o).concat(derived ? [derived.line] : []).map(escapeHtml).join('<br>');
             if (warn) document.dispatchEvent(new CustomEvent('queries:show-pane', { detail: 'trace' }));
             // Utan rader ger sql.js inga kolumner: exempelraderna ska inte stå kvar under "0 rader".
             if (res.columns.length) renderTable(res);

@@ -15,6 +15,7 @@ const snapchatAndroid = require(path.join(ROOT, 'queries', 'android', 'snapchat'
 const signalAndroid = require(path.join(ROOT, 'queries', 'android', 'signal', 'catalog.json'));
 const signalIos = require(path.join(ROOT, 'queries', 'ios', 'signal', 'catalog.json'));
 const whatsappIos = require(path.join(ROOT, 'queries', 'ios', 'whatsapp', 'catalog.json'));
+const telegramIos = require(path.join(ROOT, 'queries', 'ios', 'telegram', 'catalog.json'));
 const SCHEMAS = require(path.join(__dirname, 'fixtures', 'chat-schemas.json'));
 const fs = require('node:fs');
 
@@ -284,3 +285,73 @@ test('WhatsApp: bildbibliotekets id och SHA-256 läses ut i SQL, ett kontaktkort
     assert.strictEqual(card.sha256_b64, null, 'kontaktkortets namn är ingen summa');
     assert.strictEqual(card.mime, null);
 });
+
+// ---------- Telegram på iOS ----------
+
+test('Telegram på iOS (beta): två databaser som avkodas i minnet, unixsekunder och rollerna', () => {
+    assert.deepStrictEqual(telegramIos.databases.map((d) => [d.id, d.paths[0], d.derive]), [
+        ['telegram-ios-postbox', 'postbox/db/db_sqlite', 'telegram-postbox'], ['telegram-ios-storage', 'postbox/media/storage/db/db_sqlite', 'telegram-storage']]);
+    for (const db of telegramIos.databases) {
+        assert.strictEqual(db.cipher, undefined);
+        checkGroup(db.id, db.queries, (q) => q.subtitle);
+        for (const q of db.queries) {
+            if (/\{\{(cocoa|unixMs)/.test(q.sql)) assert.fail(db.id + '/' + q.id + ': Telegrams tider är unixsekunder');
+            if (!q.hidden && /\{\{unixStart/.test(q.sql)) assert.strictEqual(q.timeEpoch, 'unix', q.id + ': timeEpoch');
+            if (q.hidden) assert.ok(q.fields, q.id + ': fields');
+            for (const p of q.params || []) if (!/^time(Start|End)$/.test(p)) assert.ok(telegramIos.paramLabels[p], q.id + ': etikett för ' + p);
+        }
+    }
+    assert.deepStrictEqual(telegramIos.databases[0].queries.filter((q) => q.hidden).map((q) => q.role).sort(), ['coverage', 'messages', 'resources']);
+    assert.deepStrictEqual(telegramIos.databases[1].queries.filter((q) => q.hidden).map((q) => q.role), ['storage']);
+});
+
+test('Telegram: varje query körs mot påhittade databaser i labbets form, och nycklarna läses också med vanlig SQL', async () => {
+    const S = await sqlJs();
+    const PB = require('./postbox');
+    const E = require('./fixtures/postbox-encode');
+    const KIM = E.peer(0, 7000000002);
+    const ME = E.peer(0, 9000000001);
+    const T = 1793000000;
+    const msgs = [
+        { peer: KIM, timestamp: T, id: 1, author: ME, text: 'Hej' },
+        { peer: KIM, timestamp: T + 16, id: 2, author: ME, media: [E.image({ photoId: 601, sizes: [{ s: 'm', w: 240, h: 320, size: 6320 }, { s: 'y', w: 960, h: 1280, size: 34707 }] })] },
+        { peer: KIM, timestamp: T + 30, id: 3, incoming: true, author: KIM, attributes: [E.viewOnce()], media: [E.image({ photoId: 602, sizes: [{ s: 'w', w: 1152, h: 2048, size: 262257 }] })] },
+        { peer: KIM, timestamp: T + 80, id: 4, author: ME, globalTags: 1, media: [E.call({ id: 3, discard: 0 })] },
+        { peer: KIM, timestamp: T + 101, id: 5, author: ME, media: [E.video({ fileId: 77, size: 114165, w: 464, h: 848 })] },
+    ];
+    const peers = [{ peer: KIM, value: E.user({ id: 7000000002, fn: 'Kim', p: '46700000000' }) }, { peer: ME, value: E.user({ id: 9000000001, fn: 'Jag' }) }];
+    const dbs = {
+        'telegram-ios-postbox': E.postboxDb(S, { messages: msgs, peers }),
+        'telegram-ios-storage': E.storageDb(S, { entries: [
+            { id: 'ph-E0A969AD-D0EE-4693-97EE-DEF992DAD88A_L0_001--690', contentType: 0, size: 34707, refs: [{ peer: KIM, messageId: 0 }] },
+            { id: 'telegram-cloud-photo-size-4-601-y', contentType: 1, refs: [{ peer: KIM, messageId: 2 }] },
+            { id: 'telegram-cloud-document-1-99', contentType: 0 },
+        ] }),
+    };
+    const counts = {};
+    for (const d of telegramIos.databases) {
+        const db = new S.Database(dbs[d.id]);
+        assert.ok(PB.attach(db), d.id + ': avkodas');
+        for (const q of d.queries) {
+            const sql = q.sql.replace(/\{\{unixStart\}\}/g, '0').replace(/\{\{unixEnd\}\}/g, '4102444800').replace(/\{\{resourceId\}\}/g, 'telegram-cloud-photo-size-4-601-y_partial');
+            let res;
+            try { res = db.exec(sql); } catch (e) { assert.fail(d.id + '/' + q.id + ': ' + e.message); }
+            counts[d.id + '/' + q.id] = res.length ? res[res.length - 1].values.length : 0;
+        }
+        db.close();
+    }
+    assert.deepStrictEqual(counts, {
+        'telegram-ios-postbox/messages': 5, 'telegram-ios-postbox/media': 3, 'telegram-ios-postbox/resource': 1, 'telegram-ios-postbox/calls': 1,
+        'telegram-ios-postbox/chats': 2, 'telegram-ios-postbox/message-keys': 5, 'telegram-ios-postbox/tables': 10,
+        'telegram-ios-postbox/role-messages': 5, 'telegram-ios-postbox/role-resources': 5, 'telegram-ios-postbox/role-coverage': 1,
+        'telegram-ios-storage/storage': 2, 'telegram-ios-storage/library-picks': 1, 'telegram-ios-storage/storage-resource': 1,
+        'telegram-ios-storage/tables': 8, 'telegram-ios-storage/role-storage': 2,
+    });
+    // Kontrollen av nycklarna ger samma tid, id och peer som avkodningen, utan den.
+    const db = new S.Database(dbs['telegram-ios-postbox']);
+    const keys = db.exec(telegramIos.databases[0].queries.find((q) => q.id === 'message-keys').sql)[0];
+    const row = Object.fromEntries(keys.columns.map((c, i) => [c, keys.values[1][i]]));
+    assert.deepStrictEqual([row.meddelande_id, row.peer_id, row.tid_utc], [2, Number(KIM), new Date((T + 16) * 1000).toISOString().slice(0, 19).replace('T', ' ')]);
+    db.close();
+});
+

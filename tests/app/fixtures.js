@@ -6,6 +6,9 @@
 // Tre dagar senare: Signals databas (krypterad med SQLCipher som på iOS, nyckeln i en påhittad
 // nyckelring bredvid zippen) med en mottagen bild som sparats i bildbiblioteket, och WhatsApps
 // databas med en bild vald ur bildbiblioteket och en mottagen bild. Namnen i chattarna bär HTML.
+// Fem dagar efter T: Telegrams databaser (i Telegrams eget format, kodat av postbox-encode.js) med en
+// bild vald ur bildbiblioteket, en bild tagen med Telegrams kamera (kvar i Telegrams tmp/) och en
+// mottagen bild under postbox/media/.
 'use strict';
 
 const crypto = require('node:crypto');
@@ -18,6 +21,7 @@ const ROOT = path.join(__dirname, '..', '..');
 const { buildZip } = require(path.join(ROOT, 'tools', 'db-queries', 'fixtures', 'zip-builder.js'));
 const schemas = require(path.join(ROOT, 'tools', 'db-queries', 'fixtures', 'photos-schema.json'));
 const chatSchemas = require(path.join(ROOT, 'tools', 'db-queries', 'fixtures', 'chat-schemas.json'));
+const TG = require(path.join(ROOT, 'tools', 'db-queries', 'fixtures', 'postbox-encode.js'));
 
 const COCOA = 978307200;
 const T = Date.UTC(2024, 5, 1, 12, 34, 56) / 1000;   // tiden i exif-sample.jpg (14:34:56 +02:00)
@@ -27,6 +31,11 @@ const UUID_LIB = '5A5A5A5A-1111-4222-8333-944444444444';  // bildbibliotekets id
 const SIGNAL_KEY = Buffer.from(Array.from({ length: 48 }, (_, i) => (i * 7 + 3) & 255));  // påhittad
 const GROUP_SIGNAL = 'AppGroup/11111111-2222-4333-8444-555555555555/';
 const GROUP_WA = 'AppGroup/66666666-7777-4888-9999-AAAAAAAAAAAA/';
+const T3 = T + 5 * 86400;                              // Telegram
+const UUID_TG = '7B7B7B7B-2222-4333-8444-955555555555';   // bildbibliotekets id för IMG_0007
+const GROUP_TG = 'AppGroup/BBBBBBBB-CCCC-4DDD-8EEE-FFFFFFFFFFFF/';
+const APP_TG = 'Application/12121212-3434-4565-8787-909090909090/';
+const TG_MEDIA = 'telegram-cloud-photo-size-4-777-y';
 
 async function loadSql() {
     const vendor = path.join(ROOT, 'tools', 'ios-keychain', 'vendor', 'sqljs');
@@ -47,13 +56,16 @@ function photosDb(SQL) {
     const db = new SQL.Database();
     for (const [table, cols] of Object.entries(schemas['17'])) db.run('CREATE TABLE "' + table + '" (' + cols.map((c) => '"' + c + '"').join(', ') + ')');
     // Rad 5 är en kamerabild som skickades i WhatsApp; rad 6 sparade Signal ur en mottagen bild.
+    // Rad 7 är en kamerabild som valdes i Telegram; rad 8 tog Telegrams kamera.
     const rows = [
         { pk: 1, dir: 'DCIM/100APPLE', name: 'IMG_0001.JPG', at: T, lat: 59.3326, lon: 18.0649 },
         { pk: 2, dir: 'DCIM/101APPLE', name: 'IMG_0001.JPG', at: T + 30 * 86400, lat: null, lon: null },
         { pk: 3, dir: 'DCIM/100APPLE', name: 'IMG_0002.JPG', at: T + 40, lat: 59.3327, lon: 18.0650 },
         { pk: 4, dir: 'DCIM/100APPLE', name: XSS + '.JPG', at: T + 60, lat: null, lon: null },
         { pk: 5, dir: 'DCIM/100APPLE', name: 'IMG_0005.JPG', at: T2, lat: null, lon: null, uuid: UUID_LIB },
-        { pk: 6, dir: 'DCIM/100APPLE', name: 'IMG_0006.JPG', at: T2 + 200, lat: null, lon: null, original: 'signal-2024-06-04-143850.jpg', importer: 'org.whispersystems.signal', importedBy: 3 },
+        { pk: 6, dir: 'DCIM/100APPLE', name: 'IMG_0006.JPG', at: T2 + 200, lat: null, lon: null, original: 'signal-2024-06-04-143850.jpg', importer: 'org.whispersystems.signal', importedBy: 3, display: 'Signal' },
+        { pk: 7, dir: 'DCIM/100APPLE', name: 'IMG_0007.JPG', at: T3, lat: null, lon: null, uuid: UUID_TG },
+        { pk: 8, dir: 'DCIM/100APPLE', name: 'IMG_0008.JPG', at: T3 + 300, lat: null, lon: null, original: 'camphoto_123456.jpg', importer: 'ph.telegra.Telegraph', importedBy: 3, display: 'Telegram' },
     ];
     rows.forEach((r) => {
         insert(db, 'ZASSET', {
@@ -63,7 +75,7 @@ function photosDb(SQL) {
         });
         insert(db, 'ZADDITIONALASSETATTRIBUTES', {
             Z_PK: r.pk, ZASSET: r.pk, ZORIGINALFILENAME: r.original || r.name, ZEXIFTIMESTAMPSTRING: '2024:06:01 14:34:56', ZTIMEZONENAME: 'Europe/Stockholm', ZTIMEZONEOFFSET: 7200,
-            ZIMPORTEDBY: r.importedBy || 1, ZIMPORTEDBYBUNDLEIDENTIFIER: r.importer || 'com.apple.camera', ZIMPORTEDBYDISPLAYNAME: r.importer ? 'Signal' : 'Kamera',
+            ZIMPORTEDBY: r.importedBy || 1, ZIMPORTEDBYBUNDLEIDENTIFIER: r.importer || 'com.apple.camera', ZIMPORTEDBYDISPLAYNAME: r.display || 'Kamera',
         });
         insert(db, 'ZEXTENDEDATTRIBUTES', { Z_PK: r.pk, ZCAMERAMAKE: 'Apple', ZCAMERAMODEL: 'iPhone 15 Pro' });
     });
@@ -170,6 +182,47 @@ function whatsappDb(SQL, mediaSha) {
     return bytes;
 }
 
+// Telegrams meddelandedatabas och lagringsdatabas: IMG_0007 vald ur bildbiblioteket och skickad
+// (resursen ph-<ZUUID> och bilden i meddelande 1 är lika stora), en bild skickad 5 s efter IMG_0008
+// och en mottagen bild vars fil ligger under postbox/media/. Kontaktens namn bär HTML.
+function telegramDbs(SQL) {
+    const LO = TG.peer(0, 7000000003);
+    const ME = TG.peer(0, 9000000001);
+    const img = (photoId, s, size) => TG.image({ photoId: photoId, sizes: [{ s: 'm', w: 240, h: 320, size: 4000 }, { s: s, w: 960, h: 1280, size: size }] });
+    const messages = [
+        { peer: LO, timestamp: T3 + 150, id: 1, author: ME, media: [img(701, 'y', 34707)] },
+        { peer: LO, timestamp: T3 + 305, id: 2, author: ME, text: 'Titta', media: [img(702, 'y', 35213)] },
+        { peer: LO, timestamp: T3 + 400, id: 3, incoming: true, author: LO, media: [img(777, 'y', 2000)] },
+    ];
+    const peers = [{ peer: LO, value: TG.user({ id: 7000000003, fn: 'Lo', ln: XSS }) }, { peer: ME, value: TG.user({ id: 9000000001, fn: 'Jag' }) }];
+    return {
+        postbox: Buffer.from(TG.postboxDb(SQL, { messages, peers })),
+        storage: Buffer.from(TG.storageDb(SQL, { entries: [
+            { id: 'ph-' + UUID_TG + '_L0_001--8097', contentType: 0, size: 34707, refs: [{ peer: LO, messageId: 0 }] },
+            { id: 'telegram-cloud-photo-size-4-701-y', contentType: 1, refs: [{ peer: LO, messageId: 1 }] },
+            { id: TG_MEDIA, contentType: 1, refs: [{ peer: LO, messageId: 3 }] },
+        ] })),
+    };
+}
+
+// En binär plist med en dict av strängar, som behållarens metadata (.com.apple.mobile_container_manager.metadata.plist).
+function bplistDict(obj) {
+    const keys = Object.keys(obj);
+    const n = keys.length;
+    const objs = [Buffer.concat([Buffer.from([0xd0 | n]), Buffer.from(keys.map((_, i) => 1 + i)), Buffer.from(keys.map((_, i) => 1 + n + i))])];
+    keys.concat(keys.map((k) => obj[k])).forEach((s) => {
+        const b = Buffer.from(String(s), 'ascii');
+        objs.push(b.length < 15 ? Buffer.concat([Buffer.from([0x50 | b.length]), b]) : Buffer.concat([Buffer.from([0x5f, 0x10, b.length]), b]));
+    });
+    let off = 8;
+    const offsets = objs.map((o) => { const x = off; off += o.length; return x; });
+    const trailer = Buffer.alloc(32);
+    trailer[6] = 1; trailer[7] = 1;
+    trailer.writeBigUInt64BE(BigInt(objs.length), 8);
+    trailer.writeBigUInt64BE(BigInt(off), 24);
+    return Buffer.concat([Buffer.from('bplist00', 'ascii')].concat(objs, [Buffer.from(offsets), trailer]));
+}
+
 // En -wal med giltigt magiskt tal och sidstorlek men fel checksumma i huvudet: SQLite hoppar över den.
 function brokenWal() {
     const b = Buffer.alloc(32 + 24 + 4096);
@@ -192,6 +245,8 @@ async function build() {
     const knowledge = Buffer.from(knowledgeDb(SQL));
     const signalSaved = other('IMG_0006');
     const waReceived = other('wa-mottagen');
+    const tgCamera = other('IMG_0008');
+    const tg = telegramDbs(SQL);
     const sha = (b) => crypto.createHash('sha256').update(b).digest();
     const P = 'filesystem1/private/var/mobile/';
     const zip = buildZip([
@@ -213,6 +268,15 @@ async function build() {
         { name: P + 'Containers/Shared/' + GROUP_WA + 'ChatStorage.sqlite', data: Buffer.from(whatsappDb(SQL, sha(waReceived))), deflate: true },
         { name: P + 'Containers/Shared/' + GROUP_WA + 'ChatStorage.sqlite-wal', data: '' },
         { name: P + 'Containers/Shared/' + GROUP_WA + 'Message/Media/1@lid/c/d/mottagen.jpg', data: waReceived, mtime: T2 + 71 },
+        { name: P + 'Media/DCIM/100APPLE/IMG_0007.JPG', data: other('IMG_0007'), mtime: T3 + 1 },
+        { name: P + 'Media/DCIM/100APPLE/IMG_0008.JPG', data: tgCamera, mtime: T3 + 301 },
+        { name: P + 'Containers/Shared/' + GROUP_TG + 'telegram-data/account-1/postbox/db/db_sqlite', data: tg.postbox, deflate: true },
+        { name: P + 'Containers/Shared/' + GROUP_TG + 'telegram-data/account-1/postbox/db/db_sqlite-wal', data: '' },
+        { name: P + 'Containers/Shared/' + GROUP_TG + 'telegram-data/account-1/postbox/media/storage/db/db_sqlite', data: tg.storage, deflate: true },
+        { name: P + 'Containers/Shared/' + GROUP_TG + 'telegram-data/account-1/postbox/media/storage/db/db_sqlite-wal', data: '' },
+        { name: P + 'Containers/Shared/' + GROUP_TG + 'telegram-data/account-1/postbox/media/' + TG_MEDIA, data: other('tg-mottagen'), mtime: T3 + 401 },
+        { name: P + 'Containers/Data/' + APP_TG + '.com.apple.mobile_container_manager.metadata.plist', data: bplistDict({ MCMMetadataIdentifier: 'ph.telegra.Telegraph' }) },
+        { name: P + 'Containers/Data/' + APP_TG + 'tmp/camphoto_123456.jpg', data: tgCamera, mtime: T3 + 300 },
     ]);
     const files = {
         dir,
@@ -225,7 +289,7 @@ async function build() {
     fs.writeFileSync(files.keychain, keychainPlist());
     fs.writeFileSync(files.image, jpeg);
     fs.writeFileSync(files.knowledge, knowledge);
-    return { files, T: T * 1000, imageName: 'IMG_0001.JPG', T2: T2 * 1000, waMedia: 'mottagen.jpg' };
+    return { files, T: T * 1000, imageName: 'IMG_0001.JPG', T2: T2 * 1000, waMedia: 'mottagen.jpg', T3: T3 * 1000, tgMedia: TG_MEDIA };
 }
 
 module.exports = { build, T: T * 1000 };

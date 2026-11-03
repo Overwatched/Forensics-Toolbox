@@ -26,6 +26,16 @@ async function factors(c) {
     return c.ev(PROV, `[...document.querySelectorAll('#factors .factor')].map(f => ({ id: f.dataset.factor, state: (f.querySelector('h3 .badge').className.match(/badge (\\w+)/) || [])[1], verdict: f.querySelector('h3 .badge').textContent }))`);
 }
 
+// Bedömer ett filnamn i Härkomst. Ger faktorerna per id, typen och chattmeddelandena som är märkta som filens.
+async function assessNamed(c, name) {
+    await c.ev(PROV, `document.getElementById('filename').value = ${JSON.stringify(name)}, document.getElementById('run').click(), 1`);
+    await sleep(300);
+    await waitResult(c, name);
+    const model = await c.ev(PROV, `({ name: ProvenanceApp.model().file.filename, type: ProvenanceApp.model().type.label, files: ProvenanceApp.model().events.filter(e => e.isFile && /^(sig|wa|tg)-/.test(e.kind)).map(e => e.kind), titles: Object.fromEntries(ProvenanceApp.model().factors.map(f => [f.id, f.title])) })`);
+    expect(model.name === name, 'Bedömningen gäller ' + model.name);
+    return { f: Object.fromEntries((await factors(c)).map((x) => [x.id, x])), model };
+}
+
 async function waitResult(c, label) {
     await c.waitFor(PROV, "!window.ProvenanceApp.busy() && !document.getElementById('result').classList.contains('display-none') && !!window.ProvenanceApp.model()", 90000, label);
 }
@@ -183,6 +193,42 @@ const scenarios = [
         return 'Signal förenligt, WhatsApp skickad och mottagen';
     }],
 
+    ['Härkomst: Telegram på iOS, med en bild ur bildbiblioteket, Telegrams kamera och Telegrams egen fil', async ({ c, fx }) => {
+        // Vald ur bildbiblioteket och skickad: lagringsdatabasens ph-<ZUUID> och en bild av samma storlek.
+        const lib = await assessNamed(c, 'IMG_0007.JPG');
+        expect(lib.f.telegram && lib.f.telegram.state === 'info' && /Skickad i Telegram/.test(lib.f.telegram.verdict), 'Telegram: ' + JSON.stringify(lib.f.telegram));
+        expect(lib.model.files.includes('tg-message'), 'Meddelandet i Telegram är inte märkt som filens');
+        // Telegrams kamera: originalnamnet camphoto_… och samma fil kvar i Telegrams tmp/.
+        const cam = await assessNamed(c, 'IMG_0008.JPG');
+        expect(cam.model.titles.camera === 'Telegrams kamera' && cam.f.camera && cam.f.camera.state === 'support', 'Kameran: ' + JSON.stringify(cam.f.camera) + ' ' + cam.model.titles.camera);
+        expect(cam.f.telegram && /Möjlig koppling/.test(cam.f.telegram.verdict), 'Telegram: ' + JSON.stringify(cam.f.telegram));
+        // Telegrams egen mottagna fil under postbox/media/: prövas som mottagen, och kameran frågas inte.
+        const own = await assessNamed(c, fx.tgMedia);
+        expect(own.f.telegram && own.f.telegram.state === 'support' && /Mottagen i Telegram/.test(own.f.telegram.verdict), 'Telegrams fil: ' + JSON.stringify(own.f.telegram));
+        expect(own.f.camera && own.f.camera.state === 'na', 'Kameran för Telegrams fil: ' + JSON.stringify(own.f.camera));
+        expect(/Telegram-media/.test(own.model.type), 'Typen: ' + own.model.type);
+        const derived = await c.ev(PROV, `ProvenanceApp.meta().sources.filter(s => /Telegrams format avkodat i minnet/.test(s.derived || '')).length`);
+        expect(derived === 1, 'Protokollets källor säger inte att Telegrams format avkodades');
+        await noInjectedScript(c);
+        return 'skickad ur biblioteket, Telegrams kamera, mottagen fil';
+    }],
+
+    ['Queries: Telegrams meddelanden avkodas i minnet, och spårbarheten säger det', async ({ c, fx }) => {
+        await c.nav('Queries');
+        await c.ev(QUER, `(function(){ const b = document.querySelector('.side-db[data-family="telegram-ios-postbox"]'); if (b.getAttribute('aria-expanded') !== 'true') b.click(); return 1; })()`);
+        await c.ev(QUER, `document.querySelector('.side-q[data-db="telegram-ios-postbox"][data-q="messages"]').click(), 1`);
+        await sleep(300);
+        const day = new Date(fx.T3).toISOString().slice(0, 10);
+        await c.ev(QUER, `(function(){ const s = document.querySelector('[data-param="timeStart"]'), e = document.querySelector('[data-param="timeEnd"]'); s.value = '${day} 00:00'; e.value = '${day} 23:59'; s.dispatchEvent(new Event('input')); e.dispatchEvent(new Event('input')); return 1; })()`);
+        await c.ev(QUER, `document.getElementById('run-button').click(), 1`);
+        await c.waitFor(QUER, `/rad(er)? på/.test(document.getElementById('run-status').textContent) || /run-warn/.test(document.getElementById('run-status').innerHTML)`, 30000, 'körningen');
+        const r = await c.ev(QUER, `({ status: document.getElementById('run-status').innerText, rows: document.querySelectorAll('#run-result tbody tr').length, trace: document.getElementById('run-trace') ? document.getElementById('run-trace').innerText : '' })`);
+        expect(r.rows === 3, 'Telegrams meddelanden: ' + r.rows + ' rader. ' + r.status);
+        expect(/Telegrams format avkodat i minnet: tg_message \(3 meddelanden ur t7\)/.test(r.trace), 'Spårbarheten säger inte att formatet avkodades: ' + r.trace.slice(0, 300));
+        await noInjectedScript(c);
+        return '3 meddelanden, avkodade i minnet';
+    }],
+
     ['Queries: Signals databas på iOS dekrypteras med nyckelringen från raden högst upp', async ({ c, fx }) => {
         await c.nav('Queries');
         await c.ev(QUER, `(function(){ const b = document.querySelector('.side-db[data-family="signal-ios-main"]'); if (b.getAttribute('aria-expanded') !== 'true') b.click(); return 1; })()`);
@@ -232,4 +278,4 @@ const scenarios = [
     }],
 ];
 
-module.exports = { scenarios, expect, factors, waitResult, download, noInjectedScript, PROV, QUER };
+module.exports = { scenarios, expect, factors, assessNamed, waitResult, download, noInjectedScript, PROV, QUER };

@@ -251,7 +251,7 @@
         <section class="step" id="step-6">
             <div class="step-head">
                 <span class="step-num">6</span>
-                <h2>Appens egna register: Snapchat, Signal och WhatsApp (beta)</h2>
+                <h2>Appens egna register: Snapchat, Signal, WhatsApp och Telegram (beta)</h2>
             </div>
             <p class="shared">En fil i Snapchats cache saknar ändelse och EXIF. Härkomst bedömer den ur Snapchats egna databaser: vem som skickade, när den lästes och om Snapchats kamera spelade in.</p>
             <div class="cols">
@@ -287,6 +287,13 @@
                 <li>En bild som WhatsApp sparat efter att den tagits med WhatsApps kamera har bara tiden gemensamt med meddelandet</li>
             </ul>
             <p class="tools"><a href="../tools/db-queries/queries.html?db=whatsapp-ios-chat" data-tool="tools/db-queries/queries.html?db=whatsapp-ios-chat">Queries</a> (under WhatsApp på startsidan)</p>
+            <p class="shared">Telegram (iOS) lagrar meddelandena i ett eget format. Härkomst och Queries avkodar det i minnet. Telegram kodar om bilder, så en skickad bild känns igen på lagringsdatabasens post, inte på summan.</p>
+            <ul>
+                <li><code>telegram-data/account-&lt;id&gt;/postbox/db/db_sqlite</code> i appgruppen: meddelanden, samtal, kontakter och chattar. Filerna ligger i <code>postbox/media/</code> med resursens id som namn</li>
+                <li><code>postbox/media/storage/db/db_sqlite</code>: vilken chatt och vilket meddelande varje fil hör till. En bild vald ur bildbiblioteket har bibliotekets id (<code>ZUUID</code> i Photos.sqlite) och den uppladdade bildens storlek</li>
+                <li>En bild som Telegram sparat har bara tiden gemensamt med meddelandet. Har den originalnamnet <code>camphoto_…</code> och finns samma fil i Telegrams <code>tmp/</code>, togs den med Telegrams kamera</li>
+            </ul>
+            <p class="tools"><a href="../tools/db-queries/queries.html?db=telegram-ios-postbox" data-tool="tools/db-queries/queries.html?db=telegram-ios-postbox">Queries</a> (under Telegram på startsidan)</p>
         </section>
 
         <section class="step" id="step-7">

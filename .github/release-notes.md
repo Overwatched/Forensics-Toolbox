@@ -1,5 +1,22 @@
 Automatiskt byggd från commit `{{SHA}}`.
 
+## Nytt i 1.42
+
+Telegram på iOS i Härkomst och Queries (beta), och skydd mot formler i CSV-filerna.
+
+- **Telegram på iOS.** Telegram sparar meddelandena i ett eget format. Härkomst och Queries avkodar det i minnet. Filen ändras inte, och spårbarheten och protokollet säger att tabellerna är avkodade.
+- **Filen mot Telegram.** Härkomst kopplar filen till Telegram på tre sätt:
+  - Telegrams egna filer under `postbox/media/` hör till sitt meddelande.
+  - En bild som valts ur bildbiblioteket finns i Telegrams lagringsdatabas, med bibliotekets id och den uppladdade bildens storlek.
+  - En bild som Telegram sparat får en möjlig koppling till meddelandet strax efter.
+
+  En bild med originalnamnet `camphoto_…` som finns kvar i Telegrams `tmp/` togs med Telegrams kamera.
+- **Queries:** nya queries för Telegrams meddelanden, bilder och videor, samtal, kontakter och chattar, och för lagringsdatabasens bilder valda ur bildbiblioteket. En kontrollquery läser meddelandenas tid och id ur nycklarna med vanlig SQL.
+- **Tidslinjen** har rader för WhatsApp och Telegram.
+- **CSV:** en cell som börjar med =, +, -, @, tabb eller vagnretur får en apostrof först, så att Excel inte tolkar den som en formel. Det gäller Queries, EXIF & karta, Positioner och App-id. Vanliga tal lämnas som de är.
+- **Appversionen** för Telegram står i protokollet.
+- **Rättat:** skärmraden sa att skärmen var tänd enligt WhatsApps eller Telegrams "logg". Källan är appens databas, och nu står det så.
+
 ## Nytt i 1.41
 
 Signal och WhatsApp på iOS i Härkomst och Queries (beta).

@@ -138,7 +138,7 @@
             var plain = noun ? (own ? noun + ' skickas från den här telefonen i WhatsApp till ' + who + (fromLibrary ? ' (vald ur bildbiblioteket)' : '') : noun + ' tas emot i WhatsApp från ' + who) : null;
             if (isFile) { text = 'Den bedömda filen: ' + text; plain = own ? 'Den bedömda filen skickas från den här telefonen i WhatsApp till ' + who : 'Den bedömda filen tas emot i WhatsApp från ' + who; }
             else if (near1) { text += '; skickad strax efter att den bedömda filen skapades'; }
-            events.push({ ms: ms, kind: 'wa-message', lane: 'whatsapp', app: APP, own: own, bold: isFile, isFile: isFile, near: near1, messageId: m.id, media: hasFile ? 1 : 0, fromLibrary: fromLibrary,
+            events.push({ ms: ms, kind: 'wa-message', lane: 'whatsapp', app: APP, own: own, bold: isFile, isFile: isFile, near: near1, messageId: m.id, media: hasFile ? 1 : 0, mediaKind: hasFile ? what : null, fromLibrary: fromLibrary,
                 active: own, activeText: own ? 'ett meddelande skickades' : null,
                 text: text, plain: plain, source: Object.assign({}, srcMain, { column: own ? 'ZSENTDATE' : 'ZMESSAGEDATE' }) });
         });
