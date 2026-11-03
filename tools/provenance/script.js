@@ -150,10 +150,11 @@
             : '<p class="muted">Ingen av databaserna hittades i zippen.</p>';
     }
 
-    // Filer och filnamn från andra verktyg väntar på att en pågående öppning blir klar.
+    // Filer och filnamn från andra verktyg väntar på att en pågående öppning blir klar. Två öppningar
+    // tätt efter varandra görs i tur och ordning, så att den sista gäller och de två inte blandas.
     var zipReady = Promise.resolve();
     function openZip(file, opts) {
-        var p = openZipNow(file, opts);
+        var p = zipReady.then(function () { return openZipNow(file, opts); });
         zipReady = p.catch(function () {});
         return p;
     }
@@ -805,9 +806,6 @@
         var zone = zoneChoice(fileRow);
         var fmt = zone.format;
         var cams = cameraApps();
-        var wins = ProvenanceCore.windows(fileRow, windowMs);
-        // Utan tidpunkt finns inga fönster, och inga registreringar läses kring filen.
-        var range = wins.length ? { startMs: Math.min.apply(null, wins.map(function (w) { return w.startMs; })), endMs: Math.max.apply(null, wins.map(function (w) { return w.endMs; })) } : null;
         var input = {
             platform: platform, file: fileRow, appNames: appName, cameraApps: cams, windowMs: windowMs, format: fmt,
             fileSource: run.fileSource || { db: run.fileLabel, table: platform === 'Android' ? 'files' : fileQuery.sql.indexOf('ZGENERICASSET') >= 0 ? 'ZGENERICASSET' : 'ZASSET', column: ProvenanceRoles.fieldSpec(fileQuery, 'created').col, queryId: fileQuery.id },
@@ -817,7 +815,99 @@
         if (fileRow.createdFrom === 'date_added') input.fileSource = Object.assign({}, input.fileSource, { column: 'date_added (datetaken saknas)' });
         if (run.bandNote) input.warnings.push(run.bandNote);
         if (run.timeNote) input.warnings.push(run.timeNote);
+        // Bildbibliotekets egna varningar (utan -wal, -wal som inte kunde läggas på, CRC32) gäller filens rad och grannarna.
+        [run.fileDb, run.neighbourDb].forEach(function (db, i, all) {
+            if (db && all.indexOf(db) === i && db.warnings) input.warnings = input.warnings.concat(db.warnings);
+        });
         var meta = { sources: [], queries: run.queries, coverage: [], fileRows: [], exifRows: [], fileEntry: null, fileMissingReason: '', timelinePngs: [], copiesNote: '' };
+
+        // Bildfilen: EXIF, CRC32, MD5, SHA-256, filsystemets tid och bilden till kortet.
+        progress('Läser bildfilen ur zippen…');
+        if (!run.quiet) releasePreview();
+        meta.thumbnail = null;
+        input.exif = null;
+        var fileSha = '';
+        try {
+            var media = run.mediaEntry ? { entry: run.mediaEntry, paired: null, reason: '' } : await findMedia(fileRow, platform);
+            if (media.entry) {
+                var read = await readMedia(media.entry);
+                // Tiderna efter läsningen: den lokala posten kan ha fler tider än innehållsförteckningen.
+                var times = ExtractionCore.entryTimes(media.entry);
+                meta.fileEntry = { path: media.entry.name, size: media.entry.size, mtime: times.modified, created: times.created, accessed: times.accessed, timeField: times.field, crc32: ExtractionCore.hex(media.entry.crc32), crcOk: read.crcOk, md5: read.md5 || '', sha256: read.sha256 || '' };
+                meta.mediaEntry = media.entry;
+                input.fileEntry = { name: media.entry.name, size: media.entry.size, mtimeMs: times.modifiedMs, createdMs: times.createdMs, timeField: times.field };
+                fileSha = read.sha256 || '';
+                if (read.bytes) {
+                    progress('Läser EXIF ur bildfilen…');
+                    var tags = await readTags(read.bytes, fileRow.filename);
+                    var sum = ExifCore.summarize(tags, fileRow.filename);
+                    var taken = exifTakenMs(sum.taken, zone);
+                    input.exif = {
+                        read: true, takenMs: taken.ms, takenText: sum.taken ? sum.taken.text + (taken.assumed ? ' (zon antagen: ' + zone.label + ')' : '') : '',
+                        position: sum.position && !sum.position.zero ? { lat: sum.position.lat, lon: sum.position.lon, accuracy: sum.position.accuracy, source: sum.position.source } : null,
+                        sourceTag: sum.taken ? sum.taken.source : '', make: tags['IFD0:Make'] || tags['QuickTime:Make'] || '', model: tags['IFD0:Model'] || tags['QuickTime:Model'] || '',
+                        software: sum.software ? sum.software.text : '', source: { db: 'bildfilen', table: media.entry.name.slice(media.entry.name.lastIndexOf('/') + 1), column: sum.taken ? sum.taken.source : 'EXIF' },
+                    };
+                    Object.keys(tags).sort().forEach(function (k) { if (EXIF_ROW_RE.test(k)) meta.exifRows.push([k, String(tags[k])]); });
+                } else {
+                    input.exif = { read: false };
+                    input.fileMissingReason = read.reason;
+                    meta.fileMissingReason = read.reason;
+                }
+                if (!run.quiet) {
+                    try { await loadPreview(media.entry, read.bytes, run.mediaEntry ? null : fileRow, platform, meta); }
+                    catch (e) { state.preview = { source: 'none', kind: null, note: 'Bilden kunde inte visas: ' + e.message, url: null }; }
+                }
+                if (media.paired && media.paired.size <= MAX_MEDIA) {
+                    try {
+                        var pr = await ExtractionCore.readEntry(state.zip.read, media.paired);
+                        var ptags = await readTags(pr.bytes, media.paired.name.slice(media.paired.name.lastIndexOf('/') + 1));
+                        var psum = ExifCore.summarize(ptags, media.paired.name);
+                        var pt = exifTakenMs(psum.taken, zone);
+                        if (pt.ms) input.pairedVideo = { name: media.paired.name.slice(media.paired.name.lastIndexOf('/') + 1), takenMs: pt.ms, source: { db: 'bildfilen', table: media.paired.name.slice(media.paired.name.lastIndexOf('/') + 1), column: psum.taken.source } };
+                    } catch (e) { input.warnings.push('Live Photo-videon kunde inte läsas: ' + e.message); }
+                }
+            } else {
+                input.exif = { read: false };
+                input.fileMissingReason = media.reason;
+                meta.fileMissingReason = 'Bildfilen lästes inte: ' + media.reason + '.';
+            }
+        } catch (err) {
+            input.exif = { read: false };
+            input.fileMissingReason = err.message;
+            meta.fileMissingReason = 'Bildfilen kunde inte läsas: ' + err.message;
+        }
+
+        if (!run.quiet && !state.preview) state.preview = { source: 'none', kind: null, note: meta.fileMissingReason || 'Filen lästes inte ur zippen.', url: null };
+
+        // Hittad på en hashsumma: summan står i filkortet och protokollet, jämförd med filens egen. En fil
+        // över 200 MB läses inte här, men sökningen räknade summan på samma post.
+        if (run.foundBy) {
+            var fb = run.foundBy;
+            var fe = meta.fileEntry;
+            var own = '';
+            if (fe && fb.algo === 'md5') own = fe.md5;
+            else if (fe && fb.algo === 'sha256') own = fe.sha256;
+            else if (fe && fb.algo === 'sha1' && read && read.bytes) own = fe.sha1 = sha1Hex(read.bytes);
+            if (!own && fe && meta.mediaEntry && z.hashCache) {
+                own = z.hashCache[fb.algo][ProvenanceHashSearch.keyOf(meta.mediaEntry)] || '';
+                if (own && fb.algo === 'sha1') fe.sha1 = own;
+            }
+            meta.foundBy = { algo: fb.algo, label: ProvenanceHashSearch.label(fb.algo), value: fb.value, own: own || '', same: own ? own === fb.value : null };
+        }
+
+        // Signal (beta): filens SHA-256 mot bilagorna, Signals logg och meddelandena kring T. Körs
+        // efter att filen lästs, eftersom summan behövs, och före loggarna: skickades eller valdes filen
+        // långt från T läggs ett eget fönster till kring den tiden, och då ska app, skärm, lås, kamera
+        // och grannar läsas också där.
+        if (platform === 'Android' && hitFor(SIGNAL_KEYS.main) && fileRow.createdMs) {
+            try { await addSignal(input, meta, windowMs, run, fileSha, zone); }
+            catch (e) { input.signal = { error: 'Signals databaser kunde inte läsas: ' + e.message }; console.warn(e); }
+        }
+
+        var wins = ProvenanceCore.windows(fileRow, windowMs);
+        // Utan tidpunkt finns inga fönster, och inga registreringar läses kring filen.
+        var range = wins.length ? { startMs: Math.min.apply(null, wins.map(function (w) { return w.startMs; })), endMs: Math.max.apply(null, wins.map(function (w) { return w.endMs; })) } : null;
 
         // Grannar ur samma databas som filen, eller ur bildbiblioteket när filen ligger utanför det.
         var fileRoles = run.fileRoles || {};
@@ -949,88 +1039,6 @@
             catch (e) { input.warnings.push('Snapchats register kunde inte läsas: ' + e.message); console.warn(e); }
         }
 
-        // Bildfilen: EXIF, CRC32, MD5, SHA-256, filsystemets tid och bilden till kortet.
-        progress('Läser bildfilen ur zippen…');
-        if (!run.quiet) releasePreview();
-        meta.thumbnail = null;
-        input.exif = null;
-        var fileSha = '';
-        try {
-            var media = run.mediaEntry ? { entry: run.mediaEntry, paired: null, reason: '' } : await findMedia(fileRow, platform);
-            if (media.entry) {
-                var read = await readMedia(media.entry);
-                // Tiderna efter läsningen: den lokala posten kan ha fler tider än innehållsförteckningen.
-                var times = ExtractionCore.entryTimes(media.entry);
-                meta.fileEntry = { path: media.entry.name, size: media.entry.size, mtime: times.modified, created: times.created, accessed: times.accessed, timeField: times.field, crc32: ExtractionCore.hex(media.entry.crc32), crcOk: read.crcOk, md5: read.md5 || '', sha256: read.sha256 || '' };
-                meta.mediaEntry = media.entry;
-                input.fileEntry = { name: media.entry.name, size: media.entry.size, mtimeMs: times.modifiedMs, createdMs: times.createdMs, timeField: times.field };
-                fileSha = read.sha256 || '';
-                if (read.bytes) {
-                    progress('Läser EXIF ur bildfilen…');
-                    var tags = await readTags(read.bytes, fileRow.filename);
-                    var sum = ExifCore.summarize(tags, fileRow.filename);
-                    var taken = exifTakenMs(sum.taken, zone);
-                    input.exif = {
-                        read: true, takenMs: taken.ms, takenText: sum.taken ? sum.taken.text + (taken.assumed ? ' (zon antagen: ' + zone.label + ')' : '') : '',
-                        position: sum.position && !sum.position.zero ? { lat: sum.position.lat, lon: sum.position.lon, accuracy: sum.position.accuracy, source: sum.position.source } : null,
-                        sourceTag: sum.taken ? sum.taken.source : '', make: tags['IFD0:Make'] || tags['QuickTime:Make'] || '', model: tags['IFD0:Model'] || tags['QuickTime:Model'] || '',
-                        software: sum.software ? sum.software.text : '', source: { db: 'bildfilen', table: media.entry.name.slice(media.entry.name.lastIndexOf('/') + 1), column: sum.taken ? sum.taken.source : 'EXIF' },
-                    };
-                    Object.keys(tags).sort().forEach(function (k) { if (EXIF_ROW_RE.test(k)) meta.exifRows.push([k, String(tags[k])]); });
-                } else {
-                    input.exif = { read: false };
-                    input.fileMissingReason = read.reason;
-                    meta.fileMissingReason = read.reason;
-                }
-                if (!run.quiet) {
-                    try { await loadPreview(media.entry, read.bytes, run.mediaEntry ? null : fileRow, platform, meta); }
-                    catch (e) { state.preview = { source: 'none', kind: null, note: 'Bilden kunde inte visas: ' + e.message, url: null }; }
-                }
-                if (media.paired && media.paired.size <= MAX_MEDIA) {
-                    try {
-                        var pr = await ExtractionCore.readEntry(state.zip.read, media.paired);
-                        var ptags = await readTags(pr.bytes, media.paired.name.slice(media.paired.name.lastIndexOf('/') + 1));
-                        var psum = ExifCore.summarize(ptags, media.paired.name);
-                        var pt = exifTakenMs(psum.taken, zone);
-                        if (pt.ms) input.pairedVideo = { name: media.paired.name.slice(media.paired.name.lastIndexOf('/') + 1), takenMs: pt.ms, source: { db: 'bildfilen', table: media.paired.name.slice(media.paired.name.lastIndexOf('/') + 1), column: psum.taken.source } };
-                    } catch (e) { input.warnings.push('Live Photo-videon kunde inte läsas: ' + e.message); }
-                }
-            } else {
-                input.exif = { read: false };
-                input.fileMissingReason = media.reason;
-                meta.fileMissingReason = 'Bildfilen lästes inte: ' + media.reason + '.';
-            }
-        } catch (err) {
-            input.exif = { read: false };
-            input.fileMissingReason = err.message;
-            meta.fileMissingReason = 'Bildfilen kunde inte läsas: ' + err.message;
-        }
-
-        if (!run.quiet && !state.preview) state.preview = { source: 'none', kind: null, note: meta.fileMissingReason || 'Filen lästes inte ur zippen.', url: null };
-
-        // Hittad på en hashsumma: summan står i filkortet och protokollet, jämförd med filens egen. En fil
-        // över 200 MB läses inte här, men sökningen räknade summan på samma post.
-        if (run.foundBy) {
-            var fb = run.foundBy;
-            var fe = meta.fileEntry;
-            var own = '';
-            if (fe && fb.algo === 'md5') own = fe.md5;
-            else if (fe && fb.algo === 'sha256') own = fe.sha256;
-            else if (fe && fb.algo === 'sha1' && read && read.bytes) own = fe.sha1 = sha1Hex(read.bytes);
-            if (!own && fe && meta.mediaEntry && z.hashCache) {
-                own = z.hashCache[fb.algo][ProvenanceHashSearch.keyOf(meta.mediaEntry)] || '';
-                if (own && fb.algo === 'sha1') fe.sha1 = own;
-            }
-            meta.foundBy = { algo: fb.algo, label: ProvenanceHashSearch.label(fb.algo), value: fb.value, own: own || '', same: own ? own === fb.value : null };
-        }
-
-        // Signal (beta): filens SHA-256 mot bilagorna, Signals logg och meddelandena kring T. Körs
-        // efter att filen lästs, eftersom summan behövs.
-        if (platform === 'Android' && hitFor(SIGNAL_KEYS.main) && fileRow.createdMs) {
-            try { await addSignal(input, meta, windowMs, run, fileSha, zone); }
-            catch (e) { input.signal = { error: 'Signals databaser kunde inte läsas: ' + e.message }; console.warn(e); }
-        }
-
         // Var finns filen? Alla poster med samma storlek och CRC32, bekräftade med SHA-256.
         if (meta.fileEntry) {
             try {
@@ -1052,6 +1060,8 @@
         });
         meta.extraction = { name: z.file.name, size: z.file.size, lastModified: new Date(z.file.lastModified).toISOString() };
         meta.deviceLabel = z.version ? 'iOS ' + z.version : z.androidVersion ? 'Android ' + z.androidVersion : platform;
+        try { meta.appVersions = await appVersions(input); } catch (e) { console.warn('Appversionerna kunde inte läsas', e); meta.appVersions = []; }
+        meta.appVersionsText = ProvenanceAppVersions.text(meta.appVersions);
         return finalize(input, meta, zone, run.quiet);
     }
 
@@ -1248,6 +1258,7 @@
             return;
         }
         progress('Läser Snapchats register (beta)…');
+        input.snapchatRead = true;
         var entries = await snapEntries();
         var isVideoFile = /^video\//.test(String(input.file.mime || '')) || /\.(mp4|mov|3gp|webm|mkv)$/i.test(String(input.file.filename || ''));
         var ctx = { app: ProvenanceSnapchat.appId(state.zip.platform), accountId: ProvenanceSnapchat.accountId(entries.map(function (e) { return e.name; })), cacheRows: [], messages: [], friends: {}, notifications: [], memories: [], journal: [],
@@ -1328,7 +1339,12 @@
         }
 
         var out = ProvenanceSnapchat.build(ctx);
-        input.extraEvents = out.events;
+        // Snapchats version när en sparad snap i fönstret togs (Android): snappen närmast T.
+        var T0 = input.file.createdMs;
+        var withUa = (ctx.memories || []).filter(function (m) { return m.userAgent && m.capturedMs; })
+            .sort(function (a, b) { return Math.abs(a.capturedMs - T0) - Math.abs(b.capturedMs - T0); });
+        if (withUa.length) input.snapchatWindowUa = { ua: withUa[0].userAgent, ms: withUa[0].capturedMs };
+        input.extraEvents = (input.extraEvents || []).concat(out.events);
         input.extraNotes = (input.extraNotes || []).concat(out.notes);
         input.snapchatAccount = ctx.accountId;
         input.snapchatMemory = out.memory || null;
@@ -1430,12 +1446,85 @@
         input.extraEvents = (input.extraEvents || []).concat(out.events);
         input.extraNotes = (input.extraNotes || []).concat(out.notes);
         input.signal = { link: out.link, keySource: cipher.source, shaMissing: !sha256 };
+        input.signalLogVersion = ProvenanceAppVersions.fromSignalLog(logRows, fileRow.createdMs);
         if (!sha256) input.warnings.push('Filens SHA-256 kunde inte räknas, så den jämfördes inte med Signals bilagor. Bara Signals logg (MediaStore-id) användes.');
         if (mainSrc.roles.coverage) {
             var cov = runRole(mainDb, mainSrc.roles.coverage, {}, ['first', 'last'], run).rows[0];
             if (cov) meta.coverage.push(['Signal (meddelanden kvar)', cov.firstMs ? ProvenanceCore.formatUtc(cov.firstMs) : '', cov.lastMs ? ProvenanceCore.formatUtc(cov.lastMs) : '', Number(cov.rows)]);
         }
         input.warnings = input.warnings.concat(mainDb.warnings);
+    }
+
+    // ---------- Appversioner ----------
+
+    // Versionen för apparna som bedömningen läste, till protokollet: på iOS ur appens Info.plist i
+    // paketet (versionen som var installerad vid extraktionen), på Android ur packages.xml, Snapchats
+    // Memories (versionen när snappen togs) och Signals logg (versionen på raden närmast T).
+    var APP_BUNDLES = { 'com.toyopagroup.picaboo': 'Snapchat.app' };
+
+    async function iosBundleVersion(bundleId) {
+        var z = state.zip;
+        z.bundleVersions = z.bundleVersions || {};
+        if (bundleId in z.bundleVersions) return z.bundleVersions[bundleId];
+        z.bundleVersions[bundleId] = null;
+        var dir = APP_BUNDLES[bundleId];
+        if (!dir || !window.KC || !window.KC.bplist) return null;
+        var re = new RegExp('/Bundle/Application/[0-9A-Fa-f-]{36}/' + dir.replace('.', '\\.') + '/Info\\.plist$');
+        var hits = await ExtractionCore.find(z.read, z.file.size, function (name) { return re.test(name); });
+        for (var i = 0; i < hits.length; i++) {
+            if (hits[i].size > 1024 * 1024) continue;
+            var info = ProvenanceAppVersions.fromInfoPlist((await ExtractionCore.readEntry(z.read, hits[i])).bytes, window.KC.bplist.parse);
+            if (info && info.bundleId === bundleId) { z.bundleVersions[bundleId] = Object.assign({ path: hits[i].name }, info); break; }
+        }
+        return z.bundleVersions[bundleId];
+    }
+
+    // packages.xml läses en gång per zip.
+    async function androidPackage(pkg) {
+        var z = state.zip;
+        if (z.packagesXml === undefined) {
+            z.packagesXml = null;
+            var hits = await ExtractionCore.find(z.read, z.file.size, function (name) { return /(^|\/)data\/system\/packages\.xml$/.test(name); });
+            if (hits.length && hits[0].size <= 32 * 1024 * 1024) z.packagesXml = { entry: hits[0], bytes: (await ExtractionCore.readEntry(z.read, hits[0])).bytes };
+        }
+        if (!z.packagesXml) return null;
+        var info = ProvenanceAppVersions.fromPackagesXml(z.packagesXml.bytes, pkg, ProvenanceAndroidLogs.abxParse);
+        return info ? Object.assign({ path: z.packagesXml.entry.name }, info) : null;
+    }
+
+    async function appVersions(input) {
+        var z = state.zip;
+        var out = [];
+        var fmtU = ProvenanceCore.formatUtc;
+        var pkgNote = function (p) {
+            return [p.installMs ? 'installerad ' + fmtU(p.installMs) : '', p.updateMs ? 'uppdaterad ' + fmtU(p.updateMs) : ''].filter(Boolean).join(', ');
+        };
+        // Snapchat när filen kommer från Snapchat eller Snapchats register har händelser i fönstren.
+        var snapRelevant = !!(input.file.snapchatCache || input.file.memory || ProvenanceSnapchat.isSnapchatApp(input.file.importer) ||
+            (input.snapchatRead && (input.extraEvents || []).some(function (e) { return /^snap-/.test(e.kind); })));
+        if (snapRelevant) {
+            if (z.platform === 'iOS') {
+                var b = await iosBundleVersion('com.toyopagroup.picaboo');
+                out.push(b ? { app: 'Snapchat', version: b.version, build: b.build, source: b.path.replace(/^.*\/(Bundle\/Application\/)/, '$1'), note: 'installerad version när extraktionen gjordes' }
+                    : { app: 'Snapchat', source: 'appens Info.plist hittades inte i zippen' });
+            } else {
+                var ua = input.file.memory && ProvenanceAppVersions.fromUserAgent(input.file.memory.userAgent);
+                var wua = !ua && input.snapchatWindowUa ? ProvenanceAppVersions.fromUserAgent(input.snapchatWindowUa.ua) : null;
+                if (ua) out.push({ app: 'Snapchat', version: ua, source: 'memories.db, snap_create_user_agent', note: 'versionen när snappen togs' });
+                else if (wua) out.push({ app: 'Snapchat', version: wua, source: 'memories.db, snap_create_user_agent', note: 'versionen när en sparad snap i fönstret togs, ' + fmtU(input.snapchatWindowUa.ms) });
+                var sp = await androidPackage('com.snapchat.android');
+                if (sp) out.push({ app: 'Snapchat', versionCode: sp.versionCode, source: sp.path, note: pkgNote(sp) });
+                if (!ua && !wua && !sp) out.push({ app: 'Snapchat', source: 'varken packages.xml eller en sparad snap med version finns i zippen' });
+            }
+        }
+        if (input.signal && !input.signal.error) {
+            var lv = input.signalLogVersion;
+            if (lv) out.push({ app: 'Signal', version: lv.version, source: 'Signals logg (signal-logs.db)', note: 'versionen på raden närmast T, ' + fmtU(lv.ms) });
+            var gp = await androidPackage(ProvenanceSignal.APP);
+            if (gp) out.push({ app: 'Signal', versionCode: gp.versionCode, source: gp.path, note: pkgNote(gp) });
+            if (!lv && !gp) out.push({ app: 'Signal', source: 'varken packages.xml eller Signals logg med version finns i zippen' });
+        }
+        return out;
     }
 
     // ---------- Bildbiblioteket och Snapchats behållare ----------
@@ -1737,8 +1826,9 @@
                 $('hits').classList.add('display-none');
                 var cls = ProvenanceCopies.classifyPath(e.name, placeOpts());
                 if (cls.area === 'library' && /\/DCIM\//.test(e.name)) {
+                    // Sökvägen väljer raden när samma filnamn finns i flera mappar i biblioteket.
                     $('filename').value = ExtractionCore.baseName(e.name);
-                    await run();
+                    await run({ filename: ExtractionCore.baseName(e.name), path: e.name, entry: e });
                 } else {
                     await assessEntry(e, Number($('window').value) * 60000);
                     setStatus('run-status', '');
@@ -3339,6 +3429,13 @@
         if (data.type === 'provenance-files') receiveFiles(data.files);
         if (data.type === 'provenance-names' && Array.isArray(data.names)) receiveNames(data.names.map(String), data.zipName || '');
     });
+
+    // Läsåtkomst till bedömningen som visas, för provkörningarna (tests/app) och felsökning. Ändrar inget.
+    window.ProvenanceApp = {
+        model: function () { return state.model; },
+        meta: function () { return state.meta; },
+        busy: isBusy,
+    };
 
     init();
 })();

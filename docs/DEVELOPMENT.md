@@ -50,6 +50,8 @@ GPU/VSync-varningar i terminalen på Linux är oftast ofarliga.
 | `npm run dist:portable` | Endast portabel zip |
 | `npm run dist:installer` | Endast NSIS-installer |
 | `npm run sync-version` | Synkar version från `Toolbox.html` → `package.json` |
+| `npm test` | Enhetstesterna under `tools/` (Node) |
+| `npm run test:app` | Provkörning av hela appen i Electron: röktestet, och facit om labbzippen finns (se Tester) |
 
 ## Windows-build (målplattform)
 
@@ -133,6 +135,8 @@ npm test
   för att öppna och stänga (`body.in-hub .standalone-only`). Verktygen rapporterar
   `{ type: 'extraction-info', file, info: { device } }` (iOS 26.0, Android 13) och
   `{ type: 'current-file', name, path, place }` (filen som visas, `name: null` när den inte visas längre).
+  Versionen läses medan zippen öppnas och kommer därför före `extraction-changed`; huvudfönstret sparar
+  den (`pendingInfo`) tills beskedet om samma fil kommer.
 - Mellan verktygen: raden ber verktyget som har filen om den (`{ type: 'deliver-file', to }`), verktyget
   svarar `{ type: 'file-for', to, files: [{ file, path }] }`, och huvudfönstret öppnar målet och skickar
   `exif-files` (EXIF & karta läser filerna som från disk och öppnar en ensam fil) eller `provenance-files`
@@ -296,8 +300,8 @@ i extraktionen med `-wal` pålagd, och bygger en händelselista i UTC.
   och på den delade kartvyn med nålar. Kartbilden hämtas med `mapView.toImage()` och läggs i
   båda exporterna. Kartans laddning kräver att fönstret ritas: med låst skärm kommer ingen
   bildruta, och då går exporten vidare utan kartbild efter tio sekunder.
-- På iOS kommer app och kamera ur knowledgeC `/app/usage` (`/app/inFocus` finns inte på iOS 18
-  och senare, bara som reserv). På Android ur `usagestats` (app, skärm, lås) och `appops`
+- På iOS kommer app och kamera ur knowledgeC `/app/usage` (`/app/inFocus` saknas på iOS 18
+  och 26, de versioner som kontrollerats, och är bara reserv). På Android ur `usagestats` (app, skärm, lås) och `appops`
   (kameran per app), lästa som filer ur zippen av `android-logs.js`; Wellbeing är reserv.
 - `android-logs.js` (UMD `ProvenanceAndroidLogs`): `abxParse` för Androids binära XML (ABX,
   magic `ABX\0`, internerade strängar, samma utskrift som `abx2xml`), `discreteOps`/`opIntervals`
@@ -400,12 +404,36 @@ Plan och provkörning: [PLAN-harkomst.md](PLAN-harkomst.md).
   `sig-capture`, `sig-saved`, `sig-deleted`, `sig-log`) och hashsökningen i bilagorna (`findByHash`: SHA-256
   direkt, MD5/SHA-1 efter dekryptering). `script.js` kör `addSignal` efter att filen lästs (summan
   behövs), lägger fönster kring meddelandet och valet och kör om meddelandequeryn för dem.
+  Ordningen i `assess()` är därför: bildfilen (EXIF, hashar), Signal, sedan fönstren och loggarna. Ett
+  fönster kring en sändning eller ett val långt från T får då app, skärm, lås, kamera och grannar som de
+  andra fönstren (före 1.40 lästes loggarna bara för fönstren runt T).
   `timeline-core.js` har faktorn **Signal** (`factorSignal`): sparad av Signal + träff = förenligt,
   kamerabild eller skärmdump som är en mottagen bilaga = inte förenligt, skickad = upplysning, saknas = saknas.
   Tidslinjen har raden Signal (triangel upp = skickat, ned = mottaget, cirkel = loggen).
 - Kontrollerat mot en labbtelefon (Android 13, Signal 8.33, två sessioner 2026-11-02 med facit) och en
   verklig extraktion (Signal 8.10, nyckel i `secrets.json`). Labb-zippen
   `Lab-Android-Nord-2026-11-02.zip` har en `secrets.json` i samma format.
+- Nycklarna tas var för sig (`AppSecrets.signalKeys`): databasnyckeln ur den första källan som har den och
+  bilagenyckeln likaså, så att en inklistrad nyckel av det ena slaget inte döljer den andra i nyckelfilen.
+
+#### Appversioner i protokollet (1.40)
+
+- `tools/provenance/app-versions.js` (`ProvenanceAppVersions`): versionen för apparna som bedömningen läste.
+  iOS: `Bundle/Application/<GUID>/<App>.app/Info.plist` (`CFBundleShortVersionString`, `CFBundleVersion`),
+  alltså versionen som var installerad vid extraktionen. Android: `data/system/packages.xml` (ABX eller
+  text; `version` = versionskoden, `ut` = uppdaterad), Snapchats `memories_snap.snap_create_user_agent`
+  (versionen när snappen togs: den kopplade snappen, annars snappen i fönstret närmast T) och Signals logg
+  (raderna börjar med versionen, `[8.33.2]`; raden närmast T). `script.js` (`appVersions`) tar bara med
+  appar som har händelser i fönstren eller som filen kommer från, och protokollets huvud får raden
+  **Appversioner** (`meta.appVersionsText`).
+
+#### En -wal som inte går att lägga på (1.40)
+
+- Trasigt huvud, fel checksumma eller fel sidstorlek i `-wal`: databasen läses utan den, som SQLite gör, och
+  det blir en varning i stället för ett fel (`ExtractionCore.loadDatabase` och `QueriesRun.load`). Varningen
+  står bland Härkomsts varningar och i protokollet, och i Queries med röd text under resultatet.
+  Bildbibliotekets egna varningar (utan `-wal`, CRC32) står också bland varningarna, eftersom filens rad
+  kommer därifrån.
 
 ### ExifTool i EXIF-visaren
 
@@ -500,6 +528,26 @@ i webbläsaren.
   Nodes `crypto` för längder runt varje blockgräns, och verifierar att resultatet
   är oberoende av hur indata delas upp i bitar
 - Testdata ligger i `tools/**/fixtures/` och tas inte med i bygget
+- **Provkörning av appen** (`tests/app/`, `npm run test:app`): appen startas i Electron utan skärm
+  (`harness.js`, samma protokoll och IPC som `electron/main.js`, ett offscreen-fönster, DevTools-protokollet
+  på `FT_PORT`, standard 9223) och styrs av `cdp.js`. Saknas skärm (CI) körs Electron med
+  `--ozone-platform=headless`; utan grafikkort finns ingen WebGL2, och kartan säger det i stället för att
+  ritas. Testerna läser verktygen via `window.QueriesApp` och `window.ProvenanceApp` (bara läsning).
+  Provkörningen kräver Node 22 eller senare (inbyggd `WebSocket`); enhetstesterna går på Node 20.
+  - **Röktestet** (`smoke.js`, `--smoke`): alla verktyg laddas utan fel i sidan; Härkomsts tre testdata ger
+    underlag och protokoll; en påhittad iOS 17-extraktion (`fixtures.js`: Photos.sqlite med iLEAPP:s schema,
+    knowledgeC.db med en trasig `-wal`, routined, bildfiler och poster med HTML i namnet) öppnas i Queries
+    och Härkomst; en query med noll rader sägs ut; en fil från disk väljer raden i rätt mapp; och HTML ur
+    filnamn och databaser körs aldrig. Bara påhittade data. CI kör det i jobbet `apptest`, som inte stoppar
+    releasen än.
+  - **Facit** (`facit.js`, `facit/lab-android-nord.json`, `--facit`): Härkomst bedömer filerna i
+    labbzippen och jämför T, Memories, förgrund, skärm, lås, kameran, Snapchats meddelande, Signals
+    meddelanden och appversionerna med det som loggades på labbtelefonen (inom en sekund, Signal två).
+    Labbzippen ligger inte i repot: sökvägen tas ur `FT_LAB_ZIP`, annars
+    `~/Documents/Exampleextractions/Lab-Android-Nord-2026-11-02.zip`. Zippens storlek, mtime och ctime
+    kontrolleras efteråt. Bara tider och versioner står i facit, inga namn eller nycklar.
+  - `FT_SHOTS=<mapp>` sparar en skärmdump efter varje del. En ny del är en post i `scenarios`, en
+    asynkron funktion som kastar ett fel när något inte stämmer.
 - "Fyll med testdata" i Härkomst kommer från `tools/provenance/sample-data.js`: samma promenad,
   bilden IMG_4104.JPG vid Sergels torg mitt i en Snapchat-session, med påhittade knowledgeC-rader.
   "Testdata: Snapchat" är `snapchatScenario()` i samma fil: videon Anna spelar in med Snapchats

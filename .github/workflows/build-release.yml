@@ -53,6 +53,24 @@ jobs:
       - name: Kör enhetstester
         run: npm test
 
+  # Röktestet startar appen i Electron utan skärm och kör verktygen mot påhittade data (tests/app).
+  # Ett eget jobb som inte stoppar releasen, tills det har visat sig stabilt i CI. Facit-testerna
+  # kräver labbzippen och körs bara lokalt (npm run test:app).
+  apptest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Installera beroenden
+        run: npm ci --ignore-scripts
+      - name: Hämta Electron
+        run: node scripts/ensure-electron.js
+      - name: Kör röktestet i appen
+        run: npm run test:app -- --smoke
+
   # Skapar releasen som utkast, eller rensar ett befintligt utkast. En redan publicerad
   # release rörs inte: då hoppas bygget över. Höj versionen i Toolbox.html för en ny release.
   prepare:

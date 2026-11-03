@@ -130,3 +130,22 @@ test('tom -wal (0 byte) stoppar inte inläsningen', { skip: !DatabaseSync && 'no
     const db = await openSqlJs(photos.bytes);
     assert.strictEqual(db.exec('SELECT count(*) FROM ZASSET')[0].values[0][0], 0);
 });
+
+// En -wal med trasigt huvud hoppar SQLite över. Databasen ska läsas utan den, med en varning.
+test('trasigt -wal-huvud ger en varning, och databasen läses utan -wal', { skip: !DatabaseSync && 'node:sqlite saknas' }, async () => {
+    const files = makePhotosDb();
+    const broken = Buffer.from(files.wal);
+    broken[24] ^= 0xff;   // checksumman i huvudet
+    const buf = buildZip([
+        { name: 'filesystem1/private/var/mobile/Media/PhotoData/Photos.sqlite', data: files.db },
+        { name: 'filesystem1/private/var/mobile/Media/PhotoData/Photos.sqlite-wal', data: broken },
+    ]);
+    const read = reader(buf);
+    const r = await core.open(read, buf.length, core.targets(DATABASES));
+    const photos = await core.loadDatabase(read, r.found[0]);
+    assert.match(photos.stats.error, /checksumma/);
+    assert.ok(photos.warnings.some((w) => /Photos\.sqlite-wal lades inte på: Fel checksumma.*utan -wal, som SQLite/.test(w)), photos.warnings.join(' | '));
+    assert.match(core.walSummary(photos), /^-wal lades inte på: Fel checksumma i -wal-huvudet\./);
+    const db = await openSqlJs(photos.bytes);
+    assert.strictEqual(db.exec('SELECT count(*) FROM ZASSET')[0].values[0][0], 0);
+});

@@ -220,3 +220,13 @@ test('hittad på en hashsumma: summan och jämförelsen står i protokollet och 
     const rows = [{ name: md5, searched: 'MD5 ' + md5, status: 'missing', note: 'Ingen fil i zippen har den MD5:n.', summary: null }];
     assert.ok(report.batchTable(rows, {}).includes('<b>MD5 ' + md5 + '</b>'));
 });
+
+test('appversionerna står i protokollets huvud, och saknas raden när inga appar lästes', () => {
+    const m = model();
+    const list = [{ app: 'Snapchat', version: '13.40.0', build: '13.40.0.37', source: 'Bundle/Application/X/Snapchat.app/Info.plist', note: 'installerad version när extraktionen gjordes' }];
+    const withApps = Object.assign({}, META, { appVersionsText: require('./app-versions').text(list) });
+    const html = report.protocol(m, withApps);
+    assert.match(html, /Appversioner/);
+    assert.match(html, /Snapchat 13\.40\.0 \(build 13\.40\.0\.37\) \(Bundle\/Application\/X\/Snapchat\.app\/Info\.plist; installerad version när extraktionen gjordes\)\./);
+    assert.doesNotMatch(report.protocol(m, META), /Appversioner/);
+});

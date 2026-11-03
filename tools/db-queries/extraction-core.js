@@ -149,8 +149,10 @@
         } else {
             merged = dep('SqliteWal').apply(dbRead.bytes, walBytes);
         }
-        if (walRead && merged.stats.error) throw new Error(baseName(hit.wal.name) + ': ' + merged.stats.error);
         var warnings = [];
+        // En -wal som inte går att lägga på (trasigt huvud, fel sidstorlek) hoppar SQLite över. Här
+        // läses databasen likadant utan den, och varningen säger det.
+        if (walRead && merged.stats.error) warnings.push(baseName(hit.wal.name) + ' lades inte på: ' + merged.stats.error + '. ' + baseName(hit.db.name) + ' lästes utan -wal, som SQLite gör med en sådan fil. Poster som bara finns i -wal saknas.');
         if (!walRead) warnings.push(baseName(hit.db.name) + ' lästes utan -wal: extraktionen har ingen. Poster som bara fanns i -wal kan saknas.');
         if (hit.journal && hit.journal.size) warnings.push(baseName(hit.db.name) + ' har en -journal: databasen kan vara mitt i en transaktion.');
         if (!dbRead.crcOk) warnings.push('CRC32 för ' + baseName(hit.db.name) + ' stämmer inte med zippen.');
@@ -173,6 +175,7 @@
     function walSummary(loaded) {
         if (!loaded.walEntry) return 'Utan -wal.';
         var s = loaded.stats;
+        if (s.error) return '-wal lades inte på: ' + s.error + '. Databasen lästes utan den, som SQLite gör.';
         if (s.empty) return '-wal är tom (0 byte), så det fanns inga ramar att lägga på.';
         var text = '-wal: ' + s.appliedFrames + ' av ' + s.walFrames + ' ramar lades på (' + s.commits + ' commit, ' + s.pages + ' sidor).';
         if (s.uncommittedFrames) text += ' ' + s.uncommittedFrames + ' ramar hörde till en transaktion som aldrig blev klar och lades inte på.';

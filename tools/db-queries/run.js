@@ -176,7 +176,7 @@
         } else {
             merged = SqliteWal.apply(dbRead.bytes, walBytes);
         }
-        if (walRead && merged.stats.error) throw new Error(merged.stats.error);
+        // En -wal som inte går att lägga på läses inte, som i SQLite. walSummary säger det vid körningen.
         return {
             SQL: SQL, dbFile: src.db, walFile: src.wal || null, stats: merged.stats, hashes: hashes, bytes: merged.bytes,
             origin: origin, passphrase: cipher.passphrase, encrypted: encrypted,
@@ -201,6 +201,7 @@
     function walSummary(o) {
         if (!o.walFile) return 'Utan -wal.';
         var s = o.stats;
+        if (s.error) return '-wal lades inte på: ' + s.error + '. Databasen lästes utan den, som SQLite gör med en sådan fil, så poster som bara finns i -wal saknas.';
         if (s.empty) return '-wal är tom (0 byte), så det fanns inga ramar att lägga på.';
         var text = '-wal: ' + s.appliedFrames + ' av ' + s.walFrames + ' ramar lades på (' + s.commits + ' commit, ' + s.pages + ' sidor).';
         if (s.uncommittedFrames) text += ' ' + s.uncommittedFrames + ' ramar hörde till en transaktion som aldrig blev klar och lades inte på.';
@@ -253,11 +254,13 @@
             var lines = [
                 count + (count === 1 ? ' rad' : ' rader') + ' på ' + ms + ' ms'
                     + (count > MAX_SHOWN ? ', de första ' + MAX_SHOWN + ' visas. CSV-filen får alla.' : '.'),
-                walSummary(o),
             ];
+            // En -wal som inte kunde läggas på är en varning, inte en upplysning.
+            if (!o.stats.error) lines.push(walSummary(o));
             if (utc.added) lines.push('Kolumnerna som slutar på (UTC) är omräknade av Forensics Toolbox på samma sätt som i Härkomst. Råvärdet står i kolumnen till vänster.');
             var warn = o.origin.some(function (l) { return /STÄMMER INTE/.test(l); });
-            status.innerHTML = lines.map(escapeHtml).join(' ') + (warn
+            status.innerHTML = lines.map(escapeHtml).join(' ') +
+                (o.stats.error ? '<br><span class="run-warn">' + escapeHtml(walSummary(o)) + '</span>' : '') + (warn
                 ? '<br><span class="run-warn">CRC32 stämmer inte för en fil ur zippen.</span> <button type="button" class="link-btn" data-show-pane="trace">Visa spårbarheten</button>'
                 : '');
             trace.innerHTML = hashLines(o).map(escapeHtml).join('<br>');

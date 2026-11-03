@@ -23,7 +23,7 @@ test('secrets.json: databasnyckel och bilagenyckel för Signal, andra appar påv
     const found = s.fromSecretsFile(Buffer.from(SECRETS));
     assert.deepStrictEqual(found.apps['org.thoughtcrime.securesms'], { dbKey: DB_KEY, modernKey: MODERN, notes: ['signal extraction'] });
     assert.ok(!found.apps['com.microsoft.skydrive'] || !found.apps['com.microsoft.skydrive'].dbKey);
-    assert.deepStrictEqual(s.signalKeys([found]), { dbKey: DB_KEY, modernKey: MODERN, source: 'extra/Secrets/secrets.json' });
+    assert.deepStrictEqual(s.signalKeys([found]), { dbKey: DB_KEY, modernKey: MODERN, source: 'extra/Secrets/secrets.json', modernSource: 'extra/Secrets/secrets.json' });
     assert.match(s.fromSecretsFile('{inte json').error, /JSON/);
 });
 
@@ -37,7 +37,7 @@ test('android_keystore: en Signal-post (formatet är inte kontrollerat mot en ri
         'com.defi.wallet': [{ result_type: 'Data Blob', description: 'pass-code-alias', key_name: 'pass-code-alias', encrypted_data: '00', decrypted_data: '313233' }],
     });
     const found = s.fromKeystoreFile(Buffer.from(ks), 'nyckelfil.zip');
-    assert.deepStrictEqual(s.signalKeys([found]), { dbKey: DB_KEY, modernKey: MODERN, source: 'nyckelfil.zip' });
+    assert.deepStrictEqual(s.signalKeys([found]), { dbKey: DB_KEY, modernKey: MODERN, source: 'nyckelfil.zip', modernSource: 'nyckelfil.zip' });
 });
 
 test('inklistrat: hex, x\'…\', base64 och JSON; inklistrat går före extraktionens fil', () => {
@@ -50,4 +50,15 @@ test('inklistrat: hex, x\'…\', base64 och JSON; inklistrat går före extrakti
     const manual = Object.assign({ source: 'inklistrad' }, s.parseManual(DB_KEY.replace(/^a/, 'b')));
     assert.strictEqual(s.signalKeys([manual, s.fromSecretsFile(SECRETS)]).dbKey, DB_KEY.replace(/^a/, 'b'));
     assert.strictEqual(s.signalKeys([null, { source: 'x', apps: {} }]), null);
+});
+
+// En inklistrad nyckel av det ena slaget ska inte dölja nyckeln av det andra slaget i extraktionens fil.
+test('varje nyckel tas ur den första källan som har den', () => {
+    const fromFile = s.fromSecretsFile(SECRETS);
+    const onlyModern = Object.assign({ source: 'inklistrad' }, s.parseManual(MODERN));
+    assert.deepStrictEqual(s.signalKeys([onlyModern, fromFile]), { dbKey: DB_KEY, modernKey: MODERN, source: 'extra/Secrets/secrets.json', modernSource: 'inklistrad' });
+    const otherDb = DB_KEY.replace(/^a/, 'b');
+    const onlyDb = Object.assign({ source: 'inklistrad' }, s.parseManual(otherDb));
+    assert.deepStrictEqual(s.signalKeys([onlyDb, fromFile]), { dbKey: otherDb, modernKey: MODERN, source: 'inklistrad', modernSource: 'extra/Secrets/secrets.json' });
+    assert.deepStrictEqual(s.signalKeys([onlyModern]), { dbKey: null, modernKey: MODERN, source: 'inklistrad', modernSource: 'inklistrad' });
 });

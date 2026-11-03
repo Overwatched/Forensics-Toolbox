@@ -36,7 +36,7 @@ window.APP_USAGE_CATALOG = {
         {
           "id": "app-infocus",
           "title": "/app/inFocus — förgrund (äldre iOS)",
-          "subtitle": "Visar vilken app som låg i förgrunden på skärmen inom tidsspannet. Saknas ofta från iOS 16, då finns uppgiften i Biome App.InFocus i stället.",
+          "subtitle": "Visar vilken app som låg i förgrunden på skärmen inom tidsspannet. Strömmen saknas på iOS 18 och 26 (de versioner som kontrollerats). Där finns uppgiften i Biome App.InFocus.",
           "timeEpoch": "cocoa",
           "params": [
             "timeStart",

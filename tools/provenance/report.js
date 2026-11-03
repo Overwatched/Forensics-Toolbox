@@ -86,7 +86,8 @@
     // meta: { extraction: { name, size, lastModified }, deviceLabel, zoneLabel, zoneNote, toolVersion, createdText,
     //         format(ms), formatUtc(ms), fileRows: [[kolumn, värde]], exifRows: [[tagg, värde]], fileEntry: { path, size, mtime, crc32, sha256 } | null,
     //         sources: [{ label, path, size, mtime, crc32, sha256, walPath, walCrc32, walSha256, walSummary, cipher, warnings: [] }],
-    //         queries: [{ id, db, title, sql }], coverage: [[ström, första, sista, rader]], timelinePngs: [dataUrl per fönster] }
+    //         queries: [{ id, db, title, sql }], coverage: [[ström, första, sista, rader]], timelinePngs: [dataUrl per fönster],
+    //         appVersionsText: appversionerna i klartext (ProvenanceAppVersions.text) }
     function protocol(model, meta) {
         var fmt = meta.format;
         var fmtUtc = meta.formatUtc;
@@ -100,7 +101,7 @@
             ['Fönster', model.windows.map(function (w) { return w.label + ': ' + fmt(w.startMs) + ' till ' + fmt(w.endMs); }).join('; ')],
             ['Program', 'Forensics Toolbox ' + (meta.toolVersion || '') + ', verktyget Härkomst'],
             ['Rapporten skapad', meta.createdText || ''],
-        ]);
+        ].concat(meta.appVersionsText ? [['Appversioner', meta.appVersionsText]] : []));
         if (meta.sampleNote) out += p('<b>' + esc(meta.sampleNote) + '</b>');
         if (model.beta) out += p('<b>Betafunktion:</b> ' + esc(BETA_NOTE));
         if (model.warnings.length) out += p('<b>Varningar:</b> ' + model.warnings.map(esc).join(' '));

@@ -29,7 +29,7 @@
         {
           "id": "app-infocus",
           "title": "/app/inFocus — förgrund (äldre iOS)",
-          "subtitle": "Visar vilken app som låg i förgrunden på skärmen inom tidsspannet. Saknas ofta från iOS 16, då finns uppgiften i Biome App.InFocus i stället.",
+          "subtitle": "Visar vilken app som låg i förgrunden på skärmen inom tidsspannet. Strömmen saknas på iOS 18 och 26 (de versioner som kontrollerats). Där finns uppgiften i Biome App.InFocus.",
           "timeEpoch": "cocoa",
           "params": ["timeStart", "timeEnd", "bundleId"],
           "sql": "SELECT\n  datetime(ZOBJECT.ZSTARTDATE + 978307200, 'unixepoch', 'localtime') AS ZSTARTDATE,\n  datetime(ZOBJECT.ZENDDATE + 978307200, 'unixepoch', 'localtime') AS ZENDDATE,\n  datetime(ZOBJECT.ZCREATIONDATE + 978307200, 'unixepoch', 'localtime') AS ZCREATIONDATE,\n  ZOBJECT.ZSTREAMNAME,\n  ZOBJECT.ZVALUESTRING,\n  (ZOBJECT.ZENDDATE - ZOBJECT.ZSTARTDATE) AS usage_seconds\nFROM ZOBJECT\nWHERE ZOBJECT.ZSTREAMNAME = '/app/inFocus'\n  AND ZOBJECT.ZSTARTDATE BETWEEN {{cocoaStart}} AND {{cocoaEnd}}\n  AND IFNULL(ZOBJECT.ZVALUESTRING, '') LIKE '%{{bundleId}}%'\nORDER BY ZOBJECT.ZSTARTDATE;"

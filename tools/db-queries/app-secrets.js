@@ -119,15 +119,22 @@
     }
 
     // Signals nycklar ur det som hittats, i ordning: inklistrat, secrets.json, android_keystore.
-    // Returnerar { dbKey, modernKey, source } eller null.
+    // Varje nyckel tas för sig ur den första källan som har den, så att en inklistrad bilagenyckel
+    // inte döljer databasnyckeln i nyckelfilen. source är databasnyckelns källa (annars bilagenyckelns),
+    // modernSource bilagenyckelns. Returnerar { dbKey, modernKey, source, modernSource } eller null.
     function signalKeys(found) {
-        for (var i = 0; i < (found || []).length; i++) {
-            var f = found[i];
-            if (!f) continue;
+        var out = { dbKey: null, modernKey: null, source: null, modernSource: null };
+        (found || []).forEach(function (f) {
+            if (!f) return;
             var a = f.apps ? f.apps[SIGNAL] : f;
-            if (a && (a.dbKey || a.modernKey)) return { dbKey: a.dbKey || null, modernKey: a.modernKey || null, source: f.source || 'inklistrad' };
-        }
-        return null;
+            if (!a) return;
+            var from = f.source || 'inklistrad';
+            if (a.dbKey && !out.dbKey) { out.dbKey = a.dbKey; out.source = from; }
+            if (a.modernKey && !out.modernKey) { out.modernKey = a.modernKey; out.modernSource = from; }
+        });
+        if (!out.dbKey && !out.modernKey) return null;
+        if (!out.source) out.source = out.modernSource;
+        return out;
     }
 
     var api = { SIGNAL: SIGNAL, isSecretsPath: isSecretsPath, fromSecretsFile: fromSecretsFile, fromKeystoreFile: fromKeystoreFile, parseManual: parseManual, signalKeys: signalKeys };

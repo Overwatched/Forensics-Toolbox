@@ -1805,12 +1805,21 @@
                     .observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
                 return new Promise(function (resolve) { map.once('load', resolve); });
             }).catch(function (err) {
-                setStatus('Kartan kunde inte starta: ' + (err && err.message ? err.message : err), 'missing');
+                var msg = err && err.message ? err.message : String(err);
+                // Utan WebGL2 (till exempel i en virtuell maskin utan grafikkort) går kartan inte att rita.
+                if (/WebGL/i.test(msg)) msg = 'datorn saknar WebGL2, som kartan behöver. Det händer till exempel i en virtuell maskin utan grafikkort.';
+                setStatus('Kartan kunde inte starta: ' + msg, 'missing');
                 // Blev kartan aldrig skapad kan nästa anrop försöka igen.
                 if (!map) ready = null;
                 throw err;
             });
             return ready;
+        }
+
+        // Kartans anrop utifrån: kunde kartan inte starta står det redan på kartan, och verktyget
+        // fortsätter utan den.
+        function quiet(p) {
+            return p.catch(function (err) { console.warn('Kartan:', err && err.message ? err.message : err); return null; });
         }
 
         function updateRouteNote() {
@@ -2918,25 +2927,25 @@
             var view = state.view;
             if (!view || !Array.isArray(view.center)) return Promise.resolve();
             fittedOnce = true;
-            return start().then(function () {
+            return quiet(start().then(function () {
                 map.resize();
                 map.jumpTo({ center: view.center, zoom: view.zoom, bearing: view.bearing || 0, pitch: view.pitch || 0 });
-            });
+            }));
         }
 
         return {
             getState: getState,
             setState: setState,
             show: function () {
-                return start().then(function () {
+                return quiet(start().then(function () {
                     map.resize();
                     if (!fittedOnce && points.length) { fittedOnce = true; fit(); }
-                });
+                }));
             },
             setPoints: setPoints,
             setClustering: setClustering,
             focus: function (id) {
-                return start().then(function () {
+                return quiet(start().then(function () {
                     var p = byId[id];
                     if (!p) return;
                     map.resize();
@@ -2944,7 +2953,7 @@
                     // Punkten under mitten, så att popupen får plats ovanför.
                     map.jumpTo({ center: [p.lon, p.lat], zoom: Math.max(map.getZoom(), 16), offset: [0, 120] });
                     openPoint(p);
-                });
+                }));
             },
             resize: function () { if (map) map.resize(); },
             setNamedRoutes: function (list) {
@@ -2969,12 +2978,12 @@
                 else updateBubbleNote();
             },
             fitView: function (opts) {
-                return start().then(function () {
+                return quiet(start().then(function () {
                     map.resize();
                     fittedOnce = true;
                     fit(opts && opts.maxZoom);
                     syncBubbles();
-                });
+                }));
             },
             numberSpan: function () {
                 var min = 0;
@@ -2991,9 +3000,9 @@
             onlineHost: ONLINE.host,
             // Kartbilden som PNG (data-URL), samma bild som Spara bild ger. null utan karta.
             toImage: function () {
-                return start().then(function () {
+                return quiet(start().then(function () {
                     return new Promise(function (resolve) { renderImage(function (dataUrl) { resolve(dataUrl || null); }); });
-                });
+                }));
             },
             setMarker: setMarker,
             setMenu: el.setMenu,

@@ -1,5 +1,20 @@
 Automatiskt byggd från commit `{{SHA}}`.
 
+## Nytt i 1.40
+
+En genomgång av 1.34–1.39, med rättningar och fasta provkörningar.
+
+- **Rättat: Signal-fönster utan loggar.** Skickades eller valdes filen i Signal långt efter att den skapades fick fönstret kring sändningen bara Signals egna rader. Nu har det skärm, lås, appen i förgrunden och kameran, som de andra fönstren.
+- **Rättat: nycklarna till Signal.** En inklistrad nyckel av det ena slaget (databas eller bilagor) dolde den andra nyckeln i extraktionens nyckelfil. Nu tas varje nyckel för sig.
+- **Rättat: fil från disk med samma namn i flera mappar.** En bild från disk som finns i DCIM bedöms direkt på raden i rätt mapp, utan vallista.
+- **Rättat: iOS-versionen i raden högst upp** saknades när extraktionen öppnades i Queries.
+- **Rättat: två extraktioner tätt efter varandra i Härkomst** kunde blandas. Nu öppnas de i tur och ordning.
+- **En trasig `-wal` stoppar inte längre.** Har `-wal` fel checksumma i huvudet eller fel sidstorlek läses databasen utan den, som SQLite gör, och en varning säger det i Härkomst, i protokollet och i Queries.
+- **Appversionen i protokollet.** Protokollet säger vilken version av Snapchat och Signal uppgifterna kommer från och var versionen står: appens Info.plist på iOS, och `packages.xml`, Snapchats Memories eller Signals logg på Android.
+- **Kartan utan WebGL2**, till exempel i en virtuell maskin utan grafikkort, säger det på svenska i stället för att stanna med ett fel.
+- **`/app/inFocus`:** texterna säger nu samma sak överallt: strömmen saknas på iOS 18 och 26, de versioner som kontrollerats.
+- **Fasta provkörningar.** Appen provkörs i Electron mot påhittade data, och Härkomsts tider jämförs med facit från en labbtelefon.
+
 ## Nytt i 1.39
 
 - **En knapp för extraktion och databas i Queries.** Knappen högst upp heter **Öppna extraktion eller databas…** och tar emot en extraktion (zip) eller en databas med sin `-wal`. Queries känner igen vad du valde: en zip öppnas som extraktion, och en databas känns igen på sina tabeller och öppnas med sina queries, Photos.sqlite med rätt iOS-version. Knappen **Välj databas och -wal…** är borttagen.

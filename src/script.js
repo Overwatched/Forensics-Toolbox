@@ -38,6 +38,9 @@ function initToolNav() {
     // när det visas. Verktyget följer bara en ändring det inte redan har sett, så att till exempel
     // testdata i Härkomst inte byts bort bara för att verktyget visas igen.
     let extraction = { file: null, seq: 0, from: '', info: null };
+    // Vad ett verktyg vet om en zip (iOS- eller Android-version) kan komma före beskedet att zippen
+    // öppnats, eftersom versionen läses medan zippen öppnas. Den sparas tills beskedet kommer.
+    let pendingInfo = null;
 
     // Verktygen som visar raden högst upp (extraktionen och filen man tittar på), och deras namn i
     // meddelandena mellan verktygen.
@@ -83,7 +86,8 @@ function initToolNav() {
     // verktyget som ändrade får numret tillbaka, så att det inte följer sin egen ändring.
     function setExtraction(file, from, source, force) {
         if (!(file ? sameFile(file, extraction.file) : !extraction.file)) {
-            extraction = { file: file, seq: extraction.seq + 1, from: from || '', info: null };
+            extraction = { file: file, seq: extraction.seq + 1, from: from || '', info: pendingInfo && sameFile(pendingInfo.file, file) ? pendingInfo.info : null };
+            pendingInfo = null;
             if (current && current.owner === TOOL_PATH.provenance) current = null;
         }
         renderBar();
@@ -272,9 +276,10 @@ function initToolNav() {
         }
         // Vad verktyget vet om extraktionen (iOS 26.0, Android 13), till raden högst upp.
         if (data.type === 'extraction-info') {
-            if (data.file && sameFile(data.file, extraction.file) && data.info && data.info.device) {
-                extraction.info = { device: String(data.info.device) };
-                renderBar();
+            if (data.file && data.info && data.info.device) {
+                const info = { device: String(data.info.device) };
+                if (sameFile(data.file, extraction.file)) { extraction.info = info; renderBar(); }
+                else pendingInfo = { file: data.file, info: info };
             }
             return;
         }

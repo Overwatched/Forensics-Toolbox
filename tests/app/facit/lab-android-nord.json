@@ -1,0 +1,118 @@
+{
+  "description": "Facit från labbtelefonen (OnePlus Nord, LineageOS 13 = Android 13, tidszon Europe/Stockholm). Tiderna för Snapchat-sessionerna 2026-10-30/31 loggades på telefonen under sessionerna (dumpsys usagestats, dumpsys media.camera, användarens anteckningar). Signal-tiderna 2026-11-02 är användarens anteckningar, med exakta tider ur Signals logg. Labbzippen ligger inte i repot. Appversionerna (Snapchat 14.30.0.54, Signal 8.33.2) lästes på telefonen vid sessionerna.",
+  "zip": "Lab-Android-Nord-2026-11-02.zip",
+  "toleranceMs": 1000,
+  "files": [
+    {
+      "name": "Snapchat-1334982621.jpg",
+      "what": "Selfie med Snapchats frontkamera, sparad till Memories och exporterad till galleriet",
+      "T": "2026-10-31T00:48:52.8+01:00",
+      "captured": "2026-10-31T00:48:51.5+01:00",
+      "front": true,
+      "foreground": {
+        "app": "com.snapchat.android",
+        "from": "2026-10-31T00:48:18+01:00",
+        "to": "2026-10-31T00:49:51+01:00"
+      },
+      "screenOn": {
+        "from": "2026-10-31T00:48:09+01:00",
+        "to": "2026-10-31T00:50:07+01:00"
+      },
+      "unlocked": {
+        "from": "2026-10-31T00:48:17+01:00"
+      },
+      "cameraAt": {
+        "app": "com.snapchat.android",
+        "at": "2026-10-31T00:48:51.5+01:00"
+      },
+      "factors": {
+        "app": "support",
+        "camera": "support",
+        "screen": "support"
+      },
+      "versions": [
+        "Snapchat 14.30.0.54"
+      ]
+    },
+    {
+      "name": "Snapchat-1565107742.mp4",
+      "what": "Video med Snapchats bakre kamera 00:48:25,0–00:48:30,5, sparad till Memories 00:48:38",
+      "T": "2026-10-31T00:48:25.0+01:00",
+      "cameraAt": {
+        "app": "com.snapchat.android",
+        "at": "2026-10-31T00:48:25.0+01:00",
+        "until": "2026-10-31T00:48:30.5+01:00"
+      }
+    },
+    {
+      "name": "Snapchat-1788669324.jpg",
+      "what": "Bild med Snapchats bakre kamera i första sessionen, sparad 23:27:51,7 och exporterad 23:27:52",
+      "T": "2026-10-30T23:27:52+01:00",
+      "captured": "2026-10-30T23:27:24.5+01:00",
+      "front": false
+    },
+    {
+      "name": "2026-10-31-00-49-54-783.jpg",
+      "what": "Bild med telefonens kamera (Aperture)",
+      "T": "2026-10-31T00:49:54.783+01:00",
+      "foreground": {
+        "app": "org.lineageos.aperture"
+      },
+      "cameraAt": {
+        "app": "org.lineageos.aperture",
+        "at": "2026-10-31T00:49:54.783+01:00"
+      },
+      "factors": {
+        "app": "support",
+        "camera": "support"
+      }
+    },
+    {
+      "name": "15116568751943e94ff764a3d4c183d5",
+      "what": "Snap mottagen från labbvännen 00:49:28,9 (notis 00:49:30, läst 00:49:39), i Snapchats cache",
+      "message": "2026-10-31T00:49:28.9+01:00",
+      "own": false
+    },
+    {
+      "name": "Screenshot_20261031-005002_Trebuchet.png",
+      "what": "Skärmdump 00:50:02; skärmen släcktes 00:50:07. Skickades i Signal 2026-11-02",
+      "T": "2026-10-31T00:50:02+01:00",
+      "screenOn": {
+        "from": "2026-10-31T00:48:09+01:00",
+        "to": "2026-10-31T00:50:07+01:00"
+      },
+      "signalWindow": {
+        "center": "2026-11-02T18:49:48+01:00",
+        "screenLogged": true
+      }
+    },
+    {
+      "name": "signal-2026-11-02-20-41-09-488.jpg",
+      "what": "Bild mottagen i Signal 20:41:09 och sparad till galleriet 20:41:24",
+      "signal": {
+        "received": [
+          "2026-11-02T20:41:09+01:00"
+        ]
+      },
+      "toleranceMs": 2000,
+      "factors": {
+        "signal": "support"
+      },
+      "versions": [
+        "Signal 8.33.2"
+      ]
+    },
+    {
+      "name": "2026-11-02-20-42-21-357.mp4",
+      "what": "Video med telefonens kamera, skickad i Signal 20:42:48 och igen 20:43:02; det andra meddelandet raderades för alla 20:45:57",
+      "signal": {
+        "sent": [
+          "2026-11-02T20:42:48+01:00",
+          "2026-11-02T20:43:02+01:00"
+        ],
+        "deletedLast": true
+      },
+      "toleranceMs": 2000
+    }
+  ]
+}
