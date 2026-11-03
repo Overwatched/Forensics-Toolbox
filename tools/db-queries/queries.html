@@ -79,6 +79,8 @@
                         <div class="run-key display-none" id="run-key-row">
                             <label for="run-key">Nyckel (SQLCipher)</label>
                             <input type="text" id="run-key" spellcheck="false" autocomplete="off" placeholder="64 hextecken, eller Signal-posten ur secrets.json">
+                            <button type="button" class="link-btn" id="run-keyfile-pick" title="Nyckelringen (…_keychain.plist bredvid zippen), secrets.json eller android_keystore">Nyckelfil…</button>
+                            <input type="file" id="run-keyfile" accept=".plist,.json,application/json,application/x-plist" hidden>
                             <span class="muted" id="run-key-note">Sparas inte.</span>
                         </div>
                     </section>
@@ -133,6 +135,8 @@
     <script src="../../queries/ios/snapchat/catalog.js"></script>
     <script src="../../queries/android/snapchat/catalog.js"></script>
     <script src="../../queries/android/signal/catalog.js"></script>
+    <script src="../../queries/ios/signal/catalog.js"></script>
+    <script src="../../queries/ios/whatsapp/catalog.js"></script>
     <script src="preview.js"></script>
     <script src="time-sql.js"></script>
     <script src="script.js"></script>
@@ -141,6 +145,7 @@
     <script src="../_shared/map/import-core.js"></script>
     <script src="wal.js"></script>
     <script src="../hash-calculator/hashing.js"></script>
+    <script src="../ios-keychain/lib/bplist.js"></script>
     <script src="sqlcipher.js"></script>
     <script src="app-secrets.js"></script>
     <script src="run-core.js"></script>

@@ -44,7 +44,11 @@
             <div id="ex-list"></div>
             <div class="signal-key display-none" id="signal-key-row">
                 <label for="signal-key">Nyckel till Signals databaser (SQLCipher)</label>
-                <input type="text" id="signal-key" spellcheck="false" autocomplete="off" placeholder="64 hextecken, eller Signal-posten ur secrets.json">
+                <div class="signal-key-input">
+                    <input type="text" id="signal-key" spellcheck="false" autocomplete="off" placeholder="64 hextecken, eller Signal-posten ur secrets.json">
+                    <button type="button" class="secondary" id="signal-keyfile-pick" title="Nyckelringen (…_keychain.plist bredvid zippen), secrets.json eller android_keystore">Nyckelfil…</button>
+                    <input type="file" id="signal-keyfile" accept=".plist,.json,application/json,application/x-plist" hidden>
+                </div>
                 <p class="muted" id="signal-key-note"></p>
             </div>
             <input type="file" id="ex-input" accept=".zip,application/zip" hidden>
@@ -211,6 +215,8 @@
     <script src="../../queries/ios/snapchat/catalog.js"></script>
     <script src="../../queries/android/snapchat/catalog.js"></script>
     <script src="../../queries/android/signal/catalog.js"></script>
+    <script src="../../queries/ios/signal/catalog.js"></script>
+    <script src="../../queries/ios/whatsapp/catalog.js"></script>
     <script src="../app-ids/catalog.js"></script>
     <script src="../exif-viewer/exif-core.js"></script>
     <script src="../hash-calculator/hashing.js"></script>
@@ -231,6 +237,7 @@
     <script src="android-logs.js"></script>
     <script src="snapchat.js"></script>
     <script src="signal.js"></script>
+    <script src="whatsapp.js"></script>
     <script src="app-versions.js"></script>
     <script src="copies.js"></script>
     <script src="batch.js"></script>

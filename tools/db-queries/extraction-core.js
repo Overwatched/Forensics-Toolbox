@@ -138,7 +138,9 @@
         var walRead = hit.wal ? await readEntry(read, hit.wal) : null;
         var hashes = { db: await sha256(dbRead.bytes), wal: walRead ? await sha256(walRead.bytes) : '' };
         var walBytes = walRead ? walRead.bytes : new Uint8Array(0);
-        var encrypted = dbRead.bytes.length >= 16 && !isPlainSqlite(dbRead.bytes);
+        // En SQLCipher-fil med okrypterat huvud (Signal på iOS) börjar som SQLite; SqlCipher känner igen den.
+        var sc = deps.SqlCipher || root.SqlCipher;
+        var encrypted = dbRead.bytes.length >= 16 && (sc ? sc.isEncrypted(dbRead.bytes, opts.cipher && opts.cipher.profile) : !isPlainSqlite(dbRead.bytes));
         var merged;
         if (encrypted && opts.cipher && opts.cipher.passphrase) {
             merged = dep('SqlCipher').open(dbRead.bytes, walBytes, opts.cipher.passphrase, opts.cipher.profile, dep('SqliteWal'));

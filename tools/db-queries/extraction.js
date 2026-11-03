@@ -215,6 +215,33 @@
             (f.wal ? '<code>-wal</code> ' + sizeText(f.wal.size) + '.' : '<span class="run-warn">Ingen -wal i zippen.</span>') + '</p>';
     }
 
+    // Nyckelfiler som valts i Queries eller kommit från navet: [{ source, apps, error }].
+    var keyFiles = [];
+
+    function cipherFor(db) {
+        if (!db || !db.cipher) return null;
+        var keys = AppSecrets.keysForProfile(((current && current.secrets) || []).concat(keyFiles), db.cipher);
+        return { profile: db.cipher, passphrase: keys ? keys.dbKey : null, source: keys ? keys.source : null, hint: AppSecrets.keyHint(db.cipher) };
+    }
+
+    // Nya nyckelfiler: tolkas efter innehållet, och databasen som visas får nyckeln direkt.
+    async function useKeyFiles(list, share) {
+        var parsed = [];
+        for (var i = 0; i < (list || []).length; i++) {
+            try { parsed.push(AppSecrets.fromKeyFile(new Uint8Array(await list[i].arrayBuffer()), list[i].name)); }
+            catch (e) { parsed.push({ source: list[i].name, apps: {}, error: 'Filen kunde inte läsas: ' + e.message }); }
+        }
+        keyFiles = parsed;
+        var db = window.QueriesApp.currentDb ? window.QueriesApp.currentDb() : null;
+        if (db && db.cipher) window.QueriesRun.useCipher(cipherFor(db));
+        if (share && window.parent !== window) window.parent.postMessage({ source: 'forensics-toolbox', type: 'extraction-keys', files: Array.from(list || []) }, '*');
+        return parsed;
+    }
+
+    function keyFileErrors() {
+        return keyFiles.filter(function (k) { return k.error; }).map(function (k) { return k.source + ': ' + k.error; });
+    }
+
     // dbId: en annan databas i samma familj än den iOS-versionen pekar ut (Photos.sqlite).
     // keepQuery: samma query står kvar om den finns i databasen.
     function use(i, dbId, keepQuery) {
@@ -227,12 +254,9 @@
         window.QueriesApp.selectDb(db.id, { source: { zip: c.file.name }, keepQuery: !!keepQuery });
         var zipLine = 'Extraktion: ' + c.file.name + ' (' + c.file.size + ' byte, ändrad ' +
             new Date(c.file.lastModified).toISOString() + ')';
-        // En krypterad databas (Signal) får nyckeln som extraktionsverktyget sparade, om den finns.
-        var cipher = null;
-        if (db.cipher) {
-            var keys = AppSecrets.signalKeys(c.secrets || []);
-            cipher = { profile: db.cipher, passphrase: keys ? keys.dbKey : null, source: keys ? keys.source : null };
-        }
+        // En krypterad databas (Signal) får nyckeln som extraktionsverktyget sparade, eller nyckeln ur
+        // en nyckelfil som valts (nyckelringen bredvid zippen på iOS), om den finns.
+        var cipher = cipherFor(db);
         window.QueriesRun.useSources({
             db: ExtractionCore.zipSource(c.read, f.db, [zipLine]),
             wal: f.wal ? ExtractionCore.zipSource(c.read, f.wal) : null,
@@ -358,7 +382,7 @@
     }
 
     async function sniff(file) {
-        var head = new Uint8Array(await file.slice(0, 16).arrayBuffer());
+        var head = new Uint8Array(await file.slice(0, 128).arrayBuffer());
         return DbIdentify.kindOf(head, file.name);
     }
 
@@ -512,6 +536,9 @@
         fresh: fresh,
         useByPath: useByPath,
         openPicked: openPicked,
+        useKeyFiles: useKeyFiles,
+        keyFileErrors: keyFileErrors,
+        cipherFor: cipherFor,
         snapshot: function () { return { ex: current, chosen: current ? current.chosen : -1, loose: loose }; },
         restore: function (s) {
             var next = s && s.ex ? s.ex : null;

@@ -1,19 +1,25 @@
-// SQLCipher-krypterade databaser (Signal på Android) i läsbar form. Sidorna dekrypteras i
+// SQLCipher-krypterade databaser (Signal på Android och iOS) i läsbar form. Sidorna dekrypteras i
 // minnet, -wal-ramarna likaså (via SqliteWal.apply), och resultatet är en vanlig SQLite-databas
 // för sql.js. Källfilerna ändras aldrig. AES-256 (CBC för sidorna, CTR för Signals bilagor),
 // HMAC och PBKDF2 är skrivna i ren JS, så att allt går synkront och likadant i Node och i
-// webbläsaren. SHA-1 och SHA-256 kommer från ToolboxHashing. Testas i Node mot Nodes crypto
-// och FIPS-197:s testvektor.
+// webbläsaren. SHA-1, SHA-256 och SHA-512 kommer från ToolboxHashing. Testas i Node mot Nodes
+// crypto och FIPS-197:s testvektor.
 (function (root) {
     'use strict';
 
-    // Inställningar per app. Signal: lösenordet är databasnyckelns hex (64 tecken), nyckeln tas
-    // fram med PBKDF2-HMAC-SHA1 i 1 varv, varje sida har HMAC-SHA1 och sidstorleken är 4096.
-    // Reserven i slutet av varje sida är IV (16) + HMAC (20), avrundat till hela block: 48.
+    // Inställningar per app. Signal på Android: lösenordet är databasnyckelns hex (64 tecken),
+    // nyckeln tas fram med PBKDF2-HMAC-SHA1 i 1 varv, varje sida har HMAC-SHA1 och sidstorleken är
+    // 4096. Reserven i slutet av varje sida är IV (16) + HMAC (20), avrundat till hela block: 48.
     // Kontrollerat mot Signal 8.33 på en labbtelefon (Android 13) och Signal 8.10 i en verklig extraktion.
+    // Signal på iOS: SQLCipher 4 med en rå nyckel. Nyckeln i nyckelringen är 48 byte, AES-nyckeln (32)
+    // och saltet (16). De första 32 byten i filen är okrypterade (SQLite-huvudet), så saltet står inte
+    // i filen. Varje sida har HMAC-SHA512, HMAC-nyckeln tas fram med PBKDF2-HMAC-SHA512 i 2 varv och
+    // reserven är IV (16) + HMAC (64) = 80. Kontrollerat mot en labbtelefon (iOS 26.4.1, 2026-11-03).
     var PROFILES = {
-        signal: { id: 'signal', label: 'Signal', pageSize: 4096, kdf: 'sha1', kdfIter: 1, hmac: 'sha1', hmacLen: 20, fastIter: 2, saltMask: 0x3a, keyIsHex: true },
+        signal: { id: 'signal', label: 'Signal', settings: 'Signals inställningar', pageSize: 4096, kdf: 'sha1', kdfIter: 1, hmac: 'sha1', hmacLen: 20, fastIter: 2, saltMask: 0x3a, keyIsHex: true },
+        'signal-ios': { id: 'signal-ios', label: 'Signal (iOS)', settings: 'Signals inställningar på iOS', pageSize: 4096, rawKey: true, kdf: 'sha512', hmac: 'sha512', hmacLen: 64, fastIter: 2, saltMask: 0x3a, header: 32 },
     };
+    var BTREE_PAGE_TYPES = [2, 5, 10, 13];
     var HEADER = 'SQLite format 3\u0000';
 
     function hashing() {
@@ -198,9 +204,10 @@
         return hexToBytes(h.digestHex());
     }
 
-    // HMAC med SHA-1 eller SHA-256 (block 64 byte). parts: Uint8Array:er som räknas i följd.
+    // HMAC med SHA-1 eller SHA-256 (block 64 byte) eller SHA-512 (block 128 byte). parts:
+    // Uint8Array:er som räknas i följd.
     function hmac(id, key, parts) {
-        var block = 64;
+        var block = id === 'sha512' || id === 'sha384' ? 128 : 64;
         if (key.length > block) key = digest(id, [key]);
         var ipad = new Uint8Array(block);
         var opad = new Uint8Array(block);
@@ -247,23 +254,60 @@
 
     function reserveOf(profile) { return Math.ceil((16 + profile.hmacLen) / 16) * 16; }
 
-    // Nycklarna för en databas: saltet är de 16 första byten i filen. passphrase är texten appen
-    // ger SQLCipher (Signal: nyckelns hex).
+    function u16(b, at) { return (b[at] << 8) | b[at + 1]; }
+
+    // Ser byten från at ut som huvudet för ett b-träd i en okrypterad sida? Typ, första fria block,
+    // var cellerna börjar och fragmenterade byte ska alla vara rimliga. Slumpmässiga (krypterade)
+    // byte klarar det nästan aldrig.
+    function looksLikeBtree(b, at, usable) {
+        if (BTREE_PAGE_TYPES.indexOf(b[at]) < 0) return false;
+        var free = u16(b, at + 1), content = u16(b, at + 5) || 65536;
+        return (free === 0 || (free > at && free < usable)) && content <= usable && b[at + 7] <= 60;
+    }
+
+    // Är filen krypterad med SQLCipher? Utan okrypterat huvud börjar den med saltet i stället för
+    // "SQLite format 3". Med okrypterat huvud (Signal på iOS) börjar den som SQLite, men byte 20
+    // anger en reserv för IV och HMAC (profilens, eller minst 32 byte), och sidan efter huvudet är
+    // krypterad, så b-trädets huvud på plats 100 ser inte ut som ett.
+    function isEncrypted(bytes, profileName) {
+        if (!bytes || bytes.length < 16) return false;
+        if (!isPlain(bytes)) return true;
+        if (bytes.length < 108) return false;
+        var p = profileName ? PROFILES[profileName] : null;
+        var reserve = bytes[20];
+        if (p && p.header ? reserve !== reserveOf(p) : reserve < 32) return false;
+        var size = u16(bytes, 16) === 1 ? 65536 : u16(bytes, 16);
+        return !looksLikeBtree(bytes, 100, size - reserve);
+    }
+
+    // Nycklarna för en databas. passphrase är texten appen ger SQLCipher. Signal på Android: nyckelns
+    // hex, saltet är de 16 första byten i filen. En rå nyckel (Signal på iOS) är 96 hextecken, med
+    // eller utan x'…': AES-nyckeln och saltet. 64 hextecken räcker bara när saltet står i filen.
     function keysFor(db, passphrase, profile) {
-        var salt = db.subarray(0, 16);
-        var key = pbkdf2(profile.kdf, utf8(String(passphrase)), salt, profile.kdfIter, 32);
+        var salt, key;
+        if (profile.rawKey) {
+            var raw = hexToBytes(String(passphrase).trim().replace(/^x'/i, '').replace(/'$/, ''));
+            if (raw.length === 48) salt = raw.slice(32, 48);
+            else if (raw.length === 32 && !profile.header) salt = db.slice(0, 16);
+            else throw new Error(raw.length === 32 ? 'Nyckeln saknar saltet. Med okrypterat huvud står saltet inte i filen, och nyckeln ska vara 48 byte (96 hextecken).' : 'Nyckeln ska vara 48 byte (96 hextecken), inte ' + raw.length + '.');
+            key = raw.slice(0, 32);
+        } else {
+            salt = db.subarray(0, 16);
+            key = pbkdf2(profile.kdf, utf8(String(passphrase)), salt, profile.kdfIter, 32);
+        }
         var macSalt = new Uint8Array(16);
         for (var i = 0; i < 16; i++) macSalt[i] = salt[i] ^ profile.saltMask;
         var macKey = pbkdf2(profile.kdf, key, macSalt, profile.fastIter, 32);
         return { aes: expandKey(key), macKey: macKey, salt: salt.slice() };
     }
 
-    // En dekrypterad sida i full storlek: på sida 1 står "SQLite format 3" i stället för saltet,
-    // och reserven (IV och HMAC) blir nollor. SQLite läser reservens storlek i byte 20.
+    // En dekrypterad sida i full storlek: på sida 1 står "SQLite format 3" i stället för saltet (med
+    // okrypterat huvud står huvudet kvar), och reserven (IV och HMAC) blir nollor. SQLite läser
+    // reservens storlek i byte 20.
     function decryptPage(keys, profile, page, pgno) {
         var size = profile.pageSize;
         var reserve = reserveOf(profile);
-        var start = pgno === 1 ? 16 : 0;
+        var start = pgno === 1 ? (profile.header || 16) : 0;
         var end = size - reserve;
         var data = page.subarray(start, end);
         var iv = page.subarray(end, end + 16);
@@ -274,7 +318,10 @@
         for (var i = 0; ok && i < profile.hmacLen; i++) if (calc[i] !== mac[i]) ok = false;
         var plain = cbcDecrypt(keys.aes, iv, data);
         var out = new Uint8Array(size);
-        if (pgno === 1) {
+        if (pgno === 1 && profile.header) {
+            out.set(page.subarray(0, start), 0);
+            out.set(plain, start);
+        } else if (pgno === 1) {
             for (var h = 0; h < 16; h++) out[h] = HEADER.charCodeAt(h);
             out.set(plain, 16);
         } else {
@@ -288,7 +335,7 @@
     function decryptDatabase(db, passphrase, profileName) {
         var profile = profileOf(profileName);
         db = db instanceof Uint8Array ? db : new Uint8Array(db);
-        if (isPlain(db)) throw new Error('Databasen är inte krypterad.');
+        if (!isEncrypted(db, profile.id)) throw new Error('Databasen är inte krypterad.');
         if (db.length < profile.pageSize || db.length % profile.pageSize) throw new Error('Filens storlek (' + db.length + ' byte) är inte ett helt antal sidor på ' + profile.pageSize + ' byte. Är det en SQLCipher-databas?');
         var keys = keysFor(db, passphrase, profile);
         var pages = db.length / profile.pageSize;
@@ -296,7 +343,7 @@
         var bad = 0;
         for (var p = 1; p <= pages; p++) {
             var r = decryptPage(keys, profile, db.subarray((p - 1) * profile.pageSize, p * profile.pageSize), p);
-            if (p === 1 && !r.hmacOk) throw new Error('Nyckeln passar inte: kontrollsumman (HMAC) för första sidan stämmer inte. Fel nyckel, eller en annan SQLCipher-inställning än ' + profile.label + 's.');
+            if (p === 1 && !r.hmacOk) throw new Error('Nyckeln passar inte: kontrollsumman (HMAC) för första sidan stämmer inte. Fel nyckel, eller andra SQLCipher-inställningar än ' + profile.settings + '.');
             if (!r.hmacOk) bad++;
             out.set(r.bytes, (p - 1) * profile.pageSize);
         }
@@ -318,7 +365,7 @@
     // SqliteWal.apply: { bytes, stats }, med stats.cipher = { profile, pages, badHmac, walPages, walBadHmac }.
     function open(db, wal, passphrase, profileName, SqliteWal) {
         var dec = decryptDatabase(db, passphrase, profileName);
-        var cipherStats = { profile: dec.profile.label, pages: dec.stats.pages, badHmac: dec.stats.badHmac, walPages: 0, walBadHmac: 0 };
+        var cipherStats = { profile: dec.profile.label, settings: dec.profile.settings, pages: dec.stats.pages, badHmac: dec.stats.badHmac, walPages: 0, walBadHmac: 0 };
         var Wal = SqliteWal || root.SqliteWal || (typeof module !== 'undefined' && module.exports ? require('./wal.js') : null);
         var merged = Wal.apply(dec.bytes, wal || new Uint8Array(0), { page: walPageDecryptor(dec.keys, dec.profile, cipherStats) });
         merged.stats.cipher = cipherStats;
@@ -330,14 +377,14 @@
         var c = stats && stats.cipher;
         if (!c) return '';
         var from = keySource === 'inklistrad' ? 'den inklistrade nyckeln' : 'nyckeln ur ' + (keySource || 'okänd källa');
-        var text = 'Dekrypterad i minnet (SQLCipher, ' + c.profile + 's inställningar) med ' + from + ': ' + c.pages + ' sidor' + (c.walPages ? ' och ' + c.walPages + ' sidor ur -wal' : '') + '.';
+        var text = 'Dekrypterad i minnet (SQLCipher, ' + (c.settings || c.profile + 's inställningar') + ') med ' + from + ': ' + c.pages + ' sidor' + (c.walPages ? ' och ' + c.walPages + ' sidor ur -wal' : '') + '.';
         var bad = c.badHmac + c.walBadHmac;
         text += bad ? ' Kontrollsumman (HMAC) stämde inte för ' + bad + ' sidor: de kan vara skadade.' : ' Kontrollsumman (HMAC) stämde för alla sidor.';
         return text;
     }
 
     var api = {
-        PROFILES: PROFILES, isPlain: isPlain, decryptDatabase: decryptDatabase, decryptPage: decryptPage, keysFor: keysFor, open: open, summary: summary,
+        PROFILES: PROFILES, isPlain: isPlain, isEncrypted: isEncrypted, decryptDatabase: decryptDatabase, decryptPage: decryptPage, keysFor: keysFor, open: open, summary: summary,
         expandKey: expandKey, encryptBlock: encryptBlock, decryptBlock: decryptBlock, cbcDecrypt: cbcDecrypt, ctr: ctr,
         hmac: hmac, pbkdf2: pbkdf2, hexToBytes: hexToBytes, bytesToHex: bytesToHex, base64ToBytes: base64ToBytes, utf8: utf8, reserveOf: reserveOf,
     };

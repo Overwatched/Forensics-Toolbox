@@ -251,7 +251,7 @@
         <section class="step" id="step-6">
             <div class="step-head">
                 <span class="step-num">6</span>
-                <h2>Appens egna register: Snapchat och Signal (beta)</h2>
+                <h2>Appens egna register: Snapchat, Signal och WhatsApp (beta)</h2>
             </div>
             <p class="shared">En fil i Snapchats cache saknar ändelse och EXIF. Härkomst bedömer den ur Snapchats egna databaser: vem som skickade, när den lästes och om Snapchats kamera spelade in.</p>
             <div class="cols">
@@ -280,6 +280,13 @@
                 <li>Sparad ur Signal: <code>Pictures/Signal/signal-ÅÅÅÅ-MM-DD-TT-MM-SS-mmm.jpg</code>, där tiden är meddelandets (avsändarens klocka)</li>
             </ul>
             <p class="tools"><a href="../tools/db-queries/queries.html?db=signal-android-main" data-tool="tools/db-queries/queries.html?db=signal-android-main">Queries</a> (under Signal på startsidan)</p>
+            <p class="shared">Signal (iOS) krypterar sin databas med en nyckel i nyckelringen. Välj nyckelringen (<code>…_keychain.plist</code> bredvid zippen) tillsammans med zippen. Signal kodar om bilder, så en bild ur bildbiblioteket som skickats har inte bilagans summa.</p>
+            <ul>
+                <li><code>grdb/signal.sqlite</code> i appgruppen: meddelanden, samtal och bilagor med SHA-256 för den lagrade filen och namnet när bilden lades till</li>
+                <li>WhatsApp: <code>ChatStorage.sqlite</code> i appgruppen, okrypterad. Mediefilernas SHA-256 och, för en fil vald ur bildbiblioteket, bibliotekets id (<code>ZUUID</code> i Photos.sqlite)</li>
+                <li>En bild som WhatsApp sparat efter att den tagits med WhatsApps kamera har bara tiden gemensamt med meddelandet</li>
+            </ul>
+            <p class="tools"><a href="../tools/db-queries/queries.html?db=whatsapp-ios-chat" data-tool="tools/db-queries/queries.html?db=whatsapp-ios-chat">Queries</a> (under WhatsApp på startsidan)</p>
         </section>
 
         <section class="step" id="step-7">

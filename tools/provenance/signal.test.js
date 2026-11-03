@@ -176,3 +176,71 @@ test('hashsökningen: SHA-256 mot databasens summor, MD5 efter dekryptering, och
     assert.strictEqual(calls, 0);
     assert.strictEqual(only.found[hex('hd')][0].attachment.id, 14);
 });
+
+// ---------- Signal på iOS ----------
+
+// Efterliknar labbsessionen (iOS 26.4.1, 2026-11-03): bilder från Signals kamera (signal-…jpeg), en
+// fil med eget namn, en mottagen bild och samtal. Namnen är påhittade.
+const I0 = Date.parse('2026-11-03T11:56:00+01:00');
+const iat = (sec) => I0 + Math.round(sec * 1000);
+const IOS_ATT = [
+    { id: 1, messageId: null, ownerType: null, contentType: 'image/jpeg', sha256: hex('berattelse'), fileName: null },
+    { id: 6, messageId: 2, ownerType: 0, contentType: 'image/jpeg', size: 331524, width: 900, height: 1600, dataFile: '11/1144.jpg', sha256: hex('signal-kamera'), fileName: 'signal-2026-11-03-115647.jpeg', type: 21, threadName: 'Kim', isGroup: 0, sentMs: iat(47), receivedMs: iat(47) },
+    { id: 10, messageId: 6, ownerType: 0, contentType: 'image/jpeg', size: 224577, width: 1600, height: 1062, dataFile: '9A/9A64', sha256: hex('omkodad-pexels'), fileName: 'pexels-pixabay-104827.jpg', type: 21, threadName: 'Kim', isGroup: 0, sentMs: iat(111), receivedMs: iat(111) },
+    { id: 20, messageId: 30, ownerType: 0, contentType: 'image/jpeg', size: 33248, width: 1600, height: 900, dataFile: '20/20AA', sha256: hex('mottagen-ios'), fileName: null, type: 19, threadName: 'Kim', isGroup: 0, authorId: 'aci-kim', sentMs: Date.parse('2025-06-04T14:34:05+02:00'), receivedMs: Date.parse('2025-06-04T14:34:06+02:00') },
+];
+const IOS_MSG = [
+    { id: 2, type: 21, sentMs: iat(47), receivedMs: iat(47), threadName: 'Kim', isGroup: 0, attachments: 1 },
+    { id: 4, type: 21, sentMs: iat(68), receivedMs: iat(68), threadName: 'Kim', isGroup: 0, attachments: 0, viewOnce: 1 },
+    { id: 6, type: 21, sentMs: iat(111), receivedMs: iat(111), threadName: 'Kim', isGroup: 0, attachments: 1 },
+    { id: 8, type: 20, sentMs: iat(148), receivedMs: iat(148), threadName: 'Kim', isGroup: 0, callType: 0, callDirection: 1, callStatus: 2 },
+    { id: 13, type: 20, sentMs: iat(192), receivedMs: iat(194), threadName: 'Kim', isGroup: 0, callType: 1, callDirection: 0, callStatus: 3 },
+    { id: 9, type: 10, sentMs: iat(159), receivedMs: iat(159), threadName: 'Kim' },
+];
+const iwall = (ms) => core.formatWithOffset(ms, 60) + '.' + String(ms % 1000).padStart(3, '0');
+
+test('Signal på iOS: typerna, kopplingen på summa och på namn, Signals egna namn räknas inte', () => {
+    assert.deepStrictEqual([19, 21, 20, 10].map(sig.directionIos), ['in', 'out', null, null]);
+    // Samma namn som när filen lades till (sourceFilename), med en annan ändelse efter omkodningen.
+    const byName = sig.matchIos({ fileName: 'pexels-pixabay-104827.JPEG' }, IOS_ATT);
+    assert.deepStrictEqual(byName.map((x) => [x.row.id, x.on]), [[10, 'name']]);
+    // Signals eget namn ges till alla bilder utan namn och kopplar inget.
+    assert.deepStrictEqual(sig.matchIos({ fileName: 'signal-2026-11-03-115647.jpeg' }, IOS_ATT), []);
+    assert.deepStrictEqual(sig.matchIos({ sha256: hex('signal-kamera'), fileName: 'x.jpg' }, IOS_ATT).map((x) => [x.row.id, x.on]), [[6, 'end']]);
+    assert.deepStrictEqual(sig.matchIos({ sha256: hex('berattelse') }, IOS_ATT), [], 'bilagor utan meddelande (Signals berättelser) räknas inte');
+});
+
+test('Signal på iOS: händelserna med samtal, och faktorn för en fil med eget namn', () => {
+    const out = sig.buildIos({ fileName: 'pexels-pixabay-104827.jpg', attachments: IOS_ATT, messages: IOS_MSG, recipients: { 'aci-kim': { name: 'Kim' } }, wall: iwall });
+    const plains = out.events.map((e) => e.plain).filter(Boolean);
+    assert.ok(plains.includes('En bild skickas från den här telefonen i Signal till Kim'));
+    assert.ok(plains.includes('Den bedömda filen skickas från den här telefonen i Signal till Kim'));
+    assert.ok(plains.includes('Ett samtal rings från den här telefonen i Signal till Kim'));
+    assert.ok(plains.includes('Ett videosamtal kommer i Signal från Kim'));
+    assert.ok(!out.events.some((e) => e.messageId === 9), 'infomeddelandet visas inte');
+    assert.ok(out.events.find((e) => e.messageId === 4).viewOnce);
+    assert.strictEqual(out.link.platform, 'iOS');
+    assert.strictEqual(out.link.attachments, 3);
+    const m = out.link.matches[0];
+    assert.deepStrictEqual([m.messageId, m.on, m.direction, m.who, m.dataFile], [6, 'name', 'out', 'Kim', 'attachment_files/9A/9A64']);
+    const input = { file: { createdMs: iat(100) }, format: (ms) => core.formatWithOffset(ms, 60), signal: { link: out.link } };
+    const f = core.factorSignal(input, { type: 'saved', importer: 'com.apple.DocumentsApp' });
+    assert.deepStrictEqual([f.state, f.verdictText], ['info', 'Skickad i Signal']);
+    assert.match(f.items[0].text, /Bilagan lades till med filens namn \(pexels-pixabay-104827\.jpg\); Signal skickade en omkodad kopia \(1600×1062\)\. Namnet binder svagare än en summa\./);
+});
+
+test('Signal på iOS: sparad ur Signal med samma summa, namnets tid, och ingen koppling för en kamerabild', () => {
+    // En bild som Signal sparat i bildbiblioteket: samma bytes som bilagan, och namnet bär meddelandets tid.
+    const saved = sig.buildIos({ sha256: hex('mottagen-ios'), fileName: 'IMG_0007.JPG', originalFilename: 'signal-2025-06-04-143405.jpg', savedBySignal: true, attachments: IOS_ATT, messages: [], recipients: { 'aci-kim': { name: 'Kim' } }, wall: (ms) => core.formatWithOffset(ms, 120) + '.000' });
+    assert.deepStrictEqual(saved.link.matches.map((x) => [x.messageId, x.direction, x.who]), [[30, 'in', 'Kim']]);
+    assert.deepStrictEqual([saved.link.nameTime, saved.link.nameMatch && saved.link.nameMatch.messageId], ['2025-06-04 14:34:05', 30]);
+    const fmt = (ms) => core.formatWithOffset(ms, 120);
+    const f = core.factorSignal({ file: { createdMs: Date.parse('2025-06-04T14:34:12+02:00') }, format: fmt, signal: { link: saved.link } }, { type: 'saved', importer: sig.APP_IOS });
+    assert.deepStrictEqual([f.state, f.verdictText], ['support', 'Mottagen i Signal']);
+    // En kamerabild som kanske skickats: Signal kodar om, så ingen summa eller namn stämmer.
+    const cam = sig.buildIos({ sha256: hex('kamerans-original'), fileName: 'IMG_0030.HEIC', attachments: IOS_ATT, messages: IOS_MSG, wall: iwall });
+    const fc = core.factorSignal({ file: { createdMs: iat(85) }, format: fmt, signal: { link: cam.link } }, { type: 'camera', importer: 'com.apple.camera' });
+    assert.deepStrictEqual([fc.state, fc.verdictText], ['info', 'Ingen koppling']);
+    assert.match(fc.plain, /Signal kodar om bilder, så en bild som skickats ur bildbiblioteket känns inte igen på det sättet\./);
+    assert.match(fc.items[0].text, /Signals 3 bilagor\. Signal kodar om bilder/);
+});

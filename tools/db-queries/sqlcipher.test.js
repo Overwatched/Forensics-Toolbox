@@ -170,7 +170,7 @@ test('Signals databas med -wal: ramarna dekrypteras och läggs på, raderna i -w
     const merged = sc.open(enc, encWal, PASS, 'signal', wal);
     assert.strictEqual(merged.stats.error, '');
     assert.strictEqual(merged.stats.appliedFrames, newer.length / PAGE);
-    assert.deepStrictEqual(merged.stats.cipher, { profile: 'Signal', pages: older.length / PAGE, badHmac: 0, walPages: newer.length / PAGE, walBadHmac: 0 });
+    assert.deepStrictEqual(merged.stats.cipher, { profile: 'Signal', settings: 'Signals inställningar', pages: older.length / PAGE, badHmac: 0, walPages: newer.length / PAGE, walBadHmac: 0 });
     const db = new S.Database(merged.bytes);
     const res = db.exec('SELECT count(*), max(date_sent) FROM message')[0].values[0];
     db.close();
@@ -188,4 +188,123 @@ test('base64 utan utfyllnad och URL-säker, som i Signals nycklar', () => {
     const raw = crypto.randomBytes(32);
     assert.deepStrictEqual(Buffer.from(sc.base64ToBytes(raw.toString('base64').replace(/=+$/, ''))), raw);
     assert.deepStrictEqual(Buffer.from(sc.base64ToBytes(raw.toString('base64url'))), raw);
+});
+
+// ---------- Signal på iOS: SQLCipher 4, rå nyckel med salt, okrypterat huvud ----------
+
+const RESERVE_IOS = 80;
+const HEADER_IOS = 32;
+
+function emptyDbWithReserveIos() {
+    const b = Buffer.from(emptyDbWithReserve());
+    b[20] = RESERVE_IOS;
+    b.writeUInt16BE(PAGE - RESERVE_IOS, 105);
+    return new Uint8Array(b);
+}
+
+async function makeDbIos(rows) {
+    const S = await sqlJs();
+    const db = new S.Database(emptyDbWithReserveIos());
+    db.run('CREATE TABLE model_TSInteraction (id INTEGER PRIMARY KEY, recordType INTEGER, timestamp INTEGER, body TEXT)');
+    for (let i = 1; i <= rows; i++) db.run('INSERT INTO model_TSInteraction (recordType, timestamp, body) VALUES (21, ?, ?)', [1793703400000 + i * 1000, 'meddelande ' + i + ' ' + 'y'.repeat(200)]);
+    const bytes = db.export();
+    db.close();
+    return bytes;
+}
+
+// Krypterar som SQLCipher 4 med rå nyckel: de första 32 byten på sida 1 står kvar, resten av sidan
+// (utom reserven) blir AES-256-CBC, sedan IV och HMAC-SHA512(data, IV, sidnummer LE).
+function keysIos(raw) {
+    const key = raw.subarray(0, 32), salt = raw.subarray(32, 48);
+    const macKey = crypto.pbkdf2Sync(key, Buffer.from(salt.map((b) => b ^ 0x3a)), 2, 32, 'sha512');
+    return { key, macKey };
+}
+function encryptPageIos(k, page, pgno) {
+    const start = pgno === 1 ? HEADER_IOS : 0;
+    const iv = crypto.randomBytes(16);
+    const c = crypto.createCipheriv('aes-256-cbc', k.key, iv);
+    c.setAutoPadding(false);
+    const data = Buffer.concat([c.update(Buffer.from(page.subarray(start, PAGE - RESERVE_IOS))), c.final()]);
+    const pn = Buffer.alloc(4); pn.writeUInt32LE(pgno);
+    const mac = crypto.createHmac('sha512', k.macKey).update(data).update(iv).update(pn).digest();
+    const out = Buffer.alloc(PAGE);
+    if (pgno === 1) Buffer.from(page.subarray(0, HEADER_IOS)).copy(out, 0);
+    data.copy(out, start);
+    iv.copy(out, PAGE - RESERVE_IOS);
+    mac.copy(out, PAGE - RESERVE_IOS + 16);
+    return out;
+}
+function encryptDbIos(plain, raw) {
+    const k = keysIos(raw);
+    const pages = [];
+    for (let p = 1; p * PAGE <= plain.length; p++) pages.push(encryptPageIos(k, plain.subarray((p - 1) * PAGE, p * PAGE), p));
+    return { bytes: new Uint8Array(Buffer.concat(pages)), k };
+}
+function encryptedWalIos(k, newer) {
+    const head = Buffer.alloc(32);
+    head.writeUInt32BE(0x377f0682, 0); head.writeUInt32BE(3007000, 4); head.writeUInt32BE(PAGE, 8);
+    head.writeUInt32BE(1, 12); head.writeUInt32BE(0x0a0b0c0d, 16); head.writeUInt32BE(0x01020304, 20);
+    let sum = walChecksum(head.subarray(0, 24), [0, 0]);
+    head.writeUInt32BE(sum[0], 24); head.writeUInt32BE(sum[1], 28);
+    const frames = [head];
+    const count = newer.length / PAGE;
+    for (let p = 1; p <= count; p++) {
+        const data = encryptPageIos(k, newer.subarray((p - 1) * PAGE, p * PAGE), p);
+        const fh = Buffer.alloc(24);
+        fh.writeUInt32BE(p, 0); fh.writeUInt32BE(p === count ? count : 0, 4);
+        fh.writeUInt32BE(0x0a0b0c0d, 8); fh.writeUInt32BE(0x01020304, 12);
+        sum = walChecksum(fh.subarray(0, 8), sum);
+        sum = walChecksum(data, sum);
+        fh.writeUInt32BE(sum[0], 16); fh.writeUInt32BE(sum[1], 20);
+        frames.push(fh, data);
+    }
+    return new Uint8Array(Buffer.concat(frames));
+}
+
+test('HMAC och PBKDF2 med SHA-512 som Nodes crypto (block 128 byte)', () => {
+    const data = crypto.randomBytes(500);
+    for (const len of [16, 64, 128, 200]) {
+        const k = crypto.randomBytes(len);
+        assert.deepStrictEqual(Buffer.from(sc.hmac('sha512', k, [data.subarray(0, 7), data.subarray(7)])), crypto.createHmac('sha512', k).update(data).digest(), 'nyckel ' + len + ' byte');
+    }
+    const key = crypto.randomBytes(32), salt = crypto.randomBytes(16);
+    assert.deepStrictEqual(Buffer.from(sc.pbkdf2('sha512', key, salt, 2, 32)), crypto.pbkdf2Sync(key, salt, 2, 32, 'sha512'));
+});
+
+test('Signal på iOS: rå nyckel och okrypterat huvud, samma bytes tillbaka, fel nyckel och fel längd sägs', async () => {
+    const plain = await makeDbIos(40);
+    const raw = crypto.randomBytes(48);
+    const hex = raw.toString('hex');
+    const enc = encryptDbIos(plain, raw).bytes;
+    // Båda börjar som SQLite; bara den krypterade räknas som krypterad.
+    assert.ok(sc.isPlain(enc) && sc.isPlain(plain));
+    assert.ok(sc.isEncrypted(enc) && sc.isEncrypted(enc, 'signal-ios'));
+    assert.ok(!sc.isEncrypted(plain) && !sc.isEncrypted(plain, 'signal-ios'), 'okrypterad med 80 byte reserv');
+    assert.ok(sc.isEncrypted(encryptDb(await makeDb(3), PASS, crypto.randomBytes(16)).bytes), 'Android: saltet först');
+
+    const dec = sc.decryptDatabase(enc, hex, 'signal-ios');
+    assert.deepStrictEqual(Buffer.from(dec.bytes), Buffer.from(plain));
+    assert.deepStrictEqual(dec.stats, { pages: plain.length / PAGE, badHmac: 0 });
+    assert.deepStrictEqual(Buffer.from(sc.decryptDatabase(enc, "x'" + hex.toUpperCase() + "'", 'signal-ios').bytes), Buffer.from(plain), "x'…' som i SQLCipher");
+
+    assert.throws(() => sc.decryptDatabase(enc, crypto.randomBytes(48).toString('hex'), 'signal-ios'), /Nyckeln passar inte.*Signals inställningar på iOS/);
+    assert.throws(() => sc.decryptDatabase(enc, hex.slice(0, 64), 'signal-ios'), /saknar saltet/);
+    assert.throws(() => sc.decryptDatabase(plain, hex, 'signal-ios'), /inte krypterad/);
+    // Androids inställningar på en iOS-databas: HMAC stämmer inte.
+    assert.throws(() => sc.decryptDatabase(enc, hex.slice(0, 64), 'signal'), /Nyckeln passar inte/);
+});
+
+test('Signal på iOS med -wal: ramarna dekrypteras, också sida 1 med sitt huvud', async () => {
+    const S = await sqlJs();
+    const older = await makeDbIos(4);
+    const newer = await makeDbIos(50);
+    const raw = crypto.randomBytes(48);
+    const { bytes: enc, k } = encryptDbIos(older, raw);
+    const merged = sc.open(enc, encryptedWalIos(k, newer), raw.toString('hex'), 'signal-ios', wal);
+    assert.strictEqual(merged.stats.error, '');
+    assert.deepStrictEqual(merged.stats.cipher, { profile: 'Signal (iOS)', settings: 'Signals inställningar på iOS', pages: older.length / PAGE, badHmac: 0, walPages: newer.length / PAGE, walBadHmac: 0 });
+    const db = new S.Database(merged.bytes);
+    assert.deepStrictEqual(db.exec('SELECT count(*), max(timestamp) FROM model_TSInteraction')[0].values[0], [50, 1793703400000 + 50 * 1000]);
+    db.close();
+    assert.match(sc.summary(merged.stats, 'nyckelringen'), /^Dekrypterad i minnet \(SQLCipher, Signals inställningar på iOS\) med nyckeln ur nyckelringen: \d+ sidor och \d+ sidor ur -wal\. Kontrollsumman \(HMAC\) stämde för alla sidor\.$/);
 });

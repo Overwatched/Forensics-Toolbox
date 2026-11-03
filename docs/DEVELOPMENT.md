@@ -416,6 +416,52 @@ Plan och provkörning: [PLAN-harkomst.md](PLAN-harkomst.md).
 - Nycklarna tas var för sig (`AppSecrets.signalKeys`): databasnyckeln ur den första källan som har den och
   bilagenyckeln likaså, så att en inklistrad nyckel av det ena slaget inte döljer den andra i nyckelfilen.
 
+#### Signal och WhatsApp på iOS (beta, 1.41)
+
+- **Signal på iOS:** `grdb/signal.sqlite` i appgruppen `group.org.whispersystems.signal.group` är SQLCipher 4
+  med en rå nyckel (profil `signal-ios` i `sqlcipher.js`). Nyckeln i nyckelringen (`svce`
+  `GRDBKeyChainService`, `acct` `GRDBDatabaseCipherKeySpec`) är 48 byte: AES-nyckeln (32) och saltet (16).
+  De första 32 byten i filen är okrypterade (SQLite-huvudet), så saltet står inte i filen och filen börjar
+  med `SQLite format 3`. Sidorna har HMAC-SHA512 (HMAC-nyckeln: PBKDF2-HMAC-SHA512(nyckel, salt ^ 0x3a,
+  2 varv)), sidstorlek 4096 och reserv 80. `SqlCipher.isEncrypted(bytes, profil)` känner igen en sådan fil
+  (reserven i byte 20 och att sidan efter huvudet inte är ett b-träd), och `DbIdentify.kindOf` gör samma
+  sak för en fil från disk. Kontrollerat mot en labbtelefon (iOS 26.4.1, Signal 8.28): alla 695 sidor.
+- **Nyckelringen** (`…_keychain.plist` bredvid zippen) är en plist (binär eller XML) med `genp`, `inet`,
+  `keys` och `cert`. `AppSecrets.fromKeychainPlist` / `fromKeyFile` läser Signals nyckel; `parseXmlPlist`
+  tolkar XML-varianten. Undersökaren väljer nyckelringen tillsammans med zippen i raden högst upp, eller
+  med **Nyckelfil…** i Queries och Härkomst. Navet håller nyckelfilerna med extraktionen
+  (`extraction.keys`) och skickar dem till verktygen med `extraction-keys`; ett verktyg som valt en
+  nyckelfil skickar den till navet på samma sätt. `AppSecrets.keysForProfile` väljer nyckeln efter profilen
+  (64 hextecken för Android, 96 för iOS).
+- `queries/ios/signal/catalog.json`: meddelanden, bilagor (SHA-256 i hex, `sourceFilename`), en bilaga efter
+  SHA-256, samtal (`CallRecord`), konversationer och kontakter. `recordType` 21 skickat, 19 mottaget, 20 samtal
+  (Signals `SDSRecordType`; 19 är inte kontrollerat mot data). Rollerna: `attachments`, `messages`,
+  `recipients`, `coverage`.
+- `ProvenanceSignal.buildIos`: kopplingen på SHA-256 (`sha256ContentHash`, den lagrade bilagan) och på namnet
+  (`sourceFilename`, utom Signals egna `signal-ÅÅÅÅ-MM-DD-TTMMSS.jpeg` som ges till alla bilder utan namn),
+  namnets tid för en bild som Signal sparat, och händelserna (`sig-message`, `sig-call`). Signal kodar om
+  bilder, så en bild ur bildbiblioteket som skickats har inte bilagans summa: faktorn säger då **Ingen
+  koppling**, inte att filen saknas i Signal.
+- **WhatsApp på iOS:** `ChatStorage.sqlite` i `group.net.whatsapp.WhatsApp.shared`, okrypterad. För
+  mediefiler är `ZWAMEDIAITEM.ZVCARDNAME` filens SHA-256 i base64 och `ZVCARDSTRING` MIME-typen (kontrollerat
+  för åtta filer; för ett kontaktkort är det namnet och vCard). En fil som valts ur bildbiblioteket har
+  bibliotekets id (`UUID/L0/001`) i `ZMETADATA`, som SQL:en plockar ut med `instr`/`substr` och som jämförs
+  med `ZASSET.ZUUID` (nu i Photos-rollen `file`). Finns flera `ChatStorage.sqlite` väljer Härkomst den i
+  WhatsApps appgrupp (behållarens `MCMMetadataIdentifier`).
+- `tools/provenance/whatsapp.js` (`ProvenanceWhatsApp`): kopplingen på summa, bibliotekets post och sökväg
+  (filen under `Message/`), den möjliga kopplingen för en bild som WhatsApp sparat (det första skickade
+  meddelandet med en bild inom en minut, som inte valts ur bildbiblioteket; bara tiden binder) och
+  händelserna (`wa-message`). `timeline-core.js` har faktorn **WhatsApp** (`factorWhatsApp`), och en
+  fil under `Message/` bedöms som WhatsApp-media (`file.chatMedia`): hypotesen är att den togs emot eller
+  skickades i WhatsApp, och kameran frågas inte.
+- Hashsökningen i Härkomst jämför SHA-256 med Signals och WhatsApps summor direkt (`chatHashLookupIos`).
+- Appversionerna på iOS för Signal och WhatsApp kommer ur `Signal.app/Info.plist` och `WhatsApp.app/Info.plist`.
+- Tester: `tools/db-queries/fixtures/chat-schemas.json` har tabellernas `CREATE TABLE` ur labbtelefonen
+  (utan data), och varje query förbereds mot dem. Röktestet har en krypterad Signal-databas, en påhittad
+  nyckelring och WhatsApp med HTML i namnen. `tests/app/lab-ios.js` kontrollerar labbzippen
+  (`FT_LAB_IOS_DIR`) mot `facit/lab-ios-signal-whatsapp.json`. De förväntningarna är inget facit ur
+  anteckningar, utan kontrollerade mellan källorna i extraktionen.
+
 #### Appversioner i protokollet (1.40)
 
 - `tools/provenance/app-versions.js` (`ProvenanceAppVersions`): versionen för apparna som bedömningen läste.

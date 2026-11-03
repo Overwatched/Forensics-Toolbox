@@ -1,0 +1,54 @@
+{
+  "description": "Kontroller mot iOS-labbtelefonen (iOS 26.4.1, Signal 8.28, WhatsApp 26.43.75, 2026-11-03, tidszon Europe/Stockholm). Inget facit ur anteckningar: förväntningarna är hämtade ur extraktionen och kontrollerade mellan källor som inte beror av varandra (bildbiblioteket, knowledgeC /app/usage, WhatsApps och Signals databaser och filernas SHA-256). De ersätts av ett facit när en labbsession med dokumenterad ordning finns. Labbzippen (…_fs.zip) och nyckelringen (…_keychain.plist) ligger inte i repot och hittas i mappen; här står inga namn, nycklar eller enhets-id.",
+  "dir": "iPhone - Signal_Whatsapp",
+  "toleranceMs": 1000,
+  "versions": ["Signal 8.28", "WhatsApp 26.43.75"],
+  "files": [
+    {
+      "name": "IMG_0033.HEIC",
+      "what": "Bild med kameraappen 12:15:56 (kameran i förgrunden 12:15:54–58 enligt knowledgeC), vald ur bildbiblioteket och skickad i WhatsApp 12:16:06 (bibliotekets id i mediefilens metadata)",
+      "T": "2026-11-03T12:15:56.5+01:00",
+      "factors": { "camera": "support", "whatsapp": "info" },
+      "verdicts": { "whatsapp": "Skickad i WhatsApp", "signal": "Ingen koppling" },
+      "whatsapp": { "messageId": 10, "by": "asset", "direction": "out", "at": "2026-11-03T12:16:06+01:00" }
+    },
+    {
+      "name": "IMG_0031.JPG",
+      "what": "Bild med WhatsApps kamera, sparad i bildbiblioteket av WhatsApp; ett meddelande med en bild skickades 2 s senare",
+      "T": "2026-11-03T12:15:01.4+01:00",
+      "factors": { "whatsapp": "info" },
+      "verdicts": { "whatsapp": "Möjlig koppling" },
+      "nearby": { "messageId": 6, "afterMs": 2000 }
+    },
+    {
+      "name": "IMG_0032.JPG",
+      "what": "Ännu en bild med WhatsApps kamera; meddelandet med en bild 7 s senare, inte bilden 3 s före (typ 38, vald ur bildbiblioteket)",
+      "T": "2026-11-03T12:15:33.8+01:00",
+      "factors": { "whatsapp": "info" },
+      "verdicts": { "whatsapp": "Möjlig koppling" },
+      "nearby": { "messageId": 9, "afterMs": 7000 }
+    },
+    {
+      "name": "IMG_0007.JPG",
+      "what": "Bild som Signal sparade 2025 (bilagan finns inte kvar i Signal), skickad som WhatsApps typ 38 ur bildbiblioteket 2026-11-03 12:15:30",
+      "factors": { "signal": "missing", "whatsapp": "info" },
+      "verdicts": { "signal": "Hittas inte", "whatsapp": "Skickad i WhatsApp" },
+      "whatsapp": { "messageId": 8, "by": "asset", "direction": "out", "at": "2026-11-03T12:15:30+01:00" }
+    },
+    {
+      "name": "IMG_0030.HEIC",
+      "what": "Bild med kameraappen 11:57:25 medan Signal användes; ingen av Signals bilagor har filens summa eller namn",
+      "T": "2026-11-03T11:57:25.7+01:00",
+      "factors": { "camera": "support", "signal": "info", "whatsapp": "info" },
+      "verdicts": { "signal": "Ingen koppling", "whatsapp": "Inte i WhatsApp" }
+    },
+    {
+      "name": "ac8febc3-bf53-4ddf-ae96-266775e16942.jpg",
+      "what": "WhatsApps egen kopia av en mottagen bild (Message/Media/), meddelande 15 kl. 12:17:11",
+      "factors": { "whatsapp": "support", "camera": "na" },
+      "verdicts": { "whatsapp": "Mottagen i WhatsApp" },
+      "whatsapp": { "messageId": 15, "by": "path", "direction": "in", "at": "2026-11-03T12:17:11+01:00" },
+      "typeLabel": "WhatsApp-media utanför bildbiblioteket"
+    }
+  ]
+}

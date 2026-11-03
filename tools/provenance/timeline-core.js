@@ -16,6 +16,9 @@
     var SNAPCHAT = 'com.toyopagroup.picaboo';
     var SNAPCHAT_ANDROID = 'com.snapchat.android';
     var SIGNAL_ANDROID = 'org.thoughtcrime.securesms';
+    var SIGNAL_IOS = 'org.whispersystems.signal';
+    var WHATSAPP = 'net.whatsapp.WhatsApp';
+    var WHATSAPP_BUSINESS = 'net.whatsapp.WhatsAppSMB';
 
     function isSnapchatApp(id) { return id === SNAPCHAT || id === SNAPCHAT_ANDROID; }
 
@@ -98,7 +101,14 @@
         var rel = lower(file.relativePath);
         var name = lower(file.filename);
         var sc = file.snapchatCache || null;
-        if (sc) {
+        // En chattapps egen fil (WhatsApps Message/Media/ på iOS), kopplad till sitt meddelande.
+        var chat = !sc && file.chatMedia ? file.chatMedia : null;
+        if (chat) {
+            type = 'saved';
+            importer = chat.app;
+            reasons.push('filen är ' + chat.appName + 's egen (' + chat.path + ')');
+            reasons.push('meddelande ' + chat.messageId + ', ' + (chat.direction === 'in' ? 'mottaget från ' + chat.who : 'skickat till ' + chat.who) + ' (' + chat.source + ')');
+        } else if (sc) {
             type = 'snapchat';
             importer = SNAPCHAT;
             reasons.push('filen ligger i Snapchats cache' + (sc.path ? ' (' + sc.path + ')' : ''));
@@ -149,7 +159,7 @@
         if (Number(file.trashed) === 1) flags.push('trashed');
         if (Number(file.hidden) === 1) flags.push('hidden');
         var labels = { camera: 'Kamerabild', screenshot: 'Skärmdump', saved: 'Sparad ur en app', snapchat: 'Snapchat-media utanför bildbiblioteket', unknown: 'Okänd typ' };
-        return { type: type, label: labels[type], reasons: reasons, flags: flags, importer: importer, importedBy: importedBy,
+        return { type: type, label: chat ? chat.appName + '-media utanför bildbiblioteket' : labels[type], reasons: reasons, flags: flags, importer: importer, importedBy: importedBy, chat: chat,
             snapchat: type === 'snapchat' || isSnapchatApp(importer), origin: snapOrigin(sc), who: sc && sc.who || null, recipient: sc && sc.external && sc.external.recipient || null,
             memory: file.memory || null };
     }
@@ -641,10 +651,11 @@
             plain = state === 'support' ? 'Kameran var igång när bilden togs.' : 'Vid den här tiden var ' + runningNames.join(' och ') + ' igång, men inte kameran.';
         } else {
             var match = expected ? running.filter(function (e) { return e.app === expected; }) : [];
-            if (match.length) { state = 'support'; items.push({ state: 'support', text: appName(expected, names) + ', som skapade filen, var igång vid tidpunkten (' + match[0].stream + ').' }); }
-            else if (expected) { state = 'contradiction'; items.push({ state: 'contradiction', text: 'Vid tidpunkten var ' + runningNames.join(', ') + ' igång, inte ' + appName(expected, names) + ' som skapade filen.' }); }
+            var role = type.chat ? ', där filen ' + (type.chat.direction === 'in' ? 'togs emot' : 'skickades') + ',' : ', som skapade filen,';
+            if (match.length) { state = 'support'; items.push({ state: 'support', text: appName(expected, names) + role + ' var igång vid tidpunkten (' + match[0].stream + ').' }); }
+            else if (expected) { state = 'contradiction'; items.push({ state: 'contradiction', text: 'Vid tidpunkten var ' + runningNames.join(', ') + ' igång, inte ' + appName(expected, names) + (type.chat ? '' : ' som skapade filen') + '.' }); }
             else { state = 'info'; items.push({ state: 'info', text: 'Igång vid tidpunkten: ' + runningNames.join(', ') + '.' }); }
-            plain = state === 'support' ? appName(expected, names) + ' var igång när bilden sparades.'
+            plain = state === 'support' ? appName(expected, names) + ' var igång när ' + (type.chat ? 'filen ' + (type.chat.direction === 'in' ? 'togs emot' : 'skickades') : 'bilden sparades') + '.'
                 : state === 'contradiction' ? 'Vid den här tiden var ' + runningNames.join(' och ') + ' igång, inte ' + appName(expected, names) + '.'
                     : 'Vid den här tiden var ' + runningNames.join(' och ') + ' igång.';
         }
@@ -659,6 +670,11 @@
             return { id: 'camera', title: 'Kamera igång', state: 'na', items: [{ state: 'na', text: 'En skärmdump tas utan kameran.' }], plain: 'Kameran behövs inte för en skärmdump, så den frågan ställs inte.' };
         }
         if (type.type === 'snapchat') return factorSnapchatCamera(input, type, events);
+        if (type.chat) {
+            var via = type.chat.direction === 'in' ? 'togs emot' : 'skickades';
+            return { id: 'camera', title: 'Kamera igång', state: 'na', items: [{ state: 'na', text: 'Filen är ' + type.chat.appName + 's kopia av en fil som ' + via + ' i appen (meddelande ' + type.chat.messageId + '), så kameran frågas inte.' }],
+                plain: 'Filen ' + via + ' i ' + type.chat.appName + ', så frågan om kameran ställs inte.' };
+        }
         var li = logInfo(input);
         // Android: tagningstiden enligt Snapchats Memories är då kameran måste ha varit igång; T är exporten.
         var tCam = file.capturedMs || T;
@@ -762,7 +778,9 @@
         });
         sent.forEach(function (m) {
             items.push({ state: 'info', text: 'Skickad till ' + m.who + ' ' + at(m.sentMs) + ' (meddelande ' + m.messageId + ')' + (m.deleted ? ', raderad för alla senare' : '') + '. ' +
-                (m.on === 'start' ? 'Filen är originalet; Signal skickade en omkodad kopia' + (m.width ? ' (' + m.width + '×' + m.height + ')' : '') + '.' : 'Samma SHA-256 som bilagan.') });
+                (m.on === 'start' ? 'Filen är originalet; Signal skickade en omkodad kopia' + (m.width ? ' (' + m.width + '×' + m.height + ')' : '') + '.'
+                    : m.on === 'name' ? 'Bilagan lades till med filens namn (' + m.fileName + '); Signal skickade en omkodad kopia' + (m.width ? ' (' + m.width + '×' + m.height + ')' : '') + '. Namnet binder svagare än en summa.'
+                        : 'Samma SHA-256 som bilagan.') });
         });
         picks.forEach(function (p) {
             var tail = p.messageId == null && p.sentLater ? ', skickad ' + at(p.sentLater.ms) + ' (meddelande ' + p.sentLater.messageId + (p.deletedLater ? ', raderat ' + (p.deletedLater.forAll ? 'för alla ' : '') + at(p.deletedLater.ms) : '') + ')' : '';
@@ -775,8 +793,9 @@
                 : { state: 'info', text: 'Filnamnets tid ' + link.nameTime + ' stämmer inte med något meddelande i vald tidszon.' });
         }
         var found = ms.length || picks.length;
-        var none = 'Filens SHA-256 finns inte bland Signals ' + (link.attachments || 0) + ' bilagor.';
-        var savedBySignal = type.importer === SIGNAL_ANDROID;
+        var none = 'Filens SHA-256 finns inte bland Signals ' + (link.attachments || 0) + ' bilagor.' +
+            (link.platform === 'iOS' ? ' Signal kodar om bilder, så en bild ur bildbiblioteket som skickats har inte bilagans summa.' : '');
+        var savedBySignal = type.importer === SIGNAL_ANDROID || type.importer === SIGNAL_IOS;
         if (savedBySignal) {
             if (recv.length || sent.length) {
                 items.forEach(function (it) { it.state = 'support'; });
@@ -799,7 +818,85 @@
                 plain: lead ? 'Filen skickades i Signal till ' + lead.who + ', ' + after + '. ' + (picks.length ? 'Den valdes ur galleriet, så Signal skapade den inte.' : 'Det säger inget om hur den skapades.')
                     : 'Filen valdes i Signal enligt Signals logg, men meddelandet finns inte kvar.' };
         }
+        if (link.platform === 'iOS') {
+            return { id: 'signal', title: title, state: 'info', items: [{ state: 'info', text: none }], verdictText: 'Ingen koppling',
+                plain: 'Ingen av Signals bilagor har filens SHA-256 eller namn. Signal kodar om bilder, så en bild som skickats ur bildbiblioteket känns inte igen på det sättet.' };
+        }
         return { id: 'signal', title: title, state: 'info', items: [{ state: 'info', text: none }], verdictText: 'Inte i Signal', plain: 'Filen finns inte bland Signals bilagor.' };
+    }
+
+    // WhatsApp (beta, iOS): finns filen bland WhatsApps mediefiler (samma SHA-256, samma post i
+    // bildbiblioteket eller filen själv under Message/), och vad hände med den? input.whatsapp = { link,
+    // error } ur ProvenanceWhatsApp.build. En sparad kamerabild med ett skickat meddelande strax efter
+    // är en möjlig koppling: bara tiden binder.
+    function factorWhatsApp(input, type) {
+        var w = input.whatsapp || {};
+        var title = 'WhatsApp';
+        var fmt = input.format || formatUtc;
+        var T = input.file.createdMs;
+        var at = function (ms) { return T && fmt(ms).slice(0, 10) === fmt(T).slice(0, 10) ? fmt(ms).slice(11, 19) : fmt(ms).slice(0, 19); };
+        if (w.error) {
+            return { id: 'whatsapp', title: title, state: 'missing', items: [{ state: 'missing', text: w.error }],
+                plain: 'WhatsApps databas kunde inte läsas.', verdictText: 'Kunde inte läsas' };
+        }
+        var link = w.link || {};
+        var ms = link.matches || [];
+        var recv = ms.filter(function (m) { return m.direction === 'in'; });
+        var sent = ms.filter(function (m) { return m.direction === 'out'; });
+        var how = function (m) {
+            var parts = [];
+            if (m.by.indexOf('sha256') >= 0) parts.push('samma SHA-256 som mediefilen');
+            if (m.by.indexOf('asset') >= 0) parts.push('vald ur bildbiblioteket (samma post, ZUUID ' + m.assetUuid + ')');
+            if (m.by.indexOf('path') >= 0) parts.push('filen är WhatsApps egen (' + m.path + ')');
+            return parts.join(', ');
+        };
+        var items = [];
+        recv.forEach(function (m) { items.push({ state: 'info', text: 'Mottagen från ' + m.who + ' ' + at(m.dateMs) + ' (meddelande ' + m.messageId + '): ' + how(m) + '.' }); });
+        sent.forEach(function (m) { items.push({ state: 'info', text: 'Skickad till ' + m.who + ' ' + at(m.sentMs != null ? m.sentMs : m.dateMs) + ' (meddelande ' + m.messageId + '): ' + how(m) + '.' }); });
+        var near = (link.nearby || [])[0] || null;
+        // WhatsApps egen fil under Message/: databasen säger vilket meddelande den hör till.
+        var own = type.chat ? ms.find(function (m) { return m.by.indexOf('path') >= 0; }) : null;
+        if (own) {
+            items.forEach(function (it) { it.state = 'support'; });
+            var ownMs = own.direction === 'in' ? own.dateMs : (own.sentMs != null ? own.sentMs : own.dateMs);
+            return { id: 'whatsapp', title: title, state: 'support', items: items, verdictText: own.direction === 'in' ? 'Mottagen i WhatsApp' : 'Skickad i WhatsApp',
+                plain: 'Filen är WhatsApps kopia i meddelande ' + own.messageId + ', ' + (own.direction === 'in' ? 'mottaget från ' : 'skickat till ') + own.who + ' ' + at(ownMs) + '.' };
+        }
+        var savedByWhatsApp = !type.chat && (type.importer === WHATSAPP || type.importer === WHATSAPP_BUSINESS);
+        if (savedByWhatsApp && (recv.length || sent.length)) {
+            items.forEach(function (it) { it.state = 'support'; });
+            var first = recv[0] || sent[0];
+            return { id: 'whatsapp', title: title, state: 'support', items: items, verdictText: recv.length ? 'Mottagen i WhatsApp' : 'Skickad i WhatsApp',
+                plain: recv.length ? 'Filen togs emot i WhatsApp från ' + first.who + ' och sparades i bildbiblioteket.' : 'Filen skickades i WhatsApp till ' + first.who + ' och sparades i bildbiblioteket.' };
+        }
+        if (savedByWhatsApp && near) {
+            return { id: 'whatsapp', title: title, state: 'info', verdictText: 'Möjlig koppling',
+                items: [{ state: 'info', text: 'WhatsApp sparade filen. En ' + near.kind + ' skickades i WhatsApp till ' + near.who + ' ' + at(near.sentMs) + ', ' + duration(near.afterMs) + ' efter att filen skapades (meddelande ' + near.messageId + '). Bara tiden binder ihop dem: WhatsApp skickar en omkodad kopia och sparar ingen summa för originalet.' }],
+                plain: 'WhatsApp sparade filen, och en ' + near.kind + ' skickades i WhatsApp ' + duration(near.afterMs) + ' senare. Det kan vara samma bild; bara tiden binder ihop dem.' };
+        }
+        if (savedByWhatsApp) {
+            return { id: 'whatsapp', title: title, state: 'missing', verdictText: 'Hittas inte',
+                items: [{ state: 'missing', text: 'WhatsApp sparade filen, men varken summan eller bildbibliotekets post finns bland WhatsApps ' + (link.media || 0) + ' mediefiler, och inget meddelande med en bild skickades strax efter. Bilden kan ha tagits med WhatsApps kamera utan att skickas, eller meddelandet kan ha raderats.' }],
+                plain: 'WhatsApp sparade filen, men den hittas inte bland WhatsApps meddelanden.' };
+        }
+        if (recv.length && !sent.length && (type.type === 'camera' || type.type === 'screenshot')) {
+            items.forEach(function (it) { it.state = 'contradiction'; });
+            return { id: 'whatsapp', title: title, state: 'contradiction', items: items, verdictText: 'Togs emot i WhatsApp',
+                plain: 'Filen är samma fil som togs emot i WhatsApp från ' + recv[0].who + ', inte en bild från telefonens ' + (type.type === 'screenshot' ? 'skärm' : 'kamera') + '.' };
+        }
+        if (sent.length) {
+            var lead = sent[0];
+            var leadMs = lead.sentMs != null ? lead.sentMs : lead.dateMs;
+            var after = T ? (leadMs >= T ? duration(leadMs - T) + ' efter T' : at(leadMs)) : '';
+            return { id: 'whatsapp', title: title, state: 'info', items: items, verdictText: 'Skickad i WhatsApp',
+                plain: 'Filen skickades i WhatsApp till ' + lead.who + ', ' + after + '. ' + (lead.by.indexOf('asset') >= 0 ? 'Den valdes ur bildbiblioteket, så WhatsApp skapade den inte.' : 'Det säger inget om hur den skapades.') };
+        }
+        if (recv.length) {
+            return { id: 'whatsapp', title: title, state: 'info', items: items, verdictText: 'Mottagen i WhatsApp', plain: 'Filen togs emot i WhatsApp från ' + recv[0].who + '.' };
+        }
+        return { id: 'whatsapp', title: title, state: 'info', verdictText: 'Inte i WhatsApp',
+            items: [{ state: 'info', text: 'Filen finns inte bland WhatsApps ' + (link.media || 0) + ' mediefiler: varken samma SHA-256, samma post i bildbiblioteket eller samma sökväg.' }],
+            plain: 'Filen finns inte bland WhatsApps mediefiler.' };
     }
 
     function factorScreen(input, events) {
@@ -941,6 +1038,7 @@
             var fPos = factorPosition(input, pos, type, wins);
             factors = [fTime, fApp, fCam, fScreen, fPos];
             if (input.signal) factors.push(factorSignal(input, type));
+            if (input.whatsapp) factors.push(factorWhatsApp(input, type));
         } else {
             factors = [factorTime(input, type)];
             warnings.push('Skapandetiden saknas, så app, kamera och skärm kan inte bedömas.');
@@ -959,7 +1057,7 @@
             platform: input.platform, file: file, type: type, windows: wins, events: events, outside: built.outside,
             factors: factors, alternatives: alts, narrative: perWindow, warnings: warnings, summary: summary,
             positions: pos.list, filePosition: pos.filePos, copies: input.copies || [],
-            beta: !!(type.snapchat || (input.extraEvents || []).length || input.signal),
+            beta: !!(type.snapchat || (input.extraEvents || []).length || input.signal || input.whatsapp),
             stateLabel: STATE_LABEL,
         };
     }
@@ -969,6 +1067,7 @@
     function hypothesis(type, names) {
         return type.type === 'screenshot' ? 'att skärmdumpen togs på den här telefonen'
             : type.type === 'saved' && type.memory ? 'att ' + (type.memory.video ? 'videon spelades in' : 'bilden togs') + ' med Snapchats ' + (type.memory.front ? 'frontkamera' : 'bakre kamera') + ' på den här telefonen och sparades till galleriet'
+            : type.type === 'saved' && type.chat ? (type.chat.direction === 'in' ? 'att filen togs emot i ' + type.chat.appName + ' på den här telefonen' + (type.chat.who ? ' från ' + type.chat.who : '') : 'att filen skickades från den här telefonen i ' + type.chat.appName)
             : type.type === 'saved' ? 'att filen sparades på den här telefonen av ' + (type.importer ? appName(type.importer, names) : 'appen')
                 : type.type === 'snapchat' ? (type.origin === 'recorded' || type.origin === 'sent' ? 'att filen skapades med Snapchat på den här telefonen'
                     : type.origin === 'received' ? 'att filen togs emot i Snapchat på den här telefonen' + (type.who ? ' från ' + type.who : '')
@@ -989,6 +1088,7 @@
         'Skärm': { q: 'Var skärmen tänd, alltså användes telefonen vid T?', support: 'Skärmen var tänd', contradiction: 'Skärmen var släckt', missing: 'Inte registrerat' },
         'Position': { q: 'Var telefonen där bilden säger att den togs?', support: 'Positionerna stämmer', contradiction: 'Positionerna går isär', missing: 'Position saknas' },
         'Signal': { q: 'Finns filen bland Signals bilagor, och vad hände med den i Signal?', support: 'Bilaga ur Signal', contradiction: 'Togs emot i Signal', info: 'Upplysning', missing: 'Hittas inte' },
+        'WhatsApp': { q: 'Finns filen bland WhatsApps mediefiler, och vad hände med den i WhatsApp?', support: 'Fil ur WhatsApp', contradiction: 'Togs emot i WhatsApp', info: 'Upplysning', missing: 'Hittas inte' },
     };
 
     function describeFactor(f, type, hyp) {
@@ -1023,7 +1123,7 @@
         buildEvents: buildEvents, narrative: narrative, build: build, summaryText: summaryText, hypothesis: hypothesis, FACTOR_WORDS: FACTOR_WORDS,
         formatWithOffset: formatWithOffset, formatUtc: formatUtc, duration: duration, appName: appName, isCameraApp: isCameraApp, covers: covers,
         positions: positions, distanceM: distanceM, metres: metres, validCoord: validCoord, inWindows: inWindows, activityAt: activityAt,
-        snapOrigin: snapOrigin, SNAPCHAT: SNAPCHAT, SNAPCHAT_ANDROID: SNAPCHAT_ANDROID, SIGNAL_ANDROID: SIGNAL_ANDROID, isSnapchatApp: isSnapchatApp, logInfo: logInfo, factorSignal: factorSignal,
+        snapOrigin: snapOrigin, SNAPCHAT: SNAPCHAT, SNAPCHAT_ANDROID: SNAPCHAT_ANDROID, SIGNAL_ANDROID: SIGNAL_ANDROID, SIGNAL_IOS: SIGNAL_IOS, WHATSAPP: WHATSAPP, isSnapchatApp: isSnapchatApp, logInfo: logInfo, factorSignal: factorSignal, factorWhatsApp: factorWhatsApp,
         STATE_LABEL: STATE_LABEL, TOLERANCE_MS: TOLERANCE_MS, SAME_TIME_MS: SAME_TIME_MS, LATE_MS: LATE_MS,
     };
     if (typeof module !== 'undefined' && module.exports) module.exports = api;

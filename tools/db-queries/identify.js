@@ -8,8 +8,20 @@
 
     var SQLITE = 'SQLite format 3\u0000';
 
-    // Filens första 16 byte och namn: 'zip', 'wal', 'companion' (-shm, -journal), 'sqlite' eller
-    // 'other' (en krypterad databas, eller något helt annat). En tom -wal känns igen på namnet.
+    // Ser byten från 100 ut som huvudet för ett b-träd (typ, första fria block, cellernas början,
+    // fragmenterade byte)? En krypterad sida klarar det nästan aldrig.
+    function btreeHead(b) {
+        if ([2, 5, 10, 13].indexOf(b[100]) < 0) return false;
+        var size = ((b[16] << 8) | b[17]) === 1 ? 65536 : (b[16] << 8) | b[17];
+        var usable = size - b[20];
+        var free = (b[101] << 8) | b[102], content = ((b[105] << 8) | b[106]) || 65536;
+        return (free === 0 || (free > 100 && free < usable)) && content <= usable && b[107] <= 60;
+    }
+
+    // Filens första byte (minst 16, helst 108) och namn: 'zip', 'wal', 'companion' (-shm, -journal),
+    // 'sqlite' eller 'other' (en krypterad databas, eller något helt annat). En tom -wal känns igen på
+    // namnet. En SQLCipher-fil med okrypterat huvud (Signal på iOS) börjar som SQLite, men har reserv
+    // för IV och HMAC i byte 20 och en krypterad sida efter huvudet: den räknas som krypterad.
     function kindOf(head, name) {
         var b = head || [];
         var n = String(name || '');
@@ -18,6 +30,7 @@
         if (/-(shm|journal)$/i.test(n)) return 'companion';
         var plain = b.length >= 16;
         for (var i = 0; plain && i < 16; i++) if (b[i] !== SQLITE.charCodeAt(i)) plain = false;
+        if (plain && b.length >= 108 && b[20] >= 32 && !btreeHead(b)) return 'other';
         if (plain) return 'sqlite';
         return /\.zip$/i.test(n) ? 'zip' : 'other';
     }

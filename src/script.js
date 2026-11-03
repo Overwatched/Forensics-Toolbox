@@ -37,7 +37,7 @@ function initToolNav() {
     // öppnades eller stängdes i något verktyg, med ett löpnummer, och skickar läget till ett verktyg
     // när det visas. Verktyget följer bara en ändring det inte redan har sett, så att till exempel
     // testdata i Härkomst inte byts bort bara för att verktyget visas igen.
-    let extraction = { file: null, seq: 0, from: '', info: null };
+    let extraction = { file: null, seq: 0, from: '', info: null, keys: [] };
     // Vad ett verktyg vet om en zip (iOS- eller Android-version) kan komma före beskedet att zippen
     // öppnats, eftersom versionen läses medan zippen öppnas. Den sparas tills beskedet kommer.
     let pendingInfo = null;
@@ -80,13 +80,34 @@ function initToolNav() {
     // force: verktyget som visas följer alltid, när undersökaren själv bytt eller stängt i raden högst upp.
     function sendExtraction(frame, force) {
         postToFrame(frame, { source: 'forensics-toolbox', type: 'extraction', file: extraction.file, seq: extraction.seq, from: extraction.from, force: !!force });
+        if (extraction.keys.length) sendKeys(frame);
+    }
+
+    // Nyckelfiler som hör till extraktionen (nyckelringen bredvid zippen på iOS, secrets.json,
+    // android_keystore). Verktygen tolkar dem själva; filerna läses bara.
+    function sendKeys(frame) {
+        postToFrame(frame, { source: 'forensics-toolbox', type: 'extraction-keys', files: extraction.keys, file: extraction.file });
+    }
+
+    function isKeyFile(f) {
+        const n = f && typeof f.name === 'string' ? f.name : '';
+        return /\.plist$/i.test(n) || /^secrets\.json$/i.test(n) || /keystore[^/]*\.json$/i.test(n);
+    }
+
+    // Nya nyckelfiler till alla laddade verktyg utom det som valde dem.
+    function setKeys(files, source) {
+        extraction.keys = files.slice();
+        frames.forEach((frame, path) => {
+            if (!frame.dataset.ready || frame === source || !CONTEXT_TOOLS[path] || CONTEXT_TOOLS[path] === 'exif') return;
+            sendKeys(frame);
+        });
     }
 
     // Ny eller stängd extraktion. Laddade verktyg får läget direkt och följer efter sina egna regler;
     // verktyget som ändrade får numret tillbaka, så att det inte följer sin egen ändring.
     function setExtraction(file, from, source, force) {
         if (!(file ? sameFile(file, extraction.file) : !extraction.file)) {
-            extraction = { file: file, seq: extraction.seq + 1, from: from || '', info: pendingInfo && sameFile(pendingInfo.file, file) ? pendingInfo.info : null };
+            extraction = { file: file, seq: extraction.seq + 1, from: from || '', info: pendingInfo && sameFile(pendingInfo.file, file) ? pendingInfo.info : null, keys: [] };
             pendingInfo = null;
             if (current && current.owner === TOOL_PATH.provenance) current = null;
         }
@@ -114,10 +135,12 @@ function initToolNav() {
         // I Queries tar knappen emot både en extraktion och en databas, och Queries känner igen vilket.
         const queries = kind === 'queries';
         byId('cb-open').textContent = queries ? 'Öppna extraktion eller databas…' : f ? 'Byt…' : 'Öppna extraktion (zip)…';
-        byId('cb-open').title = queries ? 'En zip öppnas som extraktion i alla verktyg. En databas, med sin -wal, öppnas i Queries.' : '';
-        byId('cb-input').multiple = queries;
+        byId('cb-open').title = queries ? 'En zip öppnas som extraktion i alla verktyg. En databas, med sin -wal, öppnas i Queries. Nyckelringen (…_keychain.plist) kan väljas tillsammans med zippen.'
+            : 'Nyckelringen (…_keychain.plist bredvid zippen) kan väljas tillsammans med zippen.';
+        // Nyckelringen (…_keychain.plist bredvid zippen) kan väljas tillsammans med zippen.
+        byId('cb-input').multiple = true;
         if (queries) byId('cb-input').removeAttribute('accept');
-        else byId('cb-input').setAttribute('accept', '.zip,application/zip');
+        else byId('cb-input').setAttribute('accept', '.zip,application/zip,.plist,.json');
         byId('cb-close').hidden = !f;
         const file = f ? current : null;
         byId('cb-file').hidden = !file;
@@ -274,6 +297,11 @@ function initToolNav() {
             setExtraction(data.file || null, frame && !data.bar ? frame.title : '', frame, false);
             return;
         }
+        // En nyckelfil som valdes i ett verktyg följer extraktionen till de andra.
+        if (data.type === 'extraction-keys' && Array.isArray(data.files)) {
+            setKeys(data.files.filter((f) => f && typeof f.name === 'string'), frameOf(event.source));
+            return;
+        }
         // Vad verktyget vet om extraktionen (iOS 26.0, Android 13), till raden högst upp.
         if (data.type === 'extraction-info') {
             if (data.file && data.info && data.info.device) {
@@ -330,15 +358,22 @@ function initToolNav() {
         byId('cb-open').addEventListener('click', () => byId('cb-input').click());
         byId('cb-input').addEventListener('change', () => {
             const input = byId('cb-input');
-            const files = Array.from(input.files || []);
+            const picked = Array.from(input.files || []);
             input.value = '';
-            if (!files.length) return;
+            if (!picked.length) return;
+            // Nyckelfiler som valdes tillsammans med zippen (nyckelringen bredvid den på iOS) följer extraktionen.
+            const keys = picked.filter(isKeyFile);
+            const files = picked.filter((f) => keys.indexOf(f) < 0);
+            if (!files.length) { setKeys(keys, null); return; }
             // Queries avgör själv om filerna är en extraktion eller en databas med sin -wal.
             if (CONTEXT_TOOLS[activePath] === 'queries') {
                 deliver('queries', { source: 'forensics-toolbox', type: 'open-files', files: files });
+                if (keys.length) setKeys(keys, null);
                 return;
             }
-            setExtraction(files[0], '', null, true);
+            const zip = files.find((f) => /\.zip$/i.test(f.name)) || files[0];
+            setExtraction(zip, '', null, true);
+            if (keys.length) setKeys(keys, null);
         });
         byId('cb-close').addEventListener('click', () => setExtraction(null, '', null, true));
         bar.addEventListener('click', (e) => {

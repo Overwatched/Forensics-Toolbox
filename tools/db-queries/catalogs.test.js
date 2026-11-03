@@ -13,6 +13,10 @@ const routined = require(path.join(ROOT, 'queries', 'ios', 'routined', 'catalog.
 const snapchat = require(path.join(ROOT, 'queries', 'ios', 'snapchat', 'catalog.json'));
 const snapchatAndroid = require(path.join(ROOT, 'queries', 'android', 'snapchat', 'catalog.json'));
 const signalAndroid = require(path.join(ROOT, 'queries', 'android', 'signal', 'catalog.json'));
+const signalIos = require(path.join(ROOT, 'queries', 'ios', 'signal', 'catalog.json'));
+const whatsappIos = require(path.join(ROOT, 'queries', 'ios', 'whatsapp', 'catalog.json'));
+const SCHEMAS = require(path.join(__dirname, 'fixtures', 'chat-schemas.json'));
+const fs = require('node:fs');
 
 // Rollqueryer (hidden) hör till Härkomst och visas inte i Queries. De kontrolleras för sig.
 const visible = (list) => list.filter((q) => !q.hidden);
@@ -141,6 +145,7 @@ test('rollqueryer för Härkomst: dolda, med epoch och fältkarta som stämmer m
     for (const db of appUsage.databases) for (const q of db.queries) if (q.hidden) groups.push([db.id + '/' + q.id, q]);
     for (const db of routined.databases) for (const q of db.queries) if (q.hidden) groups.push([db.id + '/' + q.id, q]);
     for (const db of snapchat.databases) for (const q of db.queries) if (q.hidden) groups.push([db.id + '/' + q.id, q]);
+    for (const db of signalIos.databases.concat(whatsappIos.databases)) for (const q of db.queries) if (q.hidden) groups.push([db.id + '/' + q.id, q]);
     for (const cat of android.categories) for (const q of cat.queries) if (q.hidden) groups.push(['android-' + cat.id + '/' + q.id, q]);
     assert.ok(groups.length >= 12, 'för få rollqueryer: ' + groups.length);
     for (const [name, q] of groups) {
@@ -178,6 +183,7 @@ test('sökvägar för extraktion: alla SQL-databaser har dem, och de är skrivna
         ...appUsage.databases.map((d) => [d.id, d.paths]),
         ...routined.databases.map((d) => [d.id, d.paths]),
         ...snapchat.databases.map((d) => [d.id, d.paths]),
+        ...signalIos.databases.concat(whatsappIos.databases).map((d) => [d.id, d.paths]),
         ...android.categories.filter((c) => c.id !== 'usage').map((c) => ['android-' + c.id, c.paths]),
     ];
     for (const [name, paths] of groups) {
@@ -191,4 +197,90 @@ test('sökvägar för extraktion: alla SQL-databaser har dem, och de är skrivna
     for (let v = 10; v <= 26; v++) {
         assert.strictEqual(bands.filter((r) => v >= r[0] && v <= r[1]).length, 1, 'Photos: iOS ' + v + ' ska höra till exakt ett band');
     }
+});
+
+// ---------- Signal och WhatsApp på iOS ----------
+
+
+let SQLJS = null;
+async function sqlJs() {
+    if (SQLJS) return SQLJS;
+    const dir = path.join(ROOT, 'tools', 'ios-keychain', 'vendor', 'sqljs');
+    const ctx = {};
+    new Function('window', fs.readFileSync(path.join(dir, 'sql-wasm-binary.js'), 'utf8'))(ctx);
+    SQLJS = await require(path.join(dir, 'sql-wasm.js'))({ wasmBinary: ctx.SQL_WASM_BINARY });
+    return SQLJS;
+}
+
+// Varje query förbereds mot labbtelefonens schema (bara CREATE TABLE, inga data), med platshållarna ifyllda.
+async function prepareAll(catalog, schema) {
+    const S = await sqlJs();
+    const db = new S.Database();
+    Object.values(schema).forEach((sql) => db.run(sql));
+    const errors = [];
+    for (const d of catalog.databases) for (const q of d.queries) {
+        const sql = q.sql.replace(/\{\{\w+\}\}/g, '0');
+        try { db.prepare(sql).free(); } catch (e) { errors.push(d.id + '/' + q.id + ': ' + e.message); }
+    }
+    db.close();
+    return errors;
+}
+
+test('Signal på iOS (beta): krypterad med iOS-profilen, en rekommenderad query, millisekunder, rollerna och schemat', async () => {
+    assert.deepStrictEqual(signalIos.databases.map((d) => d.id), ['signal-ios-main']);
+    const db = signalIos.databases[0];
+    assert.strictEqual(db.cipher, 'signal-ios');
+    assert.deepStrictEqual(db.paths, ['grdb/signal.sqlite']);
+    checkGroup(db.id, db.queries, (q) => q.subtitle);
+    for (const q of db.queries) {
+        if (/\{\{(cocoa|unix)(Start|End)\}\}/.test(q.sql)) assert.fail(db.id + '/' + q.id + ': Signals tider är millisekunder');
+        if (!q.hidden && /\{\{unixMs/.test(q.sql)) assert.strictEqual(q.timeEpoch, 'unix-ms', db.id + '/' + q.id + ': timeEpoch');
+        if (q.hidden) { assert.strictEqual(q.epoch, 'unixMs'); assert.ok(q.fields, q.id + ': fields'); }
+        for (const p of q.params || []) if (!/^time(Start|End)$/.test(p)) assert.ok(signalIos.paramLabels[p], q.id + ': etikett för ' + p);
+    }
+    assert.deepStrictEqual(db.queries.filter((q) => q.hidden).map((q) => q.role).sort(), ['attachments', 'coverage', 'messages', 'recipients']);
+    const att = db.queries.find((q) => q.role === 'attachments');
+    for (const f of ['id', 'messageId', 'ownerType', 'sha256', 'fileName', 'sent', 'received', 'type', 'threadName', 'isGroup', 'authorId']) assert.ok(att.fields[f], 'attachments.' + f);
+    assert.deepStrictEqual(await prepareAll(signalIos, SCHEMAS['signal-ios']), []);
+});
+
+test('WhatsApp på iOS (beta): okrypterad, Cocoa-tider, SHA-256 och bildbibliotekets id i SQL:en, rollerna och schemat', async () => {
+    assert.deepStrictEqual(whatsappIos.databases.map((d) => d.id), ['whatsapp-ios-chat']);
+    const db = whatsappIos.databases[0];
+    assert.strictEqual(db.cipher, undefined);
+    checkGroup(db.id, db.queries, (q) => q.subtitle);
+    for (const q of db.queries) {
+        if (/\{\{unix/.test(q.sql)) assert.fail(db.id + '/' + q.id + ': WhatsApps tider är Cocoa-sekunder');
+        if (!q.hidden && /\{\{cocoa/.test(q.sql)) assert.strictEqual(q.timeEpoch, 'cocoa', q.id + ': timeEpoch');
+        if (q.hidden) { assert.strictEqual(q.epoch, 'cocoa'); assert.ok(q.fields, q.id + ': fields'); }
+        for (const p of q.params || []) if (!/^time(Start|End)$/.test(p)) assert.ok(whatsappIos.paramLabels[p], q.id + ': etikett för ' + p);
+    }
+    assert.deepStrictEqual(db.queries.filter((q) => q.hidden).map((q) => q.role).sort(), ['coverage', 'media', 'messages']);
+    const media = db.queries.find((q) => q.role === 'media');
+    assert.match(media.sql, /instr\(i\.ZMETADATA, CAST\('\/L0\/001' AS BLOB\)\)/, 'bildbibliotekets id ur ZMETADATA');
+    assert.match(media.sql, /length\(i\.ZVCARDNAME\) = 44/, 'SHA-256 i base64 ur ZVCARDNAME');
+    assert.deepStrictEqual(await prepareAll(whatsappIos, SCHEMAS['whatsapp-ios']), []);
+});
+
+test('WhatsApp: bildbibliotekets id och SHA-256 läses ut i SQL, ett kontaktkort ger ingen summa', async () => {
+    const S = await sqlJs();
+    const db = new S.Database();
+    Object.values(SCHEMAS['whatsapp-ios']).forEach((sql) => db.run(sql));
+    const meta = new Uint8Array([0xa2, 0x04, 0x20, ...new Array(32).fill(7), 0x2b, ...Buffer.from('E0A969AD-D0EE-4693-97EE-DEF992DAD88A/L0/001')]);
+    db.run('INSERT INTO ZWACHATSESSION (Z_PK, ZSESSIONTYPE, ZCONTACTJID, ZPARTNERNAME) VALUES (3, 0, ?, ?)', ['123@lid', 'Kim']);
+    db.run('INSERT INTO ZWAMESSAGE (Z_PK, ZISFROMME, ZMESSAGETYPE, ZMESSAGEDATE, ZSENTDATE, ZCHATSESSION, ZMEDIAITEM) VALUES (10, 1, 1, 815397366, 815397366, 3, 9)');
+    db.run('INSERT INTO ZWAMEDIAITEM (Z_PK, ZMESSAGE, ZMEDIALOCALPATH, ZFILESIZE, ZVCARDNAME, ZVCARDSTRING, ZMETADATA) VALUES (9, 10, ?, 55761, ?, ?, ?)', ['Media/123@lid/1/3/x.jpg', '07ZeqtAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=', 'image/jpeg', meta]);
+    db.run('INSERT INTO ZWAMESSAGE (Z_PK, ZISFROMME, ZMESSAGETYPE, ZMESSAGEDATE, ZCHATSESSION, ZMEDIAITEM) VALUES (7, 1, 4, 815397300, 3, 6)');
+    db.run('INSERT INTO ZWAMEDIAITEM (Z_PK, ZMESSAGE, ZVCARDNAME, ZVCARDSTRING) VALUES (6, 7, ?, ?)', ['Kim Kontakt', 'BEGIN:VCARD\nVERSION:3.0\nFN:Kim Kontakt\nEND:VCARD']);
+    const q = whatsappIos.databases[0].queries.find((x) => x.role === 'media');
+    const res = db.exec(q.sql)[0];
+    const rows = res.values.map((v) => Object.fromEntries(res.columns.map((c, i) => [c, v[i]])));
+    db.close();
+    const photo = rows.find((r) => r.media_id === 9);
+    assert.strictEqual(photo.asset_uuid, 'E0A969AD-D0EE-4693-97EE-DEF992DAD88A');
+    assert.strictEqual(photo.sha256_b64, '07ZeqtAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=');
+    assert.strictEqual(photo.mime, 'image/jpeg');
+    const card = rows.find((r) => r.media_id === 6);
+    assert.strictEqual(card.sha256_b64, null, 'kontaktkortets namn är ingen summa');
+    assert.strictEqual(card.mime, null);
 });

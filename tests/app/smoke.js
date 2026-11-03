@@ -154,6 +154,51 @@ const scenarios = [
         return 'rad 1, ' + st.path.split('/').slice(-2).join('/');
     }],
 
+    ['Härkomst: Signal och WhatsApp på iOS, med nyckelringen bredvid zippen', async ({ c, fx }) => {
+        // Nyckelringen väljs ensam i raden högst upp och följer extraktionen som redan är öppen.
+        await c.setFiles(null, '#cb-input', [fx.files.keychain]);
+        await c.ev(null, `document.getElementById('cb-input').dispatchEvent(new Event('change')), 1`);
+        await c.waitFor(PROV, `/Nyckeln läses ur Testextraktion-iOS17_keychain\\.plist/.test(document.getElementById('signal-key-note').textContent)`, 20000, 'nyckelringen i Härkomst');
+        const assessOne = async (name) => {
+            await c.ev(PROV, `document.getElementById('filename').value = ${JSON.stringify(name)}, document.getElementById('run').click(), 1`);
+            await sleep(300);
+            await waitResult(c, name);
+            const model = await c.ev(PROV, `({ name: ProvenanceApp.model().file.filename, type: ProvenanceApp.model().type.label, files: ProvenanceApp.model().events.filter(e => e.isFile && /^(sig|wa)-/.test(e.kind)).map(e => e.kind) })`);
+            expect(model.name === name, 'Bedömningen gäller ' + model.name);
+            return { f: Object.fromEntries((await factors(c)).map((x) => [x.id, x])), model };
+        };
+        // Sparad ur Signal: samma bytes som den mottagna bilagan i den krypterade databasen.
+        const sig = await assessOne('IMG_0006.JPG');
+        expect(sig.f.signal && sig.f.signal.state === 'support' && /Mottagen i Signal/.test(sig.f.signal.verdict), 'Signal: ' + JSON.stringify(sig.f.signal));
+        expect(sig.model.files.includes('sig-message'), 'Meddelandet i Signal är inte märkt som filens');
+        // Vald ur bildbiblioteket och skickad i WhatsApp: bibliotekets id i mediefilens metadata.
+        const lib = await assessOne('IMG_0005.JPG');
+        expect(lib.f.whatsapp && lib.f.whatsapp.state === 'info' && /Skickad i WhatsApp/.test(lib.f.whatsapp.verdict), 'WhatsApp: ' + JSON.stringify(lib.f.whatsapp));
+        // WhatsApps egen mottagna fil under Message/: prövas som mottagen, och kameran frågas inte.
+        const own = await assessOne(fx.waMedia);
+        expect(own.f.whatsapp && own.f.whatsapp.state === 'support', 'WhatsApps fil: ' + JSON.stringify(own.f.whatsapp));
+        expect(own.f.camera && own.f.camera.state === 'na', 'Kameran för WhatsApps fil: ' + JSON.stringify(own.f.camera));
+        expect(/WhatsApp-media/.test(own.model.type), 'Typen: ' + own.model.type);
+        await noInjectedScript(c);
+        return 'Signal förenligt, WhatsApp skickad och mottagen';
+    }],
+
+    ['Queries: Signals databas på iOS dekrypteras med nyckelringen från raden högst upp', async ({ c, fx }) => {
+        await c.nav('Queries');
+        await c.ev(QUER, `(function(){ const b = document.querySelector('.side-db[data-family="signal-ios-main"]'); if (b.getAttribute('aria-expanded') !== 'true') b.click(); return 1; })()`);
+        await c.ev(QUER, `document.querySelector('.side-q[data-db="signal-ios-main"][data-q="messages"]').click(), 1`);
+        await sleep(300);
+        const day = new Date(fx.T2).toISOString().slice(0, 10);
+        await c.ev(QUER, `(function(){ const s = document.querySelector('[data-param="timeStart"]'), e = document.querySelector('[data-param="timeEnd"]'); s.value = '${day} 00:00'; e.value = '${day} 23:59'; s.dispatchEvent(new Event('input')); e.dispatchEvent(new Event('input')); return 1; })()`);
+        await c.ev(QUER, `document.getElementById('run-button').click(), 1`);
+        await c.waitFor(QUER, `/rad(er)? på/.test(document.getElementById('run-status').textContent) || /run-warn/.test(document.getElementById('run-status').innerHTML)`, 30000, 'körningen');
+        const r = await c.ev(QUER, `({ status: document.getElementById('run-status').innerText, rows: document.querySelectorAll('#run-result tbody tr').length, trace: document.getElementById('run-trace') ? document.getElementById('run-trace').innerText : '' })`);
+        expect(r.rows === 1, 'Signals meddelanden: ' + r.rows + ' rader. ' + r.status);
+        expect(/Signals inställningar på iOS/.test(r.trace + r.status), 'Spårbarheten säger inte hur databasen dekrypterades: ' + (r.trace + r.status).slice(0, 300));
+        await noInjectedScript(c);
+        return '1 meddelande, dekrypterad med nyckelringen';
+    }],
+
     ['Härkomst: sökning på tid listar filerna, och HTML i namnen körs inte', async ({ c }) => {
         // Bytet av zon gör om bedömningen som visas: sökningen startas när den är klar.
         await c.ev(PROV, `(function(){ const z = document.getElementById('zone'); z.value = 'utc'; z.dispatchEvent(new Event('change')); document.getElementById('when-date').value = '2024-06-01'; document.getElementById('when-time').value = '12:35'; return 1; })()`);

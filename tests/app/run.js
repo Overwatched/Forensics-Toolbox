@@ -2,13 +2,14 @@
 // Provkörning av hela appen i Electron: `npm run test:app`.
 //
 // Startar appen utan skärm (tests/app/harness.js), styr den över DevTools-protokollet och kör
-// röktestet (smoke.js) mot påhittade data. Finns labbzippen kör den också facit-testerna
-// (facit.js), som jämför Härkomsts tider med det som loggades på labbtelefonen. Labbzippen ligger
-// inte i repot; sökvägen tas ur FT_LAB_ZIP, annars ~/Documents/Exampleextractions/.
+// röktestet (smoke.js) mot påhittade data. Finns labbzipparna kör den också facit-testerna
+// (facit.js), som jämför Härkomsts tider med det som loggades på Android-labbtelefonen, och
+// kontrollerna mot iOS-labbtelefonen (lab-ios.js). Labbzipparna ligger inte i repot; sökvägarna
+// tas ur FT_LAB_ZIP och FT_LAB_IOS_DIR, annars ~/Documents/Exampleextractions/.
 //
-//   npm run test:app                röktestet, och facit om labbzippen finns
+//   npm run test:app                röktestet, och labbtesterna om labbzipparna finns
 //   npm run test:app -- --smoke     bara röktestet
-//   npm run test:app -- --facit     bara facit (kräver labbzippen)
+//   npm run test:app -- --facit     bara labbtesterna (kräver minst en labbzipp)
 //   FT_SHOTS=<mapp>                 skärmdumpar efter varje del
 'use strict';
 
@@ -28,6 +29,12 @@ const onlyFacit = args.includes('--facit');
 function labZip() {
     const p = process.env.FT_LAB_ZIP || path.join(os.homedir(), 'Documents', 'Exampleextractions', 'Lab-Android-Nord-2026-11-02.zip');
     return fs.existsSync(p) ? p : null;
+}
+
+function labIosDir() {
+    const facit = require('./facit/lab-ios-signal-whatsapp.json');
+    const d = process.env.FT_LAB_IOS_DIR || path.join(os.homedir(), 'Documents', 'Exampleextractions', facit.dir);
+    return require('./lab-ios').labFiles(d) ? d : null;
 }
 
 function startApp(downloads) {
@@ -50,8 +57,9 @@ async function main() {
         process.exit(1);
     }
     const lab = labZip();
-    if (onlyFacit && !lab) {
-        console.error('Labbzippen finns inte. Ange sökvägen i FT_LAB_ZIP.');
+    const labIos = labIosDir();
+    if (onlyFacit && !lab && !labIos) {
+        console.error('Labbzipparna finns inte. Ange sökvägarna i FT_LAB_ZIP och FT_LAB_IOS_DIR.');
         process.exit(1);
     }
     const fx = await fixtures.build();
@@ -65,8 +73,10 @@ async function main() {
         await c.waitFor(null, `document.querySelectorAll('.nav-item').length > 0`, 30000, 'huvudfönstret');
         const groups = [];
         if (!onlyFacit) groups.push(['Röktest', require('./smoke').scenarios]);
-        if (!onlySmoke && lab) groups.push(['Facit mot labbtelefonen', require('./facit').scenarios(lab)]);
-        if (!onlySmoke && !lab) console.log('Facit: labbzippen finns inte, hoppar över (FT_LAB_ZIP).\n');
+        if (!onlySmoke && lab) groups.push(['Facit mot Android-labbtelefonen', require('./facit').scenarios(lab)]);
+        if (!onlySmoke && !lab) console.log('Facit: Android-labbzippen finns inte, hoppar över (FT_LAB_ZIP).\n');
+        if (!onlySmoke && labIos) groups.push(['Kontroller mot iOS-labbtelefonen', require('./lab-ios').scenarios(labIos)]);
+        if (!onlySmoke && !labIos) console.log('iOS-labbtelefonen: mappen finns inte, hoppar över (FT_LAB_IOS_DIR).\n');
         for (const [group, list] of groups) {
             console.log(group);
             for (const [name, fn] of list) {

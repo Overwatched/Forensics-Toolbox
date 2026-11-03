@@ -489,11 +489,13 @@ function visibleQueries(list) {
     return (list || []).filter((q) => !q.hidden);
 }
 
-function buildDatabases(photos, android, appUsage, routined, snapchat, snapchatAndroid, signalAndroid) {
+function buildDatabases(photos, android, appUsage, routined, snapchat, snapchatAndroid, signalAndroid, signalIos, whatsappIos) {
     routined = routined || {};
     snapchat = snapchat || {};
     snapchatAndroid = snapchatAndroid || {};
     signalAndroid = signalAndroid || {};
+    signalIos = signalIos || {};
+    whatsappIos = whatsappIos || {};
     const out = [];
     paramLabels = Object.assign(
         {
@@ -506,7 +508,9 @@ function buildDatabases(photos, android, appUsage, routined, snapchat, snapchatA
         routined.paramLabels || {},
         snapchat.paramLabels || {},
         snapchatAndroid.paramLabels || {},
-        signalAndroid.paramLabels || {}
+        signalAndroid.paramLabels || {},
+        signalIos.paramLabels || {},
+        whatsappIos.paramLabels || {}
     );
     paramDefaults = Object.assign({}, routined.paramDefaults || {});
 
@@ -643,33 +647,36 @@ function buildDatabases(photos, android, appUsage, routined, snapchat, snapchatA
     });
 
     // Signal (beta): databaserna är krypterade med SQLCipher. Nyckeln läses ur extraktionen
-    // (extra/Secrets/secrets.json) eller klistras in under Kör i appen.
-    (signalAndroid.databases || []).forEach((db) => {
-        const label = db.label.replace(/^Android — /, '');
-        out.push({
-            id: db.id,
-            os: 'Android',
-            category: 'signal',
-            family: db.id,
-            familyTitle: label,
-            label: label + ' (beta)',
-            blurb: db.blurb || '',
-            dbPathHint: db.dbPathHint,
-            paths: db.paths || [],
-            source: db.source,
-            note: signalAndroid.sourceNote,
-            cipher: db.cipher || null,
-            runnable: true,
-            queries: visibleQueries(db.queries).map((q) => ({
-                id: q.id,
-                title: q.title,
-                subtitle: q.subtitle || '',
-                recommended: !!q.recommended,
-                group: q.group,
-                returns: q.returns || '',
-                params: q.params || [],
-                sql: q.sql,
-            })),
+    // (extra/Secrets/secrets.json på Android, nyckelringen bredvid zippen på iOS) eller klistras in.
+    // WhatsApp (beta) på iOS är okrypterad.
+    [[signalAndroid, 'Android', 'signal'], [signalIos, 'iOS', 'signal'], [whatsappIos, 'iOS', 'whatsapp']].forEach(([cat, os, category]) => {
+        (cat.databases || []).forEach((db) => {
+            const label = db.label.replace(/^(Android|iOS) — /, '');
+            out.push({
+                id: db.id,
+                os: os,
+                category: category,
+                family: db.id,
+                familyTitle: label,
+                label: label + ' (beta)',
+                blurb: db.blurb || '',
+                dbPathHint: db.dbPathHint,
+                paths: db.paths || [],
+                source: db.source,
+                note: cat.sourceNote,
+                cipher: db.cipher || null,
+                runnable: true,
+                queries: visibleQueries(db.queries).map((q) => ({
+                    id: q.id,
+                    title: q.title,
+                    subtitle: q.subtitle || '',
+                    recommended: !!q.recommended,
+                    group: q.group,
+                    returns: q.returns || '',
+                    params: q.params || [],
+                    sql: q.sql,
+                })),
+            });
         });
     });
 
@@ -737,10 +744,18 @@ const CATEGORIES = {
         beta: true,
         intro: {
             Android: 'Signals egna databaser under data/data/org.thoughtcrime.securesms: meddelanden, bilagor med SHA-256, kontakter och Signals logg. Krypterade med SQLCipher; nyckeln läses ur extraktionen eller klistras in.',
+            iOS: 'Signals databas i appgruppen: meddelanden, bilagor med SHA-256, samtal och kontakter. Krypterad med SQLCipher; nyckeln läses ur nyckelringen (…_keychain.plist bredvid zippen) eller klistras in.',
+        },
+    },
+    whatsapp: {
+        title: 'WhatsApp',
+        beta: true,
+        intro: {
+            iOS: 'WhatsApps databas i appgruppen: meddelanden, mediefiler med bildbibliotekets id, chattar och samtal.',
         },
     },
 };
-const CATEGORY_ORDER = ['system', 'snapchat', 'signal'];
+const CATEGORY_ORDER = ['system', 'snapchat', 'signal', 'whatsapp'];
 
 function categoryOf(d) {
     return d.category || 'system';
@@ -1006,7 +1021,7 @@ function applyDeepLink() {
 
 async function init() {
     try {
-        const [photos, android, appUsage, routined, snapchat, snapchatAndroid, signalAndroid] = await Promise.all([
+        const [photos, android, appUsage, routined, snapchat, snapchatAndroid, signalAndroid, signalIos, whatsappIos] = await Promise.all([
             loadLocalJson('../../queries/ios/photos-sqlite/catalog.json', 'PHOTOS_SQLITE_CATALOG'),
             loadLocalJson('../../queries/android/catalog.json', 'ANDROID_QUERIES_CATALOG'),
             loadLocalJson('../../queries/app-usage/catalog.json', 'APP_USAGE_CATALOG'),
@@ -1014,8 +1029,10 @@ async function init() {
             loadLocalJson('../../queries/ios/snapchat/catalog.json', 'SNAPCHAT_CATALOG'),
             loadLocalJson('../../queries/android/snapchat/catalog.json', 'SNAPCHAT_ANDROID_CATALOG'),
             loadLocalJson('../../queries/android/signal/catalog.json', 'SIGNAL_ANDROID_CATALOG'),
+            loadLocalJson('../../queries/ios/signal/catalog.json', 'SIGNAL_IOS_CATALOG'),
+            loadLocalJson('../../queries/ios/whatsapp/catalog.json', 'WHATSAPP_IOS_CATALOG'),
         ]);
-        databases = buildDatabases(photos, android, appUsage, routined, snapchat, snapchatAndroid, signalAndroid);
+        databases = buildDatabases(photos, android, appUsage, routined, snapchat, snapchatAndroid, signalAndroid, signalIos, whatsappIos);
         renderSide();
         applyDeepLink();
         readyResolve();
@@ -1117,6 +1134,12 @@ window.addEventListener('message', function (event) {
         window.QueriesApp.ready.then(function () {
             return window.QueriesExtraction.follow({ file: data.file || null, seq: Number(data.seq) || 0, from: data.from || '', force: !!data.force });
         }).catch(function (err) { console.warn('Extraktionen kunde inte öppnas', err); });
+        return;
+    }
+    // Nyckelfiler som följer extraktionen (nyckelringen bredvid zippen på iOS).
+    if (data.type === 'extraction-keys' && Array.isArray(data.files) && window.QueriesExtraction) {
+        ready.then(() => window.QueriesExtraction.useKeyFiles(data.files, false))
+            .catch((err) => console.warn('Nyckelfilerna kunde inte läsas', err));
         return;
     }
     // Knappen i raden högst upp: en zip eller en databas, som extraction.js känner igen.

@@ -30,7 +30,7 @@ function catalogDatabases() {
         queries: b.queries.filter((q) => visible.has(q.id)),
     }));
     const shown = (list) => (list || []).filter((q) => !q.hidden);
-    [['app-usage', null], ['ios/routined', 'iOS'], ['ios/snapchat', 'iOS'], ['android/snapchat', 'Android'], ['android/signal', 'Android']].forEach(([p, os]) => {
+    [['app-usage', null], ['ios/routined', 'iOS'], ['ios/snapchat', 'iOS'], ['android/snapchat', 'Android'], ['android/signal', 'Android'], ['ios/signal', 'iOS'], ['ios/whatsapp', 'iOS']].forEach(([p, os]) => {
         json(p).databases.forEach((d) => out.push({
             id: d.id, family: d.id, os: os || (/android|wellbeing/i.test(d.label) ? 'Android' : 'iOS'),
             paths: d.paths || [], cipher: d.cipher || null, queries: shown(d.queries),
@@ -155,4 +155,22 @@ test('fromName: krypterade databaser och tabeller som bara finns i -wal', () => 
     assert.strictEqual(arroyo.best, 'snapchat-android-arroyo');
     assert.deepStrictEqual(arroyo.families.sort(), ['snapchat-android-arroyo', 'snapchat-arroyo']);
     assert.strictEqual(DbIdentify.fromName('ARROYO.DB', databases, { prefer: 'snapchat-arroyo', os: 'Android' }).best, 'snapchat-arroyo');
+});
+
+test('SQLCipher med okrypterat huvud (Signal på iOS) räknas som krypterad, en vanlig databas med reserv gör det inte', () => {
+    const head = (reserve, page1) => {
+        const b = Buffer.alloc(128);
+        b.write('SQLite format 3\0', 0, 'latin1');
+        b.writeUInt16BE(4096, 16);
+        b[20] = reserve;
+        page1.copy(b, 100);
+        return new Uint8Array(b);
+    };
+    const btree = Buffer.from([0x0d, 0, 0, 0, 1, 0x0f, 0x80, 0]);
+    const random = Buffer.from([0x9f, 0x3c, 0x71, 0x02, 0xe4, 0xaa, 0x10, 0xc8]);
+    assert.strictEqual(DbIdentify.kindOf(head(80, random), 'signal.sqlite'), 'other');
+    assert.strictEqual(DbIdentify.kindOf(head(80, btree), 'vanlig.sqlite'), 'sqlite', 'reserv men ett riktigt b-träd');
+    assert.strictEqual(DbIdentify.kindOf(head(0, random), 'x.sqlite'), 'sqlite', 'ingen reserv: vanlig SQLite');
+    assert.strictEqual(DbIdentify.kindOf(head(80, random).subarray(0, 16), 'signal.sqlite'), 'sqlite', 'bara 16 byte: går inte att avgöra');
+    assert.strictEqual(DbIdentify.fromName('signal.sqlite', catalogDatabases(), { encrypted: true }).best, 'signal-ios-main');
 });

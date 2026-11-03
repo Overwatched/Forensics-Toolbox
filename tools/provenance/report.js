@@ -10,7 +10,7 @@
     var TABLE = 'border-collapse: collapse; margin: 6px 0 12px;';
     var STATE_COLOR = { support: '#1a7f37', contradiction: '#c62828', missing: '#8a6d00', info: '#444', na: '#777' };
     var ROLE_NOTE = 'Programmet sammanställer telefonens registreringar och säger vad de är förenliga med. Den slutliga bedömningen gör undersökaren, efter egen kontroll av källorna.';
-    var BETA_NOTE = 'Tolkningarna av Snapchat, Signal och Androids systemloggar är kontrollerade mot få extraktioner. Kontrollera uppgifterna mot källorna.';
+    var BETA_NOTE = 'Tolkningarna av Snapchat, Signal, WhatsApp och Androids systemloggar är kontrollerade mot få extraktioner. Kontrollera uppgifterna mot källorna.';
 
     // En mening om kopiorna, med platsernas betydelse i klartext.
     function plainCopies(copies) {

@@ -121,7 +121,8 @@ textarea.name-box:focus { outline: 2px solid var(--accent-soft); border-color: v
 .status .err, .err { color: var(--error); }
 /* Extraktionen öppnades eller stängdes i ett annat verktyg medan något visas här: erbjud bytet. */
 .signal-key { margin-top: 10px; display: flex; flex-direction: column; gap: 4px; }
-.signal-key input { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; padding: 6px 8px; max-width: 640px; }
+.signal-key-input { display: flex; gap: 8px; align-items: center; max-width: 760px; }
+.signal-key input { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; padding: 6px 8px; max-width: 640px; flex: 1; min-width: 0; }
 .signal-key p { margin: 0; font-size: 12px; }
 .follow { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; background: var(--warn-soft); color: var(--text); border-radius: 9px; padding: 8px 10px; font-size: 13px; margin-top: 8px; }
 

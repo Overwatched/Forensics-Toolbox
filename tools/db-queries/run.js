@@ -129,28 +129,51 @@
 
     noWal.addEventListener('change', updateState);
 
-    // Den krypterade databasens nyckel: ur extraktionen (files.cipher) eller inklistrad.
+    // Den krypterade databasens nyckel: inklistrad, ur extraktionen (files.cipher) eller, för en fil från
+    // disk, ur en nyckelfil som valts (nyckelringen på iOS).
     function currentCipher() {
         var db = window.QueriesApp && window.QueriesApp.currentDb ? window.QueriesApp.currentDb() : null;
         var profile = (files.cipher && files.cipher.profile) || (db && db.cipher) || 'signal';
         var typed = keyInput.value.trim() ? AppSecrets.parseManual(keyInput.value).dbKey : null;
         if (typed) return { profile: profile, passphrase: typed, source: 'inklistrad' };
         if (files.cipher && files.cipher.passphrase) return files.cipher;
+        var fromFiles = !files.zip && window.QueriesExtraction && window.QueriesExtraction.cipherFor ? window.QueriesExtraction.cipherFor(db) : null;
+        if (fromFiles && fromFiles.passphrase) return fromFiles;
         return { profile: profile, passphrase: null, source: null };
+    }
+
+    // En ny nyckel ur en nyckelfil för databasen som visas: den läses in igen vid nästa körning.
+    function useCipher(cipher) {
+        if (files.zip) files.cipher = cipher || null;
+        closeOpened();
+        updateState();
     }
 
     // Nyckelrutan visas när nyckeln inte finns i extraktionen, eller när någon vill använda en annan.
     function showKeyRow() {
         var db = window.QueriesApp && window.QueriesApp.currentDb ? window.QueriesApp.currentDb() : null;
         var need = !!(db && db.cipher) || !!files.encrypted;
-        var zipKey = !!(files.cipher && files.cipher.passphrase);
+        var ios = !!(db && db.cipher === 'signal-ios');
+        var c = currentCipher();
+        var zipKey = !!(c.passphrase && c.source !== 'inklistrad');
         var show = need && (!zipKey || keyWanted || !!keyInput.value.trim());
         keyRow.classList.toggle('display-none', !show);
         $('run-key-other').classList.toggle('display-none', !need || !zipKey || show);
-        keyNote.textContent = zipKey ? 'Går före nyckeln ur extraktionen. Sparas inte.'
-            : files.zip ? 'Extraktionen har ingen nyckel (extra/Secrets/secrets.json). Klistra in den här. Den sparas inte.'
-                : 'Klistra in den här. Den sparas inte.';
+        keyInput.placeholder = ios ? "96 hextecken, gärna som x'…'" : '64 hextecken, eller Signal-posten ur secrets.json';
+        var bad = window.QueriesExtraction && window.QueriesExtraction.keyFileErrors ? window.QueriesExtraction.keyFileErrors() : [];
+        keyNote.textContent = (zipKey ? 'Går före nyckeln ur ' + c.source + '. Sparas inte.'
+            : ios ? 'Nyckeln ligger i nyckelringen bredvid zippen (…_keychain.plist). Välj den med Nyckelfil…, eller klistra in den här. Den sparas inte.'
+                : files.zip ? 'Extraktionen har ingen nyckel (extra/Secrets/secrets.json). Klistra in den här. Den sparas inte.'
+                    : 'Klistra in den här, eller välj en nyckelfil. Den sparas inte.') + (bad.length ? ' ' + bad.join(' ') : '');
     }
+
+    $('run-keyfile-pick').addEventListener('click', function () { $('run-keyfile').click(); });
+    $('run-keyfile').addEventListener('change', function () {
+        var picked = Array.prototype.slice.call($('run-keyfile').files || []);
+        $('run-keyfile').value = '';
+        if (!picked.length || !window.QueriesExtraction) return;
+        window.QueriesExtraction.useKeyFiles(picked, true).then(showKeyRow).catch(function (err) { console.warn('Nyckelfilen kunde inte läsas', err); });
+    });
 
     // Läser databasen och -wal, räknar SHA-256 och lägger WAL-ramarna på en kopia i minnet. En
     // krypterad databas dekrypteras med cipher.passphrase; utan nyckel kastas ett fel med code
@@ -164,10 +187,10 @@
         var walBytes = walRead ? walRead.bytes : new Uint8Array(0);
         var merged;
         var origin = dbRead.lines.concat(walRead ? walRead.lines : []);
-        var encrypted = dbRead.bytes.length >= 16 && !SqlCipher.isPlain(dbRead.bytes);
+        var encrypted = dbRead.bytes.length >= 16 && SqlCipher.isEncrypted(dbRead.bytes, cipher.profile);
         if (encrypted) {
             if (!cipher.passphrase) {
-                var err = new Error(src.db.name + ' är krypterad (SQLCipher). Klistra in nyckeln i rutan Nyckel under Källa.');
+                var err = new Error(src.db.name + ' är krypterad (SQLCipher). ' + (cipher.profile === 'signal-ios' ? 'Välj nyckelringen (…_keychain.plist bredvid zippen) med Nyckelfil…, eller klistra in nyckeln i rutan Nyckel under Källa.' : 'Klistra in nyckeln i rutan Nyckel under Källa.'));
                 err.code = 'ENCRYPTED';
                 throw err;
             }
@@ -389,6 +412,7 @@
     }
 
     window.QueriesRun = {
+        useCipher: useCipher,
         useSources: useSources, run: runQuery, snapshot: snapshot, restore: restore,
         load: load, fileSource: fileSource, sql: loadSqlJs,
     };

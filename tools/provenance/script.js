@@ -904,6 +904,16 @@
             try { await addSignal(input, meta, windowMs, run, fileSha, zone); }
             catch (e) { input.signal = { error: 'Signals databaser kunde inte läsas: ' + e.message }; console.warn(e); }
         }
+        // Signal och WhatsApp på iOS (beta): bilagornas och mediefilernas summor, bildbibliotekets post
+        // och meddelandena kring T. Samma ordning och samma extra fönster som på Android.
+        if (platform === 'iOS' && hitFor(SIGNAL_IOS_KEYS.main) && fileRow.createdMs) {
+            try { await addSignalIos(input, meta, windowMs, run, fileSha, zone); }
+            catch (e) { input.signal = { error: 'Signals databas kunde inte läsas: ' + e.message }; console.warn(e); }
+        }
+        if (platform === 'iOS' && hitFor(WHATSAPP_KEYS.main) && fileRow.createdMs) {
+            try { await addWhatsApp(input, meta, windowMs, run, fileSha, zone); }
+            catch (e) { input.whatsapp = { error: 'WhatsApps databas kunde inte läsas: ' + e.message }; console.warn(e); }
+        }
 
         var wins = ProvenanceCore.windows(fileRow, windowMs);
         // Utan tidpunkt finns inga fönster, och inga registreringar läses kring filen.
@@ -1372,25 +1382,58 @@
     // ---------- Signal (beta) ----------
 
     var SIGNAL_KEYS = { main: 'signal-android-main', logs: 'signal-android-logs' };
+    var SIGNAL_IOS_KEYS = { main: 'signal-ios-main' };
+    var WHATSAPP_KEYS = { main: 'whatsapp-ios-chat' };
+
+    function signalIos() { return !!(state.zip && state.zip.platform === 'iOS' && hitFor(SIGNAL_IOS_KEYS.main)); }
 
     // Nyckeln till Signals databaser: inklistrad går före extraktionens nyckelfil.
+    // Nyckeln ur det som finns, i ordning: inklistrad, extraktionens nyckelfil (secrets.json) och
+    // nyckelfiler som valts (nyckelringen bredvid zippen på iOS). Profilen följer plattformen.
     function signalCipher() {
-        var keys = AppSecrets.signalKeys([state.signalManual].concat((state.zip && state.zip.secrets) || []));
-        return { profile: 'signal', passphrase: keys ? keys.dbKey : null, source: keys ? keys.source : null, hint: 'nyckelfilen extra/Secrets/secrets.json' };
+        var profile = signalIos() ? 'signal-ios' : 'signal';
+        var keys = AppSecrets.keysForProfile([state.signalManual].concat((state.zip && state.zip.secrets) || [], state.keyFiles || []), profile);
+        return { profile: profile, passphrase: keys ? keys.dbKey : null, source: keys ? keys.source : null, hint: AppSecrets.keyHint(profile) };
+    }
+
+    // Nyckelfiler som valts i Härkomst eller kommit från navet (raden högst upp eller Queries). Varje
+    // fil tolkas efter innehållet; en fil som inte är en nyckelfil sägs under nyckelrutan.
+    async function useKeyFiles(files, share) {
+        var parsed = [];
+        for (var i = 0; i < (files || []).length; i++) {
+            try { parsed.push(AppSecrets.fromKeyFile(new Uint8Array(await files[i].arrayBuffer()), files[i].name)); }
+            catch (e) { parsed.push({ source: files[i].name, apps: {}, error: 'Filen kunde inte läsas: ' + e.message }); }
+        }
+        state.keyFiles = parsed;
+        dropCipherDbs();
+        renderSignalKey();
+        if (share) toHub({ type: 'extraction-keys', files: Array.from(files || []) });
+    }
+
+    // Inlästa krypterade databaser läses in igen med den nya nyckeln.
+    function dropCipherDbs() {
+        Object.keys(state.loaded).forEach(function (k) {
+            if (/org\.thoughtcrime\.securesms\/|\/grdb\/signal\.sqlite$/.test(k)) { if (state.loaded[k].sqlDb) state.loaded[k].sqlDb.close(); delete state.loaded[k]; }
+        });
     }
 
     // Raden under databaslistan: varifrån nyckeln kom, eller rutan att klistra in den i.
     function renderSignalKey() {
         var row = $('signal-key-row');
-        var has = !!(state.zip && hitFor(SIGNAL_KEYS.main));
+        var ios = signalIos();
+        var has = !!(state.zip && (hitFor(SIGNAL_KEYS.main) || ios));
         row.classList.toggle('display-none', !has);
         if (!has) return;
         var c = signalCipher();
-        $('signal-key-note').textContent = c.passphrase && c.source === 'inklistrad'
-            ? 'Signals databaser är krypterade. Den inklistrade nyckeln används från nästa bedömning och sparas inte.'
+        $('signal-key').placeholder = ios ? "96 hextecken, gärna som x'…'" : '64 hextecken, eller Signal-posten ur secrets.json';
+        var bad = (state.keyFiles || []).filter(function (k) { return k.error; }).map(function (k) { return k.source + ': ' + k.error; });
+        var what = ios ? 'Signals databas är krypterad.' : 'Signals databaser är krypterade.';
+        $('signal-key-note').textContent = (c.passphrase && c.source === 'inklistrad'
+            ? what + ' Den inklistrade nyckeln används från nästa bedömning och sparas inte.'
             : c.passphrase
-            ? 'Signals databaser är krypterade. Nyckeln läses ur ' + c.source + '.'
-            : 'Signals databaser är krypterade och extraktionen saknar nyckel. Klistra in den (64 hextecken) för att läsa Signal. Den sparas inte.';
+            ? what + ' Nyckeln läses ur ' + c.source + '.'
+            : ios ? what + ' Nyckeln ligger i nyckelringen bredvid zippen (…_keychain.plist). Välj den med Nyckelfil…, eller klistra in nyckeln. Den sparas inte.'
+                : what + ' Extraktionen saknar nyckel. Klistra in den (64 hextecken) för att läsa Signal. Den sparas inte.') + (bad.length ? ' ' + bad.join(' ') : '');
     }
 
     // Meddelandena och loggen i fönstret, och bilagorna (alla) mot filens SHA-256. Ligger meddelandet
@@ -1455,12 +1498,129 @@
         input.warnings = input.warnings.concat(mainDb.warnings);
     }
 
+    // Signal på iOS: bilagorna (alla) mot filens SHA-256 och namn, meddelandena och samtalen i fönstret.
+    // Ligger meddelandet utanför fönstren läggs ett eget fönster till kring det.
+    async function addSignalIos(input, meta, windowMs, run, sha256, zone) {
+        var cipher = signalCipher();
+        if (!cipher.passphrase) {
+            input.signal = { error: 'Signals databas är krypterad och nyckeln saknas. Välj nyckelringen (…_keychain.plist bredvid zippen) med Nyckelfil… under 1. Extraktion, eller klistra in nyckeln.' };
+            return;
+        }
+        progress('Läser Signals databas (beta)…');
+        var fileRow = input.file;
+        var src = sourceByKey(SIGNAL_IOS_KEYS.main);
+        var db = await loadDb(hitFor(SIGNAL_IOS_KEYS.main), src.title, cipher);
+        var fmt = zone.format;
+        var wall = function (ms) { return fmt(ms).slice(0, 19) + '.' + ('00' + (((ms % 1000) + 1000) % 1000)).slice(-3); };
+        var attachments = runRole(db, src.roles.attachments, {}, ['sent', 'received', 'server', 'upload', 'refReceived'], run).rows;
+        var recipients = {};
+        runRole(db, src.roles.recipients, {}, [], run).rows.forEach(function (r) { recipients[String(r.id)] = { name: r.name, phone: r.phone }; });
+        var base = {
+            sha256: sha256, fileName: fileRow.filename, originalFilename: fileRow.originalFilename || null,
+            savedBySignal: fileRow.importer === ProvenanceSignal.APP_IOS, attachments: attachments, recipients: recipients, wall: wall, centerMs: fileRow.createdMs,
+            sources: { main: { db: 'signal.sqlite', table: 'model_TSInteraction', queryId: src.roles.messages.id } },
+        };
+        var first = ProvenanceSignal.buildIos(Object.assign({}, base, { messages: [] }));
+        var extra = [];
+        first.link.matches.forEach(function (m) {
+            var c = m.direction === 'in' ? m.receivedMs : m.sentMs;
+            if (c) extra.push({ id: 'signal-' + m.messageId, label: m.direction === 'in' ? 'när filen togs emot i Signal' : 'när filen skickades i Signal', centerMs: c });
+        });
+        if (extra.length) fileRow.extraWindows = (fileRow.extraWindows || []).concat(extra);
+        var wins = ProvenanceCore.windows(fileRow, windowMs);
+        var range = wins.length ? { startMs: Math.min.apply(null, wins.map(function (w) { return w.startMs; })), endMs: Math.max.apply(null, wins.map(function (w) { return w.endMs; })) } : null;
+        var messages = range ? runRole(db, src.roles.messages, { window: range }, ['sent', 'received', 'server'], run).rows : [];
+        var out = ProvenanceSignal.buildIos(Object.assign({}, base, { messages: messages, keep: function (ms) { return ProvenanceCore.inWindows(ms, wins); } }));
+        input.extraEvents = (input.extraEvents || []).concat(out.events);
+        input.extraNotes = (input.extraNotes || []).concat(out.notes);
+        input.signal = { link: out.link, keySource: cipher.source, shaMissing: !sha256 };
+        if (!sha256) input.warnings.push('Filens SHA-256 kunde inte räknas, så den jämfördes inte med Signals bilagor. Bara namnen jämfördes.');
+        if (src.roles.coverage) {
+            var cov = runRole(db, src.roles.coverage, {}, ['first', 'last'], run).rows[0];
+            if (cov) meta.coverage.push(['Signal (meddelanden kvar)', cov.firstMs ? ProvenanceCore.formatUtc(cov.firstMs) : '', cov.lastMs ? ProvenanceCore.formatUtc(cov.lastMs) : '', Number(cov.rows)]);
+        }
+        input.warnings = input.warnings.concat(db.warnings);
+    }
+
+    // Appgruppens id (MCMMetadataIdentifier) för en sökväg i en appbehållare, eller null.
+    async function containerId(path) {
+        var z = state.zip;
+        var m = CONTAINER_GUID.exec(path || '');
+        if (!z || !m || !window.KC || !window.KC.bplist) return null;
+        var g = m[1].toUpperCase();
+        z.containerIds = z.containerIds || {};
+        if (g in z.containerIds) return z.containerIds[g];
+        z.containerIds[g] = null;
+        if (!z.containerMeta) {
+            z.containerMeta = {};
+            var metas = await ExtractionCore.find(z.read, z.file.size, function (name) { return name.slice(-CONTAINER_META.length) === CONTAINER_META; });
+            metas.forEach(function (e) { var mm = CONTAINER_GUID.exec(e.name); if (mm) z.containerMeta[mm[1].toUpperCase()] = e; });
+        }
+        var e = z.containerMeta[g];
+        if (!e || e.size > 65536) return null;
+        try {
+            var plist = window.KC.bplist.parse((await ExtractionCore.readEntry(z.read, e)).bytes);
+            if (plist && typeof plist.MCMMetadataIdentifier === 'string') z.containerIds[g] = plist.MCMMetadataIdentifier;
+        } catch (err) { /* okänd behållare */ }
+        return z.containerIds[g];
+    }
+
+    // WhatsApps ChatStorage.sqlite. Finns flera (WhatsApp Business har en egen) väljs den i WhatsApps
+    // appgrupp, annars den första.
+    async function whatsappHit() {
+        var hits = state.zip.found.filter(function (f) { return f.key === WHATSAPP_KEYS.main; });
+        for (var i = 0; i < hits.length; i++) {
+            if (await containerId(hits[i].db.name) === 'group.net.whatsapp.WhatsApp.shared') return hits[i];
+        }
+        return hits[0] || null;
+    }
+
+    // WhatsApp på iOS: mediefilerna (alla) mot filens SHA-256, bildbibliotekets post och sökväg, och
+    // meddelandena i fönstret.
+    async function addWhatsApp(input, meta, windowMs, run, sha256, zone) {
+        progress('Läser WhatsApps databas (beta)…');
+        var fileRow = input.file;
+        var src = sourceByKey(WHATSAPP_KEYS.main);
+        var hit = await whatsappHit();
+        var db = await loadDb(hit, src.title);
+        var media = runRole(db, src.roles.media, {}, ['date', 'sent', 'upload'], run).rows;
+        var base = {
+            sha256: sha256, uuid: fileRow.uuid || null, path: meta.mediaEntry ? meta.mediaEntry.name : null, createdMs: fileRow.createdMs,
+            savedByWhatsApp: ProvenanceWhatsApp.isWhatsAppApp(fileRow.importer), media: media, centerMs: fileRow.createdMs,
+            sources: { main: { db: 'ChatStorage.sqlite', table: 'ZWAMESSAGE', queryId: src.roles.messages.id } },
+        };
+        var first = ProvenanceWhatsApp.build(Object.assign({}, base, { messages: [] }));
+        var extra = [];
+        first.link.matches.forEach(function (m) {
+            var c = m.direction === 'in' ? m.dateMs : (m.sentMs != null ? m.sentMs : m.dateMs);
+            if (c) extra.push({ id: 'whatsapp-' + m.messageId, label: m.direction === 'in' ? 'när filen togs emot i WhatsApp' : 'när filen skickades i WhatsApp', centerMs: c });
+        });
+        if (extra.length) fileRow.extraWindows = (fileRow.extraWindows || []).concat(extra);
+        var wins = ProvenanceCore.windows(fileRow, windowMs);
+        var range = wins.length ? { startMs: Math.min.apply(null, wins.map(function (w) { return w.startMs; })), endMs: Math.max.apply(null, wins.map(function (w) { return w.endMs; })) } : null;
+        var messages = range ? runRole(db, src.roles.messages, { window: range }, ['date', 'sent'], run).rows : [];
+        var out = ProvenanceWhatsApp.build(Object.assign({}, base, { messages: messages, keep: function (ms) { return ProvenanceCore.inWindows(ms, wins); } }));
+        input.extraEvents = (input.extraEvents || []).concat(out.events);
+        input.extraNotes = (input.extraNotes || []).concat(out.notes);
+        input.whatsapp = { link: out.link };
+        // Är filen WhatsApps egen (under Message/), bedöms den som en fil som togs emot eller skickades i WhatsApp.
+        var own = out.link.matches.find(function (m) { return m.by.indexOf('path') >= 0; });
+        if (own && !fileRow.importer) {
+            fileRow.chatMedia = { app: ProvenanceWhatsApp.APP, appName: 'WhatsApp', direction: own.direction, who: own.who, messageId: own.messageId, path: own.path, source: 'ChatStorage.sqlite' };
+        }
+        if (src.roles.coverage) {
+            var cov = runRole(db, src.roles.coverage, {}, ['first', 'last'], run).rows[0];
+            if (cov) meta.coverage.push(['WhatsApp (meddelanden kvar)', cov.firstMs ? ProvenanceCore.formatUtc(cov.firstMs) : '', cov.lastMs ? ProvenanceCore.formatUtc(cov.lastMs) : '', Number(cov.rows)]);
+        }
+        input.warnings = input.warnings.concat(db.warnings);
+    }
+
     // ---------- Appversioner ----------
 
     // Versionen för apparna som bedömningen läste, till protokollet: på iOS ur appens Info.plist i
     // paketet (versionen som var installerad vid extraktionen), på Android ur packages.xml, Snapchats
     // Memories (versionen när snappen togs) och Signals logg (versionen på raden närmast T).
-    var APP_BUNDLES = { 'com.toyopagroup.picaboo': 'Snapchat.app' };
+    var APP_BUNDLES = { 'com.toyopagroup.picaboo': 'Snapchat.app', 'org.whispersystems.signal': 'Signal.app', 'net.whatsapp.WhatsApp': 'WhatsApp.app' };
 
     async function iosBundleVersion(bundleId) {
         var z = state.zip;
@@ -1517,7 +1677,15 @@
                 if (!ua && !wua && !sp) out.push({ app: 'Snapchat', source: 'varken packages.xml eller en sparad snap med version finns i zippen' });
             }
         }
-        if (input.signal && !input.signal.error) {
+        // På iOS: versionen ur appens Info.plist i paketet, för Signal och WhatsApp när de lästes.
+        var iosApp = async function (bundle, name) {
+            var b = await iosBundleVersion(bundle);
+            out.push(b ? { app: name, version: b.version, build: b.build, source: b.path.replace(/^.*\/(Bundle\/Application\/)/, '$1'), note: 'installerad version när extraktionen gjordes' }
+                : { app: name, source: 'appens Info.plist hittades inte i zippen' });
+        };
+        if (z.platform === 'iOS' && input.signal && !input.signal.error) await iosApp(ProvenanceSignal.APP_IOS, 'Signal');
+        if (z.platform === 'iOS' && input.whatsapp && !input.whatsapp.error) await iosApp(ProvenanceWhatsApp.APP, 'WhatsApp');
+        if (z.platform !== 'iOS' && input.signal && !input.signal.error) {
             var lv = input.signalLogVersion;
             if (lv) out.push({ app: 'Signal', version: lv.version, source: 'Signals logg (signal-logs.db)', note: 'versionen på raden närmast T, ' + fmtU(lv.ms) });
             var gp = await androidPackage(ProvenanceSignal.APP);
@@ -1914,10 +2082,49 @@
         else {
             item.missing = ProvenanceHashSearch.missingText(algo, res, ExtractionCore.sizeText);
             var sh = sig && sig.found[hex];
+            var tx = sig && sig.texts && sig.texts[hex];
             if (sh && sh.length) item.missing += ' Men summan finns i Signal: ' + sh.map(function (h) { return ProvenanceSignal.attachmentText(h, sig.ctx); }).join(' ');
+            else if (tx && tx.length) item.missing += ' Men summan finns i databaserna: ' + tx.join(' ') + (sig.note ? ' ' + sig.note : '');
             else if (sig && sig.note) item.missing += ' ' + sig.note;
         }
         return item;
+    }
+
+    // På iOS står summorna i Signals och WhatsApps databaser (SHA-256 för den lagrade filen), så de
+    // jämförs direkt utan att filerna läses. MD5 och SHA-1 söks inte där.
+    async function chatHashLookupIos(hashes) {
+        var want = hashes.map(function (h) { return String(h).toLowerCase(); }).filter(function (h) { return ProvenanceHashSearch.algoOf(h) === 'sha256'; });
+        var texts = {};
+        var notes = [];
+        if (want.length < hashes.length) notes.push('Signal och WhatsApp söktes bara på SHA-256.');
+        if (!want.length) return { found: {}, texts: texts, note: notes.join(' ') };
+        var fmt = zoneChoice(null).format;
+        var run = { queries: [] };
+        var add = function (h, t) { (texts[h] = texts[h] || []).push(t); };
+        if (hitFor(SIGNAL_IOS_KEYS.main)) {
+            var cipher = signalCipher();
+            if (!cipher.passphrase) notes.push('Signals bilagor söktes inte: databasen är krypterad och nyckeln saknas.');
+            else {
+                var src = sourceByKey(SIGNAL_IOS_KEYS.main);
+                var db = await loadDb(hitFor(SIGNAL_IOS_KEYS.main), src.title, cipher);
+                var recipients = {};
+                runRole(db, src.roles.recipients, {}, [], run).rows.forEach(function (r) { recipients[String(r.id)] = { name: r.name }; });
+                var ctx = { recipients: recipients, wall: fmt };
+                runRole(db, src.roles.attachments, {}, ['sent', 'received', 'refReceived'], run).rows.forEach(function (a) {
+                    var h = String(a.sha256 || '').toLowerCase();
+                    if (want.indexOf(h) >= 0) add(h, ProvenanceSignal.attachmentTextIos(a, ctx));
+                });
+            }
+        }
+        if (hitFor(WHATSAPP_KEYS.main)) {
+            var wsrc = sourceByKey(WHATSAPP_KEYS.main);
+            var wdb = await loadDb(await whatsappHit(), wsrc.title);
+            runRole(wdb, wsrc.roles.media, {}, ['date', 'sent', 'upload'], run).rows.forEach(function (m) {
+                var h = ProvenanceWhatsApp.b64ToHex(m.sha256);
+                if (h && want.indexOf(h) >= 0) add(h, ProvenanceWhatsApp.mediaText(m, fmt));
+            });
+        }
+        return { found: {}, texts: texts, note: notes.join(' ') };
     }
 
     // Summor som inte finns som filer i zippen kan finnas bland Signals bilagor, som ligger krypterade.
@@ -1985,6 +2192,9 @@
             if (hashes.length) res = await searchHashes(hashes, entries);
             if (res && !res.stopped && res.missing.length && z.platform === 'Android' && hitFor(SIGNAL_KEYS.main)) {
                 try { sig = await signalHashLookup(res.missing, entries); } catch (e) { sig = { found: {}, note: 'Signals bilagor kunde inte sökas: ' + e.message }; console.warn(e); }
+            }
+            if (res && !res.stopped && res.missing.length && z.platform === 'iOS' && (hitFor(SIGNAL_IOS_KEYS.main) || hitFor(WHATSAPP_KEYS.main))) {
+                try { sig = await chatHashLookupIos(res.missing); } catch (e) { sig = { found: {}, note: 'Signals och WhatsApps databaser kunde inte sökas: ' + e.message }; console.warn(e); }
             }
         } catch (err) {
             batchFailed(err);
@@ -3291,8 +3501,10 @@
                 loadLocalJson('../../queries/ios/snapchat/catalog.json', 'SNAPCHAT_CATALOG'),
                 loadLocalJson('../../queries/android/snapchat/catalog.json', 'SNAPCHAT_ANDROID_CATALOG'),
                 loadLocalJson('../../queries/android/signal/catalog.json', 'SIGNAL_ANDROID_CATALOG'),
+                loadLocalJson('../../queries/ios/signal/catalog.json', 'SIGNAL_IOS_CATALOG'),
+                loadLocalJson('../../queries/ios/whatsapp/catalog.json', 'WHATSAPP_IOS_CATALOG'),
             ]);
-            state.sources = ProvenanceRoles.collect({ photos: cats[0], android: cats[1], appUsage: cats[2], routined: cats[3], snapchat: cats[4], snapchatAndroid: cats[5], signalAndroid: cats[6] });
+            state.sources = ProvenanceRoles.collect({ photos: cats[0], android: cats[1], appUsage: cats[2], routined: cats[3], snapchat: cats[4], snapchatAndroid: cats[5], signalAndroid: cats[6], signalIos: cats[7], whatsappIos: cats[8] });
             state.databases = ProvenanceRoles.databases(state.sources);
             state.targets = ExtractionCore.targets(state.databases);
         } catch (err) {
@@ -3315,10 +3527,15 @@
     $('signal-key').addEventListener('input', function () {
         var v = $('signal-key').value.trim();
         state.signalManual = v ? Object.assign({ source: 'inklistrad' }, AppSecrets.parseManual(v)) : null;
-        Object.keys(state.loaded).forEach(function (k) {
-            if (/org\.thoughtcrime\.securesms\//.test(k)) { if (state.loaded[k].sqlDb) state.loaded[k].sqlDb.close(); delete state.loaded[k]; }
-        });
+        dropCipherDbs();
         renderSignalKey();
+    });
+    // Nyckelringen (iOS) eller en annan nyckelfil. Den delas med de andra verktygen via navet.
+    $('signal-keyfile-pick').addEventListener('click', function () { $('signal-keyfile').click(); });
+    $('signal-keyfile').addEventListener('change', function () {
+        var files = Array.from($('signal-keyfile').files || []);
+        $('signal-keyfile').value = '';
+        if (files.length) useKeyFiles(files, true).catch(function (err) { console.warn('Nyckelfilen kunde inte läsas', err); });
     });
     $('fill-sample').addEventListener('click', function () {
         fillSample('camera').catch(function (err) { setStatus('ex-status', escapeHtml(err && err.message ? err.message : String(err)), 'err'); });
@@ -3425,6 +3642,7 @@
         if (!data || (data.source !== 'forensics-toolbox' && data.source !== 'verktygslada')) return;
         if (data.type === 'provenance-file' && typeof data.file === 'string') $('filename').value = data.file;
         if (data.type === 'extraction') followExtraction({ file: data.file || null, seq: Number(data.seq) || 0, from: data.from || '', force: !!data.force });
+        if (data.type === 'extraction-keys') useKeyFiles(Array.isArray(data.files) ? data.files : [], false).catch(function (err) { console.warn('Nyckelfilerna kunde inte läsas', err); });
         if (data.type === 'deliver-file') handOver(data.to).catch(function (err) { console.warn(err); });
         if (data.type === 'provenance-files') receiveFiles(data.files);
         if (data.type === 'provenance-names' && Array.isArray(data.names)) receiveNames(data.names.map(String), data.zipName || '');

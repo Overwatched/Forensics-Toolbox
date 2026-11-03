@@ -62,3 +62,59 @@ test('varje nyckel tas ur den första källan som har den', () => {
     assert.deepStrictEqual(s.signalKeys([onlyDb, fromFile]), { dbKey: otherDb, modernKey: MODERN, source: 'inklistrad', modernSource: 'extra/Secrets/secrets.json' });
     assert.deepStrictEqual(s.signalKeys([onlyModern]), { dbKey: null, modernKey: MODERN, source: 'inklistrad', modernSource: 'inklistrad' });
 });
+
+// ---------- Nyckelringen från iOS (plist bredvid zippen) ----------
+
+require('../ios-keychain/lib/bplist.js');
+
+// plistlib.dumps(…, fmt=FMT_BINARY): en WhatsApp-post och Signals post, där kontot står som data.
+// Nyckeln är byten 0–47, ingen riktig nyckel.
+const KEYCHAIN_BPLIST = 'YnBsaXN0MDDUAQIDBAUGFBlUY2VydFRnZW5wVGluZXRUa2V5c6CiBw/UCAkKCwwNDA5UYWNjdFRhZ3JwVHN2Y2VWdl9EYXRhV0F4b2xvdGxfECJncm91cC5uZXQud2hhdHNhcHAuV2hhdHNBcHAuc2hhcmVkTxBFAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEB1AgJCgsQERITTxAZR1JEQkRhdGFiYXNlQ2lwaGVyS2V5U3BlY18QJFU2OE1TRE42RFIub3JnLndoaXNwZXJzeXN0ZW1zLnNpZ25hbF8QE0dSREJLZXlDaGFpblNlcnZpY2VPEDAAAQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyAhIiMkJSYnKCkqKywtLi+hFdIWCxcYVHNydnJbZXhhbXBsZS5vcmdBeKAACAARABYAGwAgACUAJgApADIANwA8AEEASABQAHUAvQDGAOIBCQEfAVIBVAFZAV4BagFsAAAAAAAAAgEAAAAAAAAAGgAAAAAAAAAAAAAAAAAAAW0=';
+const KEY_HEX = Array.from({ length: 48 }, (_, i) => (i < 16 ? '0' : '') + i.toString(16)).join('');
+
+test('nyckelringen som binär plist: Signals databasnyckel (48 byte) blir 96 hextecken', () => {
+    const r = s.fromKeyFile(new Uint8Array(Buffer.from(KEYCHAIN_BPLIST, 'base64')), 'X_keychain.plist');
+    assert.strictEqual(r.error, undefined);
+    assert.strictEqual(r.kind, 'keychain');
+    assert.strictEqual(r.items, 3);
+    assert.strictEqual(r.apps[s.SIGNAL_IOS].dbKey, KEY_HEX);
+    assert.match(r.apps[s.SIGNAL_IOS].notes[0], /GRDBKeyChainService \/ GRDBDatabaseCipherKeySpec \(U68MSDN6DR\.org\.whispersystems\.signal\)/);
+    assert.deepStrictEqual(s.keysForProfile([null, r], 'signal-ios'), { dbKey: KEY_HEX, modernKey: null, source: 'X_keychain.plist', modernSource: null });
+    assert.strictEqual(s.keysForProfile([r], 'signal'), null, 'Androids Signal finns inte i nyckelringen');
+});
+
+test('nyckelringen som XML-plist, med entiteter, tomma värden och kommentarer', () => {
+    const b64 = Buffer.from(KEY_HEX, 'hex').toString('base64');
+    const xml = '<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n' +
+        '<plist version="1.0"><dict>\n  <!-- en kommentar -->\n  <key>genp</key><array>\n' +
+        '    <dict><key>svce</key><string>A &amp; B &lt;x&gt; &#229;</string><key>acct</key><string/><key>sync</key><false/><key>n</key><integer>7</integer></dict>\n' +
+        '    <dict><key>svce</key><string>GRDBKeyChainService</string><key>acct</key><string>GRDBDatabaseCipherKeySpec</string>\n' +
+        '      <key>v_Data</key><data>\n' + b64.slice(0, 40) + '\n' + b64.slice(40) + '\n</data></dict>\n' +
+        '  </array><key>inet</key><array/></dict></plist>\n';
+    const p = s.parseXmlPlist(xml);
+    assert.strictEqual(p.genp[0].svce, 'A & B <x> å');
+    assert.deepStrictEqual([p.genp[0].acct, p.genp[0].sync, p.genp[0].n], ['', false, 7]);
+    const r = s.fromKeyFile(new Uint8Array(Buffer.from(xml)), 'keychain.plist');
+    assert.strictEqual(r.apps[s.SIGNAL_IOS].dbKey, KEY_HEX);
+    assert.strictEqual(r.items, 2);
+});
+
+test('nyckelfiler: fel format sägs, JSON går till rätt tolk, namnen känns igen', () => {
+    assert.match(s.fromKeyFile(new Uint8Array(Buffer.from('<plist><dict><key>x</key><string>y</string></dict></plist>')), 'k.plist').error, /ingen nyckelring/);
+    assert.match(s.fromKeyFile(new Uint8Array(Buffer.from('<plist><dict><key>x</key>')), 'k.plist').error, /gick inte att läsa/);
+    assert.match(s.fromKeyFile(new Uint8Array(Buffer.from('inte en nyckel')), 'x.txt').error, /ingen nyckelfil/);
+    const secrets = s.fromKeyFile(new Uint8Array(Buffer.from(JSON.stringify([{ app: s.SIGNAL, script_output: [{ payload: { 'sqlite db key': 'ab'.repeat(32) } }] }]))), 'secrets.json');
+    assert.strictEqual(secrets.apps[s.SIGNAL].dbKey, 'ab'.repeat(32));
+    assert.deepStrictEqual(['A_keychain.plist', 'keychain-backup.plist', 'secrets.json', 'X_android_keystore.zip', 'Photos.sqlite', 'Info.plist'].map(s.isKeyFileName), [true, true, true, true, false, false]);
+    assert.strictEqual(s.keyHint('signal-ios'), 'nyckelringen (…_keychain.plist bredvid zippen)');
+});
+
+test('inklistrad nyckel: 96 hextecken (gärna x\'…\') gäller iOS, 64 gäller Android', () => {
+    const ios = s.parseManual("x'" + KEY_HEX.toUpperCase() + "'");
+    assert.strictEqual(ios.dbKey, KEY_HEX);
+    assert.strictEqual(s.keysForProfile([ios], 'signal-ios').dbKey, KEY_HEX);
+    assert.strictEqual(s.keysForProfile([ios], 'signal'), null);
+    const android = s.parseManual('ab'.repeat(32));
+    assert.strictEqual(s.keysForProfile([android], 'signal-ios'), null);
+    assert.strictEqual(s.keysForProfile([android], 'signal').dbKey, 'ab'.repeat(32));
+});

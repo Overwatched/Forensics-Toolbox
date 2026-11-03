@@ -1,5 +1,17 @@
 Automatiskt byggd från commit `{{SHA}}`.
 
+## Nytt i 1.41
+
+Signal och WhatsApp på iOS i Härkomst och Queries (beta).
+
+- **Signal på iOS.** Signals databas på iOS är krypterad, med nyckeln i telefonens nyckelring. Välj nyckelringen (`…_keychain.plist` bredvid zippen) tillsammans med zippen i raden högst upp, eller med **Nyckelfil…**. Databasen dekrypteras i minnet; zippen och nyckelringen ändras inte.
+- **Filen mot Signals bilagor.** Härkomst jämför filens SHA-256 och namn med varje bilaga och visar meddelanden och samtal i tidslinjen. Signal kodar om bilder, så en bild ur bildbiblioteket som skickats har inte bilagans summa: då står det att ingen koppling hittades, inte att filen saknas i Signal.
+- **WhatsApp på iOS.** Härkomst kopplar filen till WhatsApp på SHA-256, på posten i bildbiblioteket (WhatsApp sparar bibliotekets id för en bild som valts därifrån) och på WhatsApps egen fil under `Message/`. En sådan fil prövas som mottagen eller skickad i WhatsApp, och kameran frågas inte. En bild som WhatsApp sparat efter att den tagits med WhatsApps kamera får en möjlig koppling till meddelandet strax efter; där binder bara tiden.
+- **Queries:** nya kataloger för Signal (meddelanden, bilagor, en bilaga efter SHA-256, samtal, konversationer, kontakter) och WhatsApp (meddelanden, mediefiler, en mediefil efter SHA-256, filer valda ur bildbiblioteket, chattar, visningsnamn).
+- **Hashsökningen** i Härkomst hittar också summor bland Signals och WhatsApps filer på iOS.
+- **Appversionen** för Signal och WhatsApp står i protokollet, ur appens Info.plist.
+- **Provkörningar:** röktestet har en krypterad Signal-databas, en påhittad nyckelring och WhatsApp, och kontrollerna mot en iOS-labbtelefon jämför Härkomsts kopplingar med källorna i extraktionen.
+
 ## Nytt i 1.40
 
 En genomgång av 1.34–1.39, med rättningar och fasta provkörningar.

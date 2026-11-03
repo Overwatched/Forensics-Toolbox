@@ -356,6 +356,149 @@
         return { events: events, notes: notes, link: link };
     }
 
+    // ---------- Signal på iOS ----------
+
+    // recordType i model_TSInteraction (Signals SDSRecordType): 19 mottaget, 21 skickat, 20 samtal,
+    // 65 gruppsamtal, 10 info. Bara 21, 20 och 10 är kontrollerade mot data (labbtelefon, iOS 26.4.1).
+    var APP_IOS = 'org.whispersystems.signal';
+    var IOS_IN = 19, IOS_OUT = 21, IOS_CALL = 20, IOS_GROUP_CALL = 65;
+
+    function isSignalIosApp(id) { return id === APP_IOS; }
+
+    function directionIos(recordType) {
+        var t = Number(recordType);
+        return t === IOS_IN ? 'in' : t === IOS_OUT ? 'out' : null;
+    }
+
+    function stem(name) { return String(name || '').replace(/\.[A-Za-z0-9]+$/, '').toLowerCase(); }
+
+    // En bilaga i ett meddelande (ownerType 0). Signals berättelser och bilagor utan referens har inget meddelande.
+    function isMessageAttachment(a) { return a.messageId != null && a.ownerType != null && Number(a.ownerType) === 0; }
+
+    // Motparten: konversationen för ett skickat, avsändaren (och gruppen) för ett mottaget.
+    function counterpartIos(ctx, row) {
+        var conv = row.threadName || (row.threadId != null ? 'konversation ' + row.threadId : 'okänd');
+        if (directionIos(row.type) === 'out') return Number(row.isGroup) ? 'gruppen ' + conv : conv;
+        var r = row.authorId ? (ctx.recipients || {})[String(row.authorId)] : null;
+        var who = r && r.name ? r.name : row.authorPhone || row.authorId || conv;
+        return Number(row.isGroup) ? who + ' i gruppen ' + conv : who;
+    }
+
+    // Bilagor som hör till filen: samma SHA-256 som den lagrade bilagan (sha256ContentHash), eller
+    // samma namn som när filen lades till i Signal (sourceFilename). Signal kodar om bilder, så en
+    // bild ur bildbiblioteket har inte bilagans summa; namnet kan finnas kvar.
+    function matchIos(ctx, attachments) {
+        var want = String(ctx.sha256 || '').toLowerCase();
+        var names = [ctx.fileName, ctx.originalFilename].filter(Boolean).map(function (n) { return String(n).toLowerCase(); });
+        var out = [];
+        (attachments || []).forEach(function (a) {
+            if (!isMessageAttachment(a)) return;
+            var bySha = /^[0-9a-f]{64}$/.test(want) && String(a.sha256 || '').toLowerCase() === want;
+            var src = String(a.fileName || '').toLowerCase();
+            // Signals eget namn (signal-ÅÅÅÅ-…) ges till alla bilder utan namn och säger inget om filen.
+            var byName = !bySha && src && !/^signal-\d{4}-/.test(src) && names.some(function (n) { return n === src || (stem(n) && stem(n) === stem(src)); });
+            if (bySha || byName) out.push({ row: a, on: bySha ? 'end' : 'name' });
+        });
+        return out;
+    }
+
+    // ctx: { sha256, fileName, originalFilename, savedBySignal, attachments, messages, recipients,
+    //        sources: { main }, centerMs, keep(ms), wall(ms) }. Samma form på resultatet som build().
+    function buildIos(ctx) {
+        var events = [];
+        var notes = [];
+        var srcMain = ctx.sources && ctx.sources.main || { db: 'signal.sqlite', table: 'model_TSInteraction', queryId: 'role-messages' };
+        var wall = ctx.wall || function (ms) { return new Date(ms).toISOString().replace('T', ' ').replace('Z', ''); };
+        var attachments = ctx.attachments || [];
+        var byMessage = {};
+        attachments.forEach(function (a) { if (isMessageAttachment(a)) (byMessage[a.messageId] = byMessage[a.messageId] || []).push(a); });
+        var matches = matchIos(ctx, attachments);
+        var matchedMessages = {};
+        matches.forEach(function (x) { matchedMessages[x.row.messageId] = true; });
+
+        // Ett sparat namn (signal-ÅÅÅÅ-MM-DD-TTMMSS) bär meddelandets tid i telefonens zon.
+        var nameTime = savedNameTime(ctx.originalFilename) || savedNameTime(ctx.fileName);
+        var nameMatch = null;
+        if (nameTime) {
+            attachments.some(function (a) {
+                if (a.sentMs == null || a.messageId == null) return false;
+                var hit = wall(a.sentMs).slice(0, 19) === nameTime.text.slice(0, 19);
+                if (hit) nameMatch = { attachment: a, text: nameTime.text };
+                return hit;
+            });
+        }
+
+        (ctx.messages || []).forEach(function (m) {
+            var type = Number(m.type);
+            if (type === IOS_CALL || type === IOS_GROUP_CALL) {
+                var callOut = Number(m.callDirection) === 1;
+                var video = Number(m.callType) === 1;
+                var callWho = m.threadName || 'okänd';
+                events.push({ ms: m.sentMs, kind: 'sig-call', lane: 'signal', app: APP_IOS, own: callOut, video: video, messageId: m.id,
+                    active: callOut, activeText: callOut ? 'ett samtal ringdes' : null,
+                    text: 'Signal: ' + (video ? 'videosamtal' : 'samtal') + ' ' + (callOut ? 'till ' : 'från ') + callWho + ' (meddelande ' + m.id + (m.callStatus != null ? ', status ' + m.callStatus : '') + ')',
+                    plain: (video ? 'Ett videosamtal' : 'Ett samtal') + (callOut ? ' rings från den här telefonen i Signal till ' : ' kommer i Signal från ') + callWho,
+                    source: Object.assign({}, srcMain, { column: 'timestamp (CallRecord)' }) });
+                return;
+            }
+            var dir = directionIos(type);
+            if (!dir) return;
+            var own = dir === 'out';
+            var who = counterpartIos(ctx, m);
+            var atts = byMessage[m.id] || [];
+            var n = Number(m.attachments != null ? m.attachments : atts.length);
+            var kinds = atts.map(function (a) { return kindOf(a.contentType); });
+            var what = n ? (n === 1 ? (kinds[0] || 'bilaga') : n + ' bilagor') : 'meddelande';
+            var verb = !n ? (own ? 'skickat till ' : 'mottaget från ') : n === 1 ? (own ? 'skickad till ' : 'mottagen från ') : (own ? 'skickade till ' : 'mottagna från ');
+            var isFile = !!matchedMessages[m.id];
+            var deleted = Number(m.deleted) === 1;
+            var viewOnce = Number(m.viewOnce) === 1;
+            var ms = own ? m.sentMs : (m.receivedMs != null ? m.receivedMs : m.sentMs);
+            if (ms == null) return;
+            var text = 'Signal: ' + what + ' ' + verb + who + ' (meddelande ' + m.id + ')' + (viewOnce ? ', engångsvisning' : '') + (deleted ? ', raderat för alla senare' : '') +
+                (!own && m.sentMs != null ? '; avsändarens klocka ' + wall(m.sentMs) + (m.serverMs > 0 ? ', servern ' + wall(m.serverMs) : '') : '');
+            var noun = n === 1 ? 'En ' + what : n ? what.charAt(0).toUpperCase() + what.slice(1) : 'Ett meddelande';
+            var plain = n ? (own ? noun + ' skickas från den här telefonen i Signal till ' + who : noun + ' tas emot i Signal från ' + who) + (viewOnce ? ' för engångsvisning' : '') : null;
+            if (deleted) plain = (own ? 'Ett meddelande skickas från den här telefonen i Signal till ' + who : 'Ett meddelande tas emot i Signal från ' + who) + ' (det raderades senare för alla)';
+            if (isFile) { text = 'Den bedömda filen: ' + text; plain = own ? 'Den bedömda filen skickas från den här telefonen i Signal till ' + who : 'Den bedömda filen tas emot i Signal från ' + who; }
+            events.push({ ms: ms, kind: 'sig-message', lane: 'signal', app: APP_IOS, own: own, bold: isFile, isFile: isFile, messageId: m.id, attachments: n, viewOnce: viewOnce, deleted: deleted,
+                active: own, activeText: own ? 'ett meddelande skickades' : null,
+                text: text, plain: plain, source: Object.assign({}, srcMain, { column: own ? 'timestamp' : 'receivedAtTimestamp (timestamp, serverTimestamp)' }) });
+        });
+
+        if (typeof ctx.keep === 'function') events = events.filter(function (e) { return ctx.keep(e.ms); });
+        events.sort(function (a, b) { return a.ms - b.ms; });
+        if (events.length > MAX_EVENTS) {
+            var center = ctx.centerMs != null ? ctx.centerMs : events[0].ms;
+            var kept = events.filter(function (e) { return e.isFile; });
+            events.filter(function (e) { return !e.isFile; }).sort(function (a, b) { return Math.abs(a.ms - center) - Math.abs(b.ms - center); })
+                .forEach(function (e) { if (kept.length < MAX_EVENTS) kept.push(e); });
+            notes.push((events.length - kept.length) + ' Signal-händelser till i fönstret visas inte.');
+            events = kept.sort(function (a, b) { return a.ms - b.ms; });
+        }
+
+        var link = {
+            platform: 'iOS',
+            matches: matches.map(function (x) {
+                var a = x.row;
+                return {
+                    attachmentId: a.id, messageId: a.messageId, on: x.on, transformed: false, direction: directionIos(a.type),
+                    who: counterpartIos(ctx, a), conversation: a.threadName || null,
+                    contentType: a.contentType, size: a.size, width: a.width, height: a.height, fileName: a.fileName || null,
+                    dataFile: a.dataFile ? 'attachment_files/' + a.dataFile : null,
+                    sentMs: a.sentMs, receivedMs: a.receivedMs != null ? a.receivedMs : a.refReceivedMs, serverMs: a.serverMs, uploadMs: a.uploadMs,
+                    viewOnce: Number(a.viewOnce) === 1, deleted: Number(a.deleted) === 1,
+                };
+            }),
+            picks: [], saved: null,
+            nameTime: nameTime ? nameTime.text : null,
+            nameMatch: nameMatch ? { attachmentId: nameMatch.attachment.id, messageId: nameMatch.attachment.messageId } : null,
+            attachments: attachments.filter(isMessageAttachment).length,
+            logRows: 0,
+        };
+        return { events: events, notes: notes, link: link };
+    }
+
     // ---------- Hashsökningen ----------
 
     // Bilagor med en viss summa. SHA-256 jämförs direkt med databasens summor (original och lagrad);
@@ -408,10 +551,19 @@
         return what + msg + when + (original ? ', före Signals omkodning. Originalet finns inte bland Signals filer, bara den omkodade versionen.' : '.' + file);
     }
 
+    // En mening om en bilaga på iOS som hittats på sin summa.
+    function attachmentTextIos(a, ctx) {
+        var wall = ctx.wall || function (ms) { return new Date(ms).toISOString(); };
+        var dir = directionIos(a.type);
+        var when = dir === 'in' ? ', mottagen från ' + counterpartIos(ctx, a) + (a.receivedMs != null ? ' ' + wall(a.receivedMs) : '') : dir === 'out' ? ', skickad till ' + counterpartIos(ctx, a) + (a.sentMs != null ? ' ' + wall(a.sentMs) : '') : '';
+        return 'Signal-bilaga ' + a.id + ' (' + (a.contentType || 'okänd typ') + (a.width ? ', ' + a.width + '×' + a.height : '') + (a.size != null ? ', ' + a.size + ' byte' : '') + ')' +
+            (a.messageId != null ? ' i meddelande ' + a.messageId : '') + when + '.' + (a.dataFile ? ' Bilagan ligger krypterad i attachment_files/' + a.dataFile + '.' : ' Bilagan finns inte på telefonen.');
+    }
+
     var api = {
-        findByHash: findByHash, attachmentText: attachmentText,
-        APP: APP, isSignalApp: isSignalApp, b64ToHex: b64ToHex, direction: direction, kindOf: kindOf, savedNameTime: savedNameTime,
-        match: match, uriInfo: uriInfo, lineText: lineText, parseLog: parseLog, build: build, counterpart: counterpart,
+        findByHash: findByHash, attachmentText: attachmentText, attachmentTextIos: attachmentTextIos,
+        APP: APP, APP_IOS: APP_IOS, isSignalApp: isSignalApp, isSignalIosApp: isSignalIosApp, b64ToHex: b64ToHex, direction: direction, directionIos: directionIos, kindOf: kindOf, savedNameTime: savedNameTime,
+        match: match, matchIos: matchIos, uriInfo: uriInfo, lineText: lineText, parseLog: parseLog, build: build, buildIos: buildIos, counterpart: counterpart, counterpartIos: counterpartIos,
     };
     if (typeof module !== 'undefined' && module.exports) module.exports = api;
     else root.ProvenanceSignal = api;
