@@ -124,18 +124,22 @@
     // Returnerar { bytes, stats }. bytes är en ny Uint8Array; db och wal lämnas orörda.
     // opts.page(bytes, sidnummer) -> bytes: körs på varje sida som läggs på, t.ex. för att
     // dekryptera en SQLCipher-sida. opts.plan: en färdig plan(db, wal), så att den inte räknas igen.
+    // opts.owned: db behövs inte efteråt och får skrivas över, eftersom en kopia av en stor databas är
+    // det som tar slut på minnet. Är db en vy in i något större, till exempel källan, görs kopian ändå.
     function apply(db, wal, opts) {
         db = db instanceof Uint8Array ? db : new Uint8Array(db);
         var planned = opts && opts.plan || plan(db, wal);
         var stats = planned.stats;
         var committed = planned.frames;
-        if (!committed.length) return { bytes: unWal(db.slice()), stats: stats };
+        var owned = !!(opts && opts.owned) && db.byteLength === db.buffer.byteLength;
+        if (!committed.length) return { bytes: unWal(owned ? db : db.slice()), stats: stats };
         wal = wal instanceof Uint8Array ? wal : new Uint8Array(wal);
         var pageSize = planned.pageSize;
         var commitPages = planned.commitPages;
 
-        var out = new Uint8Array(commitPages * pageSize);
-        out.set(db.subarray(0, Math.min(db.length, out.length)));
+        var size = commitPages * pageSize;
+        var out = owned && size <= db.length ? db.subarray(0, size) : new Uint8Array(size);
+        if (out.buffer !== db.buffer) out.set(db.subarray(0, Math.min(db.length, size)));
         var touched = {};
         var transform = opts && opts.page;
         committed.forEach(function (fr) {

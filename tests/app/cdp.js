@@ -37,6 +37,9 @@ async function connect(port, opts) {
         if (d.method === 'Runtime.consoleAPICalled' && d.params.type === 'error') {
             errors.push({ kind: 'console.error', text: d.params.args.map((a) => a.value !== undefined ? a.value : a.description).join(' ') });
         }
+        if (d.method === 'Log.entryAdded' && d.params.entry.level === 'error') {
+            errors.push({ kind: 'log', text: d.params.entry.text, url: d.params.entry.url || '' });
+        }
     };
     await new Promise((resolve, reject) => { ws.onopen = resolve; ws.onerror = reject; });
     const send = (method, params) => new Promise((resolve) => {
@@ -47,6 +50,7 @@ async function connect(port, opts) {
     await send('Runtime.enable');
     await send('Page.enable');
     await send('DOM.enable');
+    await send('Log.enable');
     await send('Emulation.setDeviceMetricsOverride', { width: opts.width || 1600, height: opts.height || 1000, deviceScaleFactor: 1, mobile: false });
     // Runtime.enable spelar upp gamla meddelanden: de räknas inte.
     await sleep(200);

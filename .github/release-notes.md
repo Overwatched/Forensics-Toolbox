@@ -1,5 +1,18 @@
 Automatiskt byggd från commit `{{SHA}}`.
 
+## Nytt i 1.47
+
+Gränsen på 1,5 GB för databaser är borta, och html-versionen säger vad som är fel när webbläsaren stoppar något.
+
+- **Stora databaser:** databaser över 1,5 GB läses i stället för att hoppas över. En påhittad krypterad databas på 5,3 GB gick igenom i appen, Chrome och Edge på en Mac med 32 GB minne: CRC32, SHA-256 och varje byte stämde mot ett facit från Python. Det tar ungefär 1–2 minuter och kräver ungefär dubbelt så mycket ledigt minne som databasen är stor.
+- **När minnet tar slut:** appen säger hur stor filen är och vad som kan hjälpa, och fortsätter att köra.
+- **Electron 45:** skrivbordsappen går över till Electron 45, eftersom Electron 44 inte klarar en enskild databas över 2 GB.
+- **Html-versionen utan WebAssembly:** om webbläsaren har stängt av WebAssembly, till exempel för att JIT är blockerad i Edge, står det nu högst upp på sidan och i verktygen som drabbas. Förut syntes bara ett fel i konsolen, och EXIF & karta stod kvar på "Startar ExifTool…".
+- **Kartan utan WebGL2:** beskedet är begripligt och på svenska. Resten av verktyget fungerar som förut.
+- **Html-versionen i övrigt:** versionsnumret står nu med i protokollet från Härkomst, konsolen är fri från blockerade anrop och `LÄS MIG.txt` har ett avsnitt om vad som kan stoppa programmet i en låst webbläsare.
+- **WebKit:** ExifTool kunde inte läsa filer under `file://`, och det är rättat. Riktiga Safari är inte provat.
+- **Kontroller:** det nya `npm run test:html` kör html-versionen under `file://` utan internet. I CI körs det i Edge på Windows, också med en policy som bara släpper fram lokala filer. Orsaken till rapporten om att html-versionen slutat fungera är inte bekräftad, och det här är första gången den körs på Windows.
+
 ## Nytt i 1.46
 
 Sökningar i stora extraktioner går betydligt snabbare. Resultaten är desamma: de befintliga kontrollerna mot labbtelefonen går igenom, och dekrypteringen är jämförd byte för byte med den gamla vägen.

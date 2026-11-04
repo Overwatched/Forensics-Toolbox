@@ -58,12 +58,63 @@ test('fel CRC flaggas men stoppar inte', async () => {
     assert.strictEqual(Buffer.from(out.bytes).toString(), 'abcdef');
 });
 
-test('krypterad post, okänd metod och för stor fil ger tydliga fel', async () => {
+test('krypterad post och okänd metod ger tydliga fel', async () => {
     const buf = buildZip([{ name: 'a.db', data: 'abc' }]);
     const e = (await zip.scan(reader(buf), buf.length, () => true)).entries[0];
     await assert.rejects(zip.extract(reader(buf), Object.assign({}, e, { flags: 1 })), /krypterad/);
     await assert.rejects(zip.extract(reader(buf), Object.assign({}, e, { method: 12 })), /metod 12/);
-    await assert.rejects(zip.extract(reader(buf), Object.assign({}, e, { size: zip.MAX_ENTRY + 1 })), /1,5 GB/);
+});
+
+const BIG = Buffer.alloc(300000);
+for (let i = 0; i < BIG.length; i++) BIG[i] = (i * 31 + (i >> 8)) & 0xff;
+
+for (const method of ['lagrad', 'deflate']) {
+    test('en stor post läses i bitar till samma bytes och samma CRC32 (' + method + ')', async () => {
+        const buf = buildZip([{ name: 'stor.db', data: BIG, deflate: method === 'deflate' }]);
+        const e = (await zip.scan(reader(buf), buf.length, () => true)).entries[0];
+        assert.strictEqual(e.method, method === 'lagrad' ? 0 : 8);
+        const whole = await zip.extract(reader(buf), e);
+        const parts = await zip.extract(reader(buf), e, { piece: 4096 });
+        assert.ok(parts.crcOk && whole.crcOk);
+        assert.ok(Buffer.from(parts.bytes).equals(BIG), 'bitarna ger samma bytes');
+        const bad = await zip.extract(reader(buf), Object.assign({}, e, { crc32: (e.crc32 ^ 1) >>> 0 }), { piece: 4096 });
+        assert.strictEqual(bad.crcOk, false);
+    });
+}
+
+test('en post som är större eller mindre än zippen anger ger fel, i bitar också', async () => {
+    const buf = buildZip([{ name: 'stor.db', data: BIG }]);
+    const e = (await zip.scan(reader(buf), buf.length, () => true)).entries[0];
+    await assert.rejects(zip.extract(reader(buf), Object.assign({}, e, { size: e.size - 10 }), { piece: 4096 }), /fel storlek/);
+    await assert.rejects(zip.extract(reader(buf), Object.assign({}, e, { size: e.size + 10 }), { piece: 4096 }), /fel storlek/);
+});
+
+test('slut på minne säger vad det gäller och vad som går att göra, andra fel lämnas orörda', async () => {
+    const buf = buildZip([{ name: 'mapp/signal.sqlite', data: BIG }]);
+    const e = (await zip.scan(reader(buf), buf.length, () => true)).entries[0];
+    const opts = { piece: 4096, alloc: () => { throw new RangeError('Array buffer allocation failed'); } };
+    await assert.rejects(zip.extract(reader(buf), e, opts), /mapp\/signal\.sqlite är 0,0 GB och får inte plats i minnet/);
+    const other = new RangeError('Invalid typed array length');
+    assert.strictEqual(zip.friendlyMemory(other, 'a', 1), other);
+    assert.match(zip.friendlyMemory(new RangeError('Out of memory'), 'a', 5368709120).message, /a är 5,0 GB/);
+});
+
+test('CRC32 är samma över gränsen mellan bitarna', () => {
+    const size = 64 * 1024 * 1024 + 1000;
+    const bytes = new Uint8Array(size);
+    bytes[size - 1] = 7;
+    bytes[64 * 1024 * 1024] = 9;
+    let c = 0xffffffff;
+    const table = new Int32Array(256).map((_, n) => { let x = n; for (let k = 0; k < 8; k++) x = x & 1 ? 0xedb88320 ^ (x >>> 1) : x >>> 1; return x; });
+    for (let i = 0; i < size; i++) c = table[(c ^ bytes[i]) & 0xff] ^ (c >>> 8);
+    assert.strictEqual(zip.crc32(bytes), (c ^ 0xffffffff) >>> 0);
+});
+
+test('en fil från disk läses i bitar till samma bytes', async () => {
+    const file = { name: 'a.db', size: BIG.length, slice: (a, b) => new Blob([BIG.subarray(a, b)]) };
+    assert.ok(Buffer.from(await zip.readFile(file, { piece: 4096 })).equals(BIG));
+    assert.ok(Buffer.from(await zip.readFile(file)).equals(BIG));
+    await assert.rejects(zip.readFile(file, { alloc: () => { throw new RangeError('Array buffer allocation failed'); } }), /a\.db är 0,0 GB/);
 });
 
 test('ingen zip eller avkortad zip ger tydliga fel', async () => {

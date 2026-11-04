@@ -8,6 +8,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { sleep } = require('./cdp');
 
+const VERSION = /Version\s+(\d+\.\d+)/.exec(fs.readFileSync(path.join(__dirname, '..', '..', 'Toolbox.html'), 'utf8'))[1];
 const PROV = 'provenance/index.html';
 const QUER = 'db-queries/queries.html';
 
@@ -80,7 +81,7 @@ const scenarios = [
         await c.ev(PROV, `document.getElementById('own-assessment').value = 'Provkörningens bedömning.', document.getElementById('own-assessment').dispatchEvent(new Event('input')), 1`);
         await c.ev(PROV, `document.getElementById('save-protocol').click(), 1`);
         const html = await download(downloads, /^harkomst-.*-protokoll-.*\.html$/);
-        for (const want of ['Underlag för bedömning', 'Programmets sammanvägning', 'Undersökarens bedömning', 'Provkörningens bedömning.', 'Bilaga: SQL']) {
+        for (const want of ['Underlag för bedömning', 'Programmets sammanvägning', 'Undersökarens bedömning', 'Provkörningens bedömning.', 'Bilaga: SQL', 'Forensics Toolbox ' + VERSION + ', verktyget Härkomst']) {
             expect(html.includes(want), 'Protokollet saknar "' + want + '"');
         }
         return out.join(', ');

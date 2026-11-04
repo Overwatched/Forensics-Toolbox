@@ -171,6 +171,7 @@ pwInput.addEventListener('keydown', (e) => {
 // ---- sql.js ---------------------------------------------------------------
 function ensureSQL() {
     if (sqlPromise) return sqlPromise;
+    if (window.toolboxWasmProblem && window.toolboxWasmProblem()) return Promise.reject(new Error(window.toolboxWasmProblem()));
     if (typeof initSqlJs !== 'function') return Promise.reject(new Error('sql.js kunde inte laddas.'));
     sqlPromise = initSqlJs({ wasmBinary: window.SQL_WASM_BINARY });
     return sqlPromise;

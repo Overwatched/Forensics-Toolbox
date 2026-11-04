@@ -71,6 +71,32 @@ jobs:
       - name: Kör röktestet i appen
         run: npm run test:app -- --smoke
 
+  # Html-versionen i Edge på Windows, som den körs utan skrivbordsappen: under file:// och utan internet.
+  # Sedan samma sak i en låst Edge som bara når lokala filer. Ett eget jobb som inte stoppar releasen,
+  # tills det har visat sig stabilt i CI.
+  htmltest:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Installera beroenden
+        run: npm ci --ignore-scripts
+      - name: Kör html-versionen i Edge
+        run: npm run test:html -- --browser edge
+      - name: Lås Edge till lokala filer
+        shell: pwsh
+        run: |
+          $edge = 'HKLM:\SOFTWARE\Policies\Microsoft\Edge'
+          New-Item -Path "$edge\URLBlocklist" -Force | Out-Null
+          New-ItemProperty -Path "$edge\URLBlocklist" -Name '1' -Value '*' -PropertyType String -Force | Out-Null
+          New-Item -Path "$edge\URLAllowlist" -Force | Out-Null
+          New-ItemProperty -Path "$edge\URLAllowlist" -Name '1' -Value 'file://*' -PropertyType String -Force | Out-Null
+      - name: Kör html-versionen i den låsta Edge
+        run: npm run test:html -- --browser edge --expect-blocked
+
   # Skapar releasen som utkast, eller rensar ett befintligt utkast. En redan publicerad
   # release rörs inte: då hoppas bygget över. Höj versionen i Toolbox.html för en ny release.
   prepare:

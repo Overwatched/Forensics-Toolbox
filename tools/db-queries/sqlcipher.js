@@ -375,7 +375,7 @@
         var dec = decryptDatabase(db, passphrase, profileName);
         var cipherStats = { profile: dec.profile.label, settings: dec.profile.settings, pages: dec.stats.pages, badHmac: dec.stats.badHmac, walPages: 0, walBadHmac: 0 };
         var Wal = SqliteWal || root.SqliteWal || (typeof module !== 'undefined' && module.exports ? require('./wal.js') : null);
-        var merged = Wal.apply(dec.bytes, wal || new Uint8Array(0), { page: walPageDecryptor(dec.keys, dec.profile, cipherStats) });
+        var merged = Wal.apply(dec.bytes, wal || new Uint8Array(0), { owned: true, page: walPageDecryptor(dec.keys, dec.profile, cipherStats) });
         merged.stats.cipher = cipherStats;
         return merged;
     }
@@ -529,7 +529,7 @@
         var planned = Wal.plan(dec.bytes, walBytes);
         var done = await decryptWalFrames(subtleOf(opts), dec, walBytes, planned.frames, opts);
         var slow = walPageDecryptor(dec.keys, dec.profile, cipherStats);
-        var merged = Wal.apply(dec.bytes, walBytes, { plan: planned, page: function (page, pgno) {
+        var merged = Wal.apply(dec.bytes, walBytes, { plan: planned, owned: true, page: function (page, pgno) {
             var r = done[page.byteOffset - walBytes.byteOffset];
             if (!r) return slow(page, pgno);
             cipherStats.walPages++;

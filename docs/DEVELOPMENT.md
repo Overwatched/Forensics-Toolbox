@@ -19,7 +19,7 @@ npm start
 
 `npm start` kör Electron med `ELECTRON_RUN_AS_NODE` avstängt (annars kan appen krascha i vissa miljöer, t.ex. Cursor).
 
-Öppna inte `Toolbox.html` direkt i Firefox/Chrome/Brave — `file://` blockerar ofta `src/style.css` och sidan ser ostylad ut. Appen är tänkt att köras via Electron (dev: `npm start`, användare: GitHub Releases).
+Under utveckling körs appen i Electron. Html-versionen, som är `Toolbox.html` öppnad direkt i webbläsaren under `file://`, provas med `npm run test:html` (se Tester).
 
 ### Om Electron klagar på saknad binär
 
@@ -52,6 +52,7 @@ GPU/VSync-varningar i terminalen på Linux är oftast ofarliga.
 | `npm run sync-version` | Synkar version från `Toolbox.html` → `package.json` |
 | `npm test` | Enhetstesterna under `tools/` (Node) |
 | `npm run test:app` | Provkörning av hela appen i Electron: röktestet, och facit om labbzippen finns (se Tester) |
+| `npm run test:html` | Html-versionen i Edge eller Chrome under `file://`, utan internet: röktestet och beskeden utan WebAssembly |
 
 ## Windows-build (målplattform)
 
@@ -486,8 +487,49 @@ Plan och provkörning: [PLAN-harkomst.md](PLAN-harkomst.md).
 - **`SqliteWal.plan`** räknar ut vilka ramar som ska läggas på, så att `openAsync` kan dekryptera dem i förväg.
 - **Listor i slingor:** `lista = lista.concat(...)` per rad är kvadratiskt. Det kostade 67 av 73 s i Telegrams avkodning
   (200 000 meddelanden). `postbox.test.js` har ett hastighetstest för det.
-- **Kvar:** en post över `MAX_ENTRY` (1,5 GB) kan inte läsas. CRC32 (ca 400 MB/s) och `TelegramPostbox.attach` körs i
-  huvudtråden.
+- **Kvar:** `TelegramPostbox.attach` körs i huvudtråden.
+
+### Databaser över 1,5 GB
+
+Den fasta gränsen `MAX_ENTRY` är borta. Det som tar stopp är minnet, och då ger `ZipRead.friendlyMemory` ett begripligt
+besked. Mätt 2026-11-04 på en Mac med 32 GB och påhittade databaser på 5,3 GB:
+
+| Spärr | Mätt | Så hanteras den |
+|---|---|---|
+| En array i Electron 44 (Chromium 152) | knappt 2 GB | Electron 45 (Chromium 156): minst 8 GB. Chrome 156: minst 12 GB |
+| Alla arrayer i ett fönster, i Chromium | ca 14 GB | Färre kopior (nedan). Firefox 157 och WebKit 27.2 nådde 24 GB, som var taket i provet |
+| `File.arrayBuffer()`, `Response.arrayBuffer()` | nej från 2 GB | `extract` och `readFile` läser i bitar till en färdig array |
+| `crypto.subtle.digest` | nej över 2 GB | `ExtractionCore.sha256` räknar större data i JavaScript, bit för bit |
+
+- **Kopior:** en krypterad databas låg i tre kopior samtidigt (läst, dekrypterad, `db.slice()` i `wal.js`) och två efteråt.
+  Med `SqliteWal.apply(..., { owned: true })` återanvänds arrayen, om den är en hel egen buffert och inte en vy in i
+  källan. `ExtractionCore.noCopy` lämnar arrayen till sql.js utan kopia (sql.js tar in filen med `slice()` och läser
+  med `subarray()`). Härkomst använder den och släpper `loaded.bytes`. Queries gör en kopia per körning, så att en
+  redigerad query inte påverkar nästa.
+- **Hela kedjan** (zip, CRC32, SHA-256, dekryptering, sql.js, varje byte läst och jämfört med Python) tar ungefär en
+  minut på 5,3 GB krypterat, med en topp på ca 10,5 GB. Firefox och WebKit är inte provade i den storleken.
+- **Större än så:** sql.js klarar ett eget objekt med `length`, `slice()`, `subarray()` och `set()`, så en databas kan
+  delas upp i bitar. Det läste 5,3 GB i Electron 44, men skrivning (Telegrams tabeller) kräver mer arbete. Inte infört.
+
+### Html-versionen
+
+`tests/app/html.js` packar samma filer som html-zippen och kör röktestet i Edge eller Chrome under `file://`, med en
+proxy som inte finns, så att inget når internet. CI-jobbet `htmltest` kör det i Edge på Windows, också med en policy som
+spärrar allt utom lokala filer. Jobbet stoppar inte releasen, tills det har visat sig stabilt.
+
+- **Utan internet:** appen gör inga egna nätverksanrop. Onlinekartan används bara om den slås på.
+- **Utan WebAssembly** (blockerad JIT i Edge): raden högst upp säger det direkt, och varje verktyg säger det när något
+  ska läsas (`toolboxWasmProblem`). Med förstärkt säkerhet i Edge kan WebAssembly köras i en tolk i stället. I den
+  provade versionen (Edge 156 på Mac, flaggorna `--jitless --wasm-jitless`) tog en sökning i Härkomst 20–30 s mot 1–2 s.
+- **Utan WebGL2** går bara kartan inte att rita. Chromium har aviserat att reservlösningen i programvara (SwiftShader)
+  ska tas bort, men med `--disable-gpu` ritade både Edge 156 och Chrome 156 på Mac fortfarande med den. Provet utan
+  WebGL2 kräver därför också `--disable-software-rasterizer --disable-3d-apis`.
+- **Kartmappen** väljs med en vanlig mappdialog (`webkitdirectory`), eftersom `file://` inte får läsa `maps/`.
+- **WebKit under `file://`:** en worker från en blob-URL får inte läsa en Blob. ExifTool-workern känner av det och får
+  då bytena som `{ name, data }` (`blobsBlocked`). Riktiga Safari är inte provat.
+- **Programversionen** kommer från `Toolbox.html` i verktygets adress (`?version=`), eftersom `package.json` varken
+  följer med i zippen eller går att hämta under `file://`.
+- **Kopiorna först:** `loadLocalJson` tar `catalog.js` före `fetch`, så att webbläsaren inte skriver röda fel i konsolen.
 
 #### Kontrollerat mot den loggade labbsessionen (1.45)
 

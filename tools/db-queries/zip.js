@@ -12,8 +12,9 @@
     var SIG_CENTRAL = 0x02014b50;
     var SIG_LOCAL = 0x04034b50;
     var CHUNK = 8 * 1024 * 1024;
-    // sql.js håller hela databasen i minnet, två gånger under inläsningen.
-    var MAX_ENTRY = 1536 * 1024 * 1024;
+    // Större poster läses i bitar till en färdig array: File.arrayBuffer() och Response.arrayBuffer()
+    // klarar inte 2 GB i Chromium. Någon fast gräns finns inte. Det som tar stopp är minnet.
+    var PIECE = 64 * 1024 * 1024;
 
     function u16(b, at) { return b[at] | (b[at + 1] << 8); }
     function u32(b, at) { return (b[at] | (b[at + 1] << 8) | (b[at + 2] << 16) | (b[at + 3] << 24)) >>> 0; }
@@ -297,10 +298,49 @@
         return t;
     })();
 
+    function crcUpdate(c, part) {
+        for (var i = 0, n = part.length; i < n; i++) c = CRC_TABLE[(c ^ part[i]) & 0xff] ^ (c >>> 8);
+        return c;
+    }
+
+    // Bit för bit: en enda slinga över flera GB kan optimeras dåligt i V8 (en gång 149 s mot 14 s på 5 GB).
     function crc32(bytes) {
         var c = 0xffffffff;
-        for (var i = 0; i < bytes.length; i++) c = CRC_TABLE[(c ^ bytes[i]) & 0xff] ^ (c >>> 8);
+        for (var at = 0; at < bytes.length; at += PIECE) c = crcUpdate(c, bytes.subarray(at, at + PIECE));
         return (c ^ 0xffffffff) >>> 0;
+    }
+
+    // Släpper fram annat arbete i appen. MessageChannel, eftersom setTimeout bromsas i ett dolt fönster.
+    function pause() {
+        return new Promise(function (resolve) {
+            if (typeof MessageChannel === 'undefined') { resolve(); return; }
+            var ch = new MessageChannel();
+            ch.port1.onmessage = function () { ch.port1.close(); resolve(); };
+            ch.port2.postMessage(0);
+        });
+    }
+
+    function sizeInGb(size) {
+        return (size / 1073741824).toFixed(1).replace('.', ',') + ' GB';
+    }
+
+    // Slut på minne i en array går att fånga. Då ska beskedet säga vad det gäller och vad som går att göra.
+    function isOutOfMemory(err) {
+        return err instanceof RangeError && /allocation|memory/i.test(String(err.message));
+    }
+
+    function memoryError(name, size) {
+        return new Error(name + ' är ' + sizeInGb(size) + ' och får inte plats i minnet här. Stäng andra verktyg och program och försök igen. ' +
+            'En krypterad databas behöver ungefär dubbelt så mycket ledigt minne som sin storlek.');
+    }
+
+    function friendlyMemory(err, name, size) {
+        return isOutOfMemory(err) ? memoryError(name, size) : err;
+    }
+
+    function allocate(name, size, opts) {
+        try { return opts && opts.alloc ? opts.alloc(size) : new Uint8Array(size); }
+        catch (err) { throw friendlyMemory(err, name, size); }
     }
 
     async function inflateRaw(bytes) {
@@ -309,15 +349,13 @@
         return new Uint8Array(await new Response(stream).arrayBuffer());
     }
 
-    // Läser ut en post till minnet. Returnerar { bytes, crcOk }. opts.inflate kan bytas ut i testerna.
+    // Läser ut en post till minnet. Returnerar { bytes, crcOk }. opts.inflate och opts.alloc kan bytas ut
+    // i testerna, och opts.piece är gränsen för vad som läses på en gång.
     async function extract(read, entry, opts) {
         opts = opts || {};
         if (entry.flags & 1) throw new Error(entry.name + ' är krypterad i zippen och kan inte läsas.');
         if (entry.method !== 0 && entry.method !== 8) {
             throw new Error(entry.name + ' är komprimerad med metod ' + entry.method + ', som inte stöds (bara lagrad och deflate).');
-        }
-        if (entry.size > MAX_ENTRY) {
-            throw new Error(entry.name + ' är ' + Math.round(entry.size / 1048576) + ' MB. Filer över 1,5 GB kan inte köras i appen.');
         }
         var local = await read(entry.localOffset, 30);
         if (u32(local, 0) !== SIG_LOCAL) throw new Error('Den lokala posten för ' + entry.name + ' är trasig.');
@@ -326,10 +364,26 @@
         if (u16(local, 28) && entry.timeField !== 'NTFS' && (!entry.atime || !(entry.crtime || entry.utThird))) {
             readLocalTimes(await read(entry.localOffset + 30 + u16(local, 26), u16(local, 28)), entry);
         }
+        var piece = opts.piece || PIECE;
+        if (entry.size > piece || entry.compSize > piece) return extractInPieces(read, entry, opts);
         var raw = await read(start, entry.compSize);
         var bytes = entry.method === 8 ? await (opts.inflate || inflateRaw)(raw) : raw;
         if (bytes.length !== entry.size) throw new Error(entry.name + ' har fel storlek efter uppackning.');
         return { bytes: bytes, crcOk: crc32(bytes) === entry.crc32 };
+    }
+
+    // En stor post. CRC32 räknas under läsningen, så att sidan inte står still under en andra genomgång.
+    async function extractInPieces(read, entry, opts) {
+        var out = allocate(entry.name, entry.size, opts);
+        var at = 0;
+        var c = 0xffffffff;
+        await stream(read, entry, function (part) {
+            if (at + part.length > out.length) throw new Error(entry.name + ' har fel storlek efter uppackning.');
+            out.set(part, at);
+            at += part.length;
+            c = crcUpdate(c, part);
+        }, opts.piece ? { chunk: opts.piece } : null);
+        return { bytes: out, crcOk: ((c ^ 0xffffffff) >>> 0) === entry.crc32 };
     }
 
     // Läser en post i bitar och lämnar varje uppackad bit till onChunk(bytes), så att även en post på
@@ -393,7 +447,16 @@
         };
     }
 
-    var api = { scan: scan, extract: extract, stream: stream, crc32: crc32, fileReader: fileReader, readDirectory: readDirectory, cacheDirectory: cacheDirectory, MAX_ENTRY: MAX_ENTRY, MAX_CACHED_DIRECTORY: MAX_CACHED_DIRECTORY };
+    // En hel fil från disk, i bitar som zippens stora poster. Bara läsning.
+    async function readFile(file, opts) {
+        var piece = opts && opts.piece || PIECE;
+        var out = allocate(file.name, file.size, opts);
+        var read = fileReader(file);
+        for (var at = 0; at < file.size; at += piece) out.set(await read(at, Math.min(piece, file.size - at)), at);
+        return out;
+    }
+
+    var api = { scan: scan, extract: extract, stream: stream, crc32: crc32, fileReader: fileReader, readFile: readFile, readDirectory: readDirectory, cacheDirectory: cacheDirectory, pause: pause, friendlyMemory: friendlyMemory, MAX_CACHED_DIRECTORY: MAX_CACHED_DIRECTORY };
     if (typeof module !== 'undefined' && module.exports) module.exports = api;
     else root.ZipRead = api;
 })(typeof window !== 'undefined' ? window : this);

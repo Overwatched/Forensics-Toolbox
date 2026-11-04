@@ -383,6 +383,19 @@ body {
 }
 
 /* Raden högst upp i Härkomst, Queries och EXIF & karta: extraktionen och filen man tittar på. */
+.browser-notice {
+    padding: 10px 18px;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--warn, #d9822b);
+    font-size: 13px;
+    line-height: 1.45;
+}
+
+.browser-notice[hidden] {
+    display: none;
+}
+
 .context-bar {
     display: flex;
     flex-wrap: wrap;

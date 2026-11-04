@@ -10,7 +10,7 @@ const { buildZip, reader } = require('./fixtures/zip-builder');
 const core = require('./extraction-core');
 const wal = require('./wal');
 
-core.use({ ZipRead: require('./zip'), ZipLocate: require('./locate'), SqliteWal: wal });
+core.use({ ZipRead: require('./zip'), ZipLocate: require('./locate'), SqliteWal: wal, ToolboxHashing: require('../hash-calculator/hashing') });
 
 let DatabaseSync = null;
 try { ({ DatabaseSync } = require('node:sqlite')); } catch (e) { /* äldre Node */ }
@@ -148,4 +148,27 @@ test('trasigt -wal-huvud ger en varning, och databasen läses utan -wal', { skip
     assert.match(core.walSummary(photos), /^-wal lades inte på: Fel checksumma i -wal-huvudet\./);
     const db = await openSqlJs(photos.bytes);
     assert.strictEqual(db.exec('SELECT count(*) FROM ZASSET')[0].values[0][0], 0);
+});
+
+test('SHA-256 över gränsen för crypto.subtle räknas i JavaScript och ger samma summa', async () => {
+    const bytes = new Uint8Array(200000).map((_, i) => (i * 7 + (i >> 8)) & 0xff);
+    const want = require('node:crypto').createHash('sha256').update(bytes).digest('hex');
+    assert.strictEqual(await core.sha256(bytes), want);
+    assert.strictEqual(await core.sha256(bytes, { subtleMax: 1000 }), want);
+});
+
+test('en databas lämnas till sql.js utan kopia, läses rätt och kan skrivas i', { skip: !DatabaseSync && 'node:sqlite saknas' }, async () => {
+    const files = makePhotosDb();
+    const bytes = new Uint8Array(wal.apply(new Uint8Array(files.db), files.wal).bytes);
+    const copied = await openSqlJs(bytes.slice());
+    const want = copied.exec("SELECT name FROM sqlite_master ORDER BY name")[0].values;
+    copied.close();
+    assert.ok(want.length > 0);
+    const db = await openSqlJs(core.noCopy(bytes));
+    assert.deepStrictEqual(db.exec("SELECT name FROM sqlite_master ORDER BY name")[0].values, want);
+    // Telegrams tabeller skrivs i databasen, och filen får då växa.
+    db.run('CREATE TABLE tg_prov (a)');
+    for (let i = 0; i < 500; i++) db.run('INSERT INTO tg_prov VALUES (?)', ['rad'.repeat(100)]);
+    assert.strictEqual(db.exec('SELECT count(*) FROM tg_prov')[0].values[0][0], 500);
+    db.close();
 });

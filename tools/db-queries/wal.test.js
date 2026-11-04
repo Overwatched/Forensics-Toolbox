@@ -134,3 +134,34 @@ test('-wal med en commit per ram: alla ramar läggs på i rätt ordning, och pla
     assert.strictEqual(Buffer.from(a.bytes).readUInt32BE(page + 40), pages - 1, 'den sista ramen vinner');
     assert.deepStrictEqual(Buffer.from(b.bytes), Buffer.from(a.bytes));
 });
+
+test('owned: samma resultat som en kopia, utan ny array när databasen inte växer', { skip: !DatabaseSync && 'node:sqlite saknas' }, async () => {
+    const files = makeWalDb();
+    const db = new Uint8Array(files.db);
+    const copy = wal.apply(db, files.wal);
+    assert.ok(Buffer.from(db).equals(files.db), 'utan owned rörs databasen inte');
+    const mine = new Uint8Array(db);
+    const owned = wal.apply(mine, files.wal, { owned: true });
+    assert.ok(Buffer.from(owned.bytes).equals(Buffer.from(copy.bytes)), 'samma bytes');
+    assert.deepStrictEqual(owned.stats, copy.stats);
+    // Utan ramar skrivs bara WAL-markeringen om, i samma array.
+    const noWal = new Uint8Array(db);
+    const plain = wal.apply(noWal, new Uint8Array(0), { owned: true });
+    assert.strictEqual(plain.bytes.buffer, noWal.buffer);
+    assert.strictEqual(plain.bytes[18], 1);
+    assert.strictEqual(owned.bytes.buffer, mine.buffer, 'lika stor: samma array');
+    // Växer databasen med -wal behövs en ny array, och resultatet är ändå rätt.
+    const shorter = new Uint8Array(db.subarray(0, db.length - 4096));
+    const grownCopy = wal.apply(shorter, files.wal);
+    assert.ok(grownCopy.bytes.length > shorter.length, 'databasen ska växa i det här provet');
+    const grown = wal.apply(new Uint8Array(shorter), files.wal, { owned: true });
+    assert.ok(Buffer.from(grown.bytes).equals(Buffer.from(grownCopy.bytes)));
+    // En vy in i något större är inte databasens egen: den lämnas orörd.
+    const source = new Uint8Array(db.length + 10);
+    source.set(db, 10);
+    const view = source.subarray(10);
+    const kept = wal.apply(view, files.wal, { owned: true });
+    assert.notStrictEqual(kept.bytes.buffer, source.buffer);
+    assert.ok(Buffer.from(view).equals(files.db), 'källan är orörd');
+    assert.ok(Buffer.from(kept.bytes).equals(Buffer.from(copy.bytes)));
+});

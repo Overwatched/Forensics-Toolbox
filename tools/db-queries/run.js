@@ -47,15 +47,10 @@
 
     function loadSqlJs() {
         if (sqlPromise) return sqlPromise;
+        if (window.toolboxWasmProblem()) return Promise.reject(new Error(window.toolboxWasmProblem()));
         if (typeof initSqlJs !== 'function') return Promise.reject(new Error('sql.js kunde inte laddas.'));
         sqlPromise = initSqlJs({ wasmBinary: window.SQL_WASM_BINARY });
         return sqlPromise;
-    }
-
-    async function sha256(buf) {
-        if (!window.crypto || !crypto.subtle) return '';
-        var digest = await crypto.subtle.digest('SHA-256', buf);
-        return Array.prototype.map.call(new Uint8Array(digest), function (b) { return (b < 16 ? '0' : '') + b.toString(16); }).join('');
     }
 
     // En källa är en fil från disk eller en post i en zip. read() ger { bytes, lines }, där lines
@@ -63,9 +58,10 @@
     function fileSource(file) {
         return {
             name: file.name,
+            size: file.size,
             read: async function () {
                 var line = 'Från disk: ' + file.name + ' (' + file.size + ' byte, ändrad ' + new Date(file.lastModified).toISOString() + ')';
-                return { bytes: new Uint8Array(await file.arrayBuffer()), lines: [line] };
+                return { bytes: await ZipRead.readFile(file), lines: [line] };
             },
         };
     }
@@ -182,11 +178,16 @@
     // krypterad databas dekrypteras med cipher.passphrase; utan nyckel kastas ett fel med code
     // 'ENCRYPTED'. Används också när en fil öppnas, så att schemat kan provas (extraction.js).
     async function load(src, cipher) {
+        try { return await readSources(src, cipher); }
+        catch (err) { throw ZipRead.friendlyMemory(err, src.db.name, src.db.size || 0); }
+    }
+
+    async function readSources(src, cipher) {
         cipher = cipher || { profile: null, passphrase: null, source: null };
         var SQL = await loadSqlJs();
         var dbRead = await src.db.read();
         var walRead = src.wal ? await src.wal.read() : null;
-        var hashes = await Promise.all([sha256(dbRead.bytes), walRead ? sha256(walRead.bytes) : Promise.resolve('')]);
+        var hashes = await Promise.all([ExtractionCore.sha256(dbRead.bytes), walRead ? ExtractionCore.sha256(walRead.bytes) : Promise.resolve('')]);
         var walBytes = walRead ? walRead.bytes : new Uint8Array(0);
         var merged;
         var origin = dbRead.lines.concat(walRead ? walRead.lines : []);
@@ -200,7 +201,7 @@
             merged = await SqlCipher.openAsync(dbRead.bytes, walBytes, cipher.passphrase, cipher.profile, SqliteWal);
             origin.push(SqlCipher.summary(merged.stats, cipher.source));
         } else {
-            merged = SqliteWal.apply(dbRead.bytes, walBytes);
+            merged = SqliteWal.apply(dbRead.bytes, walBytes, { owned: true });
         }
         // En -wal som inte går att lägga på läses inte, som i SQLite. walSummary säger det vid körningen.
         return {
@@ -266,7 +267,9 @@
             var o = await open();
             // En ny kopia för varje körning, så att en redigerad query som ändrar något
             // inte påverkar nästa körning.
-            var db = new o.SQL.Database(o.bytes);
+            var db;
+            try { db = new o.SQL.Database(o.bytes); }
+            catch (err) { throw ZipRead.friendlyMemory(err, o.dbFile.name, o.bytes.length); }
             // Telegrams databaser: tabellerna tg_… avkodas i minnet ur Telegrams eget format (postbox.js).
             // De avkodade raderna sparas med den öppnade filen, så nästa körning går fortare.
             var derived = null;

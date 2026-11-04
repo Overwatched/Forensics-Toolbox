@@ -2,7 +2,8 @@
 // scripts/vendor-exiftool.js). Körs i en Web Worker och läser metadata med ExifTool.
 //
 // Bara parseMetadata importeras. Verktyget skriver aldrig metadata, och filerna läses
-// som Blob, som ExifTools filsystem i minnet inte kan skriva till.
+// som Blob, som ExifTools filsystem i minnet inte kan skriva till. Där workern inte får
+// läsa en Blob (WebKit under file://) kommer filen som { name, data }.
 
 import { parseMetadata } from '@uswriting/exiftool';
 
@@ -22,8 +23,18 @@ async function gunzipBase64(b64) {
     const bin = atob(b64);
     const bytes = new Uint8Array(bin.length);
     for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-    const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('gzip'));
-    return new Response(stream).arrayBuffer();
+    // Inte via Blob: WebKit vägrar läsa en Blob i en worker från en blob-URL under file://.
+    const source = new ReadableStream({ start(c) { c.enqueue(bytes); c.close(); } });
+    return new Response(source.pipeThrough(new DecompressionStream('gzip'))).arrayBuffer();
+}
+
+async function canReadBlobs() {
+    try {
+        await new Blob([new Uint8Array(1)]).arrayBuffer();
+        return true;
+    } catch (err) {
+        return false;
+    }
 }
 
 const wasmFetch = async () => ({ arrayBuffer: async () => wasm });
@@ -35,7 +46,10 @@ async function parse(file, allValues) {
         transform: (s) => JSON.parse(s),
     });
     if (!result.success) return { ok: false, error: String(result.error || 'Okänt fel') };
-    return { ok: true, tags: (result.data && result.data[0]) || {} };
+    const tags = (result.data && result.data[0]) || {};
+    // Bytes utan File har ingen filtid: ExifTool skulle annars visa 1970 som ändringstid.
+    if (!(file instanceof File)) ['System:FileModifyDate', 'System:FileAccessDate', 'System:FileInodeChangeDate'].forEach((k) => delete tags[k]);
+    return { ok: true, tags };
 }
 
 self.onmessage = async (event) => {
@@ -43,8 +57,10 @@ self.onmessage = async (event) => {
     if (msg.type === 'init') {
         try {
             wasm = await gunzipBase64(msg.wasmGz);
-            const probe = await parse(new File([new Uint8Array([0xff, 0xd8, 0xff, 0xd9])], 'probe.jpg'), false);
-            self.postMessage({ type: 'ready', version: probe.ok ? probe.tags['ExifTool:ExifToolVersion'] : null });
+            const blobs = await canReadBlobs();
+            const jpeg = new Uint8Array([0xff, 0xd8, 0xff, 0xd9]);
+            const probe = await parse(blobs ? new File([jpeg], 'probe.jpg') : { name: 'probe.jpg', data: jpeg }, false);
+            self.postMessage({ type: 'ready', version: probe.ok ? probe.tags['ExifTool:ExifToolVersion'] : null, blobsBlocked: !blobs });
         } catch (err) {
             self.postMessage({ type: 'init-error', error: String((err && err.message) || err) });
         }

@@ -56,7 +56,7 @@
 .map-panel .link-btn { padding: 0; text-align: left; }
 .map-panel .link-btn.active { color: var(--text); text-decoration: underline; }
 
-.map-status { color: var(--text-muted); line-height: 1.45; flex: 1; }
+.map-status { color: var(--text-muted); line-height: 1.45; flex: 1; min-width: 0; overflow-wrap: anywhere; }
 .map-status.offline::before { content: "● "; color: var(--ok); }
 .map-status.online::before { content: "● "; color: var(--warn); }
 .map-status.missing { color: var(--warn); }

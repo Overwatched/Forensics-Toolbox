@@ -152,6 +152,10 @@
     }
 
     function startEngine() {
+        if (window.toolboxWasmProblem && window.toolboxWasmProblem()) {
+            setEngineStatus('failed', window.toolboxWasmProblem());
+            return;
+        }
         if (!window.EXIFTOOL_WORKER_SOURCE || !window.EXIFTOOL_WASM_GZ) {
             setEngineStatus('failed', 'ExifTool saknas (vendor/exiftool).');
             return;
@@ -165,6 +169,7 @@
             if (msg.type === 'ready') {
                 URL.revokeObjectURL(url);
                 engine.ready = true;
+                engine.blobsBlocked = !!msg.blobsBlocked;
                 engine.version = msg.version ? 'ExifTool ' + msg.version : 'ExifTool';
                 $('engine-version').textContent = engine.version;
                 setEngineStatus('ready', engine.version + ' redo — inget lämnar datorn');
@@ -296,7 +301,14 @@
         busy = row;
         busyFrom = from;
         busyUnknown = showUnknown;
-        engine.worker.postMessage({ type: 'parse', id: row.id, file: row.file, unknown: busyUnknown });
+        var unknown = busyUnknown;
+        var send = function (file) { engine.worker.postMessage({ type: 'parse', id: row.id, file: file, unknown: unknown }); };
+        // WebKit kan inte läsa en File i workern under file://. Då läses filen här och bytena skickas.
+        if (engine.blobsBlocked) {
+            row.file.arrayBuffer().then(function (buf) { send({ name: row.file.name, data: new Uint8Array(buf) }); }, function (err) {
+                finish(row, { ok: false, error: String(err && err.message || err), unknown: unknown });
+            });
+        } else send(row.file);
         updateProgress();
     }
 

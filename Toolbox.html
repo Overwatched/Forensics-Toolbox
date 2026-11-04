@@ -31,7 +31,7 @@
                 <div class="sidebar-header-text">
                     <h1>Forensics Toolbox</h1>
                     <div class="version-row">
-                        <p>Version 1.46</p>
+                        <p>Version 1.47</p>
                         <div id="net-status" class="net-status">
                             <span id="net-status-text"></span>
                         </div>
@@ -348,6 +348,14 @@
         </aside>
 
         <main class="content">
+
+            <div id="browser-notice" class="browser-notice" role="alert" hidden>
+                <strong>WebAssembly är avstängt i den här webbläsaren.</strong>
+                Queries, Härkomst med en extraktion, EXIF &amp; karta och iOS Keychain kan därför inte läsa några filer.
+                Det beror oftast på att JIT är blockerad i Edge: förstärkt säkerhet eller policyerna
+                EnhanceSecurityMode och DefaultJavaScriptJitSetting, som syns under edge://policy.
+                Be den som ansvarar för datorn att tillåta JIT här, eller använd skrivbordsappen.
+            </div>
 
             <div id="content-placeholder" class="content-placeholder">
                 <h2>Forensics Toolbox</h2>

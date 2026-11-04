@@ -14,6 +14,14 @@
  * Verktyg som även lyssnar på andra meddelanden (t.ex. select-db, select-format)
  * behåller sin egen lyssnare för dem — det här skalet sköter bara temat.
  */
+// Besked när webbläsaren saknar WebAssembly, tom text annars. Det som läser databaser och EXIF behöver det.
+window.toolboxWasmProblem = function () {
+    if (typeof WebAssembly !== 'undefined') return '';
+    return 'WebAssembly är avstängt i den här webbläsaren, så filen går inte att läsa. Det beror oftast på att JIT är blockerad i Edge ' +
+        '(förstärkt säkerhet, eller policyerna EnhanceSecurityMode och DefaultJavaScriptJitSetting under edge://policy). ' +
+        'Be den som ansvarar för datorn att tillåta JIT här, eller använd skrivbordsappen.';
+};
+
 (function () {
     function isTheme(value) {
         return value === 'light' || value === 'dark';

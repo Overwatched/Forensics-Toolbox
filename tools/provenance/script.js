@@ -400,6 +400,7 @@
 
     async function loadSql() {
         if (SQL) return SQL;
+        if (window.toolboxWasmProblem()) throw new Error(window.toolboxWasmProblem());
         if (typeof initSqlJs !== 'function') throw new Error('sql.js kunde inte laddas.');
         SQL = await initSqlJs({ wasmBinary: window.SQL_WASM_BINARY });
         return SQL;
@@ -415,7 +416,10 @@
         } } : undefined);
         loaded.label = label;
         loaded.keySource = cipher ? cipher.source : null;
-        loaded.sqlDb = new SQL.Database(loaded.bytes);
+        // Härkomst läser bara ur databasen, så arrayen lämnas över utan kopia.
+        try { loaded.sqlDb = new SQL.Database(ExtractionCore.noCopy(loaded.bytes)); }
+        catch (err) { throw ZipRead.friendlyMemory(err, label, loaded.bytes.length); }
+        loaded.bytes = null;
         // Telegrams databaser: tabellerna tg_… avkodas i minnet ur Telegrams eget format (postbox.js).
         if (window.TelegramPostbox) {
             try { loaded.derived = window.TelegramPostbox.attach(loaded.sqlDb); }
@@ -483,6 +487,7 @@
 
     async function exifEngine() {
         if (state.exif) return state.exif;
+        if (window.toolboxWasmProblem()) throw new Error(window.toolboxWasmProblem());
         if (!window.EXIFTOOL_WORKER_SOURCE) await loadScript('../exif-viewer/vendor/exiftool/exiftool-worker.js');
         if (!window.EXIFTOOL_WASM_GZ) await loadScript('../exif-viewer/vendor/exiftool/zeroperl-wasm.js');
         var url = URL.createObjectURL(new Blob([window.EXIFTOOL_WORKER_SOURCE], { type: 'text/javascript' }));
@@ -491,7 +496,7 @@
         await new Promise(function (resolve, reject) {
             worker.onmessage = function (event) {
                 var msg = event.data || {};
-                if (msg.type === 'ready') { URL.revokeObjectURL(url); resolve(); }
+                if (msg.type === 'ready') { URL.revokeObjectURL(url); engine.blobsBlocked = !!msg.blobsBlocked; resolve(); }
                 else if (msg.type === 'init-error') reject(new Error('ExifTool kunde inte starta: ' + msg.error));
                 else if (msg.type === 'result' && engine.pending[msg.id]) {
                     var p = engine.pending[msg.id];
@@ -516,7 +521,8 @@
         var id = engine.next++;
         return new Promise(function (resolve, reject) {
             engine.pending[id] = { resolve: resolve, reject: reject };
-            engine.worker.postMessage({ type: 'parse', id: id, file: new File([bytes], name), unknown: false });
+            // WebKit kan inte läsa en File i workern under file://. Då skickas bytena som de är.
+            engine.worker.postMessage({ type: 'parse', id: id, file: engine.blobsBlocked ? { name: name, data: bytes } : new File([bytes], name), unknown: false });
         });
     }
 
@@ -2270,7 +2276,7 @@
         $('result').classList.add('display-none');
         try {
             setStatus('run-status', 'Räknar CRC32 och SHA-256 på ' + escapeHtml(file.name) + '…');
-            var bytes = new Uint8Array(await file.arrayBuffer());
+            var bytes = await ZipRead.readFile(file);
             var crc = ZipRead.crc32(bytes);
             var sha = await ExtractionCore.sha256(bytes);
             setStatus('run-status', 'Söker samma innehåll i zippen…');
@@ -3801,10 +3807,8 @@
             $('load-error').classList.remove('display-none');
             console.error(err);
         }
-        try {
-            var pkg = await loadLocalJson('../../package.json');
-            state.toolVersion = pkg && pkg.version ? String(pkg.version).replace(/\.0$/, '') : '';
-        } catch (e) { state.toolVersion = ''; }
+        // Versionen kommer från Toolbox.html, i verktygets adress.
+        state.toolVersion = new URLSearchParams(location.search).get('version') || '';
         fillZoneSelect(null);
         $('role-note').innerHTML = '<strong>' + escapeHtml(ProvenanceReport.ROLE_NOTE.split('. ')[0]) + '.</strong> ' + escapeHtml(ProvenanceReport.ROLE_NOTE.split('. ').slice(1).join('. '));
         var params = new URLSearchParams(location.search);

@@ -110,8 +110,8 @@ eller ändringstid.
 - **Kontroll.** CRC32 kontrolleras mot zippen. Fel CRC visas som en varning och stoppar inte.
 - **Indata.** Läsaren tar en funktion `read(offset, length)` → `Uint8Array`, så att samma kod kan
   testas med en Buffer i Node.
-- **Storleksgräns.** En databas på över ungefär 1,5 GB läses inte, eftersom sql.js har hela
-  databasen i minnet. Det ger ett tydligt besked. Alla filer i K123456-26 är under 10 MB.
+- **Storlek.** Ingen fast gräns: det som tar stopp är minnet, eftersom sql.js har hela databasen i
+  minnet, och det ger ett tydligt besked. Se "Databaser över 1,5 GB" i DEVELOPMENT.md.
 
 ### 3. Hitta databaserna (`tools/db-queries/locate.js`, testas i Node)
 - **Matchning.** Namnen i zippen jämförs bakifrån mot `paths`. `-wal`, `-shm` och `-journal`

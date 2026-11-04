@@ -5,6 +5,8 @@
 // Output:
 //   release/ForensicsToolbox-X.Y-html/
 //   release/ForensicsToolbox-X.Y-html.zip
+//
+// --folder <mapp>: bara filerna, utan kartor och zip, till provkörningen (tests/app/html.js).
 
 const fs = require('node:fs');
 const path = require('node:path');
@@ -22,7 +24,9 @@ if (!match) {
 }
 const shortVersion = `${match[1]}.${match[2]}`;
 const folderName = `ForensicsToolbox-${shortVersion}-html`;
-const dest = path.join(RELEASE_DIR, folderName);
+const folderArg = process.argv.indexOf('--folder');
+const testFolder = folderArg >= 0 ? process.argv[folderArg + 1] : null;
+const dest = testFolder || path.join(RELEASE_DIR, folderName);
 const zipPath = path.join(RELEASE_DIR, `${folderName}.zip`);
 
 const INCLUDE = [
@@ -61,16 +65,18 @@ for (const item of INCLUDE) {
     copyRecursive(from, path.join(dest, item));
 }
 
-const mapNames = ['kartdata.json', 'world.pmtiles', 'sweden.pmtiles'];
-const mapDir = path.join(ROOT, 'maps');
-const missingMaps = mapNames.filter((name) => !fs.existsSync(path.join(mapDir, name)));
-if (missingMaps.length) {
-    console.error('pack-html-folder: saknar ' + missingMaps.join(', ') + ' i maps/. Kör npm run fetch-maps först.');
-    process.exit(1);
+if (!testFolder) {
+    const mapNames = ['kartdata.json', 'world.pmtiles', 'sweden.pmtiles'];
+    const mapDir = path.join(ROOT, 'maps');
+    const missingMaps = mapNames.filter((name) => !fs.existsSync(path.join(mapDir, name)));
+    if (missingMaps.length) {
+        console.error('pack-html-folder: saknar ' + missingMaps.join(', ') + ' i maps/. Kör npm run fetch-maps först.');
+        process.exit(1);
+    }
+    fs.mkdirSync(path.join(dest, 'maps'), { recursive: true });
+    mapNames.forEach((name) => fs.copyFileSync(path.join(mapDir, name), path.join(dest, 'maps', name)));
+    console.log('pack-html-folder: tar med offlinekartan (' + mapNames.join(', ') + ')');
 }
-fs.mkdirSync(path.join(dest, 'maps'), { recursive: true });
-mapNames.forEach((name) => fs.copyFileSync(path.join(mapDir, name), path.join(dest, 'maps', name)));
-console.log('pack-html-folder: tar med offlinekartan (' + mapNames.join(', ') + ')');
 
 const readme = [
     'Forensics Toolbox ' + shortVersion + ' — HTML-mapp',
@@ -93,9 +99,25 @@ const readme = [
     'Kartan:',
     '  Offlinekartan (världen i översikt, Sverige på gatunivå) ligger i mappen maps.',
     '',
+    'Utan internet:',
+    '  Verktygslådan hämtar inget från internet. Onlinekartan används bara om du själv slår på den.',
+    '',
+    'Om något inte fungerar:',
+    '  - Sidan saknar formatering eller verktyg: packa upp hela zip-filen. Öppna inte Toolbox.html inifrån zip-filen.',
+    '  - Ett besked om WebAssembly: JIT är blockerad i webbläsaren, oftast genom förstärkt säkerhet i Edge eller',
+    '    policyerna EnhanceSecurityMode och DefaultJavaScriptJitSetting (se edge://policy). Då går databaser och EXIF',
+    '    inte att läsa. Med förstärkt säkerhet kan WebAssembly också köras, men märkbart långsammare.',
+    '  - Ett besked om WebGL2: kartan kan inte ritas, vanligen i en virtuell maskin utan grafikkort. Resten fungerar.',
+    '  - Inget händer när du väljer en fil: filväljaren kan vara avstängd med en policy (AllowFileSelectionDialogs).',
+    '',
 ].join('\n');
 
 fs.writeFileSync(path.join(dest, 'LÄS MIG.txt'), readme, 'utf8');
+
+if (testFolder) {
+    console.log('pack-html-folder: ' + dest + ' (utan kartor och zip)');
+    process.exit(0);
+}
 
 function countFiles(dir) {
     let n = 0;

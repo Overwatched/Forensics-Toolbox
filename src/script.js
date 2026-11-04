@@ -18,6 +18,15 @@ window.addEventListener('online', updateNetStatus);
 window.addEventListener('offline', updateNetStatus);
 updateNetStatus();
 
+// Utan WebAssembly går varken databaser eller ExifTool att läsa. Det ska synas direkt, inte först som
+// ett fel när något körs. Blockerad JIT i Edge kan stänga av det.
+function showBrowserNotice() {
+    const el = document.getElementById('browser-notice');
+    if (el && typeof WebAssembly === 'undefined') el.hidden = false;
+}
+
+showBrowserNotice();
+
 function initToolNav() {
     const host = document.getElementById('tool-host');
     const placeholder = document.getElementById('content-placeholder');
@@ -207,7 +216,9 @@ function initToolNav() {
         frame.setAttribute('data-tool', path);
         const theme = currentTheme();
         const separator = src.indexOf('?') === -1 ? '?' : '&';
-        frame.src = src + separator + 'theme=' + theme;
+        // Versionen står i Toolbox.html. Under file:// kan verktyget inte läsa den själv.
+        const version = ((document.querySelector('.version-row p') || {}).textContent || '').replace(/^Version\s+/, '').trim();
+        frame.src = src + separator + 'theme=' + theme + '&version=' + encodeURIComponent(version);
         frame.addEventListener('load', () => {
             frame.dataset.ready = '1';
             postToFrame(frame, { source: 'forensics-toolbox', type: 'theme', theme: currentTheme() });

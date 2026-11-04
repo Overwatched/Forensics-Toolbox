@@ -1,7 +1,7 @@
 {
   "name": "forensics-toolbox",
   "productName": "Forensics Toolbox",
-  "version": "1.46.0",
+  "version": "1.47.0",
   "description": "Lokal verktygslåda för IT-forensik. Encoding, hash, tidskonvertering, CyberChef m.m. Körs helt offline.",
   "author": "Overwatched",
   "license": "UNLICENSED",
@@ -11,6 +11,7 @@
     "start": "env -u ELECTRON_RUN_AS_NODE electron .",
     "test": "node scripts/run-tests.js",
     "test:app": "node tests/app/run.js",
+    "test:html": "node tests/app/html.js",
     "postinstall": "node scripts/ensure-electron.js",
     "sync-version": "node scripts/sync-version.js",
     "sync-queries": "node scripts/sync-query-catalogs.js",
@@ -26,7 +27,7 @@
     "fetch-maps": "node scripts/fetch-map-data.js"
   },
   "devDependencies": {
-    "electron": "^44.5.1",
+    "electron": "^45.2.2",
     "electron-builder": "^26.17.0",
     "png-to-ico": "^3.0.2",
     "sharp": "^0.35.3"

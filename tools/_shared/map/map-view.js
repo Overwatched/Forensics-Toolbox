@@ -1770,6 +1770,13 @@
             map.fitBounds(b, { padding: 60, maxZoom: top, duration: 0 });
         }
 
+        // Utan WebGL2 går kartan inte att rita. Webbläsarens eget fel är långt, på engelska och med en adress.
+        function mapStartError(err) {
+            var msg = err && err.message ? err.message : String(err);
+            if (!/WebGL/i.test(msg)) return msg;
+            return 'datorn eller webbläsaren saknar WebGL2, som kartan behöver. Det händer i en virtuell maskin utan grafikkort och när grafikacceleration är avstängd. Resten av verktyget fungerar.';
+        }
+
         function start() {
             if (ready) return ready;
             setStatus('Laddar kartan…');
@@ -1805,10 +1812,7 @@
                     .observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
                 return new Promise(function (resolve) { map.once('load', resolve); });
             }).catch(function (err) {
-                var msg = err && err.message ? err.message : String(err);
-                // Utan WebGL2 (till exempel i en virtuell maskin utan grafikkort) går kartan inte att rita.
-                if (/WebGL/i.test(msg)) msg = 'datorn saknar WebGL2, som kartan behöver. Det händer till exempel i en virtuell maskin utan grafikkort.';
-                setStatus('Kartan kunde inte starta: ' + msg, 'missing');
+                setStatus('Kartan kunde inte starta: ' + mapStartError(err), 'missing');
                 // Blev kartan aldrig skapad kan nästa anrop försöka igen.
                 if (!map) ready = null;
                 throw err;
@@ -2796,15 +2800,17 @@
             var files = Array.prototype.filter.call(el.imageryInput.files || [], function (f) { return /\.pmtiles$/i.test(f.name); });
             el.imageryInput.value = '';
             if (!files.length) return;
-            start().then(function () { return addFiles(files); }).then(function (added) {
-                var images = added.filter(function (a) { return a.kind === 'raster'; });
-                // En ny bildkarta visas direkt som hybrid, annars händer inget synligt.
-                if (images.length && basemap === 'map') basemap = 'hybrid';
-                applyStyle();
-                if (!images.length) setStatus('Filen innehåller en vektorkarta, inte bilder. Den används som karta.', 'offline');
-            }).catch(function (err) {
-                setStatus('Bildkartan kunde inte läsas: ' + (err && err.message ? err.message : err), 'missing');
-            });
+            start().then(function () {
+                return addFiles(files).then(function (added) {
+                    var images = added.filter(function (a) { return a.kind === 'raster'; });
+                    // En ny bildkarta visas direkt som hybrid, annars händer inget synligt.
+                    if (images.length && basemap === 'map') basemap = 'hybrid';
+                    applyStyle();
+                    if (!images.length) setStatus('Filen innehåller en vektorkarta, inte bilder. Den används som karta.', 'offline');
+                }).catch(function (err) {
+                    setStatus('Bildkartan kunde inte läsas: ' + (err && err.message ? err.message : err), 'missing');
+                });
+            }, function () { /* start() har redan sagt varför på kartan */ });
         });
         el.online.addEventListener('change', function () {
             if (!el.online.checked) {
@@ -2830,12 +2836,14 @@
                 setStatus('Mappen behöver innehålla world.pmtiles och sweden.pmtiles.', 'missing');
                 return;
             }
-            start().then(function () { return openFiles(tiles); }).then(function () {
-                if (!online) applyStyle();
-                updateStatus();
-            }).catch(function (err) {
-                setStatus('Kartfilerna kunde inte läsas: ' + (err && err.message ? err.message : err), 'missing');
-            });
+            start().then(function () {
+                return openFiles(tiles).then(function () {
+                    if (!online) applyStyle();
+                    updateStatus();
+                }).catch(function (err) {
+                    setStatus('Kartfilerna kunde inte läsas: ' + (err && err.message ? err.message : err), 'missing');
+                });
+            }, function () { /* start() har redan sagt varför på kartan */ });
         }
         el.pickDir.addEventListener('click', function () {
             // Alltid en mappdialog, i samma klick. En filväljare som reserv

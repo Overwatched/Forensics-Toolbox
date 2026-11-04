@@ -91,6 +91,7 @@
     function zipSource(read, entry, lead) {
         return {
             name: baseName(entry.name),
+            size: entry.size,
             read: async function () {
                 var r = await readEntry(read, entry);
                 return { bytes: r.bytes, lines: (lead || []).concat([r.line]) };
@@ -121,11 +122,33 @@
         return scan.entries;
     }
 
-    async function sha256(bytes) {
+    // crypto.subtle nekar mer än 2 GB. Större filer räknas i JavaScript, bit för bit, utan att sidan
+    // står still. opts.subtleMax kan bytas ut i testerna.
+    var SUBTLE_MAX = 2000000000;
+    var HASH_PIECE = 64 * 1024 * 1024;
+    async function sha256(bytes, opts) {
         var c = root.crypto || (typeof globalThis !== 'undefined' ? globalThis.crypto : null);
         if (!c || !c.subtle) return '';
+        if (bytes.length > (opts && opts.subtleMax || SUBTLE_MAX)) {
+            var hasher = dep('ToolboxHashing').createHasher('sha256');
+            for (var at = 0; at < bytes.length; at += HASH_PIECE) {
+                hasher.update(bytes.subarray(at, at + HASH_PIECE));
+                await dep('ZipRead').pause();
+            }
+            return hasher.digestHex();
+        }
         var digest = await c.subtle.digest('SHA-256', bytes);
         return Array.prototype.map.call(new Uint8Array(digest), function (b) { return (b < 16 ? '0' : '') + b.toString(16); }).join('');
+    }
+
+    // Lämnar arrayen till sql.js utan kopia: sql.js tar in filen med slice() och läser den med
+    // subarray(). Arrayen tillhör databasen efteråt, och den som lämnat den ska inte använda den mer.
+    function noCopy(bytes) {
+        return {
+            length: bytes.length,
+            subarray: function (from, to) { return bytes.subarray(from, to); },
+            slice: function () { return bytes; },
+        };
     }
 
     // Läser databasen och dess -wal ur zippen, kontrollerar CRC32, räknar SHA-256 på båda och
@@ -135,7 +158,11 @@
     // ett fel med code 'ENCRYPTED'. opts.onProgress(sidor, alla) under dekrypteringen.
     // Returnerar { bytes, stats, hashes: { db, wal }, lines, warnings, dbEntry, walEntry }.
     async function loadDatabase(read, hit, lead, opts) {
-        opts = opts || {};
+        try { return await readDatabase(read, hit, lead, opts || {}); }
+        catch (err) { throw dep('ZipRead').friendlyMemory(err, baseName(hit.db.name), hit.db.size); }
+    }
+
+    async function readDatabase(read, hit, lead, opts) {
         var dbRead = await readEntry(read, hit.db);
         var walRead = hit.wal ? await readEntry(read, hit.wal) : null;
         var hashes = { db: await sha256(dbRead.bytes), wal: walRead ? await sha256(walRead.bytes) : '' };
@@ -151,7 +178,7 @@
             err.code = 'ENCRYPTED';
             throw err;
         } else {
-            merged = dep('SqliteWal').apply(dbRead.bytes, walBytes);
+            merged = dep('SqliteWal').apply(dbRead.bytes, walBytes, { owned: true });
         }
         var warnings = [];
         // En -wal som inte går att lägga på (trasigt huvud, fel sidstorlek) hoppar SQLite över. Här
@@ -192,7 +219,7 @@
         use: function (d) { Object.keys(d).forEach(function (k) { deps[k] = d[k]; }); },
         targets: targets, dbForVersion: dbForVersion, open: open, find: find,
         readEntry: readEntry, zipSource: zipSource, loadDatabase: loadDatabase, walSummary: walSummary, entryTimes: entryTimes,
-        sha256: sha256, entryTime: entryTime, hex: hex, sizeText: sizeText, baseName: baseName,
+        sha256: sha256, noCopy: noCopy, entryTime: entryTime, hex: hex, sizeText: sizeText, baseName: baseName,
     };
     if (typeof module !== 'undefined' && module.exports) module.exports = api;
     else root.ExtractionCore = api;
