@@ -1,5 +1,14 @@
 Automatiskt byggd från commit `{{SHA}}`.
 
+## Nytt i 1.46
+
+Sökningar i stora extraktioner går betydligt snabbare. Resultaten är desamma: de befintliga kontrollerna mot labbtelefonen går igenom, och dekrypteringen är jämförd byte för byte med den gamla vägen.
+
+- **Telegram:** avkodningen tog orimligt lång tid med många meddelanden, eftersom en lista kopierades för varje meddelande. 150 000 meddelanden med bilder tar nu ungefär 2 s i stället för 33 s. Samma fel är rättat för `-wal`-filer med många transaktioner.
+- **Sökningar i zippen:** namnen i innehållsförteckningen läses in en gång i stället för vid varje sökning. En sökning tar 25–80 ms i stället för 300–400 ms, och en filnamnssökning gör 3–10 sådana. Det kostar ungefär 100 MB mer minne i en extraktion med 630 000 poster.
+- **Signal:** databasen dekrypteras med webbläsarens inbyggda krypto, också i Queries. 512 MB tar 1,4 s i stället för 17 s. HMAC kontrolleras för varje sida som förut. Utan WebCrypto används den gamla vägen.
+- **Appen fryser inte under dekrypteringen**, och statusraden visar hur långt den kommit.
+
 ## Nytt i 1.45
 
 Härkomst är jämförd med en labbsession på en iPhone där varje steg loggades med tid, och det som inte stämde är rättat.

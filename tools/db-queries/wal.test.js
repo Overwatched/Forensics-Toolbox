@@ -100,3 +100,37 @@ test('fel fil som -wal ger ett tydligt fel', () => {
     const r = wal.apply(new Uint8Array(4096), new Uint8Array(64).fill(7));
     assert.match(r.stats.error, /magiskt tal/);
 });
+
+test('-wal med en commit per ram: alla ramar läggs på i rätt ordning, och planen är densamma', () => {
+    const page = 512;
+    const pages = 2000;
+    const db = new Uint8Array(page * 2);
+    Buffer.from('SQLite format 3\0', 'latin1').copy(db);
+    db[16] = 2; db[17] = 0;
+    const head = Buffer.alloc(32);
+    head.writeUInt32BE(0x377f0683, 0); head.writeUInt32BE(3007000, 4); head.writeUInt32BE(page, 8);
+    head.writeUInt32BE(1, 16); head.writeUInt32BE(2, 20);
+    const sumOf = (buf, s) => { let [a, b] = s; for (let i = 0; i < buf.length; i += 8) { a = (a + buf.readUInt32BE(i) + b) >>> 0; b = (b + buf.readUInt32BE(i + 4) + a) >>> 0; } return [a, b]; };
+    let sum = sumOf(head.subarray(0, 24), [0, 0]);
+    head.writeUInt32BE(sum[0], 24); head.writeUInt32BE(sum[1], 28);
+    const parts = [head];
+    for (let f = 0; f < pages; f++) {
+        const body = Buffer.alloc(page, 0);
+        body.writeUInt32BE(f, 40);
+        const fh = Buffer.alloc(24);
+        fh.writeUInt32BE(2, 0); fh.writeUInt32BE(2, 4); fh.writeUInt32BE(1, 8); fh.writeUInt32BE(2, 12);
+        sum = sumOf(fh.subarray(0, 8), sum);
+        sum = sumOf(body, sum);
+        fh.writeUInt32BE(sum[0], 16); fh.writeUInt32BE(sum[1], 20);
+        parts.push(fh, body);
+    }
+    const file = new Uint8Array(Buffer.concat(parts));
+    const planned = wal.plan(db, file);
+    assert.strictEqual(planned.frames.length, pages);
+    assert.deepStrictEqual(planned.frames.slice(0, 2).map((f) => f.page), [2, 2]);
+    const a = wal.apply(db, file);
+    const b = wal.apply(db, file, { plan: planned });
+    assert.strictEqual(a.stats.commits, pages);
+    assert.strictEqual(Buffer.from(a.bytes).readUInt32BE(page + 40), pages - 1, 'den sista ramen vinner');
+    assert.deepStrictEqual(Buffer.from(b.bytes), Buffer.from(a.bytes));
+});

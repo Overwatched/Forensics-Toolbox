@@ -197,7 +197,7 @@
                 err.code = 'ENCRYPTED';
                 throw err;
             }
-            merged = SqlCipher.open(dbRead.bytes, walBytes, cipher.passphrase, cipher.profile, SqliteWal);
+            merged = await SqlCipher.openAsync(dbRead.bytes, walBytes, cipher.passphrase, cipher.profile, SqliteWal);
             origin.push(SqlCipher.summary(merged.stats, cipher.source));
         } else {
             merged = SqliteWal.apply(dbRead.bytes, walBytes);

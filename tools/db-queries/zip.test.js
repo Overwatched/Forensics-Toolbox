@@ -225,3 +225,51 @@ test('0x4b47: platsen satt i Bilder märks på posten', async () => {
     const scan = await zip.scan(reader(buf), buf.length, () => true);
     assert.deepStrictEqual(scan.entries.map((e) => !!e.customLocation), [true, false]);
 });
+
+for (const zip64 of [false, true]) {
+    test('innehållsförteckningen i minnet ger samma poster som en läsning från disk, ' + (zip64 ? 'Zip64' : 'vanlig zip'), async () => {
+        const files = FILES.concat([{ name: 'åäö/fil med namn.txt', data: 'x', ut: { m: 1700000000, a: 1700000001, c: 1700000002, b: 1700000003 } }]);
+        const buf = buildZip(files, { zip64, comment: 'kommentar', lead: Buffer.from('stubbe') });
+        const disk = reader(buf);
+        const cached = await zip.cacheDirectory(disk, buf.length);
+        assert.ok(cached.read.directory, 'förteckningen ligger i minnet');
+        const seen = { disk: [], cached: [] };
+        const keep = (list) => (name, size, crc) => { list.push([name, size, crc]); return /routined|åäö/.test(name); };
+        const a = await zip.scan(disk, buf.length, keep(seen.disk));
+        const b = await zip.scan(cached.read, buf.length, keep(seen.cached));
+        assert.deepStrictEqual(b, a);
+        assert.deepStrictEqual(seen.cached, seen.disk, 'keep får samma namn, storlek och CRC32');
+        assert.ok(b.entries.some((e) => e.name.startsWith('åäö') && e.ctime === 1700000002 && e.crtime === 1700000003));
+    });
+}
+
+test('innehållsförteckningen i minnet: namnen avkodas en gång, posterna är nya och extract fungerar', async () => {
+    const buf = buildZip(FILES, {});
+    const cached = await zip.cacheDirectory(reader(buf), buf.length);
+    const a = await zip.scan(cached.read, buf.length, () => true);
+    const names = cached.read.directory.names;
+    const b = await zip.scan(cached.read, buf.length, () => true);
+    assert.strictEqual(cached.read.directory.names, names, 'samma lista med namn');
+    assert.notStrictEqual(a.entries[0], b.entries[0], 'en post som ändras av extract påverkar inte nästa sökning');
+    const out = await zip.extract(cached.read, b.entries[0], { inflate });
+    assert.strictEqual(Buffer.from(out.bytes).toString(), FILES[0].data);
+    let progress = null;
+    await zip.scan(cached.read, buf.length, () => false, (done, total) => { progress = [done, total]; });
+    assert.strictEqual(progress[0], progress[1]);
+});
+
+test('innehållsförteckningen i minnet: en trasig förteckning ger samma fel som från disk', async () => {
+    const buf = Buffer.from(buildZip(FILES, {}));
+    const dir = await zip.readDirectory(reader(buf), buf.length);
+    const cut = Buffer.from(buf);
+    cut.writeUInt32LE(0, dir.offset);
+    const messages = async (b) => {
+        const fromDisk = await zip.scan(reader(b), b.length, () => false).catch((e) => e.message);
+        const cached = await zip.cacheDirectory(reader(b), b.length);
+        const fromMemory = await zip.scan(cached.read, b.length, () => false).catch((e) => e.message);
+        return [fromDisk, fromMemory];
+    };
+    const [d, m] = await messages(cut);
+    assert.match(d, /trasig \(post 1\)/);
+    assert.strictEqual(m, d);
+});

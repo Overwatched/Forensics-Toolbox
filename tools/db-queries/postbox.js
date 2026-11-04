@@ -382,7 +382,7 @@
             try { out = messageRows(r[0], r[1] instanceof Uint8Array ? r[1] : new Uint8Array(0)); }
             catch (e) { out = { message: { decode_error: 'nyckeln: ' + e.message }, resources: [] }; }
             messages.push(out.message);
-            resources = resources.concat(out.resources);
+            for (var i = 0; i < out.resources.length; i++) resources.push(out.resources[i]);
         });
         rowsOf(db, 'SELECT CAST(key AS TEXT), value FROM t2').forEach(function (r) {
             try { peers.push(peerRow(r[0], r[1] instanceof Uint8Array ? r[1] : new Uint8Array(0))); }
@@ -401,6 +401,18 @@
         media_height: 1, view_once: 1, autoclear_timeout: 1, consumed: 1, action: 1, call_duration: 1, call_video: 1, call_discard: 1, message_id: 1, size: 1, width: 1,
         height: 1, content_type: 1, message_namespace: 1 };
     function create(db, data) {
+        // En enda transaktion: annars skriver SQLite varje rad för sig.
+        db.run('BEGIN');
+        try {
+            createTables(db, data);
+            db.run('COMMIT');
+        } catch (e) {
+            try { db.run('ROLLBACK'); } catch (e2) { /* transaktionen är redan avbruten */ }
+            throw e;
+        }
+    }
+
+    function createTables(db, data) {
         Object.keys(data.tables).forEach(function (name) {
             var t = data.tables[name];
             db.run('DROP TABLE IF EXISTS temp.' + name);

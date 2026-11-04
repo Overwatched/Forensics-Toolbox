@@ -308,3 +308,93 @@ test('Signal på iOS med -wal: ramarna dekrypteras, också sida 1 med sitt huvud
     db.close();
     assert.match(sc.summary(merged.stats, 'nyckelringen'), /^Dekrypterad i minnet \(SQLCipher, Signals inställningar på iOS\) med nyckeln ur nyckelringen: \d+ sidor och \d+ sidor ur -wal\. Kontrollsumman \(HMAC\) stämde för alla sidor\.$/);
 });
+
+// ---------- openAsync (WebCrypto) ----------
+
+// WebCrypto med räknare, så att testet ser att den snabba vägen faktiskt används.
+function countingSubtle() {
+    const s = crypto.webcrypto.subtle;
+    const calls = { decrypt: 0, sign: 0 };
+    return { calls, importKey: (...a) => s.importKey(...a), encrypt: (...a) => s.encrypt(...a),
+        decrypt: (...a) => { calls.decrypt++; return s.decrypt(...a); }, sign: (...a) => { calls.sign++; return s.sign(...a); } };
+}
+
+test('openAsync: samma bytes och siffror som open, över bitgränser, med skadade sidor (Android och iOS)', async () => {
+    const raw = crypto.randomBytes(48);
+    const cases = [
+        { profile: 'signal', pass: PASS, enc: encryptDb(await makeDb(60), PASS, crypto.randomBytes(16)).bytes },
+        { profile: 'signal-ios', pass: raw.toString('hex'), enc: encryptDbIos(await makeDbIos(60), raw).bytes },
+    ];
+    for (const c of cases) {
+        const pages = c.enc.length / PAGE;
+        assert.ok(pages >= 4, 'flera sidor');
+        const broken = c.enc.slice();
+        broken[2 * PAGE + 100] ^= 1;          // data i sida 3
+        broken[3 * PAGE + PAGE - 60] ^= 1;    // HMAC eller IV i sida 4
+        for (const [enc, label] of [[c.enc, 'hel'], [broken, 'skadad']]) {
+            const want = sc.open(enc, new Uint8Array(0), c.pass, c.profile, wal);
+            for (const batchPages of [1, 2, 3, undefined]) {
+                const subtle = countingSubtle();
+                const got = await sc.openAsync(enc, new Uint8Array(0), c.pass, c.profile, wal, { subtle, batchPages });
+                assert.deepStrictEqual(Buffer.from(got.bytes), Buffer.from(want.bytes), c.profile + ' ' + label + ', ' + batchPages + ' sidor per bit');
+                assert.deepStrictEqual(got.stats, want.stats);
+                assert.strictEqual(subtle.calls.sign, pages - 1, 'HMAC kontrolleras för varje sida utom den första');
+                assert.ok(subtle.calls.decrypt >= 1);
+            }
+        }
+        assert.strictEqual(sc.open(broken, new Uint8Array(0), c.pass, c.profile, wal).stats.cipher.badHmac, 2);
+    }
+});
+
+test('openAsync: samma fel som open, fel nyckel och fel storlek', async () => {
+    const plain = await makeDb(10);
+    const enc = encryptDb(plain, PASS, crypto.randomBytes(16)).bytes;
+    await assert.rejects(sc.openAsync(enc, new Uint8Array(0), PASS.replace(/^a/, 'b'), 'signal', wal), /Nyckeln passar inte/);
+    await assert.rejects(sc.openAsync(plain, new Uint8Array(0), PASS, 'signal', wal), /inte krypterad/);
+    await assert.rejects(sc.openAsync(enc.slice(0, PAGE + 7), new Uint8Array(0), PASS, 'signal', wal), /helt antal sidor/);
+});
+
+test('openAsync: går i ren JS utan WebCrypto och när WebCrypto misslyckas, med samma resultat', async () => {
+    const enc = encryptDb(await makeDb(30), PASS, crypto.randomBytes(16)).bytes;
+    const want = sc.open(enc, new Uint8Array(0), PASS, 'signal', wal);
+    const without = await sc.openAsync(enc, new Uint8Array(0), PASS, 'signal', wal, { subtle: null });
+    assert.deepStrictEqual(Buffer.from(without.bytes), Buffer.from(want.bytes));
+    const failing = { importKey: () => Promise.reject(new Error('går inte')) };
+    const after = await sc.openAsync(enc, new Uint8Array(0), PASS, 'signal', wal, { subtle: failing });
+    assert.deepStrictEqual(Buffer.from(after.bytes), Buffer.from(want.bytes));
+    assert.deepStrictEqual(after.stats, want.stats);
+});
+
+test('openAsync: ramarna i -wal, också sida 1 med sitt huvud och en skadad ram, som open', async () => {
+    const raw = crypto.randomBytes(48);
+    const { bytes: encIos, k: kIos } = encryptDbIos(await makeDbIos(4), raw);
+    const walIos = encryptedWalIos(kIos, await makeDbIos(50));
+    const salt = crypto.randomBytes(16);
+    const { bytes: enc, k } = encryptDb(await makeDb(5), PASS, salt);
+    const walAndroid = encryptedWal(k, await makeDb(60), salt);
+    for (const [db, w, pass, profile] of [[encIos, walIos, raw.toString('hex'), 'signal-ios'], [enc, walAndroid, PASS, 'signal']]) {
+        const want = sc.open(db, w, pass, profile, wal);
+        assert.ok(want.stats.appliedFrames > 1);
+        for (const batchPages of [1, 2, undefined]) {
+            const got = await sc.openAsync(db, w, pass, profile, wal, { batchPages });
+            assert.deepStrictEqual(Buffer.from(got.bytes), Buffer.from(want.bytes), profile);
+            assert.deepStrictEqual(got.stats, want.stats);
+        }
+        // Tom och trasig -wal.
+        for (const other of [new Uint8Array(0), new Uint8Array(100)]) {
+            const a = sc.open(db, other, pass, profile, wal);
+            const b = await sc.openAsync(db, other, pass, profile, wal);
+            assert.deepStrictEqual(Buffer.from(b.bytes), Buffer.from(a.bytes));
+            assert.deepStrictEqual(b.stats, a.stats);
+        }
+    }
+});
+
+test('openAsync: rapporterar hur långt den kommit', async () => {
+    const enc = encryptDb(await makeDb(40), PASS, crypto.randomBytes(16)).bytes;
+    const pages = enc.length / PAGE;
+    const seen = [];
+    await sc.openAsync(enc, new Uint8Array(0), PASS, 'signal', wal, { batchPages: 2, onProgress: (done, total) => seen.push([done, total]) });
+    assert.deepStrictEqual(seen[seen.length - 1], [pages, pages]);
+    assert.ok(seen.every((x, i) => !i || x[0] > seen[i - 1][0]));
+});

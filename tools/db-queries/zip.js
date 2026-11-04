@@ -160,9 +160,64 @@
         }
     }
 
+    // Posten på plats at i innehållsförteckningen, med tiderna och storlekarna ur extrafälten.
+    function entryAt(buf, at, name) {
+        var e = {
+            name: name,
+            flags: u16(buf, at + 8),
+            method: u16(buf, at + 10),
+            dosTime: dosTime(u16(buf, at + 12), u16(buf, at + 14)),
+            crc32: u32(buf, at + 16),
+            compSize: u32(buf, at + 20),
+            size: u32(buf, at + 24),
+            localOffset: u32(buf, at + 42),
+            mtime: null, atime: null, crtime: null, ctime: null, utThird: null, timeField: '',
+        };
+        var nameLen = u16(buf, at + 28);
+        readExtra(buf, at + 46 + nameLen, at + 46 + nameLen + u16(buf, at + 30), e);
+        return e;
+    }
+
+    // En innehållsförteckning i minnet: namnen avkodas och platserna sparas första gången, så att varje
+    // ny sökning bara går igenom listan med namn.
+    function directoryIndex(d) {
+        if (d.names) return d;
+        var b = d.bytes;
+        var names = [];
+        var places = [];
+        var at = 0;
+        while (at + 46 <= b.length) {
+            if (u32(b, at) !== SIG_CENTRAL) throw new Error('Innehållsförteckningen i zippen är trasig (post ' + (names.length + 1) + ').');
+            var nameLen = u16(b, at + 28);
+            var total = 46 + nameLen + u16(b, at + 30) + u16(b, at + 32);
+            if (at + total > b.length) break;
+            names.push(utf8.decode(b.subarray(at + 46, at + 46 + nameLen)));
+            places.push(at);
+            at += total;
+        }
+        if (at !== b.length) throw new Error('Innehållsförteckningen i zippen slutar mitt i en post.');
+        d.names = names;
+        d.places = Uint32Array.from(places);
+        return d;
+    }
+
+    function scanIndexed(d, keep, onProgress) {
+        var index = directoryIndex(d);
+        var b = index.bytes;
+        var kept = [];
+        for (var i = 0; i < index.names.length; i++) {
+            var at = index.places[i];
+            if (keep(index.names[i], u32(b, at + 24), u32(b, at + 16))) kept.push(entryAt(b, at, index.names[i]));
+        }
+        if (onProgress) onProgress(index.size, index.size);
+        return { entries: kept, count: index.names.length, expected: index.entries, zip64: index.zip64, directorySize: index.size };
+    }
+
     // Går igenom hela innehållsförteckningen i bitar och sparar bara poster där keep(namn, storlek, crc32) är sant.
-    // onProgress(lästa byte, totalt) anropas efter varje bit.
+    // onProgress(lästa byte, totalt) anropas efter varje bit. Är förteckningen i minnet (cacheDirectory)
+    // används den färdiga listan med namn.
     async function scan(read, size, keep, onProgress) {
+        if (read.directory) return scanIndexed(read.directory, keep, onProgress);
         var dir = await readDirectory(read, size);
         var kept = [];
         var count = 0;
@@ -184,21 +239,7 @@
                 var name = utf8.decode(buf.subarray(at + 46, at + 46 + nameLen));
                 // keep får också storlek och CRC32 ur posten, så att dubbletter av en fil kan
                 // hittas utan att alla poster sparas. Zip64-storlekar är 0xFFFFFFFF här.
-                if (keep(name, u32(buf, at + 24), u32(buf, at + 16))) {
-                    var e = {
-                        name: name,
-                        flags: u16(buf, at + 8),
-                        method: u16(buf, at + 10),
-                        dosTime: dosTime(u16(buf, at + 12), u16(buf, at + 14)),
-                        crc32: u32(buf, at + 16),
-                        compSize: u32(buf, at + 20),
-                        size: u32(buf, at + 24),
-                        localOffset: u32(buf, at + 42),
-                        mtime: null, atime: null, crtime: null, ctime: null, utThird: null, timeField: '',
-                    };
-                    readExtra(buf, at + 46 + nameLen, at + 46 + nameLen + extraLen, e);
-                    kept.push(e);
-                }
+                if (keep(name, u32(buf, at + 24), u32(buf, at + 16))) kept.push(entryAt(buf, at, name));
                 at += total;
             }
             buf = buf.subarray(at);
@@ -218,7 +259,8 @@
     }
 
     // Innehållsförteckningen hålls i minnet efter första läsningen, så att varje sökning i zippen
-    // (databaserna, filen, kopior, Snapchats poster) läser den ur minnet i stället för från disk.
+    // (databaserna, filen, kopior, Snapchats poster) går mot minnet i stället för disken, och namnen
+    // bara avkodas en gång (read.directory, som scan känner igen).
     // Är den större än gränsen läses den från disk vid varje sökning som förut. Posterna själva
     // läses alltid ur zippen. Ingenting skrivs.
     var MAX_CACHED_DIRECTORY = 512 * 1024 * 1024;
@@ -241,6 +283,7 @@
             if (offset >= start && offset + length <= end) return bytes.subarray(offset - start, offset - start + length);
             return read(offset, length);
         };
+        info.read.directory = { bytes: bytes, size: dir.size, entries: dir.entries, zip64: dir.zip64, names: null, places: null };
         return info;
     }
 

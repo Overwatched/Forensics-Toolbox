@@ -160,3 +160,24 @@ test('bara Telegrams databaser får tabellerna', async () => {
     assert.strictEqual(PB.attach(db), null);
     db.close();
 });
+
+test('avkodningen växer linjärt: 150 000 meddelanden med bilder går på några sekunder', async () => {
+    const S = await sqlJs();
+    const db = new S.Database(E.postboxDb(S, {}));
+    const value = new Uint8Array(E.messageValue({ peer: KIM, namespace: 0, timestamp: T, id: 1, author: ME,
+        media: [E.image({ photoId: 600, sizes: [{ s: 'm', w: 180, h: 320, size: 9000 }, { s: 'w', w: 1152, h: 2048, size: 262257 }] })] }));
+    const insert = db.prepare('INSERT INTO t7 VALUES (?, ?)');
+    db.run('BEGIN');
+    for (let id = 1; id <= 150000; id++) insert.run([new Uint8Array(E.messageKey({ peer: KIM, namespace: 0, timestamp: T + id, id })), value]);
+    db.run('COMMIT');
+    insert.free();
+    const started = Date.now();
+    const out = PB.attach(db);
+    const ms = Date.now() - started;
+    assert.strictEqual(out.kind, 'postbox');
+    assert.strictEqual(rows(db, 'SELECT count(*) AS n FROM tg_message')[0].n, 150000);
+    assert.strictEqual(rows(db, 'SELECT count(*) AS n FROM tg_resource')[0].n, 300000);
+    db.close();
+    // Med en lista som kopieras för varje meddelande tog det här över en halv minut.
+    assert.ok(ms < 15000, 'Avkodningen tog ' + ms + ' ms');
+});

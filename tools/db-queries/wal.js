@@ -60,32 +60,31 @@
         return raw === 1 ? 65536 : raw;
     }
 
-    // Returnerar { bytes, stats }. bytes är en ny Uint8Array; db och wal lämnas orörda.
-    // opts.page(bytes, sidnummer) -> bytes: körs på varje sida som läggs på, t.ex. för att
-    // dekryptera en SQLCipher-sida. Kontrollsummorna gäller ramarna som de står i filen.
-    function apply(db, wal, opts) {
-        db = db instanceof Uint8Array ? db : new Uint8Array(db);
+    // Vilka ramar som ska läggas på: { stats, frames: [{ page, at }], commitPages, pageSize }. Ramarna
+    // gäller bara om frames inte är tom. Kontrollsummorna gäller ramarna som de står i filen.
+    function plan(db, wal) {
         var stats = {
             walFrames: 0, validFrames: 0, appliedFrames: 0, ignoredFrames: 0,
             uncommittedFrames: 0, oldFrames: 0, brokenFrames: 0,
             commits: 0, pages: 0, error: '',
         };
+        var none = { stats: stats, frames: [], commitPages: 0, pageSize: 0 };
         // En tom -wal (0 byte) är det vanliga läget efter en checkpoint: inga ramar att lägga på.
         if (!wal || !wal.byteLength) {
             stats.empty = true;
-            return { bytes: unWal(db.slice()), stats: stats };
+            return none;
         }
         wal = wal instanceof Uint8Array ? wal : new Uint8Array(wal);
         var head = readHeader(wal);
         if (head.error) {
             stats.error = head.error;
-            return { bytes: unWal(db.slice()), stats: stats };
+            return none;
         }
         var pageSize = head.pageSize;
         var dbSize = dbPageSize(db);
         if (dbSize && dbSize !== pageSize) {
             stats.error = 'Sidstorleken i -wal (' + pageSize + ') stämmer inte med databasen (' + dbSize + '). Fel -wal-fil?';
-            return { bytes: unWal(db.slice()), stats: stats };
+            return none;
         }
 
         var frameSize = FRAME_HEADER + pageSize;
@@ -108,7 +107,7 @@
             pending.push({ page: u32(wal, at), at: at + FRAME_HEADER });
             var commitSize = u32(wal, at + 4);
             if (commitSize) {
-                committed = committed.concat(pending);
+                for (var c = 0; c < pending.length; c++) committed.push(pending[c]);
                 pending = [];
                 commitPages = commitSize;
                 stats.commits++;
@@ -119,7 +118,21 @@
         stats.uncommittedFrames = stats.validFrames - committed.length;
         if (stop === 'old') stats.oldFrames = stats.walFrames - stats.validFrames;
         if (stop === 'broken') stats.brokenFrames = stats.walFrames - stats.validFrames;
+        return { stats: stats, frames: committed, commitPages: commitPages, pageSize: pageSize };
+    }
+
+    // Returnerar { bytes, stats }. bytes är en ny Uint8Array; db och wal lämnas orörda.
+    // opts.page(bytes, sidnummer) -> bytes: körs på varje sida som läggs på, t.ex. för att
+    // dekryptera en SQLCipher-sida. opts.plan: en färdig plan(db, wal), så att den inte räknas igen.
+    function apply(db, wal, opts) {
+        db = db instanceof Uint8Array ? db : new Uint8Array(db);
+        var planned = opts && opts.plan || plan(db, wal);
+        var stats = planned.stats;
+        var committed = planned.frames;
         if (!committed.length) return { bytes: unWal(db.slice()), stats: stats };
+        wal = wal instanceof Uint8Array ? wal : new Uint8Array(wal);
+        var pageSize = planned.pageSize;
+        var commitPages = planned.commitPages;
 
         var out = new Uint8Array(commitPages * pageSize);
         out.set(db.subarray(0, Math.min(db.length, out.length)));
@@ -145,7 +158,7 @@
         return bytes;
     }
 
-    var api = { apply: apply, readHeader: readHeader };
+    var api = { apply: apply, plan: plan, readHeader: readHeader };
     if (typeof module !== 'undefined' && module.exports) module.exports = api;
     else root.SqliteWal = api;
 })(typeof window !== 'undefined' ? window : this);

@@ -1,9 +1,9 @@
 // SQLCipher-krypterade databaser (Signal på Android och iOS) i läsbar form. Sidorna dekrypteras i
 // minnet, -wal-ramarna likaså (via SqliteWal.apply), och resultatet är en vanlig SQLite-databas
 // för sql.js. Källfilerna ändras aldrig. AES-256 (CBC för sidorna, CTR för Signals bilagor),
-// HMAC och PBKDF2 är skrivna i ren JS, så att allt går synkront och likadant i Node och i
-// webbläsaren. SHA-1, SHA-256 och SHA-512 kommer från ToolboxHashing. Testas i Node mot Nodes
-// crypto och FIPS-197:s testvektor.
+// HMAC och PBKDF2 finns i ren JS, så att allt går likadant i Node och i webbläsaren, och openAsync
+// gör samma sak med WebCrypto, mångdubbelt snabbare, när det finns. SHA-1, SHA-256 och SHA-512
+// kommer från ToolboxHashing. Testas i Node mot Nodes crypto och FIPS-197:s testvektor.
 (function (root) {
     'use strict';
 
@@ -298,7 +298,7 @@
         var macSalt = new Uint8Array(16);
         for (var i = 0; i < 16; i++) macSalt[i] = salt[i] ^ profile.saltMask;
         var macKey = pbkdf2(profile.kdf, key, macSalt, profile.fastIter, 32);
-        return { aes: expandKey(key), macKey: macKey, salt: salt.slice() };
+        return { aes: expandKey(key), key: key, macKey: macKey, salt: salt.slice() };
     }
 
     // En dekrypterad sida i full storlek: på sida 1 står "SQLite format 3" i stället för saltet (med
@@ -332,18 +332,26 @@
 
     // Dekrypterar hela databasfilen. Stämmer inte HMAC för sida 1 är nyckeln (eller profilen)
     // fel, och då kastas ett fel i klartext. Returnerar { bytes, keys, stats: { pages, badHmac } }.
+    function checkDatabase(db, profile) {
+        if (!isEncrypted(db, profile.id)) throw new Error('Databasen är inte krypterad.');
+        if (db.length < profile.pageSize || db.length % profile.pageSize) throw new Error('Filens storlek (' + db.length + ' byte) är inte ett helt antal sidor på ' + profile.pageSize + ' byte. Är det en SQLCipher-databas?');
+    }
+
+    function wrongKey(profile) {
+        return new Error('Nyckeln passar inte: kontrollsumman (HMAC) för första sidan stämmer inte. Fel nyckel, eller andra SQLCipher-inställningar än ' + profile.settings + '.');
+    }
+
     function decryptDatabase(db, passphrase, profileName) {
         var profile = profileOf(profileName);
         db = db instanceof Uint8Array ? db : new Uint8Array(db);
-        if (!isEncrypted(db, profile.id)) throw new Error('Databasen är inte krypterad.');
-        if (db.length < profile.pageSize || db.length % profile.pageSize) throw new Error('Filens storlek (' + db.length + ' byte) är inte ett helt antal sidor på ' + profile.pageSize + ' byte. Är det en SQLCipher-databas?');
+        checkDatabase(db, profile);
         var keys = keysFor(db, passphrase, profile);
         var pages = db.length / profile.pageSize;
         var out = new Uint8Array(db.length);
         var bad = 0;
         for (var p = 1; p <= pages; p++) {
             var r = decryptPage(keys, profile, db.subarray((p - 1) * profile.pageSize, p * profile.pageSize), p);
-            if (p === 1 && !r.hmacOk) throw new Error('Nyckeln passar inte: kontrollsumman (HMAC) för första sidan stämmer inte. Fel nyckel, eller andra SQLCipher-inställningar än ' + profile.settings + '.');
+            if (p === 1 && !r.hmacOk) throw wrongKey(profile);
             if (!r.hmacOk) bad++;
             out.set(r.bytes, (p - 1) * profile.pageSize);
         }
@@ -372,6 +380,166 @@
         return merged;
     }
 
+    // ---------- Samma sak med WebCrypto ----------
+
+    // Sidor per anrop till AES (8 MB med sidor på 4096 byte).
+    var BATCH_PAGES = 2048;
+    var SUBTLE_HASH = { sha1: 'SHA-1', sha256: 'SHA-256', sha512: 'SHA-512' };
+
+    function subtleOf(opts) {
+        if (opts && opts.subtle !== undefined) return opts.subtle;
+        var c = root.crypto || (typeof globalThis !== 'undefined' ? globalThis.crypto : null);
+        return c && c.subtle ? c.subtle : null;
+    }
+
+    async function subtleKeys(subtle, keys, profile) {
+        return {
+            aes: await subtle.importKey('raw', keys.key, { name: 'AES-CBC' }, false, ['encrypt', 'decrypt']),
+            mac: await subtle.importKey('raw', keys.macKey, { name: 'HMAC', hash: SUBTLE_HASH[profile.hmac] }, false, ['sign']),
+        };
+    }
+
+    // Släpper fram annat arbete i appen. WebCrypto-svaren körs före allt annat, så utan en paus står
+    // sidan still tills hela databasen är klar. MessageChannel, eftersom setTimeout bromsas i ett dolt fönster.
+    function yieldToApp() {
+        return new Promise(function (resolve) {
+            if (typeof MessageChannel === 'undefined') { resolve(); return; }
+            var ch = new MessageChannel();
+            ch.port1.onmessage = function () { ch.port1.close(); resolve(); };
+            ch.port2.postMessage(0);
+        });
+    }
+
+    // Dekrypterar en bit sidor (inte sida 1, som har ett huvud) till dest på platserna destAt, och
+    // kontrollerar varje sidas HMAC. Returnerar om HMAC stämde, per sida.
+    //
+    // AES-CBC körs i ett enda anrop på sidorna i följd. Varje block dekrypteras och blandas med blocket
+    // före, så allt utom första blocket i en sida blir rätt av sig själv. Första blocket har blandats med
+    // slutet av sidan före i stället för med sidans IV, och rättas här. WebCrypto kräver PKCS#7, så ett
+    // sista block läggs till: krypterat med det sista blocket som IV blir det precis utfyllnaden.
+    async function decryptBatch(subtle, sk, profile, pages, pgnos, dest, destAt) {
+        var size = profile.pageSize;
+        var end = size - reserveOf(profile);
+        var n = pages.length;
+        var stream = new Uint8Array(n * size + 16);
+        for (var s = 0; s < n; s++) stream.set(pages[s], s * size);
+        var padding = await subtle.encrypt({ name: 'AES-CBC', iv: stream.slice(n * size - 16, n * size) }, sk.aes, new Uint8Array(0));
+        stream.set(new Uint8Array(padding), n * size);
+        var plain = new Uint8Array(await subtle.decrypt({ name: 'AES-CBC', iv: stream.slice(end, end + 16) }, sk.aes, stream));
+        var msgSize = end + 16 + 4;
+        var msgs = new Uint8Array(n * msgSize);
+        var macs = new Array(n);
+        for (var i = 0; i < n; i++) {
+            var off = i * size;
+            var to = destAt[i];
+            dest.set(plain.subarray(off, off + end), to);
+            if (i) for (var k = 0; k < 16; k++) dest[to + k] ^= stream[off - 16 + k] ^ stream[off + end + k];
+            // HMAC över data, IV och sidnumret (little endian).
+            var m = i * msgSize;
+            msgs.set(stream.subarray(off, off + end + 16), m);
+            var pgno = pgnos[i];
+            msgs[m + end + 16] = pgno & 255;
+            msgs[m + end + 17] = (pgno >>> 8) & 255;
+            msgs[m + end + 18] = (pgno >>> 16) & 255;
+            msgs[m + end + 19] = pgno >>> 24;
+            macs[i] = subtle.sign('HMAC', sk.mac, msgs.subarray(m, m + msgSize));
+        }
+        var results = await Promise.all(macs);
+        return results.map(function (buf, j) {
+            var calc = new Uint8Array(buf);
+            var at = j * size + end + 16;
+            if (calc.length < profile.hmacLen) return false;
+            for (var x = 0; x < profile.hmacLen; x++) if (calc[x] !== stream[at + x]) return false;
+            return true;
+        });
+    }
+
+    // Sidorna 2 och framåt i bitar, med en paus efter varje bit.
+    async function decryptRest(subtle, keys, profile, db, out, opts) {
+        var sk = await subtleKeys(subtle, keys, profile);
+        var size = profile.pageSize;
+        var pages = db.length / size;
+        var batch = opts && opts.batchPages || BATCH_PAGES;
+        var bad = 0;
+        for (var p = 2; p <= pages; p += batch) {
+            var list = [], pgnos = [], destAt = [];
+            for (var q = p; q < p + batch && q <= pages; q++) {
+                list.push(db.subarray((q - 1) * size, q * size));
+                pgnos.push(q);
+                destAt.push((q - 1) * size);
+            }
+            var ok = await decryptBatch(subtle, sk, profile, list, pgnos, out, destAt);
+            ok.forEach(function (x) { if (!x) bad++; });
+            if (opts && opts.onProgress) opts.onProgress(Math.min(p + batch - 1, pages), pages);
+            await yieldToApp();
+        }
+        return bad;
+    }
+
+    // Som decryptDatabase. Utan WebCrypto, eller om ett anrop misslyckas, går det i ren JS.
+    // opts: { onProgress(sidor, alla), subtle, batchPages }.
+    async function decryptDatabaseAsync(db, passphrase, profileName, opts) {
+        var subtle = subtleOf(opts);
+        if (!subtle) return decryptDatabase(db, passphrase, profileName);
+        var profile = profileOf(profileName);
+        db = db instanceof Uint8Array ? db : new Uint8Array(db);
+        checkDatabase(db, profile);
+        var keys = keysFor(db, passphrase, profile);
+        var pages = db.length / profile.pageSize;
+        var out = new Uint8Array(db.length);
+        var first = decryptPage(keys, profile, db.subarray(0, profile.pageSize), 1);
+        if (!first.hmacOk) throw wrongKey(profile);
+        out.set(first.bytes, 0);
+        var bad;
+        try { bad = await decryptRest(subtle, keys, profile, db, out, opts); }
+        catch (e) { return decryptDatabase(db, passphrase, profileName); }
+        return { bytes: out, keys: keys, profile: profile, stats: { pages: pages, badHmac: bad } };
+    }
+
+    // Ramarna som ska läggas på, dekrypterade i förväg. Sida 1 har ett huvud och dekrypteras när den läggs på.
+    async function decryptWalFrames(subtle, dec, wal, frames, opts) {
+        var done = {};
+        if (!subtle) return done;
+        var profile = dec.profile;
+        var size = profile.pageSize;
+        var list = frames.filter(function (f) { return f.page > 1; });
+        var batch = opts && opts.batchPages || BATCH_PAGES;
+        try {
+            var sk = await subtleKeys(subtle, dec.keys, profile);
+            var dest = new Uint8Array(list.length * size);
+            for (var i = 0; i < list.length; i += batch) {
+                var part = list.slice(i, i + batch);
+                var ok = await decryptBatch(subtle, sk, profile,
+                    part.map(function (f) { return wal.subarray(f.at, f.at + size); }),
+                    part.map(function (f) { return f.page; }), dest,
+                    part.map(function (f, j) { return (i + j) * size; }));
+                part.forEach(function (f, j) { done[f.at] = { bytes: dest.subarray((i + j) * size, (i + j + 1) * size), hmacOk: ok[j] }; });
+                await yieldToApp();
+            }
+        } catch (e) { return {}; }
+        return done;
+    }
+
+    // Som open, och med samma resultat, men med WebCrypto när det finns. opts som decryptDatabaseAsync.
+    async function openAsync(db, wal, passphrase, profileName, SqliteWal, opts) {
+        var dec = await decryptDatabaseAsync(db, passphrase, profileName, opts);
+        var cipherStats = { profile: dec.profile.label, settings: dec.profile.settings, pages: dec.stats.pages, badHmac: dec.stats.badHmac, walPages: 0, walBadHmac: 0 };
+        var Wal = SqliteWal || root.SqliteWal || (typeof module !== 'undefined' && module.exports ? require('./wal.js') : null);
+        var walBytes = wal instanceof Uint8Array ? wal : new Uint8Array(wal || 0);
+        var planned = Wal.plan(dec.bytes, walBytes);
+        var done = await decryptWalFrames(subtleOf(opts), dec, walBytes, planned.frames, opts);
+        var slow = walPageDecryptor(dec.keys, dec.profile, cipherStats);
+        var merged = Wal.apply(dec.bytes, walBytes, { plan: planned, page: function (page, pgno) {
+            var r = done[page.byteOffset - walBytes.byteOffset];
+            if (!r) return slow(page, pgno);
+            cipherStats.walPages++;
+            if (!r.hmacOk) cipherStats.walBadHmac++;
+            return r.bytes;
+        } });
+        merged.stats.cipher = cipherStats;
+        return merged;
+    }
+
     // Raden till protokollet om hur databasen dekrypterades.
     function summary(stats, keySource) {
         var c = stats && stats.cipher;
@@ -384,7 +552,7 @@
     }
 
     var api = {
-        PROFILES: PROFILES, isPlain: isPlain, isEncrypted: isEncrypted, decryptDatabase: decryptDatabase, decryptPage: decryptPage, keysFor: keysFor, open: open, summary: summary,
+        PROFILES: PROFILES, isPlain: isPlain, isEncrypted: isEncrypted, decryptDatabase: decryptDatabase, decryptDatabaseAsync: decryptDatabaseAsync, decryptPage: decryptPage, keysFor: keysFor, open: open, openAsync: openAsync, summary: summary,
         expandKey: expandKey, encryptBlock: encryptBlock, decryptBlock: decryptBlock, cbcDecrypt: cbcDecrypt, ctr: ctr,
         hmac: hmac, pbkdf2: pbkdf2, hexToBytes: hexToBytes, bytesToHex: bytesToHex, base64ToBytes: base64ToBytes, utf8: utf8, reserveOf: reserveOf,
     };

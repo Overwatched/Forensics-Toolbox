@@ -410,7 +410,9 @@
         var key = hit.db.name;
         if (state.loaded[key]) return state.loaded[key];
         await loadSql();
-        var loaded = await ExtractionCore.loadDatabase(state.zip.read, hit, [state.zip.zipLine], cipher ? { cipher: cipher } : undefined);
+        var loaded = await ExtractionCore.loadDatabase(state.zip.read, hit, [state.zip.zipLine], cipher ? { cipher: cipher, onProgress: function (done, total) {
+            progress('Dekrypterar ' + escapeHtml(label) + '… ' + Math.round(100 * done / total) + ' %');
+        } } : undefined);
         loaded.label = label;
         loaded.keySource = cipher ? cipher.source : null;
         loaded.sqlDb = new SQL.Database(loaded.bytes);

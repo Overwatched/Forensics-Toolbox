@@ -132,7 +132,7 @@
     // lägger WAL-ramarna på en kopia i minnet. hit är en träff från locate(): { db, wal, journal }.
     // opts.cipher: { profile, passphrase, source } för en SQLCipher-krypterad databas (Signal):
     // sidorna och WAL-ramarna dekrypteras då i minnet. Är databasen krypterad utan nyckel kastas
-    // ett fel med code 'ENCRYPTED'.
+    // ett fel med code 'ENCRYPTED'. opts.onProgress(sidor, alla) under dekrypteringen.
     // Returnerar { bytes, stats, hashes: { db, wal }, lines, warnings, dbEntry, walEntry }.
     async function loadDatabase(read, hit, lead, opts) {
         opts = opts || {};
@@ -145,7 +145,7 @@
         var encrypted = dbRead.bytes.length >= 16 && (sc ? sc.isEncrypted(dbRead.bytes, opts.cipher && opts.cipher.profile) : !isPlainSqlite(dbRead.bytes));
         var merged;
         if (encrypted && opts.cipher && opts.cipher.passphrase) {
-            merged = dep('SqlCipher').open(dbRead.bytes, walBytes, opts.cipher.passphrase, opts.cipher.profile, dep('SqliteWal'));
+            merged = await dep('SqlCipher').openAsync(dbRead.bytes, walBytes, opts.cipher.passphrase, opts.cipher.profile, dep('SqliteWal'), { onProgress: opts.onProgress });
         } else if (encrypted && opts.cipher) {
             var err = new Error(baseName(hit.db.name) + ' är krypterad (SQLCipher), och ingen nyckel hittades: extraktionen saknar ' + (opts.cipher.hint || 'nyckelfilen') + '. Klistra in nyckeln för att läsa databasen.');
             err.code = 'ENCRYPTED';

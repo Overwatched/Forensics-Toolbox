@@ -472,6 +472,23 @@ Plan och provkörning: [PLAN-harkomst.md](PLAN-harkomst.md).
   `facit/lab-ios-tidsstamplar.json` (`FT_LAB_IOS_LOG_DIR`) är ett facit ur en labbsession med loggad ordning
   (2026-11-04).
 
+#### Stora extraktioner (1.46)
+
+- **`ZipRead.cacheDirectory`** lägger förteckningen på `read.directory`, och `scan` känner igen den: namnen avkodas
+  en gång (`directoryIndex`), och varje `keep` går sedan bara igenom listan. Posterna skapas på nytt vid varje sökning,
+  eftersom `extract` kan ändra dem. Större förteckningar än `MAX_CACHED_DIRECTORY` läses från disk som förut.
+- **`SqlCipher.openAsync`** ger samma bytes och siffror som `open`, men med WebCrypto (`decryptBatch`). AES-CBC körs
+  i ett anrop på 8 MB sidor i följd, och första blocket i varje sida rättas med sidans IV. Ett anrop per sida ger bara
+  en tredjedel av hastigheten. HMAC kontrolleras per sida. Utan WebCrypto, eller om ett anrop misslyckas, används `open`.
+  `open` finns kvar som referens i testerna.
+- **`yieldToApp`:** WebCrypto-svaren körs före allt annat i sidan, så utan en paus står appen still tills hela databasen
+  är klar (uppmätt: 1 366 ms utan, som längst 78 ms med). `setTimeout` bromsas i ett dolt fönster, därför `MessageChannel`.
+- **`SqliteWal.plan`** räknar ut vilka ramar som ska läggas på, så att `openAsync` kan dekryptera dem i förväg.
+- **Listor i slingor:** `lista = lista.concat(...)` per rad är kvadratiskt. Det kostade 67 av 73 s i Telegrams avkodning
+  (200 000 meddelanden). `postbox.test.js` har ett hastighetstest för det.
+- **Kvar:** en post över `MAX_ENTRY` (1,5 GB) kan inte läsas. CRC32 (ca 400 MB/s) och `TelegramPostbox.attach` körs i
+  huvudtråden.
+
 #### Kontrollerat mot den loggade labbsessionen (1.45)
 
 - **Photos:** `ZIMPORTEDBY` 8 har setts för SpringBoard, Safari och Bilder, så skärmdump kräver SpringBoard eller
