@@ -80,11 +80,11 @@
                 </div>
                 <div class="param-block">
                     <label class="field-label">&nbsp;</label>
-                    <button type="button" class="secondary" id="disk-pick" title="Räknar storlek och CRC32 på filen och letar efter exakt samma innehåll i zippen. Flera filer går att välja.">Eller välj filer från disk…</button>
+                    <button type="button" class="secondary" id="disk-pick" title="En lista: en textfil (.txt, .csv, .md5 och liknande) med filnamn eller MD5, SHA-1 eller SHA-256. Bilder: storlek och CRC32 räknas, och samma innehåll letas upp i zippen. Flera bilder går att välja.">Välj en lista eller bilder…</button>
                 </div>
             </div>
             <p class="muted">Finns namnet inte i bildbiblioteket söks hela zippen. En hashsumma söks på filernas innehåll, vilket kan ta några minuter i en stor zip.
-                Enter bedömer, Skift+Enter ger en ny rad.</p>
+                Enter bedömer, Skift+Enter ger en ny rad. En lista kan vara en textfil med ett filnamn eller en hashsumma per rad, utdata från md5sum, eller en CSV-fil med en kolumn för filnamn eller hashsumma.</p>
             <div class="field-row time-row">
                 <div class="param-block">
                     <label class="field-label" for="when-date">Eller en tidpunkt, när filen borde ha skapats</label>

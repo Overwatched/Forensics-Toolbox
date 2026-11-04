@@ -63,3 +63,76 @@ test('undersökarens läge per fil', () => {
     assert.strictEqual(B.examinerText({ text: '', checked: { time: 1, gone: 2 } }, ids), '1 av 5 kontrollerade, ingen text');
     assert.deepStrictEqual(B.counts([{ status: 'done' }, { status: 'done' }, { status: 'missing' }, { status: 'ambiguous' }]), { done: 2, missing: 1, ambiguous: 1, error: 0, stopped: 0, waiting: 0 });
 });
+
+const MD5 = '0123456789abcdef0123456789abcdef';
+const SHA1 = '0123456789abcdef0123456789abcdef01234567';
+const SHA256 = '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
+
+test('lista: ett namn eller en summa per rad, kommentarer och tomma rader bort, dubbletter bort', () => {
+    const r = B.parseList('\uFEFF# från ärendet\r\nIMG_0042.HEIC\r\n\r\n' + MD5 + '\r\nIMG_0042.HEIC\r\n/private/var/mobile/Media/DCIM/100APPLE/IMG_0043.PNG\r\n');
+    assert.deepStrictEqual(r.names, ['IMG_0042.HEIC', MD5, 'IMG_0043.PNG']);
+    assert.strictEqual(r.hashes, 1);
+    assert.strictEqual(r.files, 2);
+    assert.strictEqual(r.column, '');
+});
+
+test('lista: utdata från md5sum, shasum och BSD md5', () => {
+    assert.deepStrictEqual(B.parseList(MD5 + '  IMG_1.JPG\n' + SHA1 + ' *IMG_2.JPG\nMD5 (IMG 3.JPG) = ' + MD5.toUpperCase() + '\nSHA256 (x.jpg) = ' + SHA256).names, [MD5, SHA1, MD5.toUpperCase(), SHA256]);
+});
+
+test('lista: en tabell med rubrik använder summan före namnet', () => {
+    const csv = 'Filnamn;MD5;Storlek\nIMG_1.JPG;' + MD5 + ';123\nIMG_2.JPG;;456\n;;789\n';
+    const r = B.parseList(csv);
+    assert.deepStrictEqual(r.names, [MD5, 'IMG_2.JPG'], 'en rad utan summa tar namnet');
+    assert.strictEqual(r.column, 'MD5');
+    assert.strictEqual(r.skipped, 1);
+});
+
+test('lista: en tabell med bara filnamn, med citattecken, sökväg och komma i namnet', () => {
+    const r = B.parseList('"Path","Size"\n"C:\\Export\\Bild, kopia.jpg",12\n"/a/b/IMG_2.JPG",13\n');
+    assert.deepStrictEqual(r.names, ['Bild, kopia.jpg', 'IMG_2.JPG']);
+    assert.strictEqual(r.column, 'Path');
+    const tsv = B.parseList('ZFILENAME\tZDATECREATED\nIMG_1.HEIC\t783786259\n');
+    assert.deepStrictEqual(tsv.names, ['IMG_1.HEIC']);
+});
+
+test('lista: en CSV-fil ur Queries, med kommentarer överst', () => {
+    const r = B.parseList('\uFEFF# Forensics Toolbox, Queries 2026-11-04\r\n# Databas: Photos.sqlite\r\n# SQL:\r\n# SELECT ZFILENAME FROM ZASSET\r\nZFILENAME,ZKIND\r\nIMG_1.HEIC,0\r\nIMG_2.MOV,1\r\n');
+    assert.deepStrictEqual(r.names, ['IMG_1.HEIC', 'IMG_2.MOV']);
+});
+
+test('lista: hashdeep, med huvud och flera summor på raden', () => {
+    const r = B.parseList('%%%% HASHDEEP-1.0\n%%%% size,md5,sha256,filename\n## Invoked from: /tmp\n123,' + MD5 + ',' + SHA256 + ',/tmp/IMG_1.JPG\n');
+    assert.deepStrictEqual(r.names, [MD5]);
+});
+
+test('lista utan rubrik: en rad är en fil, utom när den bara har namn eller bara summor', () => {
+    assert.deepStrictEqual(B.parseList('IMG_1.JPG,' + MD5).names, [MD5], 'namn och summa är samma fil');
+    assert.deepStrictEqual(B.parseList(MD5 + ',' + SHA1).names, [MD5, SHA1]);
+    assert.deepStrictEqual(B.parseList('a.jpg;b.jpg').names, ['a.jpg', 'b.jpg']);
+    assert.deepStrictEqual(B.parseList('IMG_1.JPG,12345,2024-06-01').names, ['IMG_1.JPG']);
+    assert.deepStrictEqual(B.parseList('Bild, kopia.jpg').names, ['Bild, kopia.jpg']);
+    assert.deepStrictEqual(B.parseList('7d1f3a9c2b4e').names, ['7d1f3a9c2b4e'], 'ett namn utan ändelse, som Snapchats cachenycklar');
+});
+
+test('lista: en okänd rubrik hoppas över när nästa rad har ett filnamn', () => {
+    assert.deepStrictEqual(B.parseList('Bildnamn,Storlek\nIMG_1.JPG,12\n').names, ['IMG_1.JPG']);
+    assert.deepStrictEqual(B.parseList('Filnamn\nIMG_1.JPG\nkey123\n').names, ['IMG_1.JPG', 'key123'], 'en rubrik med en kolumn');
+    assert.deepStrictEqual(B.parseList('').names, []);
+    assert.deepStrictEqual(B.parseList('# bara kommentarer').names, []);
+    assert.deepStrictEqual(B.parseList('md5\n').names, []);
+});
+
+test('lista: vilka filer som räknas som listor och hur de avkodas', () => {
+    for (const n of ['lista.txt', 'x.CSV', 'a.tsv', 'b.md5', 'c.sha256', 'd.lst']) assert.ok(B.isListFile(n), n);
+    for (const n of ['IMG_1.JPG', 'video.mov', 'utan-andelse', 'lista.xlsx']) assert.ok(!B.isListFile(n), n);
+    assert.ok(B.isOfficeFile('lista.xlsx') && B.isOfficeFile('a.pdf') && !B.isOfficeFile('a.csv'));
+    const enc = (s) => new TextEncoder().encode(s);
+    assert.strictEqual(B.decodeList(enc('Bild å.jpg')), 'Bild å.jpg');
+    assert.strictEqual(B.decodeList(new Uint8Array([0x42, 0xe5, 0x2e, 0x6a, 0x70, 0x67])), 'Bå.jpg', 'Windows-1252 ur Excel');
+    assert.strictEqual(B.decodeList(new Uint8Array([0xff, 0xfe, 0x41, 0x00, 0x42, 0x00])), 'AB');
+    assert.strictEqual(B.decodeList(new Uint8Array([0xfe, 0xff, 0x00, 0x41, 0x00, 0x42])), 'AB');
+    assert.ok(B.looksLikeText(enc('IMG_1.JPG\n')));
+    assert.ok(B.looksLikeText(new Uint8Array([0xff, 0xfe, 0x41, 0x00])));
+    assert.ok(!B.looksLikeText(new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10])), 'en JPEG är inte text');
+});

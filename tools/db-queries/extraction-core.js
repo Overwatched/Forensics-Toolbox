@@ -86,12 +86,14 @@
         return { bytes: out.bytes, crcOk: out.crcOk, line: line };
     }
 
-    // En källa i samma form som "Kör i appen" i Queries använder: { name, read() -> { bytes, lines } }.
+    // En källa i samma form som "Kör i appen" i Queries använder: { name, size, key, read() -> { bytes, lines } }.
     // lead: rader som ska stå först, t.ex. vilken zip det gäller.
     function zipSource(read, entry, lead) {
         return {
             name: baseName(entry.name),
             size: entry.size,
+            // Samma post i samma zip, så att Queries inte läser om en databas som redan är inläst.
+            key: (lead || []).join('|') + '|' + entry.localOffset + '|' + entry.name,
             read: async function () {
                 var r = await readEntry(read, entry);
                 return { bytes: r.bytes, lines: (lead || []).concat([r.line]) };

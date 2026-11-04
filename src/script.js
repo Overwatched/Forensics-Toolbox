@@ -20,9 +20,33 @@ updateNetStatus();
 
 // Utan WebAssembly går varken databaser eller ExifTool att läsa. Det ska synas direkt, inte först som
 // ett fel när något körs. Blockerad JIT i Edge kan stänga av det.
+// Html-versionen i en webbläsare utan JIT. På Mac försvinner WebAssembly, och då går det inte att läsa filer. På
+// Windows finns det kvar i en tolk (Edge 156 med DefaultJavaScriptJitSetting eller förstärkt säkerhet): allt
+// fungerar, men långsammare, och det syns ingen annanstans. En slinga i WebAssembly tar då många gånger längre tid.
+const SLOW_WASM_MS = 80;
+
+function wasmIsInterpreted() {
+    const bytes = new Uint8Array([0, 97, 115, 109, 1, 0, 0, 0, 1, 6, 1, 96, 1, 127, 1, 127, 3, 2, 1, 0, 7, 5, 1, 1, 102, 0, 0,
+        10, 30, 1, 28, 1, 1, 127, 2, 64, 3, 64, 32, 1, 32, 0, 79, 13, 1, 32, 1, 65, 1, 106, 33, 1, 12, 0, 11, 11, 32, 1, 11]);
+    const loop = new WebAssembly.Instance(new WebAssembly.Module(bytes)).exports.f;
+    // Två försök: datorn kan vara upptagen just när sidan laddas.
+    let best = Infinity;
+    for (let i = 0; i < 2 && best > SLOW_WASM_MS; i++) {
+        const t0 = performance.now();
+        loop(10000000);
+        best = Math.min(best, performance.now() - t0);
+    }
+    return best > SLOW_WASM_MS;
+}
+
 function showBrowserNotice() {
-    const el = document.getElementById('browser-notice');
-    if (el && typeof WebAssembly === 'undefined') el.hidden = false;
+    const off = document.getElementById('browser-notice');
+    if (off && typeof WebAssembly === 'undefined') { off.hidden = false; return; }
+    const slow = document.getElementById('browser-slow');
+    if (!slow || window.forensicsDesktop) return;
+    slow.querySelector('button').addEventListener('click', () => { slow.hidden = true; });
+    // Efter laddningen, så att sidan inte väntar på provet.
+    setTimeout(() => { try { slow.hidden = !wasmIsInterpreted(); } catch (e) { /* då säger verktygen vad som är fel */ } }, 400);
 }
 
 showBrowserNotice();
@@ -345,14 +369,14 @@ function initToolNav() {
             deliver('provenance', { source: 'forensics-toolbox', type: 'provenance-names', names: data.names, zipName: data.zipName || '' });
             return;
         }
-        // Härkomst → Queries: zippen (File), databasens sökväg och exakt den SQL som kördes.
+        // Härkomst → Queries: zippen (File), databasens sökväg, exakt den SQL som kördes och händelsen som klickades på.
         if (data.type === 'open-query' && data.file && typeof data.sql === 'string') {
             openTool('tools/db-queries/queries.html');
             const frame = frames.get('tools/db-queries/queries.html');
             const send = () => postToFrame(frame, {
                 source: 'forensics-toolbox', type: 'open-query', file: data.file, path: data.path, walPath: data.walPath,
                 queryId: data.queryId, title: data.title, db: data.db, sql: data.sql, from: data.from,
-                timeColumns: Array.isArray(data.timeColumns) ? data.timeColumns : null,
+                timeColumns: Array.isArray(data.timeColumns) ? data.timeColumns : null, mark: data.mark || null,
             });
             if (frame && frame.dataset.ready) send();
             else if (frame) frame.addEventListener('load', send, { once: true });

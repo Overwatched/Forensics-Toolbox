@@ -236,6 +236,122 @@ const scenarios = [
         return 'skickad ur biblioteket, Telegrams kamera, mottagen fil';
     }],
 
+    ['Härkomst → Queries: källan öppnar rätt databas och markerar händelsens rad', async ({ c, fx }) => {
+        await assessNamed(c, 'IMG_0006.JPG');
+        const click = async (kind) => {
+            const hit = await c.ev(PROV, `(function(){
+                const e = ProvenanceApp.model().events.find((x) => x.kind === ${JSON.stringify(kind)} && x.source && x.source.queryId);
+                if (!e) return null;
+                document.getElementById('details-events').open = true;
+                const b = document.querySelector('#events .to-queries[data-event="' + e.id + '"]');
+                if (!b) return { ms: e.ms, label: '' };
+                b.click();
+                return { ms: e.ms, label: b.textContent };
+            })()`);
+            expect(hit && hit.label, 'Ingen länk för ' + kind + ': ' + JSON.stringify(hit));
+            const r = await c.waitFor(QUER, `(function(){
+                const n = document.getElementById('run-hit');
+                const row = document.querySelector('#run-result tr.row-hit');
+                return n && !n.classList.contains('display-none') && row && { note: n.innerText, hits: document.querySelectorAll('#run-result tr.row-hit').length, src: document.getElementById('run-file-list').innerText, row: row.innerText, title: document.getElementById('q-title').textContent };
+            })()`, 30000, 'markeringen för ' + kind);
+            await c.ev(QUER, `document.getElementById('run-hit').classList.add('display-none'), 1`);
+            await c.nav('Härkomst');
+            return Object.assign(r, { ms: hit.ms });
+        };
+        // role-messages körs mot Signal, WhatsApp, Telegram och Snapchat: källan ska öppna sin egen databas.
+        const sig = await click('sig-message');
+        expect(/^signal\.sqlite/.test(sig.src), 'Signals källa öppnade ' + sig.src);
+        expect(sig.hits === 1, 'Signal: ' + sig.hits + ' rader markerade');
+        expect(/Rad \d+ av \d+ är markerad/.test(sig.note), 'Raden ovanför tabellen: ' + sig.note);
+        expect(sig.row.includes(new Date(sig.ms).toISOString().slice(0, 19).replace('T', ' ')), 'Den markerade raden har inte händelsens tid: ' + sig.row);
+        const photos = await click('file-created');
+        expect(/^Photos\.sqlite/.test(photos.src) && photos.hits === 1, 'Filens rad: ' + photos.src + ', ' + photos.hits);
+        const again = await click('file-created');
+        expect(again.hits === 1, 'Samma query igen: ' + again.hits);
+        return 'Signal rad markerad i signal.sqlite, filens rad i Photos.sqlite';
+    }],
+
+    ['Queries: exempelraderna är märkta, och resultatet går att visa på karta', async ({ c }) => {
+        await c.nav('Queries');
+        await c.ev(QUER, `document.getElementById('tab-new') && document.getElementById('tab-new').click(), 1`);
+        await sleep(300);
+        await c.ev(QUER, `(function(){ const b = document.querySelector('.side-db[data-family="routined-cache"]'); if (b.getAttribute('aria-expanded') !== 'true') b.click(); document.querySelector('.side-q[data-db="routined-cache"][data-q="locations"]').click(); return 1; })()`);
+        await sleep(300);
+        const before = await c.ev(QUER, `({ tag: document.querySelector('#result-preview .preview-tag') && document.querySelector('#result-preview .preview-tag').textContent, text: document.getElementById('result-preview').innerText, shown: !document.getElementById('result-preview').classList.contains('display-none'), rows: document.querySelectorAll('#result-preview tbody tr').length, status: document.getElementById('run-status').innerText, map: document.getElementById('run-map').disabled, run: !!document.getElementById('preview-run').offsetParent, real: document.querySelectorAll('#run-result tbody tr').length })`);
+        expect(before.shown && /exempel/i.test(before.tag), 'Exempelraderna är inte märkta: ' + JSON.stringify(before));
+        expect(/inte körd/i.test(before.text) && /påhittade/.test(before.text), 'Texten: ' + before.text);
+        expect(before.map && before.real === 0 && !before.status, 'Före körningen: ' + JSON.stringify(before));
+        expect(before.run, 'Knappen Kör query i exempelrutan syns inte');
+        // Knappen i exempelrutan kör queryn.
+        await c.ev(QUER, `document.getElementById('preview-run').click(), 1`);
+        await c.waitFor(QUER, `/rad(er)? på/.test(document.getElementById('run-status').textContent)`, 30000, 'körningen');
+        const after = await c.ev(QUER, `({ preview: !document.getElementById('result-preview').classList.contains('display-none'), rows: document.querySelectorAll('#run-result tbody tr').length, tag: document.querySelector('#run-status .result-tag') && document.querySelector('#run-status .result-tag').textContent, map: document.getElementById('run-map').disabled, link: !!document.getElementById('run-map-link') })`);
+        expect(!after.preview && after.rows > 0 && /resultat/i.test(after.tag), 'Efter körningen: ' + JSON.stringify(after));
+        expect(!after.map && after.link, 'Kartan går inte att nå: ' + JSON.stringify(after));
+        await c.ev(QUER, `document.getElementById('run-map-link').click(), 1`);
+        const active = await c.waitFor(null, `document.querySelector('.tool-frame.is-active').getAttribute('data-tool').includes('positions') && document.querySelector('.tool-frame.is-active').getAttribute('data-tool')`, 10000, 'Positioner');
+        await c.waitFor('positions/index.html', `/lades till som källan|uppdaterades/.test(document.body.innerText)`, 15000, 'positionerna i Positioner');
+        const text = await c.ev('positions/index.html', `document.body.innerText`);
+        expect(new RegExp(after.rows + ' position').test(text), 'Positioner säger inte ' + after.rows + ' positioner');
+        expect(/Cache\.sqlite/.test(text), 'Lagret saknar källan');
+        void active;
+        await c.nav('Queries');
+        return after.rows + ' positioner i Positioner';
+    }],
+
+    ['Queries: en inläst databas läses inte om, och en query som skriver påverkar inte nästa', async ({ c }) => {
+        await c.nav('Queries');
+        const pick = (fam, q) => c.ev(QUER, `(function(){ const b = document.querySelector('.side-db[data-family="${fam}"]'); if (b.getAttribute('aria-expanded') !== 'true') b.click(); document.querySelector('.side-q[data-db="${fam}"][data-q="${q}"]').click(); return 1; })()`);
+        const runIt = () => c.ev(QUER, `(async () => { await QueriesRun.run(); return { status: document.getElementById('run-status').innerText, rows: document.querySelectorAll('#run-result tbody tr').length, first: (document.querySelector('#run-result tbody td') || {}).innerText, trace: document.getElementById('run-trace').innerText }; })()`);
+        // Allt som läses ur filen går genom slice().
+        await c.ev(QUER, `(function(){ if (!window.__sliceCount) { const orig = Blob.prototype.slice; window.__sliceCount = { n: 0 }; Blob.prototype.slice = function () { window.__sliceCount.n++; return orig.apply(this, arguments); }; } return 1; })()`);
+        await pick('routined-cache', 'locations');
+        await sleep(200);
+        const first = await runIt();
+        await pick('knowledgec', 'app-usage');
+        await sleep(200);
+        const other = await runIt();
+        expect(other.rows > 0, 'knowledgeC: ' + other.status);
+        await c.ev(QUER, `window.__sliceCount.n = 0, 1`);
+        await pick('routined-cache', 'locations');
+        await sleep(200);
+        const again = await runIt();
+        const reads = await c.ev(QUER, `window.__sliceCount.n`);
+        expect(reads === 0, 'Databasen lästes om: ' + reads + ' läsningar');
+        expect(again.rows === first.rows && again.trace === first.trace, 'Samma databas gav något annat: ' + JSON.stringify([first, again]));
+        // Skrivande SQL får en egen kopia.
+        const edit = (sql) => c.ev(QUER, `(async () => { const t = document.getElementById('sql-out'); if (t.classList.contains('display-none')) document.getElementById('edit-button').click(); t.value = ${JSON.stringify(sql)}; t.dispatchEvent(new Event('input', { bubbles: true })); await QueriesRun.run(); return { status: document.getElementById('run-status').innerText, cell: (document.querySelector('#run-result tbody td') || {}).innerText }; })()`);
+        const count = 'SELECT count(*) AS antal FROM ZRTCLLOCATIONMO';
+        const before = await edit(count);
+        const wrote = await edit('DELETE FROM ZRTCLLOCATIONMO; ' + count);
+        expect(wrote.cell === '0', 'Raderingen i kopian: ' + JSON.stringify(wrote));
+        const after = await edit(count);
+        expect(after.cell === before.cell && Number(after.cell) > 0, 'En query som skriver ändrade nästa: ' + JSON.stringify([before, after]));
+        return 'ingen ny läsning, ' + after.cell + ' rader kvar efter DELETE i kopian';
+    }],
+
+    ['Härkomst: en lista från disk fyller rutan och bedöms, och en bild letas fortfarande upp', async ({ c, fx }) => {
+        await c.nav('Härkomst');
+        const list = path.join(fx.files.dir, 'lista.csv');
+        fs.writeFileSync(list, '# ärendet\nFilnamn;Storlek\nIMG_0006.JPG;12\nfinns-inte.jpg;13\nIMG_0006.JPG;12\n');
+        await c.setFiles(PROV, '#disk-input', [list]);
+        await c.ev(PROV, `document.getElementById('disk-input').dispatchEvent(new Event('change')), 1`);
+        await sleep(300);
+        await c.waitFor(PROV, `!ProvenanceApp.busy() && document.querySelectorAll('#batch-list tbody tr').length === 2`, 60000, 'listan');
+        const r = await c.ev(PROV, `({ box: document.getElementById('filename').value, note: document.getElementById('batch-note').textContent, rows: [...document.querySelectorAll('#batch-list tbody tr')].map(t => t.innerText.replace(/\\s+/g, ' ')) })`);
+        expect(r.box === 'IMG_0006.JPG\nfinns-inte.jpg', 'Rutan: ' + r.box);
+        expect(/lista\.csv: 2 filnamn ur kolumnen Filnamn/.test(r.note), 'Raden under listan: ' + r.note);
+        expect(r.rows.some((t) => /finns-inte\.jpg/.test(t)), 'Raderna: ' + r.rows.join(' | '));
+        // En bild är fortfarande en bild.
+        await c.setFiles(PROV, '#disk-input', [fx.files.image]);
+        await c.ev(PROV, `document.getElementById('disk-input').dispatchEvent(new Event('change')), 1`);
+        await sleep(300);
+        await waitResult(c, 'bilden från disk');
+        const fileName = await c.ev(PROV, `ProvenanceApp.model().file.filename`);
+        expect(fileName === fx.imageName, 'Bilden från disk bedömdes som ' + fileName);
+        return r.rows.length + ' rader ur listan';
+    }],
+
     ['Queries: Telegrams meddelanden avkodas i minnet, och spårbarheten säger det', async ({ c, fx }) => {
         await c.nav('Queries');
         await c.ev(QUER, `(function(){ const b = document.querySelector('.side-db[data-family="telegram-ios-postbox"]'); if (b.getAttribute('aria-expanded') !== 'true') b.click(); return 1; })()`);

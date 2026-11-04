@@ -37,6 +37,8 @@
         if (col.lat < 0 || col.lon < 0) return { points: [], skipped: rows.length, columns: col };
         var zone = function (i) { return i >= 0 && /utc/i.test(headers[i]) ? 'UTC' : ''; };
         var typeCol = headers.findIndex(function (h) { return /^(typ|type)$/i.test(h); });
+        // Radens övriga kolumner står i punktens ruta på kartan.
+        var shownOnMap = [col.lat, col.lon, col.time, col.end, col.accuracy, typeCol];
         var points = [];
         var skipped = 0;
         rows.forEach(function (row, n) {
@@ -57,24 +59,67 @@
                 visit: col.end >= 0,
                 accuracy: isFinite(accuracy) && accuracy > 0 ? accuracy : null,
                 type: kind, device: '', software: '', mime: '',
+                extra: headers.map(function (h, i) { return shownOnMap.indexOf(i) < 0 && row[i] !== null && row[i] !== '' ? [h, cellText(row[i]).slice(0, 200)] : null; }).filter(Boolean).slice(0, 12),
             });
         });
         return { points: points, skipped: skipped, columns: col };
     }
 
-    // Råa tidsstämplar -> UTC-text, samma regler som Härkomst (roles.js toMs). epoch: cocoa, unix, unixMs, unixAuto.
+    // Råa tidsstämplar -> UTC, samma regler som Härkomst (roles.js toMs). epoch: cocoa, unix, unixMs, unixAuto.
     var COCOA_EPOCH = 978307200;
-    function epochText(value, epoch) {
+    function epochMs(value, epoch) {
         if (value === null || value === undefined || value === '') return null;
         var n = Number(value);
         if (!isFinite(n) || n === 0) return null;
-        var ms = epoch === 'cocoa' ? (n + COCOA_EPOCH) * 1000
+        return Math.round(epoch === 'cocoa' ? (n + COCOA_EPOCH) * 1000
             : epoch === 'unixMs' ? n
                 : epoch === 'unixAuto' ? (n > 1000000000000 ? n : n * 1000)
-                    : n * 1000;
-        var d = new Date(Math.round(ms));
+                    : n * 1000);
+    }
+
+    function epochText(value, epoch) {
+        var ms = epochMs(value, epoch);
+        if (ms === null) return null;
+        var d = new Date(ms);
         if (isNaN(d.getTime())) return null;
         return d.toISOString().replace('T', ' ').replace(/\.\d+Z$/, ' UTC').replace(/Z$/, ' UTC');
+    }
+
+    // Raderna som en händelse i Härkomst kommer ifrån: en tidskolumn har händelsens tid. Har flera rader
+    // samma tid väljs de där värdena som händelsen bär (meddelandets id, appen) står i någon kolumn.
+    // target: { ms: [tider], values: [värden] }. specs: [{ col, epoch }]. Ger radernas nummer, från 0.
+    function findRows(columns, rows, specs, target) {
+        if (!target || !target.ms || !target.ms.length || !specs || !specs.length) return [];
+        var plan = specs.map(function (s) { return { i: columns.indexOf(s.col), epoch: s.epoch }; }).filter(function (p) { return p.i >= 0; });
+        var wanted = {};
+        target.ms.forEach(function (m) { wanted[m] = true; });
+        var hits = [];
+        rows.forEach(function (row, n) {
+            if (plan.some(function (p) { var ms = epochMs(row[p.i], p.epoch); return ms !== null && wanted[ms]; })) hits.push(n);
+        });
+        var values = (target.values || []).filter(function (v) { return v !== null && v !== undefined && v !== ''; }).map(String);
+        if (hits.length < 2 || !values.length) return hits;
+        var narrow = hits.filter(function (n) {
+            return values.every(function (v) { return rows[n].some(function (c) { return c !== null && c !== undefined && String(c) === v; }); });
+        });
+        return narrow.length ? narrow : hits;
+    }
+
+    // Vilka rader som visas när bara max får plats: de första, eller en bit runt den första markerade raden.
+    function rowWindow(total, hits, max) {
+        if (total <= max || !hits || !hits.length || hits[0] < max) return { start: 0, end: Math.min(total, max) };
+        var start = Math.max(0, Math.min(hits[0] - Math.floor(max / 2), total - max));
+        return { start: start, end: start + max };
+    }
+
+    // True när SQL:en bara läser. Då kan den köras mot en databas som hålls öppen. Allt annat, också en
+    // PRAGMA, får en egen kopia, så att den inte kan ändra något som nästa körning läser.
+    function readsOnly(sql) {
+        var text = String(sql == null ? '' : sql)
+            .replace(/--[^\n]*/g, ' ').replace(/\/\*[\s\S]*?\*\//g, ' ')
+            .replace(/'(?:[^']|'')*'/g, "''").replace(/"(?:[^"]|"")*"/g, '""');
+        if (!/^\s*(select|with)\b/i.test(text)) return false;
+        return !/\b(create|insert|update|delete|drop|alter|replace|pragma|attach|detach|vacuum|reindex|begin|commit|savepoint|release|rollback)\b/i.test(text);
     }
 
     // En kolumn "<namn> (UTC)" direkt efter varje tidskolumn som Härkomst räknade om. specs: [{ col, epoch }].
@@ -97,7 +142,10 @@
         };
     }
 
-    var api = { toCsv: toCsv, cellText: cellText, toPoints: toPoints, epochText: epochText, withUtcColumns: withUtcColumns };
+    var api = {
+        toCsv: toCsv, cellText: cellText, toPoints: toPoints, epochMs: epochMs, epochText: epochText, withUtcColumns: withUtcColumns,
+        findRows: findRows, rowWindow: rowWindow, readsOnly: readsOnly,
+    };
     if (typeof module !== 'undefined' && module.exports) module.exports = api;
     else root.QueryRunCore = api;
 })(typeof window !== 'undefined' ? window : this);

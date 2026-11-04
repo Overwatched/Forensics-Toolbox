@@ -52,7 +52,7 @@ GPU/VSync-varningar i terminalen på Linux är oftast ofarliga.
 | `npm run sync-version` | Synkar version från `Toolbox.html` → `package.json` |
 | `npm test` | Enhetstesterna under `tools/` (Node) |
 | `npm run test:app` | Provkörning av hela appen i Electron: röktestet, och facit om labbzippen finns (se Tester) |
-| `npm run test:html` | Html-versionen i Edge eller Chrome under `file://`, utan internet: röktestet och beskeden utan WebAssembly |
+| `npm run test:html` | Html-versionen i Edge eller Chrome under `file://`, utan internet: röktestet, utan JIT och beskeden utan WebAssembly |
 
 ## Windows-build (målplattform)
 
@@ -193,19 +193,38 @@ npm test
   innan queryn körts), och flikarna **SQL**, **Spårbarhet** (källan, CRC32 och SHA-256 för senaste körningen)
   och **Om databasen** (beskrivning, sökväg, källa, noter och posten i zippen). Ett klick på den öppna fliken
   fäller ihop rutan. CRC32 som inte stämmer öppnar Spårbarhet (`queries:show-pane`).
+- Innan queryn körts står märkta, påhittade rader i `#result-preview` (`renderResultPreview()`): märket **Exempel**,
+  "Queryn är inte körd", tre rader i kursiv och randig ruta, och en knapp **Kör query** när den går att köra (klassen
+  `can-run`, satt i `updateState()`). Ett riktigt resultat får märket **Resultat** i statusraden. Knapparna för CSV och
+  karta säger i sin text varför de är avstängda, och statusraden får länken **Visa på karta** när resultatet har
+  latitud och longitud.
 - Fälten sparas per namn i `paramMemory`: samma tidsspann eller filnamn står kvar när man byter query eller
   databas i fliken, och Enter i ett fält kör queryn. En annan query i samma databas (`selectQuery()`,
   händelsen `queries:query-change`) tömmer resultatet men behåller filerna och den inlästa databasen.
   Smalare än 980 px står sidopanelen överst.
+- Fart (1.48): en inläst databas hålls kvar i `kept` (högst 2 GB utöver den som används, de äldsta släpps först, nyckeln
+  är `zipSource().key` och nyckelfrasen), så att en annan databas, en ny flik eller ett klick från Härkomst inte läser,
+  hashar och dekrypterar om. Filer från disk har sin egen `loose.opened`. Tar minnet slut (`err.code === 'MEMORY'`) släpps
+  det som hålls kvar och läsningen görs om en gång. SQL som bara läser körs mot en öppen databas utan kopia: 1,6 GB tar
+  0–6 ms per körning mot 140–150 ms med kopia. Tabellen ritas 200 rader i taget när rutan närmar sig slutet
+  (`renderTable()`, `drawMore()`), och flikbytet flyttar raderna i stället för att skriva om dem som text: byte till en
+  flik med 2 000 rader × 21 kolumner tar ca 27 ms mot ca 225 ms.
 - `tabs.js`: varje flik är ett sparat läge. Vid byte sparas `QueriesApp.snapshot()`,
-  `QueriesRun.snapshot()` (filer, inläst databas, resultat) och `QueriesExtraction.snapshot()`, och
+  `QueriesRun.snapshot()` (filer, inläst databas, resultatets rader, var rutan stod) och `QueriesExtraction.snapshot()`, och
   den andra flikens läge läggs tillbaka med `restore()`. Extraktionen och filen från disk hör till fliken
   (`QueriesExtraction.snapshot()` ger `{ ex, chosen, loose }`), och en ny flik får programmets extraktion
   (`adoptShared()`), fristående den zip som är öppen, men ingen fil (`fresh()`).
 - `openFromProvenance()`: samma zip, sökväg och SQL visar den flik som redan finns, annars används
   en tom flik eller öppnas en ny. `QueriesApp.showCustom()` visar SQL:en utan fält,
   `QueriesRun.run()` kör den, och `QueryRunCore.withUtcColumns()` lägger en kolumn `<namn> (UTC)`
-  efter varje tidskolumn (samma epoker som `roles.js`).
+  efter varje tidskolumn (samma epoker som `roles.js`). Händelsen som klickades på följer med som `mark`
+  (`{ ms, startMs, values, text, time }`). `QueryRunCore.findRows()` letar upp raderna med den tiden i en tidskolumn, och
+  bland rader med samma tid de som har händelsens värden (meddelandets id, appen). Raderna får klassen `row-hit`, ett
+  radnummer står först, `#run-hit` säger vilken rad det är, och rutan ställer sig vid raden (`showHit()`). Är resultatet
+  större än det som visas väljs raderna runt den markerade (`rowWindow()`). Har slutet på ett intervall ingen egen rad
+  (appen på skärmen slutar när skärmen släcks, ur en annan tabell) markeras raden där det började, och det sägs.
+  Kontrollerat 2026-11-04 på `IMG_0042.HEIC` i labbextraktionen: alla 309 länkar öppnade rätt databas, 301 gav en rad, 4
+  gav två positioner med samma tid och 4 slut gav raden där det började.
 
 ### Härkomst (`tools/provenance/`)
 
@@ -235,10 +254,12 @@ i extraktionen med `-wal` pålagd, och bygger en händelselista i UTC.
   får översikt, närbild och undersökarens egen bedömning (`meta.ownAssessment`).
   `keyEventsTable()` och `eventsTable()` ger nyckelhändelserna och händelserna med källa som egna
   tabeller för Word (knapparna Kopiera tabellen för Word); protokollets händelsetabell är samma.
-- Från Härkomst till Queries: `runRole()` sparar zip-sökvägen och tidskolumnerna med varje query
-  (`meta.queries[].path`, `walPath`, `timeColumns`). En klick på en källa skickar
-  `{ type: 'open-query', file, path, sql, queryId, timeColumns }` till huvudfönstret
-  (`src/script.js`), som öppnar Queries och skickar vidare. Filen (File-objektet för zippen) går
+- Från Härkomst till Queries: `runRole()` sparar zip-sökvägen, tidskolumnerna och tiderna i svaret med varje query
+  (`meta.queries[].path`, `walPath`, `timeColumns`, `times`). En klick på en källa skickar
+  `{ type: 'open-query', file, path, sql, queryId, timeColumns, mark }` till huvudfönstret
+  (`src/script.js`), som öppnar Queries och skickar vidare. `runnableQuery(src, ms)` väljer körningen: samma rollquery körs
+  mot flera databaser (`role-messages` mot Signal, WhatsApp, Telegram och Snapchat), så källans databas och händelsens tid
+  avgör. Har ett PowerLog-arkiv tiden blir källan text, eftersom ett komprimerat arkiv inte går att öppna i Queries. Filen (File-objektet för zippen) går
   med i `postMessage`; Queries öppnar den bara om den inte redan är öppen (namn, storlek, ändringstid).
 - Zippens tider (`zip.js`): filsystemets tider, som extraktionsverktyget sparade i zippen. UT-fältet 0x5455
   (Unix-sekunder; ändring, och fler tider när flaggorna säger det) och NTFS-fältet 0x000A (FILETIME; ändring,
@@ -261,6 +282,13 @@ i extraktionen med `-wal` pålagd, och bygger en händelselista i UTC.
   att två extraktioner aldrig blandas i ett protokoll. Byte av zon eller fönster kör om den senaste
   bedömningen (`state.redo`), och undersökarens text och bockar hör till filen (`assessmentKey()`: zip
   och rad eller sökväg).
+- En lista från disk (`pickFromDisk()` i `script.js`): knappen **Välj en lista eller bilder…** läser en textfil
+  (`isListFile()`: `.txt`, `.csv`, `.tsv`, `.md5`, `.sha256` och liknande, högst 64 MB) med `parseList()`: ett namn eller en
+  summa per rad, utdata från md5sum, shasum och BSD md5, hashdeep, eller en tabell. Med rubrikrad används kolumnen med
+  summan, annars den med filnamnet; utan rubrik är en rad en fil, utom när den bara har namn eller bara summor. Rader med
+  `#` är kommentarer, så en CSV-fil ur Queries går att läsa. Texten avkodas som UTF-8 eller UTF-16 med BOM, annars
+  Windows-1252 (`decodeList()`). Namnen hamnar i rutan och går samma väg som om de klistrats in. Andra filer letas upp på
+  innehållet som förut; Excel, Word och PDF får ett besked om att spara som text.
 - Flera filer (`batch.js`, UMD `ProvenanceBatch`): `parseNames()` tolkar inklistrade namn (per rad,
   semikolon, eller komma när varje del har en ändelse), och `runBatch()` i `script.js` bedömer varje
   post med samma `assess()`/`assessEntry()` som en ensam fil men med `quiet`: inget filkort, ingen
@@ -504,8 +532,9 @@ besked. Mätt 2026-11-04 på en Mac med 32 GB och påhittade databaser på 5,3 G
 - **Kopior:** en krypterad databas låg i tre kopior samtidigt (läst, dekrypterad, `db.slice()` i `wal.js`) och två efteråt.
   Med `SqliteWal.apply(..., { owned: true })` återanvänds arrayen, om den är en hel egen buffert och inte en vy in i
   källan. `ExtractionCore.noCopy` lämnar arrayen till sql.js utan kopia (sql.js tar in filen med `slice()` och läser
-  med `subarray()`). Härkomst använder den och släpper `loaded.bytes`. Queries gör en kopia per körning, så att en
-  redigerad query inte påverkar nästa.
+  med `subarray()`). Härkomst använder den och släpper `loaded.bytes`. Queries använder den för SQL som bara läser
+  (`QueryRunCore.readsOnly`, `openForReading()`), med `PRAGMA query_only`. Annan SQL, också en PRAGMA, får en egen kopia
+  per körning (`openCopy()`), så att den inte kan ändra något som nästa körning läser.
 - **Hela kedjan** (zip, CRC32, SHA-256, dekryptering, sql.js, varje byte läst och jämfört med Python) tar ungefär en
   minut på 5,3 GB krypterat, med en topp på ca 10,5 GB. Firefox och WebKit är inte provade i den storleken.
 - **Större än så:** sql.js klarar ett eget objekt med `length`, `slice()`, `subarray()` och `set()`, så en databas kan
@@ -514,13 +543,28 @@ besked. Mätt 2026-11-04 på en Mac med 32 GB och påhittade databaser på 5,3 G
 ### Html-versionen
 
 `tests/app/html.js` packar samma filer som html-zippen och kör röktestet i Edge eller Chrome under `file://`, med en
-proxy som inte finns, så att inget når internet. CI-jobbet `htmltest` kör det i Edge på Windows, också med en policy som
-spärrar allt utom lokala filer. Jobbet stoppar inte releasen, tills det har visat sig stabilt.
+proxy som inte finns, så att inget når internet. Sedan samma sak utan JIT. CI-jobbet `htmltest` kör det i Edge på Windows
+och därefter med riktiga policyer i registret: `DefaultJavaScriptJitSetting` 2, `EnhanceSecurityMode` 2 och
+`URLBlocklist` `*` med `URLAllowlist` `file://*`. Provet skriver ut vad `edge://policy` säger och hur fort en slinga
+går i JavaScript och WebAssembly. Jobbet stoppar inte releasen, tills det har visat sig stabilt.
+
+Mätt 2026-11-04 i Edge 156 på en Windows-maskin i CI, med en slinga på 30 miljoner varv:
+
+| Läge | `edge://policy` | JavaScript | WebAssembly | Röktestet |
+|---|---|---|---|---|
+| Ingen policy | | ca 130 ms | 8–25 ms | alla delar |
+| `DefaultJavaScriptJitSetting` 2 | tillämpas | ca 440 ms | ca 390 ms | alla delar, en bedömning 7–12 s mot 1–2 s |
+| `EnhanceSecurityMode` 2 | tillämpas | ca 430 ms | ca 365 ms | alla delar, samma tider |
+| Bara `file://` | tillämpas, annan adress ger `ERR_BLOCKED_BY_ADMINISTRATOR` | ca 130 ms | 8–25 ms | alla delar |
 
 - **Utan internet:** appen gör inga egna nätverksanrop. Onlinekartan används bara om den slås på.
-- **Utan WebAssembly** (blockerad JIT i Edge): raden högst upp säger det direkt, och varje verktyg säger det när något
-  ska läsas (`toolboxWasmProblem`). Med förstärkt säkerhet i Edge kan WebAssembly köras i en tolk i stället. I den
-  provade versionen (Edge 156 på Mac, flaggorna `--jitless --wasm-jitless`) tog en sökning i Härkomst 20–30 s mot 1–2 s.
+- **Utan JIT:** beror på bygget. På Windows finns WebAssembly kvar i en tolk, så allt fungerar men långsammare. Då visar
+  huvudfönstret `#browser-slow` (`wasmIsInterpreted()` i `src/script.js`: en slinga på 10 miljoner varv tar över 80 ms, två
+  försök). På Mac tar `--jitless` bort WebAssembly: raden `#browser-notice` säger det direkt, och varje verktyg säger det när
+  något ska läsas (`toolboxWasmProblem`). Med `--jitless --wasm-jitless` får Mac också en tolk. Rapporten om att
+  html-versionen slutat fungera i en låst Edge är inte förklarad av detta: se Kända begränsningar.
+- **Edge på Mac:** paketet från Microsoft är x86_64 och körs under Rosetta. Därför är det flera gånger långsammare där än
+  Chrome (17 verktyg 61 s mot 3–4 s). Det säger inget om Windows, där samma prov tar 5–7 s.
 - **Utan WebGL2** går bara kartan inte att rita. Chromium har aviserat att reservlösningen i programvara (SwiftShader)
   ska tas bort, men med `--disable-gpu` ritade både Edge 156 och Chrome 156 på Mac fortfarande med den. Provet utan
   WebGL2 kräver därför också `--disable-software-rasterizer --disable-3d-apis`.
@@ -756,8 +800,9 @@ i webbläsaren.
   - **Röktestet** (`smoke.js`, `--smoke`): alla verktyg laddas utan fel i sidan; Härkomsts tre testdata ger
     underlag och protokoll; en påhittad iOS 17-extraktion (`fixtures.js`: Photos.sqlite med iLEAPP:s schema,
     knowledgeC.db med en trasig `-wal`, routined, bildfiler och poster med HTML i namnet) öppnas i Queries
-    och Härkomst; en query med noll rader sägs ut; en fil från disk väljer raden i rätt mapp; och HTML ur
-    filnamn och databaser körs aldrig. Bara påhittade data. CI kör det i jobbet `apptest`, som inte stoppar
+    och Härkomst; en query med noll rader sägs ut; en fil från disk väljer raden i rätt mapp; en källa i Härkomst
+    öppnar rätt databas och markerar raden; exempelraderna är märkta och resultatet når kartan; en inläst databas
+    läses inte om; en lista från disk bedöms; och HTML ur filnamn och databaser körs aldrig. Bara påhittade data. CI kör det i jobbet `apptest`, som inte stoppar
     releasen än.
   - **Facit** (`facit.js`, `facit/lab-android-nord.json`, `--facit`): Härkomst bedömer filerna i
     labbzippen och jämför T, Memories, förgrund, skärm, lås, kameran, Snapchats meddelande, Signals
@@ -789,6 +834,10 @@ i webbläsaren.
 - Offline för lokala verktyg; externa länkar/nedladdningar och onlinekartan kräver nät och bekräftelse
 - Windows-signing är avstängd (`signExecutable: false`). Ikon och metadata skrivs ändå in i exe-filen.
 - `npm audit`-varningar i Electron-kedjan är vanliga; åtgärda inte med `audit fix --force` utan översikt
+- **Html-versionen i en låst Edge:** en användare rapporterade att programmet inte längre gick att köra, troligen i en Edge
+  som bara når lokala filer och intranätet. Orsaken är inte hittad. Internet, JIT, förstärkt säkerhet och `URLBlocklist`
+  förklarar det inte (se Html-versionen). Inte provat: en äldre Edge, `AllowFileSelectionDialogs`, en spärr som också
+  gäller `file://`, IE-läget (`SendIntranetToInternetExplorer` eller en webbplatslista) och att köra från en nätverksresurs.
 - Härkomst: Android är provkört mot en labbtelefon (Android 13, LineageOS), inte mot en kommersiell extraktion; `usagestats` i XML (version 3, Android 9 och äldre) läses inte, batterihistoriken läses inte, ingen positionslogg läses på Android, bildfiler över 200 MB läses inte för EXIF, och inklistringen i Word är provkörd bara via urklippsstatus, inte i Word självt
 - **Snapchat (beta):** typkoder och protobuf-tolkning är härledda ur en enda extraktion. Memories
   (`gallery.encrypteddb`) är SQLCipher och läses inte. Chattmedia är ofta krypterat på disk; nyckel och

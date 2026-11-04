@@ -1528,6 +1528,8 @@
             row('Position', p.lat + ', ' + p.lon);
             if (p.accuracy > 0) row(p.visit ? 'Osäkerhet' : 'Horisontell noggrannhet', Math.round(p.accuracy) + ' m');
             row('Händelse', notes[p.id] || p.note);
+            // Övriga kolumner ur raden, för en punkt från Queries.
+            (p.extra || []).forEach(function (x) { row(x[0], String(x[1])); });
             var stepAt = inRouteById[p.id] ? routeInfo.steps.map(function (s) { return s.point.id; }).indexOf(p.id) : -1;
             var step = stepAt >= 0 ? routeInfo.steps[stepAt] : null;
             if (numberById[p.id]) {

@@ -99,17 +99,28 @@
         return !window.QueriesApp.currentDb();
     }
 
-    // { file, path, walPath, queryId, title, db, sql, from, timeColumns } från Härkomst via huvudfönstret.
+    // Raden som är markerad, annars resultatet.
+    function showResult() {
+        if (window.QueriesRun.showHit()) return;
+        var box = document.querySelector('.r-card');
+        if (box) box.scrollIntoView({ block: 'nearest' });
+    }
+
+    // { file, path, walPath, queryId, title, db, sql, from, timeColumns, mark } från Härkomst via huvudfönstret.
+    // mark: händelsen som klickades på, { ms, values, text, time }: dess rad markeras i resultatet.
     async function openFromProvenance(d) {
         await window.QueriesApp.ready;
         var key = [d.file.name, d.file.size, d.file.lastModified, d.path, d.sql].join('\u0000');
         var existing = tabs.findIndex(function (t) { return t.key === key; });
-        if (existing >= 0) {
-            activate(existing);
+        if (existing >= 0) activate(existing);
+        // Fliken finns kvar men kan ha bytt query sedan dess: då visas queryn i den igen.
+        if (existing >= 0 && window.QueriesApp.currentSql() === d.sql && window.QueriesRun.hasResult()) {
             setNote('Queryn <code>' + escapeHtml(d.queryId) + '</code> var redan öppen, så den fliken visas.');
+            if (d.mark) window.QueriesRun.mark(d.mark);
+            showResult();
             return;
         }
-        var opened = !activeIsBlank();
+        var opened = existing < 0 && !activeIsBlank();
         if (opened) newTab(key);
         else tabs[active].key = key;
         try {
@@ -129,9 +140,8 @@
             ? 'Öppnad i en ny flik. Flikarna du hade uppe finns kvar ovanför.'
             : 'Queryn från Härkomst körs mot samma zip.');
         render();
-        await window.QueriesRun.run();
-        var box = document.querySelector('.r-card');
-        if (box) box.scrollIntoView({ block: 'nearest' });
+        await window.QueriesRun.run({ mark: d.mark || null });
+        showResult();
     }
 
     // Extraktionen öppnades eller stängdes i Härkomst medan den här fliken använder en annan zip.

@@ -1,5 +1,17 @@
 Automatiskt byggd från commit `{{SHA}}`.
 
+## Nytt i 1.48
+
+Från en källa i Härkomst till rätt rad i Queries, listor med filnamn eller hashsummor från disk, och en tydlig skillnad mellan exempel och resultat.
+
+- **Från källa till rad:** ett klick på en källa i Härkomst kör queryn i Queries, markerar raden med händelsen och scrollar dit. Raden ovanför tabellen säger vilken händelse och vilken rad det gäller. På en bild i labbextraktionen gav 301 av 309 länkar en rad och 4 gav två rader med samma tid. I 4 fall kommer sluttiden ur en annan källa, och då markeras raden där det började.
+- **Fel databas rättat:** samma query körs mot Signal, WhatsApp, Telegram och Snapchat, och en källa kunde öppna den databas som lästes sist. Nu avgör källans databas och händelsens tid.
+- **Lista från disk:** knappen heter **Välj en lista eller bilder…** Den läser en textfil med filnamn eller MD5, SHA-1 eller SHA-256, utdata från md5sum, shasum och hashdeep, eller en CSV-fil med rubrikrad. Bilder letas upp på innehållet som förut.
+- **Exempel eller resultat:** innan en query körts är raderna märkta **Exempel**, med texten "Queryn är inte körd". De är färre, kursiva och randiga, och rutan har en egen knapp för att köra queryn. Ett riktigt resultat får märket **Resultat**.
+- **Kartan:** **Visa på karta** finns nu också som länk vid resultatet, och knappen säger varför den är avstängd. Punkterna visar radens övriga kolumner. `time_zone_id` togs förut för en tid i Snapchats Memories på Android, och det är rättat.
+- **Fart i Queries:** en inläst databas läses inte om när du går tillbaka till den eller öppnar den i en ny flik. Upp till 2 GB hålls kvar, vilket kostar minne. SQL som bara läser körs utan kopia av filen: 0–6 ms mot 140–150 ms på 1,6 GB. Byte till en flik med 2 000 rader tar ca 27 ms mot ca 225 ms.
+- **Html-versionen utan JIT, rättelse till 1.47:** i Edge på Windows finns WebAssembly kvar i en tolk när JIT är blockerad. Allt fungerar men tar längre tid, och nu står det högst upp på sidan. Röktestet körs i Edge 156 på Windows med blockerad JIT, förstärkt säkerhet och en policy som bara släpper fram lokala filer. Orsaken till rapporten om att html-versionen slutat fungera är fortfarande inte hittad.
+
 ## Nytt i 1.47
 
 Gränsen på 1,5 GB för databaser är borta, och html-versionen säger vad som är fel när webbläsaren stoppar något.

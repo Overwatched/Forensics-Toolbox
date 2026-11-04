@@ -290,6 +290,7 @@
         var db = app.currentDb();
         var src = app.source();
         loose = null;
+        window.QueriesRun.forgetKept();
         announce();
         if (db && src && src.file) reattach(db);
         render();
@@ -301,6 +302,7 @@
         var db = app.currentDb();
         var src = app.source();
         current = null;
+        window.QueriesRun.forgetKept();
         list.innerHTML = '';
         status.textContent = '';
         announce();

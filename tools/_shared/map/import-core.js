@@ -275,7 +275,7 @@
     var COLUMN_NAMES = {
         lat: [/^lat/i, /bredd/i, /latitude/i],
         lon: [/^lon/i, /^lng/i, /langd/i, /längd/i, /longitude/i],
-        time: [/time/i, /timestamp/i, /datetime/i, /^tid$/i, /^tid_/i, /^date$/i, /^ankomst/i, /^entry/i],
+        time: [/time/i, /timestamp/i, /datetime/i, /^tid$/i, /^tid_/i, /^date$/i, /^ankomst/i, /^entry/i, /^tagen/i],
         end: [/^avf[aä]rd/i, /^exit/i, /^end_?(time|date)?$/i],
         name: [/^name$/i, /label/i, /^namn$/i],
         accuracy: [/accur/i, /noggrann/i, /uncertain/i, /os[aä]kerhet/i],
@@ -288,7 +288,8 @@
     function guessColumns(headers) {
         var out = {};
         Object.keys(COLUMN_NAMES).forEach(function (key) {
-            var hit = function (h) { return COLUMN_NAMES[key].some(function (re) { return re.test(h); }); };
+            // time_zone_id och liknande är inte tider.
+            var hit = function (h) { return COLUMN_NAMES[key].some(function (re) { return re.test(h); }) && !(key === 'time' && /zone|offset/i.test(h)); };
             var utc = (key === 'time' || key === 'end')
                 ? headers.findIndex(function (h) { return hit(h) && UTC_NAME.test(h); }) : -1;
             out[key] = utc >= 0 ? utc : headers.findIndex(hit);

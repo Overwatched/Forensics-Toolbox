@@ -6,6 +6,12 @@
     'use strict';
 
     var MAX_SHOWN = 2000;
+    // Rader som ritas åt gången. Resten ritas när rutan närmar sig slutet, så att en körning och ett flikbyte
+    // inte behöver lägga ut tusentals rader som inte syns.
+    var ROW_CHUNK = 200;
+    // Inlästa databaser som hålls kvar när man byter databas eller flik, så att de inte läses, hashas och
+    // dekrypteras om. Så mycket hålls kvar, utöver den som används.
+    var KEEP_BYTES = 2 * 1024 * 1024 * 1024;
 
     var $ = function (id) { return document.getElementById(id); };
     var fileList = $('run-file-list');
@@ -24,6 +30,8 @@
         return -1;
     }
     var result = $('run-result');
+    var hitNote = $('run-hit');
+    var preview = $('result-preview');
     var trace = $('run-trace');
     var TRACE_EMPTY = '<p class="muted">Kör queryn, så står källan, CRC32 och SHA-256 för filerna här.</p>';
 
@@ -34,6 +42,11 @@
     var opened = null;
     var last = null;
     var sqlPromise = null;
+    var kept = [];
+    // Databasen som hålls öppen mellan körningarna, så att nästa query inte kopierar filen: { o, db, derived, deriveError }.
+    var handle = null;
+    // Raderna som inte är ritade än: { values, marked, numbered, next, end }.
+    var pending = null;
     // Undersökaren vill klistra in en annan nyckel än den ur extraktionen.
     var keyWanted = false;
 
@@ -72,17 +85,28 @@
 
     // Exempelraderna behövs inte när det finns ett riktigt resultat.
     function setResult(html) {
+        pending = null;
         result.innerHTML = html;
-        $('result-preview').classList.toggle('display-none', !!html);
+        preview.classList.toggle('display-none', !!html);
     }
+
+    function setMapTitle(text) { mapButton.title = text; }
 
     function clearResult() {
         last = null;
         csvButton.disabled = true;
         mapButton.disabled = true;
         provButton.disabled = true;
+        setMapTitle('Kör queryn först. Resultatet går att visa på karta när det har latitud och longitud.');
+        csvButton.title = 'Kör queryn först';
         setResult('');
+        setHitNote('');
         trace.innerHTML = TRACE_EMPTY;
+    }
+
+    function setHitNote(html) {
+        hitNote.innerHTML = html;
+        hitNote.classList.toggle('display-none', !html);
     }
 
     // Källan på en rad: filerna och var de kom ifrån.
@@ -91,6 +115,7 @@
         var closed = !!(files.db && files.db.archive);
         var ready = !!files.db && (!!files.wal || noWal.checked || closed);
         runButton.disabled = !ready;
+        preview.classList.toggle('can-run', ready);
         noWalLabel.classList.toggle('display-none', !files.db || !!files.wal || !!files.zip || closed);
         var name = function (f) { return '<strong>' + escapeHtml(f.name) + '</strong>'; };
         var html;
@@ -210,19 +235,90 @@
         };
     }
 
+    function keepKey(cipher) {
+        if (!files.db || !files.db.key) return '';
+        return [files.db.key, files.wal ? files.wal.key : '', cipher.passphrase || ''].join('\u0000');
+    }
+
+    function closeHandle() {
+        if (handle) { try { handle.db.close(); } catch (e) { /* redan stängd */ } }
+        handle = null;
+    }
+
+    // Tar bort de äldsta tills det som hålls kvar får plats. Den senast använda står sist och blir kvar.
+    function keep(key, o) {
+        kept = kept.filter(function (k) { return k.key !== key; });
+        kept.push({ key: key, o: o });
+        var total = kept.reduce(function (n, k) { return n + k.o.bytes.length; }, 0);
+        while (kept.length > 1 && total > KEEP_BYTES) {
+            var old = kept.shift();
+            total -= old.o.bytes.length;
+            if (handle && handle.o === old.o) closeHandle();
+        }
+    }
+
+    function forgetKept() {
+        closeHandle();
+        kept = [];
+    }
+
     async function open() {
         var cipher = currentCipher();
         if (opened && opened.dbFile === files.db && opened.walFile === files.wal && opened.passphrase === cipher.passphrase) return opened;
         closeOpened();
-        status.textContent = 'Läser in…';
-        try {
-            opened = await load(files, cipher);
-        } catch (err) {
-            if (err && err.code === 'ENCRYPTED') { files.encrypted = true; showKeyRow(); }
-            throw err;
+        var key = keepKey(cipher);
+        var hit = key ? kept.find(function (k) { return k.key === key; }) : null;
+        if (hit) {
+            keep(key, hit.o);
+            opened = hit.o;
+        } else {
+            status.textContent = 'Läser in…';
+            try {
+                try { opened = await load(files, cipher); }
+                catch (err) {
+                    // Minnet räcker inte: det som hålls kvar släpps, och läsningen görs om en gång.
+                    if (!err || err.code !== 'MEMORY' || !kept.length) throw err;
+                    forgetKept();
+                    opened = await load(files, cipher);
+                }
+            } catch (err) {
+                if (err && err.code === 'ENCRYPTED') { files.encrypted = true; showKeyRow(); }
+                throw err;
+            }
+            if (key) keep(key, opened);
         }
         if (opened.encrypted) { files.encrypted = true; showKeyRow(); }
         return opened;
+    }
+
+    // Telegrams databaser: tabellerna tg_… avkodas i minnet ur Telegrams eget format (postbox.js). De
+    // avkodade raderna sparas med den öppnade filen, så nästa körning går fortare.
+    function attachDerived(db, o, out) {
+        try { out.derived = window.TelegramPostbox ? window.TelegramPostbox.attach(db, o.derived || (o.derived = {})) : null; }
+        catch (e) { out.derived = null; out.deriveError = 'Telegrams format kunde inte avkodas: ' + (e && e.message ? e.message : e); }
+    }
+
+    // SQL som bara läser körs mot en databas som hålls öppen, utan kopia av filen. query_only stoppar
+    // skrivningar om något skulle slinka förbi QueryRunCore.readsOnly().
+    function openForReading(o) {
+        if (handle && handle.o === o) return handle;
+        closeHandle();
+        var h = { o: o, db: null, derived: null, deriveError: '' };
+        try { h.db = new o.SQL.Database(ExtractionCore.noCopy(o.bytes)); }
+        catch (err) { throw ZipRead.friendlyMemory(err, o.dbFile.name, o.bytes.length); }
+        attachDerived(h.db, o, h);
+        h.db.run('PRAGMA query_only = ON');
+        handle = h;
+        return h;
+    }
+
+    // Allt annat körs mot en egen kopia, så att en redigerad query som ändrar något inte påverkar nästa körning.
+    function openCopy(o) {
+        var h = { o: o, db: null, derived: null, deriveError: '' };
+        try { h.db = new o.SQL.Database(o.bytes); }
+        catch (err) { throw ZipRead.friendlyMemory(err, o.dbFile.name, o.bytes.length); }
+        attachDerived(h.db, o, h);
+        return h;
     }
 
     function walSummary(o) {
@@ -244,42 +340,106 @@
         return out;
     }
 
-    function renderTable(res) {
-        var shown = res.values.slice(0, MAX_SHOWN);
-        setResult('<table><thead><tr>' +
+    // hits: raderna som ska markeras (en händelse från Härkomst). Då står radnumret först, och raderna som
+    // visas väljs runt den första markerade när resultatet är större än det som får plats.
+    function renderTable(res, hits) {
+        var marked = {};
+        (hits || []).forEach(function (n) { marked[n] = true; });
+        var numbered = hits !== undefined && hits !== null;
+        var win = QueryRunCore.rowWindow(res.values.length, hits, MAX_SHOWN);
+        // De markerade raderna ritas direkt, med raderna före dem.
+        var lastHit = hits && hits.length ? hits[hits.length - 1] + 1 : win.start;
+        var end = Math.min(win.end, Math.max(win.start, lastHit) + ROW_CHUNK);
+        setResult('<table><thead><tr>' + (numbered ? '<th class="row-no">Rad</th>' : '') +
             res.columns.map(function (c) { return '<th>' + escapeHtml(c) + '</th>'; }).join('') +
-            '</tr></thead><tbody>' +
-            shown.map(function (r) {
-                return '<tr>' + r.map(function (v) {
-                    return '<td' + (v === null ? ' class="null"' : '') + '>' + escapeHtml(QueryRunCore.cellText(v)) + '</td>';
-                }).join('') + '</tr>';
-            }).join('') +
-            '</tbody></table>');
+            '</tr></thead><tbody>' + rowsHtml(res.values, win.start, end, marked, numbered) + '</tbody></table>');
+        pending = end < win.end ? { values: res.values, marked: marked, numbered: numbered, next: end, end: win.end } : null;
+        return win;
     }
 
-    async function runQuery() {
+    function rowsHtml(values, from, to, marked, numbered) {
+        return values.slice(from, to).map(function (r, i) {
+            var n = from + i;
+            return '<tr' + (marked[n] ? ' class="row-hit"' : '') + '>' + (numbered ? '<td class="row-no">' + (n + 1) + '</td>' : '') + r.map(function (v) {
+                return '<td' + (v === null ? ' class="null"' : '') + '>' + escapeHtml(QueryRunCore.cellText(v)) + '</td>';
+            }).join('') + '</tr>';
+        }).join('');
+    }
+
+    function drawMore() {
+        if (!pending || result.scrollTop + result.clientHeight < result.scrollHeight - 1000) return;
+        var body = result.querySelector('tbody');
+        if (!body) { pending = null; return; }
+        var to = Math.min(pending.end, pending.next + ROW_CHUNK);
+        body.insertAdjacentHTML('beforeend', rowsHtml(pending.values, pending.next, to, pending.marked, pending.numbered));
+        pending.next = to;
+        if (to >= pending.end) pending = null;
+    }
+
+    result.addEventListener('scroll', drawMore);
+
+    // Den första markerade raden mitt i rutan. Ger false när ingen rad är markerad.
+    function showHit() {
+        var row = result.querySelector('tr.row-hit');
+        if (!row) return false;
+        result.scrollLeft = 0;
+        row.scrollIntoView({ block: 'center' });
+        return true;
+    }
+
+    function listRows(hits) {
+        var shown = hits.slice(0, 6).map(function (n) { return n + 1; });
+        var text = shown.length > 1 ? shown.slice(0, -1).join(', ') + ' och ' + shown[shown.length - 1] : String(shown[0]);
+        return hits.length > 6 ? text + ' med flera' : text;
+    }
+
+    // Raden ovanför tabellen: vilken händelse det gäller och vilka rader som är markerade.
+    // fromStart: händelsens tid finns inte i svaret, så raden där den började är markerad.
+    function hitText(mark, hits, total, win, fromStart) {
+        var what = (mark.text ? '"' + escapeHtml(mark.text) + '"' : 'Händelsen') + (mark.time ? ', ' + escapeHtml(mark.time) : '') + '. ';
+        if (!hits.length) {
+            return what + '<span class="run-warn">Ingen rad har händelsens tid.</span> Den kan vara räknad ur flera rader. Hela resultatet visas.';
+        }
+        var rows = hits.length === 1 ? 'Rad ' + (hits[0] + 1) + ' av ' + total + ' är markerad.'
+            : hits.length + ' rader av ' + total + ' är markerade, eftersom de har samma tid: ' + listRows(hits) + '.';
+        var start = fromStart ? ' Tiden står inte i den här queryn, eftersom slutet kommer ur en annan källa, till exempel att skärmen släcktes. Markeringen visar var det började.' : '';
+        var cut = total > win.end - win.start ? ' Raderna ' + (win.start + 1) + '–' + win.end + ' visas. CSV-filen får alla.' : '';
+        return what + rows + start + cut + ' <button type="button" class="link-btn" id="run-hit-show">Visa raden</button>';
+    }
+
+    // Markerar händelsen i resultatet som visas. Används efter en körning och när samma query klickas på igen.
+    function applyMark(mark) {
+        if (!last) return false;
+        var specs = window.QueriesApp.timeColumns ? window.QueriesApp.timeColumns() : null;
+        var hits = QueryRunCore.findRows(last.columns, last.rows, specs, mark);
+        var fromStart = false;
+        if (!hits.length && mark.startMs !== undefined && mark.startMs !== null) {
+            hits = QueryRunCore.findRows(last.columns, last.rows, specs, { ms: [mark.startMs], values: mark.values });
+            fromStart = hits.length > 0;
+        }
+        var win = renderTable({ columns: last.columns, values: last.rows }, hits);
+        setHitNote(hitText(mark, hits, last.rows.length, win, fromStart));
+        return true;
+    }
+
+    async function runQuery(opts) {
         var app = window.QueriesApp;
         var sql = app ? app.currentSql() : '';
         if (!sql.trim() || runButton.disabled) return;
         runButton.disabled = true;
         clearResult();
+        // Exempelraderna hör till en query som inte körts: inte under körningen, och inte under ett fel.
+        preview.classList.add('display-none');
         try {
             var o = await open();
-            // En ny kopia för varje körning, så att en redigerad query som ändrar något
-            // inte påverkar nästa körning.
-            var db;
-            try { db = new o.SQL.Database(o.bytes); }
-            catch (err) { throw ZipRead.friendlyMemory(err, o.dbFile.name, o.bytes.length); }
-            // Telegrams databaser: tabellerna tg_… avkodas i minnet ur Telegrams eget format (postbox.js).
-            // De avkodade raderna sparas med den öppnade filen, så nästa körning går fortare.
-            var derived = null;
-            var deriveError = '';
-            try { derived = window.TelegramPostbox ? window.TelegramPostbox.attach(db, o.derived || (o.derived = {})) : null; }
-            catch (e) { deriveError = 'Telegrams format kunde inte avkodas: ' + (e && e.message ? e.message : e); }
+            var shared = QueryRunCore.readsOnly(sql);
+            var h = shared ? openForReading(o) : openCopy(o);
             var started = performance.now();
             var all;
-            try { all = db.exec(sql); } finally { db.close(); }
+            try { all = h.db.exec(sql); } finally { if (!shared) h.db.close(); }
             var ms = Math.round(performance.now() - started);
+            var derived = h.derived;
+            var deriveError = h.deriveError;
             var raw = all.length ? all[all.length - 1] : { columns: [], values: [] };
             // En query från Härkomst får tiden i UTC bredvid varje tidskolumn, så att raderna går att jämföra.
             var utc = QueryRunCore.withUtcColumns(raw.columns, raw.values, app.timeColumns ? app.timeColumns() : null);
@@ -295,7 +455,10 @@
             if (utc.added) lines.push('Kolumnerna som slutar på (UTC) är omräknade av Forensics Toolbox på samma sätt som i Härkomst. Råvärdet står i kolumnen till vänster.');
             var warn = o.origin.some(function (l) { return /STÄMMER INTE/.test(l); });
             var deriveWarn = deriveError || (derived && derived.errors ? derived.line : '');
-            status.innerHTML = lines.map(escapeHtml).join(' ') +
+            var geo = MapImport.guessColumns(res.columns.map(String));
+            var hasMap = !!(count && geo.lat >= 0 && geo.lon >= 0);
+            status.innerHTML = '<span class="result-tag">Resultat</span>' + lines.map(escapeHtml).join(' ') +
+                (hasMap ? ' <button type="button" class="link-btn" id="run-map-link">Visa på karta</button>' : '') +
                 (o.stats.error ? '<br><span class="run-warn">' + escapeHtml(walSummary(o)) + '</span>' : '') +
                 (deriveWarn ? '<br><span class="run-warn">' + escapeHtml(deriveWarn) + '</span>' : '') + (warn
                 ? '<br><span class="run-warn">CRC32 stämmer inte för en fil ur zippen.</span> <button type="button" class="link-btn" data-show-pane="trace">Visa spårbarheten</button>'
@@ -303,11 +466,14 @@
             trace.innerHTML = hashLines(o).concat(derived ? [derived.line] : []).map(escapeHtml).join('<br>');
             if (warn) document.dispatchEvent(new CustomEvent('queries:show-pane', { detail: 'trace' }));
             // Utan rader ger sql.js inga kolumner: exempelraderna ska inte stå kvar under "0 rader".
-            if (res.columns.length) renderTable(res);
-            else setResult('<p class="muted run-empty">Queryn gav inga rader.</p>');
+            if (res.columns.length) {
+                if (opts && opts.mark) applyMark(opts.mark);
+                else renderTable(res);
+            } else setResult('<p class="muted run-empty">Queryn gav inga rader.</p>');
             csvButton.disabled = !res.columns.length;
-            var geo = MapImport.guessColumns(res.columns.map(String));
-            mapButton.disabled = !(count && geo.lat >= 0 && geo.lon >= 0);
+            csvButton.title = '';
+            mapButton.disabled = !hasMap;
+            setMapTitle(hasMap ? 'Visar raderna som har en position i verktyget Positioner, som ett eget lager' : count ? 'Resultatet har ingen kolumn med latitud och longitud' : 'Queryn gav inga rader');
             provButton.disabled = !(count && nameColumn(res.columns) >= 0);
         } catch (err) {
             status.innerHTML = '<span class="run-warn">' + escapeHtml(err && err.message ? err.message : String(err)) + '</span>';
@@ -316,7 +482,10 @@
         }
     }
 
-    runButton.addEventListener('click', runQuery);
+    runButton.addEventListener('click', function () { runQuery(); });
+    preview.addEventListener('click', function (e) { if (e.target.closest('#preview-run')) runQuery(); });
+    hitNote.addEventListener('click', function (e) { if (e.target.closest('#run-hit-show')) showHit(); });
+    status.addEventListener('click', function (e) { if (e.target.closest('#run-map-link')) sendToMap(); });
 
     function stamp() {
         var d = new Date();
@@ -346,7 +515,7 @@
         setTimeout(function () { URL.revokeObjectURL(a.href); }, 1000);
     });
 
-    mapButton.addEventListener('click', function () {
+    function sendToMap() {
         if (!last) return;
         var app = window.QueriesApp;
         var db = app.currentDb();
@@ -366,7 +535,9 @@
         if (out.skipped) text += ' ' + out.skipped + ' rader utan giltig position hoppades över.';
         if (window.parent === window) text = 'Öppna Queries inifrån Forensics Toolbox för att visa resultatet i Positioner.';
         status.textContent = text;
-    });
+    }
+
+    mapButton.addEventListener('click', sendToMap);
 
     // Filnamnen i resultatet till Härkomst, som bedömer dem i en lista. Zippens namn följer med, så att
     // Härkomst kan säga till om den har en annan zip öppen.
@@ -400,12 +571,17 @@
         updateState();
     }
 
-    // Flikarna: filerna, den inlästa databasen och resultatet följer med fliken.
+    // Flikarna: filerna, den inlästa databasen och resultatet följer med fliken. Tabellen flyttas ut ur sidan
+    // i stället för att sparas som text, så att bytet inte tolkar om tusentals rader, och rutan står kvar där den var.
     function snapshot() {
+        var scrollTop = result.scrollTop;
+        var scrollLeft = result.scrollLeft;
+        var nodes = document.createDocumentFragment();
+        while (result.firstChild) nodes.appendChild(result.firstChild);
         return {
             files: files, noWal: noWal.checked, opened: opened, last: last, keyWanted: keyWanted,
-            statusHtml: status.innerHTML, resultHtml: result.innerHTML, traceHtml: trace.innerHTML,
-            csv: !csvButton.disabled, map: !mapButton.disabled, prov: !provButton.disabled,
+            statusHtml: status.innerHTML, nodes: nodes, pending: pending, scrollTop: scrollTop, scrollLeft: scrollLeft, hitHtml: hitNote.innerHTML, traceHtml: trace.innerHTML,
+            csv: !csvButton.disabled, map: !mapButton.disabled, prov: !provButton.disabled, mapTitle: mapButton.title,
         };
     }
 
@@ -417,10 +593,18 @@
         last = s.last || null;
         keyWanted = !!s.keyWanted;
         status.innerHTML = s.statusHtml || '';
-        setResult(s.resultHtml || '');
+        result.innerHTML = '';
+        if (s.nodes) result.appendChild(s.nodes);
+        s.nodes = null;
+        pending = s.pending || null;
+        preview.classList.toggle('display-none', result.hasChildNodes());
+        result.scrollTop = s.scrollTop || 0;
+        result.scrollLeft = s.scrollLeft || 0;
+        setHitNote(s.hitHtml || '');
         trace.innerHTML = s.traceHtml || TRACE_EMPTY;
         csvButton.disabled = !s.csv;
         mapButton.disabled = !s.map;
+        mapButton.title = s.mapTitle || '';
         provButton.disabled = !s.prov;
         updateState();
     }
@@ -429,6 +613,7 @@
         useCipher: useCipher,
         useSources: useSources, run: runQuery, snapshot: snapshot, restore: restore,
         load: load, fileSource: fileSource, sql: loadSqlJs,
+        mark: applyMark, showHit: showHit, hasResult: function () { return !!last; }, forgetKept: forgetKept,
     };
 
     document.addEventListener('queries:db-change', reset);

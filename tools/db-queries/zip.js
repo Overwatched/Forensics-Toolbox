@@ -330,8 +330,10 @@
     }
 
     function memoryError(name, size) {
-        return new Error(name + ' är ' + sizeInGb(size) + ' och får inte plats i minnet här. Stäng andra verktyg och program och försök igen. ' +
+        var err = new Error(name + ' är ' + sizeInGb(size) + ' och får inte plats i minnet här. Stäng andra verktyg och program och försök igen. ' +
             'En krypterad databas behöver ungefär dubbelt så mycket ledigt minne som sin storlek.');
+        err.code = 'MEMORY';
+        return err;
     }
 
     function friendlyMemory(err, name, size) {

@@ -10,6 +10,7 @@
     --accent: #0a84ff;
     --accent-hover: #3395ff;
     --accent-soft: rgba(10, 132, 255, 0.14);
+    --warn: #ff9f0a;
     --warn-soft: rgba(255, 159, 10, 0.12);
     --error: #ff453a;
     --ok: #30d158;
@@ -34,6 +35,7 @@
     --accent: #007aff;
     --accent-hover: #0066d6;
     --accent-soft: rgba(0, 122, 255, 0.12);
+    --warn: #b25f00;
     --warn-soft: rgba(255, 149, 0, 0.12);
     --error: #ff3b30;
     --ok: #248a3d;
@@ -547,8 +549,55 @@ button.run-button { flex: none; min-width: 0; padding: 10px 20px; }
 }
 .run-result th { position: sticky; top: 0; background: var(--surface); }
 .run-result td.null { color: var(--text-muted); }
-.result-preview { max-height: 45vh; overflow: auto; padding: 4px 6px 2px; font-size: 13px; }
+/* Händelsen från Härkomst: raden är markerad och rutan står vid den. */
+.run-hit {
+    margin: 6px 6px 8px;
+    padding: 7px 10px;
+    border-left: 3px solid var(--warn);
+    border-radius: 6px;
+    background: var(--warn-soft);
+    font-size: 12.5px;
+    line-height: 1.5;
+}
+.run-result tr.row-hit td { background: var(--warn-soft); box-shadow: inset 0 1px 0 var(--warn), inset 0 -1px 0 var(--warn); color: var(--text); font-weight: 600; }
+.run-result tr.row-hit td:first-child { box-shadow: inset 3px 0 0 var(--warn), inset 0 1px 0 var(--warn), inset 0 -1px 0 var(--warn); }
+.run-result th.row-no, .run-result td.row-no { color: var(--text-muted); font-variant-numeric: tabular-nums; text-align: right; }
+.result-preview { max-height: 45vh; overflow: auto; padding: 6px 6px 4px; font-size: 13px; }
 .result-preview .muted { margin: 2px 0 6px; }
+/* Exempelraderna får inte gå att ta för ett resultat: märkta, randiga och bleka. */
+.preview-note { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; line-height: 1.45; }
+.preview-tag {
+    flex: none;
+    padding: 2px 8px;
+    border: 1px dashed var(--warn);
+    border-radius: 999px;
+    color: var(--warn);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+}
+.preview-text { flex: 1 1 auto; min-width: 0; }
+.preview-run { display: none; flex: none; }
+.result-preview.can-run .preview-run { display: inline-block; }
+.preview-table {
+    border: 1px dashed var(--border);
+    border-radius: 8px;
+    background: repeating-linear-gradient(135deg, transparent 0 10px, rgba(128, 128, 128, 0.09) 10px 20px);
+}
+.result-preview .preview-table td { color: var(--text-muted); font-style: italic; opacity: 0.8; }
+.result-tag {
+    display: inline-block;
+    margin-right: 6px;
+    padding: 0 7px;
+    border-radius: 999px;
+    background: var(--accent);
+    color: #fff;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
 
 .d-card { overflow: hidden; }
 .d-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 6px 8px; border-bottom: 1px solid var(--border); }

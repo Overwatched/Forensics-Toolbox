@@ -31,7 +31,7 @@
                 <div class="sidebar-header-text">
                     <h1>Forensics Toolbox</h1>
                     <div class="version-row">
-                        <p>Version 1.47</p>
+                        <p>Version 1.48</p>
                         <div id="net-status" class="net-status">
                             <span id="net-status-text"></span>
                         </div>
@@ -355,6 +355,14 @@
                 Det beror oftast på att JIT är blockerad i Edge: förstärkt säkerhet eller policyerna
                 EnhanceSecurityMode och DefaultJavaScriptJitSetting, som syns under edge://policy.
                 Be den som ansvarar för datorn att tillåta JIT här, eller använd skrivbordsappen.
+            </div>
+
+            <div id="browser-slow" class="browser-notice" role="status" hidden>
+                <strong>JIT är avstängd i den här webbläsaren, så WebAssembly körs i en tolk.</strong>
+                Allt fungerar, men det som läser databaser och bilder tar längre tid, ungefär 5 till 15 gånger i våra prov.
+                Det beror oftast på förstärkt säkerhet eller policyn DefaultJavaScriptJitSetting, som syns under edge://policy.
+                Skrivbordsappen påverkas inte.
+                <button type="button" class="browser-notice-close">Stäng</button>
             </div>
 
             <div id="content-placeholder" class="content-placeholder">

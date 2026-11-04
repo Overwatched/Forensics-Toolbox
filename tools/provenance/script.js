@@ -364,7 +364,7 @@
         } finally { busy(false); }
     }
 
-    // Filer från EXIF & karta: samma innehåll letas upp i extraktionen, som med Välj filer från disk.
+    // Filer från EXIF & karta: samma innehåll letas upp i extraktionen, som med bilder från disk.
     function receiveFiles(list) {
         zipReady.then(function () {
             var files = (list || []).map(function (f) { return f && f.file; }).filter(Boolean);
@@ -382,6 +382,7 @@
             if (!state.zip || !state.zip.platform) { setStatus('ex-status', 'Öppna en extraktion i raden högst upp, så bedöms filerna i den.', 'warn'); return; }
             if (isBusy()) { setStatus('run-status', 'Vänta tills bedömningen är klar och försök igen.', 'warn'); return; }
             $('filename').value = names.join('\n');
+            state.listNote = '';
             fitNameBox();
             if (zipName && zipName !== state.zip.file.name) {
                 setStatus('run-status', escapeHtml('Filnamnen kommer från en query mot ' + zipName + ', men Härkomst har ' + state.zip.file.name + ' öppen. Byt extraktion i raden högst upp, eller tryck Bedöm härkomst för att leta efter namnen här.'), 'warn');
@@ -389,6 +390,47 @@
             }
             run();
         });
+    }
+
+    // Knappen Välj bilder eller en lista: en textfil med filnamn eller hashsummor fyller rutan och bedöms som
+    // om den klistrats in. Andra filer letas upp i extraktionen på innehållet.
+    var LIST_MAX = 64 * 1024 * 1024;
+    async function pickFromDisk(files) {
+        if (!files.length) return;
+        var office = files.filter(function (f) { return ProvenanceBatch.isOfficeFile(f.name); });
+        if (office.length) { setStatus('run-status', escapeHtml(office[0].name + ' går inte att läsa som en lista. Spara den som CSV eller text.'), 'warn'); return; }
+        var lists = files.filter(function (f) { return ProvenanceBatch.isListFile(f.name); });
+        if (!lists.length) {
+            if (files.length === 1) runDiskFile(files[0]);
+            else await runBatch(files.map(function (f) { return { kind: 'disk', file: f }; }), 'disk');
+            return;
+        }
+        if (lists.length < files.length) { setStatus('run-status', 'Välj antingen en lista eller bildfiler, inte båda på en gång.', 'warn'); return; }
+        var names = [];
+        var done = [];
+        for (var i = 0; i < lists.length; i++) {
+            if (lists[i].size > LIST_MAX) { setStatus('run-status', escapeHtml(lists[i].name + ' är för stor för att vara en lista (högst 64 MB).'), 'warn'); return; }
+            var bytes = new Uint8Array(await lists[i].arrayBuffer());
+            if (!ProvenanceBatch.looksLikeText(bytes)) { setStatus('run-status', escapeHtml(lists[i].name + ' är inte en textfil. En lista har ett filnamn eller en hashsumma per rad.'), 'warn'); return; }
+            var parsed = ProvenanceBatch.parseList(ProvenanceBatch.decodeList(bytes));
+            names = names.concat(parsed.names);
+            done.push(listLine(lists[i].name, parsed));
+        }
+        names = names.filter(function (n, k) { return names.indexOf(n) === k; });
+        if (!names.length) { setStatus('run-status', escapeHtml('Inga filnamn eller hashsummor hittades i ' + lists.map(function (f) { return f.name; }).join(', ') + '.'), 'warn'); return; }
+        $('filename').value = names.join('\n');
+        fitNameBox();
+        state.listNote = done.join(' ');
+        setStatus('run-status', escapeHtml(state.listNote));
+        await run();
+    }
+
+    function listLine(name, parsed) {
+        var parts = [];
+        if (parsed.files) parts.push(parsed.files + (parsed.files === 1 ? ' filnamn' : ' filnamn'));
+        if (parsed.hashes) parts.push(parsed.hashes + (parsed.hashes === 1 ? ' hashsumma' : ' hashsummor'));
+        return name + ': ' + (parts.join(' och ') || 'inget att söka på') + (parsed.column ? ' ur kolumnen ' + parsed.column : '') + '.' +
+            (parsed.skipped ? ' ' + parsed.skipped + (parsed.skipped === 1 ? ' rad saknade värde och hoppades över.' : ' rader saknade värde och hoppades över.') : '');
     }
 
     function zipFailed(err) {
@@ -439,8 +481,14 @@
         // Sökvägen i zippen följer med, så att queryn kan öppnas och köras i Queries.
         var timeColumns = (timeKeys || []).map(function (k) { return ProvenanceRoles.fieldSpec(query, k); })
             .filter(function (t, i, a) { return t && a.findIndex(function (x) { return x && x.col === t.col; }) === i; });
+        // Tiderna i svaret: en källa väljer körningen som har händelsens tid.
+        var times = new Set();
+        timeColumns.forEach(function (t) {
+            var i = res.columns.indexOf(t.col);
+            if (i >= 0) res.values.forEach(function (row) { var ms = ProvenanceRoles.toMs(row[i], t.epoch); if (ms !== null) times.add(ms); });
+        });
         // Ett komprimerat arkiv går inte att öppna i Queries, så det får ingen sökväg (ingen knapp).
-        run.queries.push({ id: query.id, db: loaded.label, title: query.title, sql: sql, path: loaded.gz ? null : loaded.dbEntry.name, walPath: loaded.walEntry ? loaded.walEntry.name : null, timeColumns: timeColumns });
+        run.queries.push({ id: query.id, db: loaded.label, title: query.title, sql: sql, path: loaded.gz ? null : loaded.dbEntry.name, walPath: loaded.walEntry ? loaded.walEntry.name : null, timeColumns: timeColumns, times: times });
         return { rows: ProvenanceRoles.mapRows(query, res, timeKeys), result: res, sql: sql };
     }
 
@@ -2815,7 +2863,7 @@
         var b = state.batch = {
             rows: items.map(function (it) { return { item: it, name: batchItemName(it), status: 'waiting', note: '', summary: null, key: null, target: null, thumbUrl: null }; }),
             stop: false, running: true, prefix: '', current: -1, open: -1, origin: origin || '', urls: [],
-            window: $('window').value, zone: $('zone').value,
+            window: $('window').value, zone: $('zone').value, listNote: origin === 'names' ? state.listNote || '' : '',
         };
         busy(true);
         $('batch-stop').disabled = false;
@@ -2986,7 +3034,7 @@
             '<th>Undersökaren</th></tr></thead><tbody>' + b.rows.map(function (r, i) { return batchRowHtml(r, i, b); }).join('') + '</tbody></table>';
         var c = ProvenanceBatch.counts(b.rows);
         var assessed = b.rows.filter(function (r) { return r.key && ProvenanceBatch.examinerState(state.examiner[r.key], r.summary ? r.summary.factorIds : []).written; }).length;
-        $('batch-note').textContent = b.rows.length + ' filer, fönster ' + windowText(b.window) + ', tidszon: ' + zoneText(b.zone) + '. ' +
+        $('batch-note').textContent = (b.listNote ? b.listNote + ' ' : '') + b.rows.length + ' filer, fönster ' + windowText(b.window) + ', tidszon: ' + zoneText(b.zone) + '. ' +
             (b.running ? '' : c.done + ' har underlag, ' + assessed + ' har din egen bedömning. ') +
             'Prickarna är faktorernas läge: grön förenligt, röd inte förenligt, gul saknas, grå inte tillämplig eller upplysning. ' +
             'Klicka på en rad för hela underlaget, tidslinjen och exporterna för den filen.';
@@ -3500,37 +3548,65 @@
 
     // ---------- Till Queries ----------
 
-    // Queryn med det id:t som kördes mot en databas i zippen (inte testdata, inte loggfilerna utan SQL).
-    function runnableQuery(id) {
-        if (!id || !state.zip || !state.meta) return null;
-        var list = (state.meta.queries || []).filter(function (q) { return q.id === id && q.path; });
+    // Körningen som en källa kommer ifrån, bland dem som kördes mot en databas i zippen (inte testdata, inte
+    // loggfilerna utan SQL). Samma rollquery körs mot flera databaser (role-messages mot Signal, WhatsApp, Telegram
+    // och Snapchat), så källans databas väljer. PowerLog läses också ur dagsarkiven: har ett arkiv händelsens tid
+    // går raden inte att visa i Queries.
+    function runnableQuery(src, ms) {
+        if (!src || !src.queryId || !state.zip || !state.meta) return null;
+        var word = function (s) { return String(s || '').split(' ')[0]; };
+        var all = (state.meta.queries || []).filter(function (q) { return q.id === src.queryId; });
+        var named = all.filter(function (q) { return word(q.db) === word(src.db); });
+        var list = named.length ? named : all;
+        var timed = ms !== undefined ? list.filter(function (q) { return q.times && q.times.has(ms); }) : [];
+        if (timed.length) list = timed;
+        list = list.filter(function (q) { return q.path; });
         return list.length ? list[list.length - 1] : null;
     }
 
+    // Knappens uppgifter: körningen, och händelsen vars rad ska markeras i Queries.
+    function queryAttrs(q, ms, eventId) {
+        return ' data-q="' + state.meta.queries.indexOf(q) + '"' + (ms !== undefined ? ' data-ms="' + ms + '"' : '') + (eventId ? ' data-event="' + eventId + '"' : '');
+    }
+
     // Källan som text (databas → tabell → kolumn), och som länk till Queries när queryn går att köra där.
-    function sourceCell(src) {
+    // line: raden i nyckelhändelserna, vars tid och händelse markeras där.
+    function sourceCell(src, line) {
         var text = ProvenanceReport.sourceText(src);
-        var q = src && runnableQuery(src.queryId);
+        var q = runnableQuery(src, line ? line.ms : undefined);
         if (!q) return escapeHtml(text);
-        return '<button type="button" class="link-btn to-queries" data-q="' + escapeHtml(q.id) + '" title="Kör ' + escapeHtml(q.id) + ' i Queries mot ' + escapeHtml(q.db) + ' i zippen och visa raderna">' + escapeHtml(text) + '</button>';
+        return '<button type="button" class="link-btn to-queries"' + queryAttrs(q, line ? line.ms : undefined, line && line.eventId) + ' data-text="' + escapeHtml(line ? line.text : '') + '" title="Kör ' + escapeHtml(q.id) + ' i Queries mot ' + escapeHtml(q.db) + ' i zippen och markera raden">' + escapeHtml(text) + '</button>';
     }
 
-    function queryCell(id) {
-        var q = runnableQuery(id);
-        if (!q) return escapeHtml(id || '');
-        return '<button type="button" class="link-btn to-queries" data-q="' + escapeHtml(q.id) + '" title="Kör queryn i Queries och visa raderna">' + escapeHtml(q.id) + ' ↗</button>';
+    function queryCell(e) {
+        var s = e.source || {};
+        var q = runnableQuery(s, e.ms);
+        if (!q) return escapeHtml(s.queryId || '');
+        return '<button type="button" class="link-btn to-queries"' + queryAttrs(q, e.ms, e.id) + ' data-text="' + escapeHtml(e.text || '') + '" title="Kör queryn i Queries och markera raden">' + escapeHtml(q.id) + ' ↗</button>';
     }
 
-    function openInQueries(id) {
-        var q = runnableQuery(id);
-        if (!q) return;
+    // Värdena som skiljer händelsen från andra rader med samma tid.
+    function markValues(e) {
+        if (!e) return [];
+        if (e.messageId !== undefined && e.messageId !== null) return [e.messageId];
+        return e.app ? [e.app] : [];
+    }
+
+    function openInQueries(b) {
+        var q = state.meta && state.meta.queries[Number(b.getAttribute('data-q'))];
+        if (!q || !q.path) return;
         if (window.parent === window) {
             showToast('Öppna Härkomst i Forensics Toolbox för att köra queryn i Queries');
             return;
         }
+        var at = b.getAttribute('data-ms');
+        var ms = at === null ? null : Number(at);
+        var id = Number(b.getAttribute('data-event'));
+        var event = id ? state.model.events.find(function (e) { return e.id === id; }) : null;
         window.parent.postMessage({
             source: 'forensics-toolbox', type: 'open-query', file: state.zip.file, path: q.path, walPath: q.walPath,
             queryId: q.id, title: q.title, db: q.db, sql: q.sql, from: 'Härkomst · ' + state.model.file.filename, timeColumns: q.timeColumns || [],
+            mark: ms === null ? null : { ms: [ms], startMs: event ? event.ms : null, values: markValues(event), text: b.getAttribute('data-text') || '', time: state.meta.format(ms) + ' (' + state.meta.zoneLabel + ')' },
         }, '*');
     }
 
@@ -3582,7 +3658,7 @@
                 '<span class="button-row">' + (near && near < n.lines.length ? '<button type="button" class="secondary show-all">Visa alla ' + n.lines.length + ' rader</button>' : '') +
                 (n.lines.length ? '<button type="button" class="secondary copy-key" data-i="' + i + '" title="Tabellen med datum, klockslag, händelse och källa (databas → tabell → kolumn). Bara raderna som visas.">Kopiera tabellen för Word</button>' : '') + '</span></div>' +
                 '<table>' + n.lines.map(function (l) {
-                    return '<tr class="' + (l.near ? 'near' : 'far') + '"><td class="time">' + escapeHtml(fmt(l.ms).slice(11)) + '</td><td>' + (l.bold ? '<strong>' + escapeHtml(l.text) + '</strong>' : escapeHtml(l.text)) + '</td><td class="src">' + sourceCell(l.source) + '</td></tr>';
+                    return '<tr class="' + (l.near ? 'near' : 'far') + '"><td class="time">' + escapeHtml(fmt(l.ms).slice(11)) + '</td><td>' + (l.bold ? '<strong>' + escapeHtml(l.text) + '</strong>' : escapeHtml(l.text)) + '</td><td class="src">' + sourceCell(l.source, l) + '</td></tr>';
                 }).join('') + '</table>' + (n.lines.length ? '' : '<p class="muted">Inga registreringar i fönstret.</p>') +
                 n.notes.map(function (t) { return '<p class="note">' + escapeHtml(t) + '</p>'; }).join('') + '</div></div>';
         }
@@ -3664,10 +3740,10 @@
             m.events.map(function (e) {
                 var s = e.source || {};
                 return '<tr><td>' + escapeHtml(fmt(e.ms)) + '</td><td>' + escapeHtml(ProvenanceCore.formatUtc(e.ms)) + '</td><td>' + escapeHtml(e.text) + '</td><td>' +
-                    (e.endMs != null ? escapeHtml(fmt(e.endMs)) + (e.openEnded ? ' (pågår)' : '') : '') + '</td><td class="path">' + escapeHtml(ProvenanceReport.sourceText(s)) + '</td><td>' + queryCell(s.queryId) + '</td></tr>';
+                    (e.endMs != null ? escapeHtml(fmt(e.endMs)) + (e.openEnded ? ' (pågår)' : '') : '') + '</td><td class="path">' + escapeHtml(ProvenanceReport.sourceText(s)) + '</td><td>' + queryCell(e) + '</td></tr>';
             }).join('') + '</tbody></table>' + (m.outside ? '<p class="muted">' + m.outside + ' registreringar till finns utanför fönstren.</p>' : '');
         $('events-note').textContent = state.zip
-            ? 'Klicka på en query för att köra den i Queries mot samma zip och se raderna. Den öppnas i en egen flik.'
+            ? 'Klicka på en query för att köra den i Queries mot samma zip. Raden med händelsen markeras. Den öppnas i en egen flik.'
             : 'Testdata: queryerna går att läsa i protokollet men inte köra i Queries, eftersom ingen zip är öppen.';
         $('alternatives').innerHTML = '<table><thead><tr><th>Förklaring</th><th>Talar för</th><th>Talar emot</th></tr></thead><tbody>' +
             m.alternatives.map(function (a) {
@@ -3681,7 +3757,7 @@
         }).join('') + (meta.fileEntry ? '<div class="source-block"><h4>Bildfilen</h4><dl><dt>Sökväg</dt><dd>' + escapeHtml(meta.fileEntry.path) + '</dd><dt>CRC32</dt><dd>' + escapeHtml(meta.fileEntry.crc32) + '</dd><dt>SHA-256</dt><dd>' + escapeHtml(meta.fileEntry.sha256) + '</dd></dl></div>' : '') +
             '<h4>SQL</h4>' + meta.queries.map(function (q) {
                 return '<div class="sql-head"><span><strong>' + escapeHtml(q.id) + '</strong> <span class="muted">' + escapeHtml(q.db) + '</span></span>' +
-                    (state.zip && q.path ? '<button type="button" class="secondary to-queries" data-q="' + escapeHtml(q.id) + '">Kör i Queries</button>' : '') + '</div><pre class="sql">' + escapeHtml(q.sql) + '</pre>';
+                    (state.zip && q.path ? '<button type="button" class="secondary to-queries"' + queryAttrs(q) + '>Kör i Queries</button>' : '') + '</div><pre class="sql">' + escapeHtml(q.sql) + '</pre>';
             }).join('');
         renderPositions(m, fmt);
         renderCopies(m);
@@ -3851,8 +3927,7 @@
     $('disk-input').addEventListener('change', function () {
         var files = Array.prototype.slice.call($('disk-input').files || []);
         $('disk-input').value = '';
-        if (files.length === 1) runDiskFile(files[0]);
-        else if (files.length > 1) runBatch(files.map(function (f) { return { kind: 'disk', file: f }; }), 'disk').catch(batchFailed);
+        pickFromDisk(files).catch(batchFailed);
     });
     $('run').addEventListener('click', function () { run(); });
     // Enter bedömer, Skift+Enter ger en ny rad för nästa filnamn. Rutan växer med raderna.
@@ -3861,7 +3936,7 @@
         e.preventDefault();
         if (!isBusy()) run();
     });
-    $('filename').addEventListener('input', fitNameBox);
+    $('filename').addEventListener('input', function () { state.listNote = ''; fitNameBox(); });
 
     // Listan med flera filer.
     $('batch-stop').addEventListener('click', function () {
@@ -3902,7 +3977,7 @@
     $('result').addEventListener('click', function (e) {
         var b = e.target.closest('button');
         if (!b || !state.model) return;
-        if (b.classList.contains('to-queries')) { openInQueries(b.getAttribute('data-q')); return; }
+        if (b.classList.contains('to-queries')) { openInQueries(b); return; }
         if (b.classList.contains('copy-key')) {
             var i = Number(b.getAttribute('data-i'));
             var all = b.closest('.narrative').classList.contains('all');

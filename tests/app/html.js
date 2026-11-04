@@ -3,10 +3,14 @@
 //
 // Packar samma filer som html-zippen (utan kartorna), öppnar Toolbox.html under file:// i en riktig
 // webbläsare utan Electrons brygga och utan internet, och kör röktestet (smoke.js). Sedan öppnas samma
-// sida utan WebAssembly, som när JIT är blockerad i Edge, och beskeden kontrolleras.
+// sida utan JIT. Vad det betyder beror på bygget: på Mac försvinner WebAssembly, och då kontrolleras
+// beskeden, och röktestet körs också med en tolk; på Windows finns det kvar i en tolk (Edge 156), och då
+// körs röktestet i den. Med en tolk ska det stå att det går långsammare.
 //
 //   --browser edge|chrome|<sökväg>   annars FT_BROWSER, annars Edge eller Chrome, det som finns
+//   --only-plain                     bara en körning, utan flaggan för JIT (CI: en policy gäller redan)
 //   --expect-blocked                 kontrollerar att en policy spärrar andra adresser (CI, låst Edge)
+//   --show-policy                    skriver ut de policyer som webbläsaren säger att den tillämpar
 //   FT_SHOTS=<mapp>                  skärmdumpar efter varje del
 'use strict';
 
@@ -78,6 +82,46 @@ async function open(port, url) {
 
 const fileFetch = (e) => e.kind === 'log' && /catalog\.json|package\.json|CORS/.test(e.text);
 
+// Hur fort JavaScript och WebAssembly går här. En tolk syns på att WebAssembly blir många gånger långsammare.
+const SPEED = `(function () {
+    const bytes = new Uint8Array([0,97,115,109,1,0,0,0, 1,6,1,96,1,127,1,127, 3,2,1,0, 7,5,1,1,102,0,0,
+        10,30,1,28,1,1,127, 2,64,3,64, 32,1,32,0,79,13,1, 32,1,65,1,106,33,1, 12,0,11,11, 32,1,11]);
+    let t = performance.now();
+    let x = 0;
+    for (let i = 0; i < 30000000; i++) x = (x + i) | 0;
+    const js = Math.round(performance.now() - t);
+    let wasm = null;
+    if (typeof WebAssembly !== 'undefined') {
+        const f = new WebAssembly.Instance(new WebAssembly.Module(bytes)).exports.f;
+        t = performance.now();
+        f(30000000);
+        wasm = Math.round(performance.now() - t);
+    }
+    return { webAssembly: typeof WebAssembly, jsMs: js, wasmMs: wasm, x: x };
+})()`;
+
+// Policyerna som webbläsaren säger att den tillämpar. Sidan ritas i skuggträd, så texten letas upp i dem.
+const POLICY_TEXT = `(function () {
+    const out = [];
+    (function walk(root) {
+        root.querySelectorAll('*').forEach((el) => {
+            if (el.shadowRoot) walk(el.shadowRoot);
+            if (!el.children.length && el.textContent.trim()) out.push(el.textContent.trim());
+        });
+    })(document);
+    return out.join(' | ');
+})()`;
+
+async function showPolicy(c, bin) {
+    const url = (/edge/i.test(bin) ? 'edge' : 'chrome') + '://policy/';
+    const nav = await c.send('Page.navigate', { url });
+    if (nav.result && nav.result.errorText) { console.log('Policyer: ' + nav.result.errorText + '\n'); return; }
+    await sleep(2500);
+    const text = await c.ev(null, POLICY_TEXT);
+    const hits = text.split(' | ').map((t, i, all) => (/^(DefaultJavaScriptJitSetting|EnhanceSecurityMode|URLBlocklist|URLAllowlist|JavaScriptJit\w+)$/.test(t) ? all.slice(i, i + 5).join(' | ') : null)).filter(Boolean);
+    console.log('Policyer: ' + (hits.length ? '\n  ' + hits.join('\n  ') : 'inga av dem som provet gäller, av ' + text.length + ' tecken på sidan') + '\n');
+}
+
 // Utan WebAssembly ska det stå vad som är fel och vad som går att göra, direkt och i varje verktyg.
 const noWasmScenarios = [
     ['Beskedet syns i huvudfönstret direkt', async ({ c }) => {
@@ -145,51 +189,62 @@ async function main() {
     execFileSync(process.execPath, [path.join(ROOT, 'scripts', 'pack-html-folder.js'), '--folder', folder], { stdio: 'ignore' });
     const url = pathToFileURL(path.join(folder, 'Toolbox.html')).href;
     const fx = await fixtures.build();
-    const downloads = fs.mkdtempSync(path.join(os.tmpdir(), 'ft-html-nedladdningar-'));
     const shots = process.env.FT_SHOTS || null;
     const counter = { ran: 0, failed: 0 };
     console.log('Webbläsare: ' + bin);
 
-    let browser = startBrowser(bin, url, PORT);
-    try {
-        const c = await open(PORT, url);
-        await c.send('Page.setDownloadBehavior', { behavior: 'allow', downloadPath: downloads });
-        console.log(await c.ev(null, 'navigator.userAgent') + '\n');
-        await runGroup(c, 'Röktest under file://, utan internet', smoke.scenarios, { fx, downloads }, shots, counter);
-        const blocked = c.errors.filter(fileFetch);
-        if (blocked.length) {
+    const modes = [{ title: 'Röktest under file://, utan internet', flags: [] }];
+    if (!args.includes('--only-plain')) modes.push({ title: 'Utan JIT', flags: ['--js-flags=--jitless'] });
+    for (let n = 0; n < modes.length; n++) {
+        const browser = startBrowser(bin, url, PORT + n, modes[n].flags);
+        // Egen mapp per körning: röktestet letar upp protokollet på namnet.
+        const downloads = fs.mkdtempSync(path.join(os.tmpdir(), 'ft-html-nedladdningar-'));
+        try {
+            const c = await open(PORT + n, url);
+            await c.send('Page.setDownloadBehavior', { behavior: 'allow', downloadPath: downloads });
+            if (n === 0) console.log(await c.ev(null, 'navigator.userAgent') + '\n');
+            const speed = await c.ev(null, SPEED);
+            console.log(modes[n].title + ': WebAssembly ' + speed.webAssembly + ', slinga i JavaScript ' + speed.jsMs + ' ms, i WebAssembly ' + (speed.wasmMs == null ? 'går inte' : speed.wasmMs + ' ms'));
+            // Utan WebAssembly ska det stå varför. Finns det, i en tolk eller inte, ska allt fungera.
+            const noWasm = speed.webAssembly === 'undefined';
+            // Tolken finns inte i alla byggen: Edge har den på Mac, Chrome saknar den.
+            if (noWasm && n === 1) modes.push({ title: 'Utan JIT, WebAssembly i en tolk', flags: ['--js-flags=--jitless --wasm-jitless'] });
+            await sleep(1200);
+            const slowShown = await c.ev(null, `!document.getElementById('browser-slow').hidden`);
+            // Slingan i SPEED är tre gånger så lång som i sidans prov, som går över 80 ms med en tolk.
+            const slowExpected = !noWasm && speed.wasmMs > 300;
+            const slowClear = noWasm || speed.wasmMs > 300 || speed.wasmMs < 150;
+            console.log('Beskedet om långsam WebAssembly: ' + (slowShown ? 'syns' : 'syns inte'));
+            if (slowClear && slowShown !== slowExpected) {
+                counter.failed++;
+                console.log('✖ Beskedet om långsam WebAssembly stämmer inte med slingan: ' + speed.wasmMs + ' ms');
+            }
+            await runGroup(c, noWasm ? 'Besked utan WebAssembly' : modes[n].title, noWasm ? noWasmScenarios : smoke.scenarios, { fx, downloads }, shots, counter);
+            const blocked = c.errors.filter(fileFetch);
+            if (blocked.length) {
+                counter.failed++;
+                console.log('✖ Blockerade hämtningar i konsolen: ' + blocked.length + '\n  ' + blocked.slice(0, 3).map((e) => String(e.text).slice(0, 160)).join('\n  ') + '\n');
+            }
+            const others = c.errors.filter((e) => e.kind !== 'exception' && !fileFetch(e));
+            if (others.length) console.log('Andra fel i konsolen (räknas inte som misslyckade): ' + others.length + '\n  ' + others.slice(0, 5).map((e) => String(e.text).slice(0, 160)).join('\n  ') + '\n');
+            if (args.includes('--show-policy')) await showPolicy(c, bin);
+            // Spärrar policyn inte, så provar körningen inte det den säger.
+            if (n === 0 && args.includes('--expect-blocked')) {
+                const nav = await c.send('Page.navigate', { url: 'http://intranat.invalid/' });
+                const text = nav.result && nav.result.errorText || '';
+                console.log('Policyn: ' + (text || 'adressen öppnades'));
+                if (!/BLOCKED_BY_ADMINISTRATOR/.test(text)) { counter.failed++; console.log('✖ Policyn spärrar inte andra adresser'); }
+            }
+            c.close();
+        } catch (err) {
             counter.failed++;
-            console.log('✖ Blockerade hämtningar i konsolen: ' + blocked.length + '\n  ' + blocked.slice(0, 3).map((e) => String(e.text).slice(0, 160)).join('\n  ') + '\n');
+            console.log('✖ ' + modes[n].title + ' kunde inte köras: ' + (err && err.message || err));
         }
-        const others = c.errors.filter((e) => e.kind !== 'exception' && !fileFetch(e));
-        if (others.length) console.log('Andra fel i konsolen (räknas inte som misslyckade): ' + others.length + '\n  ' + others.slice(0, 5).map((e) => String(e.text).slice(0, 160)).join('\n  ') + '\n');
-        // Spärrar policyn inte, så provar körningen inte det den säger.
-        if (args.includes('--expect-blocked')) {
-            const nav = await c.send('Page.navigate', { url: 'http://intranat.invalid/' });
-            const text = nav.result && nav.result.errorText || '';
-            console.log('Policyn: ' + (text || 'adressen öppnades'));
-            if (!/BLOCKED_BY_ADMINISTRATOR/.test(text)) { counter.failed++; console.log('✖ Policyn spärrar inte andra adresser'); }
-        }
-        c.close();
-    } catch (err) {
-        counter.failed++;
-        console.log('✖ Provkörningen kunde inte köras: ' + (err && err.message || err));
+        await stopBrowser(browser);
+        fs.rmSync(downloads, { recursive: true, force: true });
     }
-    await stopBrowser(browser);
-
-    browser = startBrowser(bin, url, PORT + 1, ['--js-flags=--jitless']);
-    try {
-        const c = await open(PORT + 1, url);
-        await runGroup(c, 'Utan WebAssembly (JIT blockerad)', noWasmScenarios, { fx, downloads }, shots, counter);
-        c.close();
-    } catch (err) {
-        counter.failed++;
-        console.log('✖ Provkörningen utan WebAssembly kunde inte köras: ' + (err && err.message || err));
-    }
-    await stopBrowser(browser);
 
     fs.rmSync(fx.files.dir, { recursive: true, force: true });
-    fs.rmSync(downloads, { recursive: true, force: true });
     fs.rmSync(folder, { recursive: true, force: true });
     console.log(counter.failed ? '✖ ' + counter.failed + ' misslyckades av ' + counter.ran : '✔ alla ' + counter.ran + ' gick igenom');
     process.exit(counter.failed ? 1 : 0);

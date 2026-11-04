@@ -71,9 +71,10 @@ jobs:
       - name: Kör röktestet i appen
         run: npm run test:app -- --smoke
 
-  # Html-versionen i Edge på Windows, som den körs utan skrivbordsappen: under file:// och utan internet.
-  # Sedan samma sak i en låst Edge som bara når lokala filer. Ett eget jobb som inte stoppar releasen,
-  # tills det har visat sig stabilt i CI.
+  # Html-versionen i Edge på Windows, som den körs utan skrivbordsappen: under file:// och utan internet. Sedan
+  # med riktiga policyer: JIT blockerad, förstärkt säkerhet och en Edge som bara når lokala filer. Provet skriver
+  # ut vad edge://policy säger, och hur fort WebAssembly går. Ett eget jobb som inte stoppar releasen, tills det
+  # har visat sig stabilt i CI. Varje steg körs även om ett före det misslyckades.
   htmltest:
     runs-on: windows-latest
     steps:
@@ -86,16 +87,40 @@ jobs:
         run: npm ci --ignore-scripts
       - name: Kör html-versionen i Edge
         run: npm run test:html -- --browser edge
-      - name: Lås Edge till lokala filer
+      - name: Blockera JIT med policyn
+        if: ${{ !cancelled() }}
         shell: pwsh
         run: |
           $edge = 'HKLM:\SOFTWARE\Policies\Microsoft\Edge'
+          New-Item -Path $edge -Force | Out-Null
+          New-ItemProperty -Path $edge -Name 'DefaultJavaScriptJitSetting' -Value 2 -PropertyType DWord -Force | Out-Null
+      - name: Kör html-versionen med JIT blockerad
+        if: ${{ !cancelled() }}
+        run: npm run test:html -- --browser edge --only-plain --show-policy
+      - name: Slå på förstärkt säkerhet med policyn
+        if: ${{ !cancelled() }}
+        shell: pwsh
+        run: |
+          $edge = 'HKLM:\SOFTWARE\Policies\Microsoft\Edge'
+          Remove-ItemProperty -Path $edge -Name 'DefaultJavaScriptJitSetting'
+          New-ItemProperty -Path $edge -Name 'EnhanceSecurityMode' -Value 2 -PropertyType DWord -Force | Out-Null
+      - name: Kör html-versionen med förstärkt säkerhet
+        if: ${{ !cancelled() }}
+        run: npm run test:html -- --browser edge --only-plain --show-policy
+      - name: Lås Edge till lokala filer
+        if: ${{ !cancelled() }}
+        shell: pwsh
+        run: |
+          $edge = 'HKLM:\SOFTWARE\Policies\Microsoft\Edge'
+          Remove-ItemProperty -Path $edge -Name 'EnhanceSecurityMode'
           New-Item -Path "$edge\URLBlocklist" -Force | Out-Null
           New-ItemProperty -Path "$edge\URLBlocklist" -Name '1' -Value '*' -PropertyType String -Force | Out-Null
           New-Item -Path "$edge\URLAllowlist" -Force | Out-Null
           New-ItemProperty -Path "$edge\URLAllowlist" -Name '1' -Value 'file://*' -PropertyType String -Force | Out-Null
+          New-ItemProperty -Path "$edge\URLAllowlist" -Name '2' -Value 'edge://*' -PropertyType String -Force | Out-Null
       - name: Kör html-versionen i den låsta Edge
-        run: npm run test:html -- --browser edge --expect-blocked
+        if: ${{ !cancelled() }}
+        run: npm run test:html -- --browser edge --only-plain --expect-blocked --show-policy
 
   # Skapar releasen som utkast, eller rensar ett befintligt utkast. En redan publicerad
   # release rörs inte: då hoppas bygget över. Höj versionen i Toolbox.html för en ny release.

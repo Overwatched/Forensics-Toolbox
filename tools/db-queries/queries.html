@@ -61,8 +61,8 @@
                             <div id="params" class="params"></div>
                             <button type="button" id="run-button" class="run-button" disabled>Kör query</button>
                             <div class="q-more">
-                                <button type="button" class="secondary" id="run-csv" disabled>Spara CSV</button>
-                                <button type="button" class="secondary" id="run-map" disabled>Visa på karta</button>
+                                <button type="button" class="secondary" id="run-csv" disabled title="Kör queryn först">Spara CSV</button>
+                                <button type="button" class="secondary" id="run-map" disabled title="Kör queryn först. Resultatet går att visa på karta när det har latitud och longitud.">Visa på karta</button>
                                 <button type="button" class="secondary hub-only" id="run-provenance" disabled title="Filnamnen i resultatet (ZFILENAME, _display_name) bedöms i Härkomst, en rad per fil">Bedöm i Härkomst</button>
                             </div>
                         </div>
@@ -85,9 +85,10 @@
                         </div>
                     </section>
 
-                    <!-- Resultatet, eller påhittade exempelrader innan queryn körts. -->
+                    <!-- Resultatet, eller tydligt märkta påhittade exempelrader innan queryn körts. -->
                     <section class="r-card" aria-label="Resultat">
                         <div id="run-status" class="run-status"></div>
+                        <div id="run-hit" class="run-hit display-none" role="status"></div>
                         <div id="run-result" class="result-scroll run-result"></div>
                         <div id="result-preview" class="result-preview"></div>
                     </section>

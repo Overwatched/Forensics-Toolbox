@@ -435,7 +435,8 @@ function generateSql() {
     if (!editing) setEditMode(false);
 }
 
-// Innan queryn körts: påhittade rader med kolumnerna i SQL:en.
+// Innan queryn körts: påhittade rader med kolumnerna i SQL:en, tydligt märkta. Inget är läst ur någon fil,
+// och rutan ska inte gå att ta för ett resultat. Knappen visas när queryn går att köra (run.js, can-run).
 function renderResultPreview(sql) {
     if (!resultPreview || !window.QueryPreview) return;
     const cols = window.QueryPreview.columns(sql);
@@ -450,11 +451,15 @@ function renderResultPreview(sql) {
         filename: paramValue('filename'),
         packageName: paramValue('packageName'),
         bundleId: paramValue('bundleId'),
-        rows: 10,
+        rows: 3,
     });
+    const geo = window.MapImport ? window.MapImport.guessColumns(cols) : null;
     resultPreview.innerHTML =
-        '<p class="muted">Påhittade exempelrader med queryns kolumner. Kör queryn för de riktiga.</p>' +
-        '<div class="result-scroll"><table><thead><tr>' +
+        '<div class="preview-note"><span class="preview-tag">Exempel</span>' +
+        '<span class="preview-text"><strong>Queryn är inte körd.</strong> Raderna nedanför är påhittade och visar bara vilka kolumner queryn ger. Inget är läst ur databasen.' +
+        (geo && geo.lat >= 0 && geo.lon >= 0 ? ' Efter körningen går resultatet att visa på karta.' : '') + '</span>' +
+        '<button type="button" class="preview-run" id="preview-run">Kör query</button></div>' +
+        '<div class="result-scroll preview-table" aria-label="Påhittade exempelrader"><table><thead><tr>' +
         cols.map((c) => '<th>' + escapeHtml(c) + '</th>').join('') +
         '</tr></thead><tbody>' +
         rows.map((r) => '<tr>' + r.map((v) => '<td>' + escapeHtml(v) + '</td>').join('') + '</tr>').join('') +

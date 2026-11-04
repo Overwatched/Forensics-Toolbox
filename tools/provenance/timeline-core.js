@@ -1223,7 +1223,7 @@
             var key = Math.round(ms / 1000) + '|' + text;
             if (seen[key]) return;
             seen[key] = true;
-            lines.push({ ms: ms, text: text, bold: !!bold, source: e && e.source || null, lane: e && e.lane || null, kind: e && e.kind || null });
+            lines.push({ ms: ms, text: text, bold: !!bold, source: e && e.source || null, lane: e && e.lane || null, kind: e && e.kind || null, eventId: e && e.id || null });
         }
         var neighbours = [];
         var locations = [];
