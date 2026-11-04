@@ -6,12 +6,12 @@ const zip = require('../zip');
 
 // files: [{ name, data, deflate, mtime, ut, utLocal, ntfs }]. zip64: alla storlekar och offset i
 // Zip64-fält, och slutet med Zip64-post och locator, som de stora extraktionerna har.
-// ut: { m, a, c } i innehållsförteckningens UT-fält (som vissa extraktionsverktyg); utLocal: samma men bara m i
-// innehållsförteckningen och alla tre i den lokala posten (som Info-ZIP); ntfs: { m, a, c } i
+// ut: { m, a, c, b } i innehållsförteckningens UT-fält (som vissa extraktionsverktyg; c är tredje och b
+// fjärde tiden); utLocal: samma men bara m i innehållsförteckningen och alla i den lokala posten (som Info-ZIP); ntfs: { m, a, c } i
 // NTFS-fältet (Unix-sekunder, skrivs som FILETIME).
 // UT-fältet: flaggorna säger vilka tider den lokala posten har; all = false skriver bara ändringen.
 function utField(t, all) {
-    const vals = [t.m, t.a, t.c];
+    const vals = [t.m, t.a, t.c, t.b];
     const flags = vals.reduce((f, v, i) => (v ? f | (1 << i) : f), 0);
     const written = all ? vals.filter(Boolean) : [t.m];
     const b = Buffer.alloc(5 + written.length * 4);

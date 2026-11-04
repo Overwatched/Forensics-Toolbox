@@ -26,14 +26,16 @@
         return e.dosTime ? e.dosTime + ' (zon okänd)' : '';
     }
 
-    // Zippens tider för en post: ändrad, skapad och senast läst (som text och i ms), och fältet de
-    // kommer ur. NTFS-fältets skapandetid är filens; UT-fältets tredje tid är skapandetid enligt
-    // Info-ZIP:s beskrivning av fältet, men vad verktyget som gjorde zippen lade där syns inte i zippen.
+    // Zippens tider för en post (som text och i ms), och fältet de kommer ur. created är filens
+    // skapandetid: NTFS-fältets, eller den fjärde i UT-fältet. changed är ctime, den tredje av fyra
+    // UT-tider. third är den tredje av tre UT-tider: skapandetid enligt Info-ZIP:s beskrivning, men
+    // ctime hos andra verktyg, och vilket det är syns inte i zippen. Därför är den ingen skapandetid.
     function entryTimes(e) {
         var utc = function (s) { return s ? new Date(s * 1000).toISOString().slice(0, 19).replace('T', ' ') + ' UTC' : ''; };
         return {
-            modified: entryTime(e), created: utc(e.crtime), accessed: utc(e.atime),
-            modifiedMs: e.mtime ? e.mtime * 1000 : null, createdMs: e.crtime ? e.crtime * 1000 : null, accessedMs: e.atime ? e.atime * 1000 : null,
+            modified: entryTime(e), created: utc(e.crtime), changed: utc(e.ctime), third: utc(e.utThird), accessed: utc(e.atime),
+            modifiedMs: e.mtime ? e.mtime * 1000 : null, createdMs: e.crtime ? e.crtime * 1000 : null, changedMs: e.ctime ? e.ctime * 1000 : null,
+            thirdMs: e.utThird ? e.utThird * 1000 : null, accessedMs: e.atime ? e.atime * 1000 : null,
             field: e.timeField === 'NTFS' ? 'NTFS-fältet' : e.timeField === 'UT' ? 'UT-fältet' : '',
         };
     }

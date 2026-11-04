@@ -134,7 +134,7 @@
             html += '<div class="ex-summary">' + escapeHtml(summary()) + ' · ' +
                 c.scan.count.toLocaleString('sv-SE') + ' poster</div>' +
                 '<div class="result-scroll"><table class="ex-table"><thead><tr><th>Databas</th><th>Sökväg i zippen</th>' +
-                '<th>Storlek</th><th>Ändrad (enligt zippen)</th><th>-wal</th></tr></thead><tbody>' + rows + '</tbody></table></div>';
+                '<th>Storlek</th><th>Ändrad (filsystemet)</th><th>-wal</th></tr></thead><tbody>' + rows + '</tbody></table></div>';
         }
         list.innerHTML = html + (loose ? looseLine() : '');
     }
@@ -211,7 +211,7 @@
         if (f.journal && f.journal.size) notes.push('<span class="run-warn">-journal finns: databasen kan vara mitt i en transaktion</span>');
         $('ex-notes').innerHTML = notes.join(' · ');
         $('about-zip').innerHTML = '<p><strong>I extraktionen:</strong> <code>' + escapeHtml(f.db.name) + '</code></p>' +
-            '<p>' + sizeText(f.db.size) + ', ändrad ' + escapeHtml(entryTime(f.db)) + ' enligt zippen. ' +
+            '<p>' + sizeText(f.db.size) + ', ändrad ' + escapeHtml(entryTime(f.db)) + ' i filsystemet. ' +
             (f.wal ? '<code>-wal</code> ' + sizeText(f.wal.size) + '.' : '<span class="run-warn">Ingen -wal i zippen.</span>') + '</p>';
     }
 

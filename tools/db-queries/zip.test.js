@@ -141,21 +141,35 @@ test('innehållsförteckningen läses från disk en gång och sedan ur minnet', 
     assert.strictEqual(tooBig.entries, 3);
 });
 
-test('alla tider i zippen: UT med tre tider, UT i den lokala posten, och NTFS före UT', async () => {
-    const M = 1759303248, A = 1759303300, C = 1759300000;
+test('alla tider i zippen: UT med tre eller fyra tider, UT i den lokala posten, och NTFS före UT', async () => {
+    const M = 1759303248, A = 1759303300, C = 1759300000, B = 1759200000;
     const buf = buildZip([
         { name: 'ut-alla.jpg', data: 'a', ut: { m: M, a: A, c: C } },
+        { name: 'ut-fyra.jpg', data: 'a', ut: { m: M, a: A, c: C, b: B } },
+        { name: 'ut-ingen-fjarde.jpg', data: 'a', ut: { m: M, a: A, c: C, b: 0 } },
         { name: 'infozip.jpg', data: 'b', utLocal: { m: M, a: A, c: C } },
+        { name: 'infozip-fyra.jpg', data: 'b', utLocal: { m: M, a: A, c: C, b: B } },
+        { name: 'ut-och-ntfs.jpg', data: 'c', ut: { m: M, a: A, c: C, b: B }, ntfs: { m: M, a: A, c: C - 5 } },
         { name: 'ntfs.jpg', data: 'c', ntfs: { m: M + 0.25, a: A, c: C }, mtime: M - 3600 },
         { name: 'bara-dos.jpg', data: 'd' },
     ]);
     const read = reader(buf);
     const e = Object.fromEntries((await zip.scan(read, buf.length, () => true)).entries.map((x) => [x.name, x]));
-    assert.deepStrictEqual([e['ut-alla.jpg'].mtime, e['ut-alla.jpg'].atime, e['ut-alla.jpg'].crtime, e['ut-alla.jpg'].timeField], [M, A, C, 'UT']);
+    // Tre tider: det syns inte i zippen om den tredje är skapad eller ctime, så den är ingen skapandetid.
+    assert.deepStrictEqual([e['ut-alla.jpg'].mtime, e['ut-alla.jpg'].atime, e['ut-alla.jpg'].utThird, e['ut-alla.jpg'].crtime, e['ut-alla.jpg'].ctime, e['ut-alla.jpg'].timeField], [M, A, C, null, null, 'UT']);
+    // Fyra tider: den tredje är ctime och den fjärde skapandetiden.
+    assert.deepStrictEqual([e['ut-fyra.jpg'].mtime, e['ut-fyra.jpg'].atime, e['ut-fyra.jpg'].ctime, e['ut-fyra.jpg'].crtime, e['ut-fyra.jpg'].utThird], [M, A, C, B, null]);
+    // Saknas den fjärde (flaggan 8 sätts inte när tiden är 0) är det tre tider.
+    assert.deepStrictEqual([e['ut-ingen-fjarde.jpg'].utThird, e['ut-ingen-fjarde.jpg'].crtime], [C, null]);
+    // NTFS ersätter UT: inget ctime eller tredje UT-tid blir kvar bredvid NTFS-tiderna.
+    assert.deepStrictEqual([e['ut-och-ntfs.jpg'].timeField, e['ut-och-ntfs.jpg'].ctime, e['ut-och-ntfs.jpg'].utThird], ['NTFS', null, null]);
+    assert.ok(Math.abs(e['ut-och-ntfs.jpg'].crtime - (C - 5)) < 1e-3);
     // Info-ZIP: innehållsförteckningen har bara ändringen; resten kommer ur den lokala posten när posten läses.
-    assert.deepStrictEqual([e['infozip.jpg'].mtime, e['infozip.jpg'].atime, e['infozip.jpg'].crtime], [M, null, null]);
+    assert.deepStrictEqual([e['infozip.jpg'].mtime, e['infozip.jpg'].atime, e['infozip.jpg'].utThird], [M, null, null]);
     await zip.extract(read, e['infozip.jpg']);
-    assert.deepStrictEqual([e['infozip.jpg'].mtime, e['infozip.jpg'].atime, e['infozip.jpg'].crtime], [M, A, C]);
+    assert.deepStrictEqual([e['infozip.jpg'].mtime, e['infozip.jpg'].atime, e['infozip.jpg'].utThird, e['infozip.jpg'].crtime], [M, A, C, null]);
+    await zip.extract(read, e['infozip-fyra.jpg']);
+    assert.deepStrictEqual([e['infozip-fyra.jpg'].atime, e['infozip-fyra.jpg'].ctime, e['infozip-fyra.jpg'].crtime], [A, C, B]);
     // NTFS går före UT och har delar av sekunder.
     assert.strictEqual(e['ntfs.jpg'].timeField, 'NTFS');
     assert.ok(Math.abs(e['ntfs.jpg'].mtime - (M + 0.25)) < 1e-3, 'ändringstiden ur NTFS, inte UT');

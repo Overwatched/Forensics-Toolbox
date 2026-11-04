@@ -146,7 +146,7 @@
                 '<td>' + (f.wal ? escapeHtml(ExtractionCore.sizeText(f.wal.size)) : '<span class="warn">saknas</span>') + '</td></tr>';
         }).join('');
         $('ex-list').innerHTML = z.found.length
-            ? '<div class="result-scroll"><table><thead><tr><th>Databas</th><th>Sökväg i zippen</th><th>Storlek</th><th>Ändrad (enligt zippen)</th><th>-wal</th></tr></thead><tbody>' + rows + '</tbody></table></div>'
+            ? '<div class="result-scroll"><table><thead><tr><th>Databas</th><th>Sökväg i zippen</th><th>Storlek</th><th>Ändrad (filsystemet)</th><th>-wal</th></tr></thead><tbody>' + rows + '</tbody></table></div>'
             : '<p class="muted">Ingen av databaserna hittades i zippen.</p>';
     }
 
@@ -329,7 +329,7 @@
             var t = ProvenanceMedia.entryMs(e, searchZone());
             var zt = ExtractionCore.entryTimes(e);
             out.push({ file: new File([r.bytes], ExtractionCore.baseName(e.name), t && t.ms ? { lastModified: t.ms } : {}), path: z.file.name + ' › ' + e.name,
-                times: { modified: zt.modified, created: zt.created, accessed: zt.accessed, field: zt.field } });
+                times: { modified: zt.modified, created: zt.created, changed: zt.changed, third: zt.third, accessed: zt.accessed, field: zt.field } });
         }
         return { files: out, skipped: skipped };
     }
@@ -676,12 +676,15 @@
     function renderFileCard() {
         var meta = state.meta, pv = state.preview;
         if (!meta) return;
-        var rows = ProvenanceMedia.cardRows(meta.fileEntry, meta.exifRows, { sizeText: ExtractionCore.sizeText });
+        var groups = ProvenanceMedia.cardGroups(meta.fileEntry, meta.exifRows, { sizeText: ExtractionCore.sizeText });
+        if (!groups.length) groups = [{ title: '', rows: [] }];
+        var rows = groups[0].rows;
         if (meta.thumbnail) rows.push(['Telefonens tumnagel', meta.thumbnail.path + ' · ' + ExtractionCore.sizeText(meta.thumbnail.size) + ' · SHA-256 ' + meta.thumbnail.sha256]);
         var fb = meta.foundBy;
         if (fb) rows.unshift(['Sökt på ' + fb.label, fb.value + (fb.same === true ? ' (samma som filens)' : fb.same === false ? ' (SKILJER SIG från filens ' + fb.own + ')' : ' (filens summa kunde inte kontrolleras)')]);
         var sigFactor = state.model && (state.model.factors || []).find(function (f) { return f.id === 'signal'; });
         if (sigFactor && sigFactor.verdictText !== 'Inte i Signal') rows.push(['Signal', sigFactor.plain]);
+        if (!meta.fileEntry) rows.push(['Bildfilen', meta.fileMissingReason || 'lästes inte ur zippen']);
         var mediaHtml;
         if (pv && pv.url && state.showMedia) {
             mediaHtml = pv.kind === 'video'
@@ -697,8 +700,10 @@
         var canShow = !!(pv && pv.url);
         $('file-card').innerHTML = '<div class="file-card"><div class="file-media">' + mediaHtml +
             (canShow ? '<div class="button-row"><button type="button" class="secondary" id="toggle-media">' + (state.showMedia ? 'Dölj bilden' : 'Visa bilden') + '</button></div>' : '') + '</div>' +
-            '<dl class="file-facts">' + rows.map(function (r) { return '<dt>' + escapeHtml(r[0]) + '</dt><dd' + (MONO_ROWS[r[0]] ? ' class="mono"' : '') + '>' + escapeHtml(r[1]) + '</dd>'; }).join('') +
-            (meta.fileEntry ? '' : '<dt>Bildfilen</dt><dd>' + escapeHtml(meta.fileMissingReason || 'lästes inte ur zippen') + '</dd>') + '</dl></div>' +
+            '<div class="file-facts">' + groups.map(function (g) {
+                return (g.title ? '<div class="file-facts-title">' + escapeHtml(g.title) + '</div>' : '') +
+                    '<dl>' + g.rows.map(function (r) { return '<dt>' + escapeHtml(r[0]) + '</dt><dd' + (MONO_ROWS[r[0]] ? ' class="mono"' : '') + '>' + escapeHtml(r[1]) + '</dd>'; }).join('') + '</dl>';
+            }).join('') + '</div></div>' +
             '<label class="chk-line"><input type="checkbox" id="include-picture"' + (state.includePicture ? ' checked' : '') + (canShow ? '' : ' disabled') + '> Ta med bilden i protokollet och förklaringen (förminskad). Sökväg, hashar och EXIF följer alltid med.</label>';
     }
 
@@ -840,9 +845,9 @@
                 var read = await readMedia(media.entry);
                 // Tiderna efter läsningen: den lokala posten kan ha fler tider än innehållsförteckningen.
                 var times = ExtractionCore.entryTimes(media.entry);
-                meta.fileEntry = { path: media.entry.name, size: media.entry.size, mtime: times.modified, created: times.created, accessed: times.accessed, timeField: times.field, crc32: ExtractionCore.hex(media.entry.crc32), crcOk: read.crcOk, md5: read.md5 || '', sha256: read.sha256 || '' };
+                meta.fileEntry = { path: media.entry.name, size: media.entry.size, mtime: times.modified, created: times.created, changed: times.changed, third: times.third, accessed: times.accessed, timeField: times.field, crc32: ExtractionCore.hex(media.entry.crc32), crcOk: read.crcOk, md5: read.md5 || '', sha256: read.sha256 || '' };
                 meta.mediaEntry = media.entry;
-                input.fileEntry = { name: media.entry.name, size: media.entry.size, mtimeMs: times.modifiedMs, createdMs: times.createdMs, timeField: times.field };
+                input.fileEntry = { name: media.entry.name, size: media.entry.size, mtimeMs: times.modifiedMs, createdMs: times.createdMs, changedMs: times.changedMs, thirdMs: times.thirdMs, timeField: times.field };
                 fileSha = read.sha256 || '';
                 if (read.bytes) {
                     progress('Läser EXIF ur bildfilen…');
@@ -2052,7 +2057,7 @@
             return;
         }
         var created = list.some(function (c) { return c.created; });
-        $('copies').innerHTML = '<table><thead><tr><th>Sökväg i zippen</th><th>Plats</th><th>Storlek</th><th>Ändrad (enligt zippen)</th>' + (created ? '<th>Skapad (enligt zippen)</th>' : '') + '<th>CRC32</th><th>SHA-256</th></tr></thead><tbody>' +
+        $('copies').innerHTML = '<table><thead><tr><th>Sökväg i zippen</th><th>Plats</th><th>Storlek</th><th>Ändrad (filsystemet)</th>' + (created ? '<th>Skapad (filsystemet)</th>' : '') + '<th>CRC32</th><th>SHA-256</th></tr></thead><tbody>' +
             list.map(function (c) {
                 return '<tr><td class="path">' + escapeHtml(c.name) + '</td><td>' + escapeHtml(c.label) + '</td><td>' + escapeHtml(ExtractionCore.sizeText(c.size)) + '</td><td>' + escapeHtml(c.mtime) + '</td>' + (created ? '<td>' + escapeHtml(c.created || '') + '</td>' : '') + '<td class="path">' + escapeHtml(c.crc32) + '</td>' +
                     '<td>' + (c.shaOk === true ? '<span class="ok">samma som filen</span>' : c.shaOk === false ? '<span class="err">skiljer sig</span>' : '<span class="muted">inte kontrollerad</span>') + '</td></tr>';
@@ -2181,7 +2186,7 @@
         var box = $(opts.target || 'hits');
         var timed = opts.centerMs != null;
         box.innerHTML = (opts.heading ? '<p class="hit-note">' + escapeHtml(opts.heading) + '</p>' : '') +
-            '<table><thead><tr><th class="thumb-col">Bild</th><th>Sökväg i zippen</th><th>Plats</th><th>Storlek</th><th>Ändrad (enligt zippen)</th>' + (timed ? '<th>Från tidpunkten</th>' : '') + '<th>CRC32</th></tr></thead><tbody>' +
+            '<table><thead><tr><th class="thumb-col">Bild</th><th>Sökväg i zippen</th><th>Plats</th><th>Storlek</th><th>Ändrad (filsystemet)</th>' + (timed ? '<th>Från tidpunkten</th>' : '') + '<th>CRC32</th></tr></thead><tbody>' +
             hits.map(function (e, i) {
                 var cls = ProvenanceCopies.classifyPath(e.name, place);
                 return '<tr class="pick" data-i="' + i + '"><td class="thumb-col"><span class="row-thumb empty"></span></td><td class="path">' + escapeHtml(e.name) + '</td><td>' + escapeHtml(cls.label) + '</td><td>' + escapeHtml(ExtractionCore.sizeText(e.size)) + '</td><td>' + escapeHtml(ExtractionCore.entryTime(e)) + '</td>' +
@@ -3181,13 +3186,13 @@
             var text = rows.length
                 ? rows.length + (rows.length === 1 ? ' bild i bildbiblioteket skapad ' : ' bilder i bildbiblioteket skapade ') + span + ', ' + order + (rows.length > 200 ? cap : '') + '. Välj den som ska bedömas.'
                 : (lib ? 'Ingen bild i bildbiblioteket skapad ' + span + '.' : 'Bildbibliotekets databas finns inte i zippen.');
-            if (!inWin.length) text += ' Ingen fil utanför biblioteket har ändringstid ' + (dayOnly ? 'under dygnet' : 'i fönstret') + ' enligt zippen.';
+            if (!inWin.length) text += ' Ingen fil utanför biblioteket har ändringstid ' + (dayOnly ? 'under dygnet' : 'i fönstret') + ' i filsystemet.';
             if (rows.length) renderHits(rows.slice(0, 200), pickLibraryRow, { centerMs: centerMs });
             await knownContainers(inWin.slice(0, 200).map(function (e) { return e.name; }));
             if (inWin.length) {
                 renderEntryHits(inWin.slice(0, 200), '', pickTimedEntry, {
                     target: 'hits-entries', centerMs: centerMs,
-                    heading: inWin.length + (inWin.length === 1 ? ' fil' : ' filer') + ' utanför bildbiblioteket (bild, video eller Snapchats cache) har ändringstid ' + span + ' enligt zippen' + (inWin.length > 200 ? cap.replace(' (', ', ').replace(')', '') : '') + '.' +
+                    heading: inWin.length + (inWin.length === 1 ? ' fil' : ' filer') + ' utanför bildbiblioteket (bild, video eller Snapchats cache) har ändringstid ' + span + ' i filsystemet' + (inWin.length > 200 ? cap.replace(' (', ', ').replace(')', '') : '') + '.' +
                         (assumed ? ' Zippens ändringstider saknar tidszon och har tolkats i ' + zone.label + '.' : '') + ' Klicka på en rad för att bedöma den.',
                 });
             }

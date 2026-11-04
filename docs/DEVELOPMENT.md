@@ -239,12 +239,19 @@ i extraktionen med `-wal` pålagd, och bygger en händelselista i UTC.
   `{ type: 'open-query', file, path, sql, queryId, timeColumns }` till huvudfönstret
   (`src/script.js`), som öppnar Queries och skickar vidare. Filen (File-objektet för zippen) går
   med i `postMessage`; Queries öppnar den bara om den inte redan är öppen (namn, storlek, ändringstid).
-- Zippens tider (`zip.js`): UT-fältet 0x5455 (Unix-sekunder; ändring, och åtkomst och skapande när
-  flaggorna säger det, som i vissa verktygs FFS-zippar) och NTFS-fältet 0x000A (FILETIME; ändring, åtkomst
-  och skapande, som i Arkiv-zippen), som går före UT. Info-ZIP skriver bara ändringen i
-  innehållsförteckningen; åtkomst och skapande läses ur den lokala posten när posten läses (`extract`).
-  Posten får `mtime`, `atime`, `crtime` (Unix-sekunder) och `timeField`; `ExtractionCore.entryTimes()` ger
-  dem som text. Utan något av fälten finns bara DOS-tiden (lokal tid, zon okänd).
+- Zippens tider (`zip.js`): filsystemets tider, som extraktionsverktyget sparade i zippen. UT-fältet 0x5455
+  (Unix-sekunder; ändring, och fler tider när flaggorna säger det) och NTFS-fältet 0x000A (FILETIME; ändring,
+  åtkomst och skapande, som i Arkiv-zippen), som går före UT. Info-ZIP skriver bara ändringen i
+  innehållsförteckningen; resten läses ur den lokala posten när posten läses (`extract`).
+  Posten får `mtime`, `atime`, `crtime` (skapad), `ctime`, `utThird` (Unix-sekunder) och `timeField`;
+  `ExtractionCore.entryTimes()` ger dem som text. Utan något av fälten finns bara DOS-tiden (lokal tid, zon okänd).
+- UT-fältets tider efter flaggorna: `0x7` är ändring, åtkomst och en tredje tid. Info-ZIP kallar den
+  skapandetid, men andra verktyg lägger ctime där och zippen säger inte vilket, så den blir `utThird` och visas
+  som "Tredje tiden i zippen" utan slutsats. `0xf` (FFS-zippen från iOS-labbtelefonen) har en fjärde tid, utanför
+  Info-ZIP:s beskrivning: den tredje är `ctime` och den fjärde `crtime`. Tolkningen är härledd ur datan, inte
+  dokumenterad av verktyget: av 628 903 poster är den tredje tiden tidigare än ändringen i 101 och senare i
+  116 560, den fjärde tidigare i 42 056 och senare i 8. I bildbiblioteket följer den tredje tiden `ZADDEDDATE`
+  (`IMG_0013.HEIC`: Tillagd 09:18:16, tredje 09:18:17, fjärde 15:33:09 dygnet innan, samma som Skapad).
 - Extraktionen läses med `tools/db-queries/extraction-core.js`, som Queries också använder. Bara
   läsning: testet i `zip.test.js` grep:ar alla filer i `tools/provenance/` efter skrivande API:er.
   Härkomst läser zippens innehållsförteckning en gång per öppnad zip (`ZipRead.cacheDirectory`)

@@ -54,7 +54,9 @@ test('vad som visas: originalet för JPEG, tumnageln för HEIC och video, annars
 test('kortets rader: namn, sökväg, storlek, hashar och ett urval EXIF', () => {
     const exif = [['ExifIFD:DateTimeOriginal', '2024:06:01 14:31:30'], ['ExifIFD:OffsetTimeOriginal', '+02:00'], ['IFD0:Make', 'Apple'], ['IFD0:Model', 'iPhone 15 Pro'], ['IFD0:Software', '17.5.1'],
         ['File:MIMEType', 'image/jpeg'], ['File:ImageWidth', '4032'], ['File:ImageHeight', '3024'], ['Composite:GPSLatitude', '59 deg 19\' 57.18" N'], ['Composite:GPSLongitude', '18 deg 3\' 50.40" E'], ['ExifIFD:LensModel', 'iPhone 15 Pro back camera']];
-    const rows = media.cardRows({ path: 'fs/private/var/mobile/Media/DCIM/100APPLE/IMG_4104.JPG', size: 2437118, mtime: '2024-06-01 12:31:31 UTC', crc32: 'deadbeef', crcOk: true, md5: 'm'.repeat(32), sha256: 's'.repeat(64) }, exif, { sizeText: (b) => (b / 1048576).toFixed(1) + ' MB' });
+    const flat = (groups) => groups.reduce((all, g) => all.concat(g.rows), []);
+    const groups = media.cardGroups({ path: 'fs/private/var/mobile/Media/DCIM/100APPLE/IMG_4104.JPG', size: 2437118, mtime: '2024-06-01 12:31:31 UTC', crc32: 'deadbeef', crcOk: true, md5: 'm'.repeat(32), sha256: 's'.repeat(64) }, exif, { sizeText: (b) => (b / 1048576).toFixed(1) + ' MB' });
+    const rows = flat(groups);
     const obj = Object.fromEntries(rows);
     assert.strictEqual(obj.Filnamn, 'IMG_4104.JPG');
     assert.strictEqual(obj.Storlek, '2.3 MB (2437118 byte)');
@@ -67,11 +69,17 @@ test('kortets rader: namn, sökväg, storlek, hashar och ett urval EXIF', () => 
     assert.strictEqual(obj.Mått, '4032 × 3024');
     assert.strictEqual(obj.Filtyp, 'image/jpeg');
     assert.strictEqual(obj['Position (EXIF)'], '59 deg 19\' 57.18" N, 18 deg 3\' 50.40" E');
-    assert.deepStrictEqual(rows.map((r) => r[0]).slice(0, 7), ['Filnamn', 'Sökväg i zippen', 'Storlek', 'Ändrad enligt zippen', 'CRC32', 'MD5', 'SHA-256']);
-    const bare = media.cardRows({ path: 'a/b.mp4', size: 10, mtime: '', crc32: '00000001', crcOk: false }, [], {});
+    // Filen, filsystemets tider och EXIF står under var sin rubrik.
+    assert.deepStrictEqual(groups.map((g) => g.title), ['Filen i extraktionen', 'Filsystemets tider (sparade i zippen av extraktionsverktyget)', 'EXIF (inuti bildfilen)']);
+    assert.deepStrictEqual(groups[0].rows.map((r) => r[0]), ['Filnamn', 'Sökväg i zippen', 'Storlek', 'CRC32', 'MD5', 'SHA-256']);
+    assert.deepStrictEqual(groups[1].rows.map((r) => r[0]), ['Ändrad (filsystemet)']);
+    assert.strictEqual(groups[2].rows[0][0], 'Tagen (EXIF)');
+    const bareGroups = media.cardGroups({ path: 'a/b.mp4', size: 10, mtime: '', crc32: '00000001', crcOk: false }, [], {});
+    assert.deepStrictEqual(bareGroups.map((g) => g.title), ['Filen i extraktionen'], 'tomma grupper visas inte');
+    const bare = flat(bareGroups);
     assert.strictEqual(Object.fromEntries(bare).CRC32, '00000001 (stämmer inte med zippen)');
     assert.strictEqual(Object.fromEntries(bare).MD5, 'inte beräknad');
-    assert.deepStrictEqual(media.cardRows(null, [], {}), []);
+    assert.deepStrictEqual(media.cardGroups(null, [], {}), []);
     assert.deepStrictEqual(media.exifSummary([['QuickTime:CreateDate', '2024:06:01 12:38:16'], ['QuickTime:ImageWidth', '1080'], ['QuickTime:ImageHeight', '1920']]), [['Tagen (EXIF)', '2024:06:01 12:38:16'], ['Mått', '1080 × 1920']]);
 });
 
@@ -177,14 +185,17 @@ test('EXIF-tid utan zon räknas om med förskjutningen vid tagningen, inte dagen
     assert.deepStrictEqual(media.exifTakenMs(null, sthlm), { ms: null, assumed: false });
 });
 
-test('filkortet visar zippens alla tider med fältet de kommer ur', () => {
-    const rows = media.cardRows({ path: 'a/IMG_0049.HEIC', size: 10, mtime: '2025-10-01 07:20:48 UTC', created: '2025-10-01 07:20:47 UTC', accessed: '2025-10-02 09:00:00 UTC', timeField: 'NTFS-fältet', crc32: 'deadbeef' }, []);
-    const get = (k) => (rows.find((r) => r[0] === k) || [])[1];
-    assert.strictEqual(get('Ändrad enligt zippen'), '2025-10-01 07:20:48 UTC (NTFS-fältet)');
-    assert.strictEqual(get('Skapad enligt zippen'), '2025-10-01 07:20:47 UTC (NTFS-fältet)');
-    assert.strictEqual(get('Senast läst enligt zippen'), '2025-10-02 09:00:00 UTC (NTFS-fältet)');
-    // Bara DOS-tid: ingen skapad- eller åtkomstrad, och ingen fältmärkning.
-    const dos = media.cardRows({ path: 'a/b.jpg', size: 1, mtime: '2025-10-01 09:20:48 (zon okänd)', timeField: '' }, []);
-    assert.strictEqual(dos.filter((r) => /Skapad|Senast läst/.test(r[0])).length, 0);
-    assert.strictEqual(dos.find((r) => r[0] === 'Ändrad enligt zippen')[1], '2025-10-01 09:20:48 (zon okänd)');
+test('filkortet visar filsystemets alla tider, utan fältnamn', () => {
+    const rows = media.timeRows({ mtime: '2025-10-01 07:20:48 UTC', created: '2025-10-01 07:20:47 UTC', changed: '2025-10-01 08:00:00 UTC', accessed: '2025-10-02 09:00:00 UTC', timeField: 'UT-fältet' });
+    assert.deepStrictEqual(rows, [
+        ['Skapad (filsystemet)', '2025-10-01 07:20:47 UTC'],
+        ['Ändrad (filsystemet)', '2025-10-01 07:20:48 UTC'],
+        ['Metadata ändrad (ctime)', '2025-10-01 08:00:00 UTC'],
+        ['Senast läst (filsystemet)', '2025-10-02 09:00:00 UTC'],
+    ]);
+    // Tre UT-tider: den tredje heter inte Skapad.
+    const three = media.timeRows({ mtime: '2025-10-01 07:20:48 UTC', third: '2025-10-01 08:00:00 UTC' });
+    assert.deepStrictEqual(three.map((r) => r[0]), ['Tredje tiden i zippen (skapad eller ctime)', 'Ändrad (filsystemet)']);
+    // Bara DOS-tid: bara ändringen.
+    assert.deepStrictEqual(media.timeRows({ mtime: '2025-10-01 09:20:48 (zon okänd)', timeField: '' }), [['Ändrad (filsystemet)', '2025-10-01 09:20:48 (zon okänd)']]);
 });

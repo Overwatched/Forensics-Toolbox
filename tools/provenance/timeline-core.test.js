@@ -252,9 +252,16 @@ test('Tillagd före Skapad sägs som före, inte efter', () => {
     assert.strictEqual(item.state, 'info');
     assert.match(item.text, /^Skapad 12:31:09, tillagd i biblioteket 10:31:09: 2 h 0 min före\. Filen lades alltså till innan den skapades\./);
     const close = core.build(input({ file: cameraFile({ addedMs: T - 20 * S }) }));
-    assert.match(close.factors[0].items[0].text, /^Skapad 12:31:09, tillagd i biblioteket 12:30:49: 20 s före\. Filen kom till biblioteket när den skapades\./);
-    const same = core.build(input()).factors[0];
-    assert.match(same.items[0].text, /: samma sekund\. Filen kom till biblioteket när den skapades\./);
+    assert.match(close.factors[0].items[0].text, /^Skapad 12:31:09, tillagd i biblioteket 12:30:49: 20 s före Skapad \(inom en minut\)\.$/);
+    const same = core.build(input({ file: cameraFile({ addedMs: T }) })).factors[0];
+    assert.match(same.items[0].text, /: samma sekund som Skapad \(inom en minut\)\.$/);
+    const sec = Math.floor(T / 1000) * 1000;
+    const tenths = core.build(input({ file: cameraFile({ createdMs: sec + 533, addedMs: sec + 870 }) }));
+    assert.match(tenths.factors[0].items[0].text, /: 0,3 s efter Skapad \(inom en minut\)\.$/);
+    // Hela sekunder i ena tiden (date_added på Android, zippens tider): inga påhittade tiondelar.
+    const whole = core.build(input({ file: cameraFile({ createdMs: sec + 700, addedMs: sec + 1000 }), fileEntry: { name: 'x', size: 1, mtimeMs: sec + 1000 } }));
+    assert.match(whole.factors[0].items[0].text, /: samma sekund som Skapad \(inom en minut\)\.$/);
+    assert.ok(whole.factors[0].items.some((i) => /^Ändrad i filsystemet .*, samma sekund som Skapad\.$/.test(i.text)));
 });
 
 test('ett hopslaget intervall med öppet slut är fortfarande öppet, och får ingen påhittad sluttid', () => {
@@ -278,17 +285,40 @@ test('en databas som inte gick att läsa sägs som oläst, inte som saknad', () 
     assert.match(m.factors[4].items.map((i) => i.text).join(' '), /routined Cache\.sqlite kunde inte läsas/);
 });
 
-test('filsystemets skapandetid enligt zippen jämförs med Skapad, men motsäger inget', () => {
+test('filsystemets skapandetid jämförs med Skapad, men motsäger inget', () => {
     const same = core.build(input({ fileEntry: { name: 'x', size: 1, mtimeMs: T + 1000, createdMs: T, timeField: 'NTFS-fältet' } }));
-    const item = same.factors[0].items.find((i) => /skapandetid i filsystemet/.test(i.text));
+    const item = same.factors[0].items.find((i) => /^Skapad i filsystemet/.test(i.text));
     assert.strictEqual(item.state, 'support');
-    assert.match(item.text, /^Filens skapandetid i filsystemet \(enligt zippens NTFS-fältet\) är 12:31:09: samma sekund som Skapad\.$/);
+    assert.match(item.text, /^Skapad i filsystemet 12:31:09, samma sekund som Skapad\.$/);
+    assert.ok(same.factors[0].items.some((i) => /^Ändrad i filsystemet 12:31:10, 1 s efter Skapad\.$/.test(i.text)));
     const later = core.build(input({ fileEntry: { name: 'x', size: 1, mtimeMs: T, createdMs: T + 3 * 86400 * S, timeField: 'UT-fältet' } }));
-    const late = later.factors[0].items.find((i) => /skapandetid i filsystemet/.test(i.text));
+    const late = later.factors[0].items.find((i) => /^Skapad i filsystemet/.test(i.text));
     assert.strictEqual(late.state, 'info');
     assert.match(late.text, /3 d|72 h/);
     assert.match(late.text, /kopieras, tas emot eller återställs/);
     assert.notStrictEqual(later.factors[0].state, 'contradiction');
+});
+
+test('ctime och den osäkra tredje UT-tiden redovisas, men säger inget om när filen kom till', () => {
+    const D = 86400 * S;
+    const ctime = core.build(input({ fileEntry: { name: 'x', size: 1, mtimeMs: T, createdMs: T, changedMs: T + D, timeField: 'UT-fältet' } })).factors[0];
+    const c = ctime.items.find((i) => /ctime/.test(i.text));
+    assert.strictEqual(c.state, 'info');
+    assert.match(c.text, /^Metadata ändrad i filsystemet \(ctime\) .*1 dygn 0 h efter Skapad\./);
+    assert.ok(!ctime.items.some((i) => /kopieras, tas emot eller återställs/.test(i.text)));
+    const third = core.build(input({ fileEntry: { name: 'x', size: 1, mtimeMs: T, thirdMs: T + D, timeField: 'UT-fältet' } })).factors[0];
+    const t = third.items.find((i) => /Tredje tiden/.test(i.text));
+    assert.strictEqual(t.state, 'info');
+    assert.match(t.text, /^Tredje tiden i zippen \(skapad eller ctime\) .*Vilken av dem det är syns inte i zippen\.$/);
+    assert.ok(!third.items.some((i) => /kopieras, tas emot eller återställs|^Skapad i filsystemet/.test(i.text)));
+});
+
+test('sammanfattningen säger inom en minut bara när Tillagd ligger nära Skapad', () => {
+    const close = core.build(input()).factors[0];
+    assert.match(close.plain, /lades till i biblioteket inom en minut från skapandetiden/);
+    const later = core.build(input({ file: cameraFile({ addedMs: T + 10 * 60 * S }) })).factors[0];
+    assert.strictEqual(later.state, 'support');
+    assert.doesNotMatch(later.plain, /inom en minut/);
 });
 
 test('Android: förgrundsloggen slutar före T men kameraappen använde kameran vid T: appen var igång, ingen annan app förlängs', () => {

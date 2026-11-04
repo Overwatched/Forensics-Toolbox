@@ -230,3 +230,10 @@ test('appversionerna står i protokollets huvud, och saknas raden när inga appa
     assert.match(html, /Snapchat 13\.40\.0 \(build 13\.40\.0\.37\) \(Bundle\/Application\/X\/Snapchat\.app\/Info\.plist; installerad version när extraktionen gjordes\)\./);
     assert.doesNotMatch(report.protocol(m, META), /Appversioner/);
 });
+
+test('protokollet säger var filsystemets tider kommer ifrån, med fältet, och kallar inte ctime för skapad', () => {
+    const fileEntry = Object.assign({}, META.fileEntry, { created: '2025-09-24 12:31:09 UTC', changed: '2025-09-25 08:00:00 UTC', accessed: '2025-09-26 09:00:00 UTC', timeField: 'UT-fältet' });
+    const html = report.protocol(model(), Object.assign({}, META, { fileEntry }));
+    assert.match(html, /Filsystemets tider, sparade i zippen av extraktionsverktyget \(UT-fältet\):<\/b> skapad 2025-09-24 12:31:09 UTC, ändrad 2025-09-24 12:31:10 UTC, metadata ändrad \(ctime\) 2025-09-25 08:00:00 UTC, senast läst 2025-09-26 09:00:00 UTC\./);
+    assert.doesNotMatch(html, /enligt zippen/);
+});

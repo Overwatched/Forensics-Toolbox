@@ -1,5 +1,16 @@
 Automatiskt byggd från commit `{{SHA}}`.
 
+## Nytt i 1.44
+
+Filsystemets tider i zippen tolkas rätt, och det syns tydligare var en tid kommer ifrån.
+
+- **Skapandetiden i filsystemet var fel tid i vissa zippar.** I zippar med fyra tider i UT-fältet visades den tredje som skapandetid. Den ser ut att vara inodens ändringstid (ctime), och den fjärde den riktiga skapandetiden. Filer kunde därför få texten att de kommit till i filsystemet senare än de skapades, som vid kopiering, fast det bara var metadatan som ändrats. Tolkningen är härledd ur en iOS-labbextraktion, inte dokumenterad av extraktionsverktyget.
+- **ctime visas för sig**, som "Metadata ändrad (ctime)", utan slutsats.
+- **Zippar med tre tider:** den tredje heter "Tredje tiden i zippen (skapad eller ctime)", eftersom zippen inte säger vilken det är. Den används inte som skapandetid.
+- **Kortet i Härkomst** är uppdelat i filen i extraktionen, filsystemets tider och EXIF, så att tiderna inte tas för EXIF.
+- **Nya formuleringar:** "enligt zippen" är borta i Härkomst och Queries. "Filen kom till biblioteket när den skapades" är ersatt med hur långt efter Skapad filen lades till. Fältnamnet (UT-fältet, NTFS-fältet) står i protokollet.
+- **Sammanfattningen av Skapandetid** säger "inom en minut" bara när Tillagd ligger så nära Skapad.
+
 ## Nytt i 1.43
 
 PowerLog på iOS: skärmen, låset och kameran per app i Härkomst och Queries.

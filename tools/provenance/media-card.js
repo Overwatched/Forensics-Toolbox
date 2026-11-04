@@ -162,19 +162,22 @@
         return out;
     }
 
-    // Zippens tider för filen: ändrad, och skapad och senast läst när zippen har dem, med fältet de
-    // kommer ur (UT-fältet, NTFS-fältet). fileEntry: { mtime, created, accessed, timeField }.
+    // Filsystemets tider som extraktionsverktyget sparade i zippen, de som finns.
+    // fileEntry: { mtime, created, changed, third, accessed }. Fältet de kommer ur står i protokollet.
     function timeRows(fileEntry) {
-        var tag = function (v) { return v && fileEntry.timeField ? v + ' (' + fileEntry.timeField + ')' : v || ''; };
-        var rows = [['Ändrad enligt zippen', tag(fileEntry.mtime)]];
-        if (fileEntry.created) rows.push(['Skapad enligt zippen', tag(fileEntry.created)]);
-        if (fileEntry.accessed) rows.push(['Senast läst enligt zippen', tag(fileEntry.accessed)]);
-        return rows;
+        return [
+            ['Skapad (filsystemet)', fileEntry.created],
+            ['Tredje tiden i zippen (skapad eller ctime)', fileEntry.third],
+            ['Ändrad (filsystemet)', fileEntry.mtime],
+            ['Metadata ändrad (ctime)', fileEntry.changed],
+            ['Senast läst (filsystemet)', fileEntry.accessed],
+        ].filter(function (r) { return r[1]; });
     }
 
-    // Raderna i kortet. fileEntry: { path, size, mtime, created, accessed, timeField, crc32, crcOk, md5, sha256 }.
+    // Kortets rader i grupper efter var uppgifterna kommer ifrån: [{ title, rows }], utan tomma grupper.
+    // fileEntry: { path, size, mtime, created, changed, third, accessed, crc32, crcOk, md5, sha256 }.
     // opts.sizeText(byte) -> text.
-    function cardRows(fileEntry, exifRows, opts) {
+    function cardGroups(fileEntry, exifRows, opts) {
         opts = opts || {};
         if (!fileEntry) return [];
         var size = opts.sizeText ? opts.sizeText(fileEntry.size) + ' (' + fileEntry.size + ' byte)' : fileEntry.size + ' byte';
@@ -182,13 +185,16 @@
             ['Filnamn', baseName(fileEntry.path)],
             ['Sökväg i zippen', fileEntry.path],
             ['Storlek', size],
-        ].concat(timeRows(fileEntry)).concat([
             ['CRC32', (fileEntry.crc32 || '') + (fileEntry.crcOk === false ? ' (stämmer inte med zippen)' : '')],
             ['MD5', fileEntry.md5 || 'inte beräknad'],
-        ]).concat(fileEntry.sha1 ? [['SHA-1', fileEntry.sha1]] : []).concat([
+        ].concat(fileEntry.sha1 ? [['SHA-1', fileEntry.sha1]] : []).concat([
             ['SHA-256', fileEntry.sha256 || 'inte beräknad'],
         ]);
-        return rows.concat(exifSummary(exifRows));
+        return [
+            { title: 'Filen i extraktionen', rows: rows },
+            { title: 'Filsystemets tider (sparade i zippen av extraktionsverktyget)', rows: timeRows(fileEntry) },
+            { title: 'EXIF (inuti bildfilen)', rows: exifSummary(exifRows) },
+        ].filter(function (g) { return g.rows.length; });
     }
 
     // Ett inskrivet datum med eller utan klockslag, svensk skrivning: "2026-10-31", "2026-10-31 14:30",
@@ -324,7 +330,7 @@
     var api = {
         decodeUserComment: decodeUserComment,
         kindOf: kindOf, mimeOf: mimeOf, baseName: baseName, thumbnailSuffix: thumbnailSuffix, suffixKeeper: suffixKeeper, pickBySuffix: pickBySuffix,
-        previewPlan: previewPlan, exifSummary: exifSummary, cardRows: cardRows, timeRows: timeRows, parseLocal: parseLocal, parseWhen: parseWhen, dateText: dateText, timeText: timeText, dayRange: dayRange, zoneOffsetAt: zoneOffsetAt, toUtcMs: toUtcMs, exifTakenMs: exifTakenMs,
+        previewPlan: previewPlan, exifSummary: exifSummary, cardGroups: cardGroups, timeRows: timeRows, parseLocal: parseLocal, parseWhen: parseWhen, dateText: dateText, timeText: timeText, dayRange: dayRange, zoneOffsetAt: zoneOffsetAt, toUtcMs: toUtcMs, exifTakenMs: exifTakenMs,
         nearestFirst: nearestFirst, deltaText: deltaText, mediaKeeper: mediaKeeper, entryMs: entryMs, dataUrl: dataUrl, THUMB_FILE: THUMB_FILE,
     };
     if (typeof module !== 'undefined' && module.exports) module.exports = api;

@@ -251,7 +251,8 @@
         var z = row.zipTimes;
         if (z) {
             var src = 'zippen' + (z.field ? ', ' + z.field : '');
-            return [['Ändrad', z.modified, src], ['Skapad', z.created, src], ['Senast läst', z.accessed, src]].filter(function (r) { return r[1]; });
+            return [['Skapad', z.created, src], ['Tredje tiden i zippen (skapad eller ctime)', z.third, src], ['Ändrad', z.modified, src],
+                ['Ändrad metadata', z.changed, src + ' (ctime)'], ['Senast läst', z.accessed, src]].filter(function (r) { return r[1]; });
         }
         var t = row.fsTimes;
         if (!t) return [['Ändrad', row.modified, 'filsystemet']];

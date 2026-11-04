@@ -115,9 +115,9 @@
         out += table(['Kolumn', 'Värde'], meta.fileRows || []);
         if (meta.fileEntry) {
             var fe = meta.fileEntry;
-            out += p('<b>Bildfilen i zippen:</b> ' + esc(fe.path) + ' (' + esc(fe.size) + ' byte, ändrad ' + esc(fe.mtime) +
-                (fe.created ? ', skapad ' + esc(fe.created) : '') + (fe.accessed ? ', senast läst ' + esc(fe.accessed) : '') +
-                (fe.timeField ? ' enligt zippens ' + esc(fe.timeField) : '') +
+            var feTimes = [['skapad', fe.created], ['tredje tiden i zippen (skapad eller ctime)', fe.third], ['ändrad', fe.mtime], ['metadata ändrad (ctime)', fe.changed], ['senast läst', fe.accessed]].filter(function (r) { return r[1]; });
+            if (feTimes.length) out += p('<b>Filsystemets tider, sparade i zippen av extraktionsverktyget' + (fe.timeField ? ' (' + esc(fe.timeField) + ')' : '') + ':</b> ' + feTimes.map(function (r) { return r[0] + ' ' + esc(r[1]); }).join(', ') + '.');
+            out += p('<b>Bildfilen i zippen:</b> ' + esc(fe.path) + ' (' + esc(fe.size) + ' byte' +
                 ', CRC32 ' + esc(fe.crc32) + (fe.crcOk === false ? ' STÄMMER INTE' : '') + (fe.md5 ? ', MD5 ' + esc(fe.md5) : '') + (fe.sha1 ? ', SHA-1 ' + esc(fe.sha1) : '') + (fe.sha256 ? ', SHA-256 ' + esc(fe.sha256) : '') + ')');
             // Telefonens egen tumnagel (iOS: PhotoData/Thumbnails/V2/…/5005.JPG) med egen hash, så att den inte tas för originalet.
             if (meta.thumbnail) {
@@ -196,7 +196,7 @@
         if (meta.fileEntry) out += p('<b>Den bedömda filen:</b> ' + esc(meta.fileEntry.path));
         if (model.copies && model.copies.length) {
             var created = model.copies.some(function (c) { return c.created; });
-            out += table(['Sökväg i zippen', 'Plats', 'Storlek', 'Ändrad enligt zippen'].concat(created ? ['Skapad enligt zippen'] : []).concat(['CRC32', 'SHA-256']), model.copies.map(function (c) {
+            out += table(['Sökväg i zippen', 'Plats', 'Storlek', 'Ändrad (filsystemet)'].concat(created ? ['Skapad (filsystemet)'] : []).concat(['CRC32', 'SHA-256']), model.copies.map(function (c) {
                 return [c.name, c.label, c.size + ' byte', c.mtime || ''].concat(created ? [c.created || ''] : []).concat([c.crc32 || '', c.shaOk === true ? 'samma som filen' : c.shaOk === false ? 'SKILJER SIG' : 'inte kontrollerad']);
             }));
         } else {
@@ -209,7 +209,7 @@
         out += h(2, '7. Källor');
         (meta.sources || []).forEach(function (s) {
             out += h(3, s.label);
-            var rows = [['Sökväg i zippen', s.path], ['Storlek', s.size + ' byte'], ['Ändrad enligt zippen', s.mtime], ['CRC32', s.crc32 + (s.crcOk === false ? ' STÄMMER INTE' : '')], ['SHA-256', s.sha256]];
+            var rows = [['Sökväg i zippen', s.path], ['Storlek', s.size + ' byte'], ['Ändrad (filsystemet)', s.mtime], ['CRC32', s.crc32 + (s.crcOk === false ? ' STÄMMER INTE' : '')], ['SHA-256', s.sha256]];
             if (s.walPath) rows.push(['-wal', s.walPath], ['-wal CRC32', s.walCrc32], ['-wal SHA-256', s.walSha256]);
             rows.push(['WAL', s.walSummary]);
             if (s.cipher) rows.push(['Kryptering', s.cipher]);

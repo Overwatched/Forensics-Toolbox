@@ -67,16 +67,24 @@
         return v ? v / 1e7 - 11644473600 : null;
     }
 
-    // Tiderna i ett extrafält: 0x5455 (UT, Unix-sekunder: ändring, och i vissa zippar åtkomst och
-    // skapande, enligt flaggorna) och 0x000A (NTFS: ändring, åtkomst och skapande i UTC med 100 ns).
-    // Returnerar { m, a, c, field } eller null.
+    // Tiderna i ett extrafält: 0x5455 (UT, Unix-sekunder) och 0x000A (NTFS: ändring, åtkomst och
+    // skapande i UTC med 100 ns). UT har ändring, och i vissa zippar åtkomst och fler tider, enligt
+    // flaggorna. Med fyra tider (flaggan 8, utanför Info-ZIP:s beskrivning) är den tredje inodens
+    // ändringstid (ctime) och den fjärde skapandetiden: så ser det ut i alla poster i en iOS-extraktion
+    // (docs/DEVELOPMENT.md). Med tre tider syns det inte i zippen om den tredje är skapad eller ctime.
+    // Returnerar { m, a, ctime, c, third, field } eller null.
     function readTimes(b, id, body, len) {
         var end = body + len;
         if (id === 0x5455 && len >= 1) {
-            var fl = b[body], q = body + 1, t = { m: null, a: null, c: null, field: 'UT' };
+            var fl = b[body], q = body + 1, t = { m: null, a: null, ctime: null, c: null, third: null, field: 'UT' };
             if ((fl & 1) && q + 4 <= end) { t.m = u32(b, q) || null; q += 4; }
             if ((fl & 2) && q + 4 <= end) { t.a = u32(b, q) || null; q += 4; }
-            if ((fl & 4) && q + 4 <= end) { t.c = u32(b, q) || null; q += 4; }
+            if ((fl & 4) && q + 4 <= end) {
+                var v3 = u32(b, q) || null;
+                q += 4;
+                if (fl & 8) t.ctime = v3; else t.third = v3;
+            }
+            if ((fl & 12) === 12 && q + 4 <= end) { t.c = u32(b, q) || null; q += 4; }
             return t;
         }
         if (id === 0x000a && len >= 4) {
@@ -98,6 +106,11 @@
         if (t.m && !(only && e.mtime)) e.mtime = t.m;
         if (t.a && !(only && e.atime)) e.atime = t.a;
         if (t.c && !(only && e.crtime)) e.crtime = t.c;
+        if (t.ctime && !(only && e.ctime)) e.ctime = t.ctime;
+        if (t.third && !(only && e.utThird)) e.utThird = t.third;
+        // En känd skapandetid gör den osäkra tredje UT-tiden överflödig, och NTFS ersätter UT.
+        if (e.crtime) e.utThird = null;
+        if (t.field === 'NTFS' && !only) e.ctime = null;
         if (!e.timeField || t.field === 'NTFS') e.timeField = t.field;
     }
 
@@ -122,7 +135,7 @@
     }
 
     // Tiderna i den lokala postens extrafält: Info-ZIP skriver bara ändringstiden i
-    // innehållsförteckningen och åtkomst och skapande i den lokala posten.
+    // innehållsförteckningen och åtkomst och tredje tiden i den lokala posten.
     function readLocalTimes(b, e) {
         var at = 0;
         while (at + 4 <= b.length) {
@@ -167,7 +180,7 @@
                         compSize: u32(buf, at + 20),
                         size: u32(buf, at + 24),
                         localOffset: u32(buf, at + 42),
-                        mtime: null, atime: null, crtime: null, timeField: '',
+                        mtime: null, atime: null, crtime: null, ctime: null, utThird: null, timeField: '',
                     };
                     readExtra(buf, at + 46 + nameLen, at + 46 + nameLen + extraLen, e);
                     kept.push(e);
@@ -253,7 +266,7 @@
         if (u32(local, 0) !== SIG_LOCAL) throw new Error('Den lokala posten för ' + entry.name + ' är trasig.');
         var start = entry.localOffset + 30 + u16(local, 26) + u16(local, 28);
         // Saknas åtkomst- eller skapandetid i innehållsförteckningen kan den lokala posten ha dem.
-        if (u16(local, 28) && entry.timeField !== 'NTFS' && (!entry.atime || !entry.crtime)) {
+        if (u16(local, 28) && entry.timeField !== 'NTFS' && (!entry.atime || !(entry.crtime || entry.utThird))) {
             readLocalTimes(await read(entry.localOffset + 30 + u16(local, 26), u16(local, 28)), entry);
         }
         var raw = await read(start, entry.compSize);

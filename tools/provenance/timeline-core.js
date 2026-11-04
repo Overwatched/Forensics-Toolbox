@@ -302,7 +302,7 @@
                 plain: null, source: input.exif.source || { db: 'bildfilen', table: 'EXIF' } });
         }
         if (input.fileEntry && input.fileEntry.mtimeMs) {
-            add({ ms: input.fileEntry.mtimeMs, kind: 'fs-mtime', lane: 'file', text: 'Filsystemets ändringstid enligt zippen', plain: null,
+            add({ ms: input.fileEntry.mtimeMs, kind: 'fs-mtime', lane: 'file', text: 'Ändrad i filsystemet', plain: null,
                 source: { db: 'zippen', table: input.fileEntry.name, column: 'ändringstid' } });
         }
         if (input.pairedVideo && input.pairedVideo.takenMs) {
@@ -414,7 +414,10 @@
         } else if (file.addedMs) {
             var diff = file.addedMs - file.createdMs;
             var pair = 'Skapad ' + at(file.createdMs) + ', tillagd i biblioteket ' + at(file.addedMs) + ': ';
-            if (Math.abs(diff) <= SAME_TIME_MS) items.push({ state: 'support', text: pair + (Math.abs(diff) < 1000 ? 'samma sekund' : duration(diff) + (diff < 0 ? ' före' : ' efter')) + '. Filen kom till biblioteket när den skapades.' });
+            // Tiondelar bara när båda tiderna har dem: date_added på Android och zippens tider har hela sekunder.
+            var tenths = file.createdMs % 1000 && file.addedMs % 1000 && Math.abs(diff) < 1000 ? Math.round(Math.abs(diff) / 100) : 0;
+            var gap = tenths ? (tenths / 10).toFixed(1).replace('.', ',') + ' s' + (diff < 0 ? ' före' : ' efter') + ' Skapad' : apart(diff, 'Skapad');
+            if (Math.abs(diff) <= SAME_TIME_MS) items.push({ state: 'support', text: pair + gap + ' (inom en minut).' });
             else if (diff > LATE_MS) items.push({ state: 'contradiction', text: pair + duration(diff) + ' senare. Så ser bilder ut som har tagits emot, synkats eller förts över från en annan enhet.' });
             else items.push({ state: 'info', text: pair + duration(diff) + (diff < 0 ? ' före' : ' efter') + '.' + (diff < 0 ? ' Filen lades alltså till innan den skapades. Det händer när tiden har ändrats i efterhand eller när klockan i enheten som tog bilden gick fel.' : '') });
         } else if (type.type === 'snapchat') {
@@ -455,14 +458,21 @@
         }
         if (input.fileEntry && input.fileEntry.mtimeMs) {
             var fdiff = input.fileEntry.mtimeMs - file.createdMs;
-            items.push({ state: Math.abs(fdiff) <= SAME_TIME_MS ? 'support' : 'info', text: 'Filens ändringstid i filsystemet (enligt zippen) är ' + at(input.fileEntry.mtimeMs) + ': ' + apart(fdiff, 'Skapad') + '.' });
+            items.push({ state: Math.abs(fdiff) <= SAME_TIME_MS ? 'support' : 'info', text: 'Ändrad i filsystemet ' + at(input.fileEntry.mtimeMs) + ', ' + apart(fdiff, 'Skapad') + '.' });
         }
         // Skapandetiden i filsystemet: när filen kom till på telefonen. Senare än Skapad är vanligt för
-        // filer som har kopierats, tagits emot eller återställts, så den motsäger inget.
+        // filer som har kopierats, tagits emot eller återställts, så den motsäger inget. ctime och den
+        // osäkra tredje UT-tiden flyttas av annat än filens tillkomst, så de redovisas utan slutsats.
         if (input.fileEntry && input.fileEntry.createdMs) {
             var cdiff2 = input.fileEntry.createdMs - file.createdMs;
-            items.push({ state: Math.abs(cdiff2) <= SAME_TIME_MS ? 'support' : 'info', text: 'Filens skapandetid i filsystemet (enligt zippens ' + (input.fileEntry.timeField || 'extrafält') + ') är ' + at(input.fileEntry.createdMs) + ': ' + apart(cdiff2, 'Skapad') + '.' +
+            items.push({ state: Math.abs(cdiff2) <= SAME_TIME_MS ? 'support' : 'info', text: 'Skapad i filsystemet ' + at(input.fileEntry.createdMs) + ', ' + apart(cdiff2, 'Skapad') + '.' +
                 (cdiff2 > SAME_TIME_MS ? ' Filen kom alltså till i filsystemet senare än den skapades, som när en fil kopieras, tas emot eller återställs.' : '') });
+        }
+        if (input.fileEntry && input.fileEntry.changedMs) {
+            items.push({ state: 'info', text: 'Metadata ändrad i filsystemet (ctime) ' + at(input.fileEntry.changedMs) + ', ' + apart(input.fileEntry.changedMs - file.createdMs, 'Skapad') + '. Tiden flyttas också när filens metadata ändras, så den säger inte när filen kom till.' });
+        }
+        if (input.fileEntry && input.fileEntry.thirdMs) {
+            items.push({ state: 'info', text: 'Tredje tiden i zippen (skapad eller ctime) ' + at(input.fileEntry.thirdMs) + ', ' + apart(input.fileEntry.thirdMs - file.createdMs, 'Skapad') + '. Vilken av dem det är syns inte i zippen.' });
         }
         if (items.some(function (i) { return i.state === 'contradiction'; })) state = 'contradiction';
         else if (items.some(function (i) { return i.state === 'support'; })) state = 'support';
@@ -471,7 +481,7 @@
         if (state === 'support' && type.type === 'snapchat' && scm) plain = 'Tiderna hänger ihop: ' + (input.exif && input.exif.takenMs ? 'tiden inuti filen stämmer med när meddelandet skickades, och ' : '') + 'filen hämtades till den här telefonen ' + duration(file.createdMs - scm) + ' efter att meddelandet skickades.';
         else if (state === 'support' && type.type === 'snapchat') plain = 'Tiderna hänger ihop: ' + (input.exif && input.exif.takenMs ? 'tiden inuti filen och ' : '') + 'filsystemets tid stämmer med när Snapchat registrerade filen.';
         else if (state === 'support' && file.memory && file.capturedMs) plain = 'Tiderna hänger ihop: enligt Snapchats Memories ' + (file.memory.video ? 'spelades videon in' : 'togs bilden') + ' ' + duration(Math.abs((file.addedMs || file.createdMs) - file.capturedMs)) + ' innan den sparades till galleriet.';
-        else if (state === 'support') plain = 'Tiderna hänger ihop: filen skapades och hamnade i biblioteket vid samma tid' + (input.exif && input.exif.takenMs ? ', och tiden inuti filen säger detsamma' : '') + '.';
+        else if (state === 'support') plain = 'Tiderna hänger ihop: ' + (file.addedMs && Math.abs(file.addedMs - file.createdMs) <= SAME_TIME_MS ? 'filen lades till i biblioteket inom en minut från skapandetiden' + (input.exif && input.exif.takenMs ? ', och tiden inuti filen säger detsamma' : '') : input.exif && input.exif.takenMs ? 'tiden inuti filen stämmer med skapandetiden' : 'filsystemets tid stämmer med skapandetiden') + '.';
         else if (state === 'contradiction') plain = 'Tiderna hänger inte ihop. ' + items.filter(function (i) { return i.state === 'contradiction'; }).map(function (i) { return i.text; }).join(' ');
         else plain = 'Tiderna går inte att kontrollera mot varandra.';
         return { id: 'time', title: 'Skapandetid', state: state, items: items, plain: plain };
