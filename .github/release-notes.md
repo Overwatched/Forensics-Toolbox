@@ -1,5 +1,21 @@
 Automatiskt byggd från commit `{{SHA}}`.
 
+## Nytt i 1.45
+
+Härkomst är jämförd med en labbsession på en iPhone där varje steg loggades med tid, och det som inte stämde är rättat.
+
+- **Fel typ:** en bild ur Safari och en dubblett i Bilder kallades Skärmdump, eftersom `ZIMPORTEDBY` 8 räknades som skärmdump. Nu krävs SpringBoard som skaparapp eller `ZKINDSUBTYPE` 10.
+- **AirDrop** känns igen på `ZIMPORTEDBY` 13, också när en dubblett skrivit om skaparappen på originalet. Dubbletter har en egen typ. Varken kameran eller appen frågas för dem.
+- **WhatsApp:** en mottagen bild som sparats kallades "vald ur bildbiblioteket". Nu står det "sparad i bildbiblioteket". Typ 38 visas som engångsvisning. Kameran frågas inte för en fil som tagits emot i en chatt.
+- **WhatsApp med låst telefon:** ett meddelande som tas emot i bakgrunden hamnar inte i `ChatStorage.sqlite` förrän appen öppnas. Härkomst läser tilläggets logg och visar det som mottaget men inte i databasen.
+- **Signal:** Härkomst och Queries visar om ett meddelande skickades från en länkad enhet, när ett mottaget meddelande med försvinnande tid öppnades, om en engångsbild har visats och vilka berättelser som lagts upp. Ett meddelande från en länkad enhet räknas inte som att telefonen användes.
+- **Bildbiblioteket:** Raderade och redigering visas med tid. En plats satt i Bilder märks och väger inte i positionsbedömningen, och en position som bara finns i databasen sägs vara det. Flaggorna står på svenska.
+- **Filsystemets tider:** HEIC-filen skrivs färdig efter att bilden tagits (9–50 s i labbet, med och utan Live Photo). AirDrop och dubbletter behåller källans skapandetid, och det sägs nu i texten. Tiderna visar zonen när en annan dag än bildens visas i bildens fasta förskjutning.
+- **Osända kamerabilder:** en bild i WhatsApps eller Telegrams `tmp/` får appen som källa och säger om något meddelande skickades strax efter.
+- **Möjlig koppling:** en kamerabild som också valts ur biblioteket behåller den möjliga kopplingen till kamerameddelandet.
+- **Skärmen:** tänd skärm med låst telefon får en upplysning om att aviseringar tänder skärmen.
+- **Kontroller:** ett nytt facit ur labbsessionen körs i `npm run test:app`.
+
 ## Nytt i 1.44
 
 Filsystemets tider i zippen tolkas rätt, och det syns tydligare var en tid kommer ifrån.

@@ -4,6 +4,8 @@
 (function (root) {
     'use strict';
 
+    var FLAG_TEXT = { edited: 'redigerad', 'received-later': 'tillagd långt efter att den skapades', trashed: 'i Raderade', hidden: 'dold' };
+
     var FONT = 'font-family: Arial, Helvetica, sans-serif;';
     var TD = 'border: 1px solid #999; padding: 3px 6px; vertical-align: top; font-size: 10pt;';
     var TH = TD + ' background: #e8e8e8; text-align: left; font-weight: bold;';
@@ -134,7 +136,7 @@
         out += h(2, '2. Underlag för bedömning');
         out += p(esc(ROLE_NOTE));
         out += p('<b>Typ av fil:</b> ' + esc(model.type.label) + (model.type.reasons.length ? ' (' + esc(model.type.reasons.join(', ')) + ')' : '') +
-            (model.type.flags.length ? '. Flaggor: ' + esc(model.type.flags.join(', ')) : ''));
+            (model.type.flags.length ? '. Flaggor: ' + esc(model.type.flags.map(function (f) { return FLAG_TEXT[f] || f; }).join(', ')) : ''));
         out += p('<b>Programmets sammanvägning:</b> ' + esc(model.summary));
         var checks = meta.checks || {};
         model.factors.forEach(function (f) {

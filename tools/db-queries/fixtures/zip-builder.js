@@ -79,6 +79,7 @@ function buildZip(files, opts) {
         if (f.ut) extras.push(utField(f.ut, true));
         if (f.utLocal) extras.push(utField(f.utLocal, false));
         if (f.ntfs) extras.push(ntfsField(f.ntfs));
+        if (f.centralExtra) extras.push(f.centralExtra);
         const extra = Buffer.concat(extras);
         const c = Buffer.alloc(46);
         c.writeUInt32LE(0x02014b50, 0);

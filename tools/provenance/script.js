@@ -14,7 +14,7 @@
     var MAX_THUMB = 4 * 1024 * 1024;      // större "tumnaglar" läses inte
     var MAX_ROW_THUMB = 8 * 1024 * 1024;  // originalbilder som får bli tumnagel i vallistan
     var MAX_ROW_VIDEO = 64 * 1024 * 1024; // videor som läses för en bildruta i vallistan
-    var TIME_KEYS = ['created', 'added', 'modified'];
+    var TIME_KEYS = ['created', 'added', 'modified', 'trashedAt', 'adjustedAt'];
 
     var state = {
         sources: null, databases: null, targets: null, toolVersion: '',
@@ -94,6 +94,10 @@
         return function (ms) { return ProvenanceCore.formatWithOffset(ms, offsetMinutes || 0); };
     }
 
+    function isZoneName(name) {
+        try { new Intl.DateTimeFormat('sv-SE', { timeZone: name }).format(0); return true; } catch (e) { return false; }
+    }
+
     function localZone() {
         try { return Intl.DateTimeFormat().resolvedOptions().timeZone || ''; } catch (e) { return ''; }
     }
@@ -123,7 +127,8 @@
         if (v === 'file' && file && (file.zoneName || file.zoneOffset != null)) {
             var minutes = file.zoneOffset != null ? Math.round(Number(file.zoneOffset) / 60) : 0;
             // Förskjutningen vid tagningen (ZTIMEZONEOFFSET) är exakt; finns bara zonnamnet räknas förskjutningen per tidpunkt.
-            return { label: file.zoneName || offsetText(minutes), note: 'ur ' + (file.zoneSource || 'bildens ' + (file.zoneName ? 'ZTIMEZONENAME' : 'ZTIMEZONEOFFSET')), format: zoneFormatter(file.zoneName, minutes), offsetMinutes: minutes, name: file.zoneOffset != null ? null : file.zoneName };
+            return { label: file.zoneName || offsetText(minutes), note: 'ur ' + (file.zoneSource || 'bildens ' + (file.zoneName ? 'ZTIMEZONENAME' : 'ZTIMEZONEOFFSET')), format: zoneFormatter(file.zoneName, minutes), offsetMinutes: minutes, name: file.zoneOffset != null ? null : file.zoneName,
+                fixed: !(file.zoneName && isZoneName(file.zoneName)) };
         }
         if (v === 'utc') return { label: 'UTC', note: '', format: zoneFormatter('UTC', 0), offsetMinutes: 0, name: 'UTC' };
         var local = localZone();
@@ -819,7 +824,7 @@
         var fmt = zone.format;
         var cams = cameraApps();
         var input = {
-            platform: platform, file: fileRow, appNames: appName, cameraApps: cams, windowMs: windowMs, format: fmt,
+            platform: platform, file: fileRow, appNames: appName, cameraApps: cams, windowMs: windowMs, format: fmt, fixedZone: zone.fixed ? zone.label : null,
             fileSource: run.fileSource || { db: run.fileLabel, table: platform === 'Android' ? 'files' : fileQuery.sql.indexOf('ZGENERICASSET') >= 0 ? 'ZGENERICASSET' : 'ZASSET', column: ProvenanceRoles.fieldSpec(fileQuery, 'created').col, queryId: fileQuery.id },
             appIntervals: [], screen: [], lock: [], locations: [], neighbours: [], coverage: {}, missingDbs: {}, warnings: [], copies: [], extraEvents: [], extraNotes: [],
             cameraUse: [], androidLog: null,
@@ -847,7 +852,7 @@
                 var times = ExtractionCore.entryTimes(media.entry);
                 meta.fileEntry = { path: media.entry.name, size: media.entry.size, mtime: times.modified, created: times.created, changed: times.changed, third: times.third, accessed: times.accessed, timeField: times.field, crc32: ExtractionCore.hex(media.entry.crc32), crcOk: read.crcOk, md5: read.md5 || '', sha256: read.sha256 || '' };
                 meta.mediaEntry = media.entry;
-                input.fileEntry = { name: media.entry.name, size: media.entry.size, mtimeMs: times.modifiedMs, createdMs: times.createdMs, changedMs: times.changedMs, thirdMs: times.thirdMs, timeField: times.field };
+                input.fileEntry = { name: media.entry.name, size: media.entry.size, mtimeMs: times.modifiedMs, createdMs: times.createdMs, changedMs: times.changedMs, thirdMs: times.thirdMs, timeField: times.field, customLocation: !!media.entry.customLocation };
                 fileSha = read.sha256 || '';
                 if (read.bytes) {
                     progress('Läser EXIF ur bildfilen…');
@@ -1543,13 +1548,13 @@
         var db = await loadDb(hitFor(SIGNAL_IOS_KEYS.main), src.title, cipher);
         var fmt = zone.format;
         var wall = function (ms) { return fmt(ms).slice(0, 19) + '.' + ('00' + (((ms % 1000) + 1000) % 1000)).slice(-3); };
-        var attachments = runRole(db, src.roles.attachments, {}, ['sent', 'received', 'server', 'upload', 'refReceived'], run).rows;
+        var attachments = runRole(db, src.roles.attachments, {}, ['sent', 'received', 'server', 'upload', 'refReceived', 'expireStarted'], run).rows;
         var recipients = {};
         runRole(db, src.roles.recipients, {}, [], run).rows.forEach(function (r) { recipients[String(r.id)] = { name: r.name, phone: r.phone }; });
         var base = {
             sha256: sha256, fileName: fileRow.filename, originalFilename: fileRow.originalFilename || null,
             savedBySignal: fileRow.importer === ProvenanceSignal.APP_IOS, attachments: attachments, recipients: recipients, wall: wall, centerMs: fileRow.createdMs,
-            sources: { main: { db: 'signal.sqlite', table: 'model_TSInteraction', queryId: src.roles.messages.id } },
+            sources: { main: { db: 'signal.sqlite', table: 'model_TSInteraction', queryId: src.roles.messages.id }, stories: src.roles.stories ? src.roles.stories.id : null },
         };
         var first = ProvenanceSignal.buildIos(Object.assign({}, base, { messages: [] }));
         var extra = [];
@@ -1560,8 +1565,9 @@
         if (extra.length) fileRow.extraWindows = (fileRow.extraWindows || []).concat(extra);
         var wins = ProvenanceCore.windows(fileRow, windowMs);
         var range = wins.length ? { startMs: Math.min.apply(null, wins.map(function (w) { return w.startMs; })), endMs: Math.max.apply(null, wins.map(function (w) { return w.endMs; })) } : null;
-        var messages = range ? runRole(db, src.roles.messages, { window: range }, ['sent', 'received', 'server'], run).rows : [];
-        var out = ProvenanceSignal.buildIos(Object.assign({}, base, { messages: messages, keep: function (ms) { return ProvenanceCore.inWindows(ms, wins); } }));
+        var messages = range ? runRole(db, src.roles.messages, { window: range }, ['sent', 'received', 'server', 'expireStarted'], run).rows : [];
+        var stories = range && src.roles.stories ? runRole(db, src.roles.stories, { window: range }, ['sent'], run).rows : [];
+        var out = ProvenanceSignal.buildIos(Object.assign({}, base, { messages: messages, stories: stories, keep: function (ms) { return ProvenanceCore.inWindows(ms, wins); } }));
         input.extraEvents = (input.extraEvents || []).concat(out.events);
         input.extraNotes = (input.extraNotes || []).concat(out.notes);
         input.signal = { link: out.link, keySource: cipher.source, shaMissing: !sha256 };
@@ -1606,6 +1612,22 @@
         return hits[0] || null;
     }
 
+    // Meddelanden som WhatsApps tillägg tog emot i bakgrunden, ur Logs/ServiceExtension_*/ i samma appgrupp.
+    async function whatsappExtensionLog(hit) {
+        var z = state.zip;
+        if (z.waExtLog) return z.waExtLog;
+        var dir = hit.db.name.slice(0, hit.db.name.lastIndexOf('/') + 1) + 'Logs/ServiceExtension';
+        var logs = await ExtractionCore.find(z.read, z.file.size, function (n) { return n.indexOf(dir) === 0 && /\.log$/.test(n); });
+        var rows = [];
+        for (var i = 0; i < logs.length; i++) {
+            if (logs[i].size > MAX_MEDIA) continue;
+            var read = await ExtractionCore.readEntry(z.read, logs[i]);
+            rows = rows.concat(ProvenanceWhatsApp.parseExtensionLog(new TextDecoder().decode(read.bytes), { name: logs[i].name, mtimeMs: ExtractionCore.entryTimes(logs[i]).modifiedMs }));
+        }
+        z.waExtLog = rows;
+        return rows;
+    }
+
     // WhatsApp på iOS: mediefilerna (alla) mot filens SHA-256, bildbibliotekets post och sökväg, och
     // meddelandena i fönstret.
     async function addWhatsApp(input, meta, windowMs, run, sha256, zone) {
@@ -1630,7 +1652,10 @@
         var wins = ProvenanceCore.windows(fileRow, windowMs);
         var range = wins.length ? { startMs: Math.min.apply(null, wins.map(function (w) { return w.startMs; })), endMs: Math.max.apply(null, wins.map(function (w) { return w.endMs; })) } : null;
         var messages = range ? runRole(db, src.roles.messages, { window: range }, ['date', 'sent'], run).rows : [];
-        var out = ProvenanceWhatsApp.build(Object.assign({}, base, { messages: messages, keep: function (ms) { return ProvenanceCore.inWindows(ms, wins); } }));
+        var extLog = [];
+        try { extLog = await whatsappExtensionLog(hit); } catch (e) { input.warnings.push('WhatsApps ServiceExtension-logg kunde inte läsas: ' + e.message); }
+        var stanzaIds = extLog.length && src.roles.stanzas ? runRole(db, src.roles.stanzas, {}, [], run).rows.map(function (r) { return r.id; }) : [];
+        var out = ProvenanceWhatsApp.build(Object.assign({}, base, { messages: messages, extensionLog: extLog, stanzaIds: stanzaIds, keep: function (ms) { return ProvenanceCore.inWindows(ms, wins); } }));
         input.extraEvents = (input.extraEvents || []).concat(out.events);
         input.extraNotes = (input.extraNotes || []).concat(out.notes);
         input.whatsapp = { link: out.link };
@@ -1656,6 +1681,18 @@
         var main = mains[0];
         var storage = found.find(function (f) { return f.key === TELEGRAM_KEYS.storage && dir(f.db.name) === dir(main.db.name); }) || null;
         return { main: main, storage: storage, accounts: mains.length, account: dir(main.db.name).slice(dir(main.db.name).lastIndexOf('/') + 1) };
+    }
+
+    // Är filen en kamerafil i en chattapps tmp/? Behållarens id avgör appen.
+    async function chatTempOf(path) {
+        var wa = /\/tmp\/documents\/Camera\/[^/]+$/.test(path);
+        var tg = /\/tmp\/cam(?:photo|video)_[^/]+$/i.test(path);
+        if (!wa && !tg) return null;
+        var id = await containerId(path);
+        var rel = path.replace(/^.*\/(Containers\/)/, '$1');
+        if (wa && ProvenanceWhatsApp.isWhatsAppApp(id)) return { app: id, appName: 'WhatsApp', path: rel };
+        if (tg && id === ProvenanceTelegram.APP) return { app: id, appName: 'Telegram', path: rel };
+        return null;
     }
 
     // Telegrams kamera: en fil som Telegram sparat med kamerans namn (camphoto_…, camvideo_…) kan finnas
@@ -2084,6 +2121,13 @@
         var fileRow = { filename: name, directory: dirName(entry.name), createdMs: null, addedMs: null, modifiedMs: null, importer: null, _raw: {}, zoneName: null, zoneOffset: null };
         await knownContainers([entry.name]);
         var cls = ProvenanceCopies.classifyPath(entry.name, placeOpts());
+        // En bild i WhatsApps eller Telegrams tmp/ kommer från appens kamera, med eller utan meddelande.
+        var temp = z.platform === 'iOS' ? await chatTempOf(entry.name) : null;
+        if (temp) {
+            fileRow.chatTemp = temp;
+            fileRow.importer = temp.app;
+            fileRow.originalFilename = name;
+        }
         var tSource = null;
 
         // En inspelning i recorded_videos, eller en annan fil i Snapchats behållare, har ofta samma
@@ -3581,7 +3625,7 @@
         $('summary').innerHTML =
             (m.beta ? '<div class="type-line"><span class="badge beta">Beta</span> ' + escapeHtml(ProvenanceReport.BETA_NOTE) + '</div>' : '') +
             '<div class="type-line"><strong>Typ av fil:</strong> ' + escapeHtml(m.type.label) + (m.type.reasons.length ? ' (' + escapeHtml(m.type.reasons.join(', ')) + ')' : '') +
-            (m.type.flags.length ? ' · ' + escapeHtml(m.type.flags.join(', ')) : '') + ' · ' + escapeHtml(meta.deviceLabel) + ' · T = ' + escapeHtml(fmt(m.file.createdMs || 0)) + ' (' + escapeHtml(meta.zoneLabel) + ')</div>' +
+            (m.type.flags.length ? ' · ' + escapeHtml(ProvenanceCore.flagText(m.type.flags)) : '') + ' · ' + escapeHtml(meta.deviceLabel) + ' · T = ' + escapeHtml(fmt(m.file.createdMs || 0)) + ' (' + escapeHtml(meta.zoneLabel) + ')</div>' +
             '<div class="summary-text"><span class="badge">Programmets sammanvägning</span>' + escapeHtml(m.summary) + '</div>' +
             (m.warnings.length ? '<div class="warnings">' + m.warnings.map(escapeHtml).join('<br>') + '</div>' : '');
         // Faktorns fråga, svaret i faktorns egna ord (färgen är läget) och vad svaret betyder för hypotesen.

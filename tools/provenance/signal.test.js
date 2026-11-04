@@ -244,3 +244,38 @@ test('Signal på iOS: sparad ur Signal med samma summa, namnets tid, och ingen k
     assert.match(fc.plain, /Signal kodar om bilder, så en bild som skickats ur bildbiblioteket känns inte igen på det sättet\./);
     assert.match(fc.items[0].text, /Signals 3 bilagor\. Signal kodar om bilder/);
 });
+
+test('Signal på iOS: länkad enhet, när meddelandet öppnades, engångsvisning och berättelser', () => {
+    const msgs = [
+        { id: 1, type: 21, sentMs: iat(10), receivedMs: iat(21), threadName: 'Kim', linked: 1, attachments: 0 },
+        { id: 2, type: 21, sentMs: iat(30), receivedMs: iat(30), threadName: 'Kim', linked: 0, attachments: 0 },
+        { id: 3, type: 19, sentMs: iat(40), receivedMs: iat(41), threadName: 'Kim', authorId: 'aci-kim', attachments: 1, expiresIn: 2419200, expireStartedMs: iat(75) },
+        { id: 4, type: 19, sentMs: iat(50), receivedMs: iat(51), threadName: 'Kim', authorId: 'aci-kim', attachments: 1, viewOnce: 1, viewOnceDone: 1 },
+        { id: 5, type: 19, sentMs: iat(60), receivedMs: iat(61), threadName: 'Kim', authorId: 'aci-kim', attachments: 1, viewOnce: 1, viewOnceDone: 0 },
+        { id: 6, type: 21, sentMs: iat(70), threadName: 'Kim', expiresIn: 2419200, expireStartedMs: iat(72), attachments: 0 },
+    ];
+    const out = sig.buildIos({ attachments: [], messages: msgs, stories: [{ id: 6, sentMs: iat(80), direction: 1, contentType: 'image/jpeg', sha256: 'ab' }], recipients: { 'aci-kim': { name: 'Kim' } }, wall: iwall });
+    const byId = (id) => out.events.find((e) => e.kind === 'sig-message' && e.messageId === id);
+    assert.ok(byId(1).linked);
+    assert.match(byId(1).text, /länkad enhet/);
+    assert.strictEqual(byId(1).active, false, 'ett meddelande från datorn visar inte att telefonen användes');
+    assert.strictEqual(byId(2).active, true);
+    assert.match(byId(4).text, /engångsvisning, visad/);
+    assert.match(byId(5).text, /engångsvisning, inte visad/);
+    const opened = out.events.filter((e) => e.kind === 'sig-opened');
+    assert.deepStrictEqual(opened.map((e) => [e.messageId, e.ms]), [[3, iat(75)]], 'bara mottagna meddelanden, inte expireStartedAt på ett skickat');
+    assert.match(opened[0].plain, /på telefonen eller en länkad enhet/);
+    const story = out.events.find((e) => e.kind === 'sig-story');
+    assert.deepStrictEqual([story.own, story.active, story.ms], [true, true, iat(80)]);
+});
+
+test('Signal på iOS: faktorn säger länkad enhet och öppnad', () => {
+    const fmt = (ms) => core.formatWithOffset(ms, 60);
+    const link = { platform: 'iOS', attachments: 1, picks: [], matches: [
+        { messageId: 1, direction: 'in', who: 'Kim', receivedMs: iat(10), sentMs: iat(9), openedMs: iat(40), on: 'end' },
+        { messageId: 2, direction: 'out', who: 'Kim', sentMs: iat(20), linked: true, on: 'end' },
+    ] };
+    const f = core.factorSignal({ file: { createdMs: iat(0) }, format: fmt, signal: { link: link } }, { type: 'camera' });
+    assert.match(f.items[0].text, /öppnad .* \(expireStartedAt\)/);
+    assert.match(f.items[1].text, /skickad från en länkad enhet/);
+});

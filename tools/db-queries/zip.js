@@ -114,7 +114,18 @@
         if (!e.timeField || t.field === 'NTFS') e.timeField = t.field;
     }
 
-    // Extrafälten: 0x0001 (Zip64-storlekar och offset) och tiderna (UT och NTFS).
+    var CUSTOM_LOCATION = 'com.apple.assetsd.customLocation';
+    function hasAscii(b, start, len, word) {
+        var last = start + len - word.length;
+        for (var i = start; i <= last; i++) {
+            var j = 0;
+            while (j < word.length && b[i + j] === word.charCodeAt(j)) j++;
+            if (j === word.length) return true;
+        }
+        return false;
+    }
+
+    // Extrafälten: 0x0001 (Zip64-storlekar och offset), tiderna (UT och NTFS) och 0x4b47 (utökade attribut).
     function readExtra(b, start, end, e) {
         var at = start;
         while (at + 4 <= end) {
@@ -127,6 +138,9 @@
                 if (e.size === 0xffffffff && p + 8 <= body + len) { e.size = u64(b, p); p += 8; }
                 if (e.compSize === 0xffffffff && p + 8 <= body + len) { e.compSize = u64(b, p); p += 8; }
                 if (e.localOffset === 0xffffffff && p + 8 <= body + len) { e.localOffset = u64(b, p); p += 8; }
+            } else if (id === 0x4b47) {
+                // Extraktionsverktygets fält med filens utökade attribut. Attributet finns bara när platsen satts i Bilder.
+                if (hasAscii(b, body, len, CUSTOM_LOCATION)) e.customLocation = true;
             } else {
                 setTimes(e, readTimes(b, id, body, len));
             }

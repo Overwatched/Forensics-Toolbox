@@ -88,7 +88,7 @@ test('Snapchat-bild: kameran är inte tillämplig, skaparappen bedöms i ställe
     assert.strictEqual(states(m).app, 'support');
     assert.strictEqual(m.factors[2].title, 'Skaparappen igång');
     assert.strictEqual(states(m).camera, 'support');
-    assert.match(m.factors[2].items[m.factors[2].items.length - 1].text, /egen process/);
+    assert.match(m.factors[2].items[m.factors[2].items.length - 1].text, /egen kamera/);
     assert.match(m.narrative[0].lines.find((l) => l.bold).text, /^Bilden IMG_0042\.HEIC sparas av Snapchat$/);
     assert.match(m.summary, /sparades på den här telefonen av Snapchat/);
 });
@@ -367,4 +367,74 @@ test('Android: en fil som en app sparade, utan förgrundslogg vid T men med appe
     const m2 = core.build(Object.assign({}, base, { extraEvents: [incoming] }));
     assert.strictEqual(m2.factors.find((f) => f.id === 'app').state, 'missing');
     assert.strictEqual(m2.factors.find((f) => f.id === 'screen').state, 'missing');
+});
+
+test('ZIMPORTEDBY 8 räcker inte för en skärmdump: Safari och en dubblett i Bilder', () => {
+    const safari = core.classify({ importedBy: 8, importer: 'com.apple.mobilesafari', kindSubtype: 0 }, 'iOS');
+    assert.deepStrictEqual([safari.type, safari.label], ['saved', 'Sparad ur en app']);
+    const dup = core.classify({ importedBy: 8, importer: 'com.apple.mobileslideshow', kindSubtype: 2 }, 'iOS');
+    assert.deepStrictEqual([dup.type, dup.transfer, dup.label], ['saved', 'photos', 'Skapad i Bilder (till exempel en dubblett)']);
+    assert.strictEqual(core.classify({ importedBy: 8, importer: 'com.apple.springboard', kindSubtype: 10 }, 'iOS').type, 'screenshot');
+    assert.strictEqual(core.classify({ importedBy: 8, kindSubtype: 10 }, 'iOS').type, 'screenshot');
+});
+
+test('AirDrop: ZIMPORTEDBY 13 gäller också när en dubblett skrivit om skaparappen, och kameran och appen frågas inte', () => {
+    const rewritten = core.classify({ importedBy: 13, importer: 'com.apple.mobileslideshow' }, 'iOS');
+    assert.deepStrictEqual([rewritten.transfer, rewritten.importer, rewritten.label], ['airdrop', 'com.apple.sharingd', 'Mottagen med AirDrop']);
+    const m = core.build(input({ file: cameraFile({ importedBy: 13, importer: 'com.apple.sharingd', addedMs: T + 400 * 86400 * S }), appIntervals: [] }));
+    assert.strictEqual(states(m).camera, 'na');
+    assert.strictEqual(states(m).app, 'na');
+    assert.match(m.summary, /togs emot med AirDrop/);
+});
+
+test('en mottagen fil som sparats: kameran frågas inte', () => {
+    const m = core.build(input({ file: cameraFile({ importedBy: 3, importer: 'net.whatsapp.WhatsApp' }), appIntervals: [], whatsapp: { link: { matches: [{ direction: 'in', who: 'Kim', messageId: 19, by: ['sha256'], dateMs: T }], nearby: [], media: 1 } } }));
+    assert.strictEqual(states(m).camera, 'na');
+    assert.match(m.factors.find((f) => f.id === 'camera').items[0].text, /togs emot i WhatsApp från Kim \(meddelande 19\)/);
+});
+
+test('filsystemets skapandetid: HEIC skrivs färdig senare, och en kopia kan behålla källans tid', () => {
+    const heic = core.build(input({ fileEntry: { name: 'x/IMG_1.HEIC', size: 1, mtimeMs: T + 30 * S, createdMs: T + 30 * S } }));
+    assert.match(heic.factors[0].items.find((i) => /^Skapad i filsystemet/.test(i.text)).text, /iOS skriver HEIC-filen färdigt/);
+    const copy = core.build(input({ file: cameraFile({ addedMs: T + 400 * 86400 * S }), fileEntry: { name: 'x/IMG_2.HEIC', size: 1, mtimeMs: T, createdMs: T } }));
+    assert.match(copy.factors[0].items.find((i) => /^Skapad i filsystemet/.test(i.text)).text, /kan behålla källans tid/);
+});
+
+test('en annan dag än T i bildens fasta zon visar zonen', () => {
+    const fmt = (ms) => core.formatWithOffset(ms, 120);
+    const at = core.stamper({ file: { createdMs: T }, format: fmt, fixedZone: 'GMT+0200' });
+    assert.match(at(T + 86400 * 400 * S), /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} \(GMT\+0200\)$/);
+    assert.match(at(T + S), /^\d{2}:\d{2}:\d{2}$/);
+    assert.doesNotMatch(core.stamper({ file: { createdMs: T }, format: fmt })(T + 86400 * 400 * S), /GMT/);
+});
+
+test('Raderade, redigering och flaggorna i klartext', () => {
+    const m = core.build(input({ file: cameraFile({ trashed: 1, trashedAtMs: T + M, adjustedAtMs: T + 2 * M, editor: 'com.apple.mobileslideshow' }) }));
+    const texts = m.factors[0].items.map((i) => i.text).join(' ');
+    assert.match(texts, /Flyttad till Raderade .*\(ZTRASHEDDATE\)/);
+    assert.match(texts, /Redigerad i bildbiblioteket .*\(ZADJUSTMENTTIMESTAMP\)/);
+    assert.strictEqual(core.flagText(['trashed', 'edited']), 'i Raderade, redigerad');
+});
+
+test('positionen: bara i databasen, och en plats satt i Bilder väger inte', () => {
+    const only = core.build(input());
+    assert.match(only.factors.find((f) => f.id === 'position').items.map((i) => i.text).join(' '), /finns i bildbiblioteket men inte i filen/);
+    const far = core.build(input({ fileEntry: { name: 'x/a.JPG', size: 1, mtimeMs: T, customLocation: true }, file: cameraFile({ latitude: 12.6, longitude: -8 }) }));
+    const pos = far.factors.find((f) => f.id === 'position');
+    assert.strictEqual(pos.state, 'info');
+    assert.match(pos.items.map((i) => i.text).join(' '), /customLocation/);
+    assert.match(pos.plain, /satt i efterhand/);
+});
+
+test('tänd skärm med låst telefon: aviseringar tänder skärmen', () => {
+    const m = core.build(input({ lock: [{ startMs: T - 3 * M, endMs: T + 10 * M, locked: true, stream: '/device/isLocked', source: KC }] }));
+    const f = m.factors.find((x) => x.id === 'screen');
+    assert.match(f.items.map((i) => i.text).join(' '), /Aviseringar tänder skärmen/);
+    assert.match(f.plain, /låst/);
+});
+
+test('en kamerafil i en chattapps tmp', () => {
+    const t = core.classify({ importer: 'net.whatsapp.WhatsApp', chatTemp: { app: 'net.whatsapp.WhatsApp', appName: 'WhatsApp', path: 'tmp/documents/Camera/a.jpg' } }, 'iOS');
+    assert.deepStrictEqual([t.type, t.label, t.importer], ['saved', 'WhatsApps tillfälliga fil', 'net.whatsapp.WhatsApp']);
+    assert.strictEqual(core.hypothesis(t, () => null), 'att filen skapades med WhatsApp på den här telefonen');
 });

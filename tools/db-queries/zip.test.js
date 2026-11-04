@@ -214,3 +214,14 @@ test('stream: krypterad post, okänd metod och avkortad post ger fel', async () 
     const cut = buf.subarray(0, 60);
     await assert.rejects(zip.stream(reader(cut), e, () => {}, { chunk: 16 }), /i förtid|fel storlek/);
 });
+
+test('0x4b47: platsen satt i Bilder märks på posten', async () => {
+    const key = Buffer.from('com.apple.assetsd.customLocation\0abc', 'latin1');
+    const field = Buffer.alloc(4 + key.length);
+    field.writeUInt16LE(0x4b47, 0);
+    field.writeUInt16LE(key.length, 2);
+    key.copy(field, 4);
+    const buf = buildZip([{ name: 'a.jpg', data: Buffer.from('x'), centralExtra: field }, { name: 'b.jpg', data: Buffer.from('y') }]);
+    const scan = await zip.scan(reader(buf), buf.length, () => true);
+    assert.deepStrictEqual(scan.entries.map((e) => !!e.customLocation), [true, false]);
+});

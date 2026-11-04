@@ -1,0 +1,327 @@
+{
+  "description": "Facit mot iOS-labbtelefonen med dokumenterad ordning (iOS 26.4.1, Signal 8.28, WhatsApp 26.43.75, Telegram 13.1.2, 2026-11-04, Europe/Stockholm). Undersökaren loggade varje steg med tid på en annan enhet, 63 rader. Loggens klocka låg inom 0,2 s från telefonens (kamerabilderna 10:08:07, 10:24:19 och 10:24:36). Den tidigare extraktionen av samma telefon (2026-11-03) är före-läget för filernas tider. Bilder visar originalnamnet: det som syns som IMG_0001 är IMG_0012.HEIC och IMG_0004 är IMG_0013.HEIC. Labbzippen (…_fs.zip) och nyckelringen (…_keychain.plist) ligger inte i repot och hittas i mappen; här står inga namn, nycklar eller enhets-id.",
+  "dir": "iPhone - tidsstämplar",
+  "toleranceMs": 1000,
+  "versions": [
+    "Signal 8.28",
+    "WhatsApp 26.43.75",
+    "Telegram 13.1.2"
+  ],
+  "files": [
+    {
+      "name": "IMG_0033.HEIC",
+      "what": "Favoritmarkerad (logg 10:22:40): ctime flyttas, ändrad och skapad i filsystemet står still",
+      "T": "2026-11-03T12:15:56.533+01:00",
+      "typeLabel": "Kamerabild",
+      "timeText": "Ändrad i filsystemet 12:16:06.*Skapad i filsystemet 12:16:06.*\\(ctime\\) 2026-11-04 10:22:15",
+      "factors": {
+        "camera": "support",
+        "time": "support"
+      }
+    },
+    {
+      "name": "IMG_0005.JPG",
+      "what": "Kontrollfil, inte rörd: ctime står kvar sedan 2025",
+      "T": "2025-06-04T14:30:44.165+02:00",
+      "timeText": "\\(ctime\\) 14:30:48"
+    },
+    {
+      "name": "IMG_0012.HEIC",
+      "what": "Datum och tid ändrade i Bilder (logg 10:23:25): Skapad flyttas ett dygn, EXIF står kvar, ctime är ändringen",
+      "T": "2025-08-22T10:22:00+01:00",
+      "timeText": "Filen lades alltså till innan den skapades.*EXIF\\) är 2025-08-21 11:22:39.*\\(ctime\\) 2026-11-04 11:23:25 \\(GMT\\+0200\\)",
+      "factors": {
+        "time": "contradiction",
+        "camera": "na",
+        "app": "na"
+      },
+      "typeLabel": "Mottagen med AirDrop"
+    },
+    {
+      "name": "IMG_0042.HEIC",
+      "what": "Ny bild med Live Photo (logg 10:24:19): HEIC-filen skrivs färdig 50 s senare",
+      "T": "2026-11-04T10:24:19.984+01:00",
+      "typeLabel": "Kamerabild",
+      "timeText": "Skapad i filsystemet 10:25:10",
+      "factors": {
+        "camera": "support",
+        "screen": "support"
+      }
+    },
+    {
+      "name": "IMG_0043.HEIC",
+      "what": "Ny bild utan Live Photo (logg 10:24:36): HEIC-filen skrivs färdig 30 s senare, så fördröjningen beror inte på Live Photo",
+      "T": "2026-11-04T10:24:36.632+01:00",
+      "typeLabel": "Kamerabild",
+      "timeText": "Skapad i filsystemet 10:25:07",
+      "factors": {
+        "camera": "support",
+        "screen": "support"
+      }
+    },
+    {
+      "name": "IMG_0046.PNG",
+      "what": "Skärmdump (logg 10:30:17). Fönstret visar också meddelandet från datorn (logg 10:41:11), när de mottagna bilderna öppnades och bilden WhatsApp tog emot med låst telefon (logg 10:42:44)",
+      "T": "2026-11-04T10:30:18+01:00",
+      "typeLabel": "Skärmdump",
+      "factors": {
+        "camera": "na",
+        "screen": "support"
+      },
+      "events": [
+        "sig-message .*meddelande 32.*länkad enhet",
+        "sig-opened .*meddelande 30 ",
+        "sig-opened .*meddelande 31 ",
+        "wa-pending .*finns inte i ChatStorage",
+        "tg-message .*meddelande 15"
+      ],
+      "texts": {
+        "whatsapp": "1 meddelande med media togs emot i bakgrunden"
+      }
+    },
+    {
+      "name": "IMG_0038.HEIC",
+      "what": "Bild med kameraappen (logg 10:08:07), vald i Signal och skickad (logg 10:09:03), beskuren senare (logg 10:25:49)",
+      "T": "2026-11-04T10:08:07.279+01:00",
+      "typeLabel": "Kamerabild",
+      "timeText": "\\(ctime\\) 10:25:50.*Redigerad i bildbiblioteket 10:25:50 \\(ZADJUSTMENTTIMESTAMP\\)",
+      "factors": {
+        "camera": "support",
+        "signal": "info"
+      },
+      "verdicts": {
+        "signal": "Skickad i Signal",
+        "whatsapp": "Inte i WhatsApp"
+      },
+      "signal": {
+        "messageId": 20,
+        "direction": "out",
+        "at": "2026-11-04T10:09:03.363+01:00"
+      },
+      "cameraText": "Kameraappen använde kameran .* \\(PowerLog, PLCameraAgent\\)",
+      "flags": [
+        "edited"
+      ]
+    },
+    {
+      "name": "IMG_0039.JPG",
+      "what": "Bild mottagen i Signal (logg 10:11:08), sparad i bildbiblioteket (logg 10:11:35)",
+      "T": "2026-11-04T10:11:38.233+01:00",
+      "typeLabel": "Sparad ur en app",
+      "factors": {
+        "signal": "support"
+      },
+      "verdicts": {
+        "signal": "Mottagen i Signal"
+      },
+      "signal": {
+        "messageId": 22,
+        "direction": "in",
+        "at": "2026-11-04T10:11:09.513+01:00"
+      }
+    },
+    {
+      "name": "IMG_0040.MP4",
+      "what": "Video mottagen i Signal (logg 10:12:04), sparad i bildbiblioteket (logg 10:12:32)",
+      "T": "2026-11-04T10:12:01+01:00",
+      "typeLabel": "Sparad ur en app",
+      "factors": {
+        "signal": "support"
+      },
+      "verdicts": {
+        "signal": "Mottagen i Signal"
+      },
+      "signal": {
+        "messageId": 23,
+        "direction": "in",
+        "at": "2026-11-04T10:12:03.780+01:00"
+      },
+      "events": [
+        "sig-message .*meddelande 24.*engångsvisning, visad",
+        "sig-message .*meddelande 25.*engångsvisning, inte visad",
+        "sig-story .*berättelse publicerad",
+        "sig-message .*meddelande 27.*raderat för alla"
+      ]
+    },
+    {
+      "name": "IMG_0047.JPG",
+      "what": "Bild med WhatsApps kamera, skickad (logg 10:31:31)",
+      "T": "2026-11-04T10:31:29.497+01:00",
+      "factors": {
+        "camera": "support",
+        "whatsapp": "info"
+      },
+      "verdicts": {
+        "whatsapp": "Möjlig koppling"
+      },
+      "nearby": {
+        "messageId": 16,
+        "afterMs": 2060
+      },
+      "cameraText": "WhatsApp använde kameran .* enligt PowerLog \\(PLCameraAgent\\), vilket täcker tidpunkten"
+    },
+    {
+      "name": "IMG_0007.JPG",
+      "what": "Vald ur bildbiblioteket i WhatsApp också den 4 november (logg 10:31:57), med typ 1, så typ 38 är inte det som visar att en bild valts ur biblioteket",
+      "verdicts": {
+        "whatsapp": "Skickad i WhatsApp"
+      },
+      "whatsapp": {
+        "messageId": 8,
+        "direction": "out",
+        "at": "2026-11-03T12:15:30+01:00"
+      },
+      "whatsappAll": [
+        8,
+        17
+      ]
+    },
+    {
+      "name": "6bf1e07f-e3bd-4678-883f-b5eab8efb6f4.jpg",
+      "what": "WhatsApps egen kopia av en mottagen bild som inte sparades (logg 10:32:26)",
+      "typeLabel": "WhatsApp-media utanför bildbiblioteket",
+      "factors": {
+        "camera": "na",
+        "whatsapp": "support"
+      },
+      "verdicts": {
+        "whatsapp": "Mottagen i WhatsApp"
+      },
+      "whatsapp": {
+        "messageId": 18,
+        "direction": "in",
+        "at": "2026-11-04T10:32:27+01:00"
+      }
+    },
+    {
+      "name": "IMG_0048.JPG",
+      "what": "Bild mottagen i WhatsApp och sparad i bildbiblioteket (logg 10:33:02)",
+      "T": "2026-11-04T10:33:03+01:00",
+      "factors": {
+        "whatsapp": "support",
+        "camera": "na"
+      },
+      "verdicts": {
+        "whatsapp": "Mottagen i WhatsApp"
+      },
+      "whatsapp": {
+        "messageId": 19,
+        "direction": "in",
+        "at": "2026-11-04T10:33:03+01:00"
+      },
+      "texts": {
+        "whatsapp": "sparad i bildbiblioteket \\(samma post",
+        "camera": "togs emot i WhatsApp"
+      }
+    },
+    {
+      "name": "F6266B28-4773-4EFF-8BC4-523A41D2FED9.jpg",
+      "what": "Bild med WhatsApps kamera som inte skickades (logg 10:33:41): filen ligger kvar i tmp/documents/Camera/ och inget meddelande pekas ut",
+      "factors": {
+        "camera": "support",
+        "whatsapp": "info"
+      },
+      "verdicts": {
+        "whatsapp": "Inget meddelande"
+      },
+      "cameraText": "WhatsApp använde kameran .* enligt PowerLog \\(PLCameraAgent\\)",
+      "typeLabel": "WhatsApps tillfälliga fil"
+    },
+    {
+      "name": "IMG_0049.JPG",
+      "what": "Bild med Telegrams kamera (logg 10:38:20), sedan vald ur bildbiblioteket och skickad igen (logg 10:38:41, meddelande 12)",
+      "T": "2026-11-04T10:38:17.642+01:00",
+      "cameraTitle": "Telegrams kamera",
+      "factors": {
+        "camera": "support",
+        "telegram": "support"
+      },
+      "verdicts": {
+        "telegram": "Skickad i Telegram"
+      },
+      "telegram": {
+        "messageId": 12,
+        "direction": "out",
+        "at": "2026-11-04T10:38:49+01:00"
+      },
+      "telegramNearby": {
+        "messageId": 11,
+        "afterMs": 3358
+      },
+      "texts": {
+        "telegram": "skickades också .*meddelande 11\\)"
+      }
+    },
+    {
+      "name": "camphoto_342241519.jpg",
+      "what": "Bild med Telegrams kamera som inte skickades (logg 10:40:19): filen ligger kvar i tmp/ och inget meddelande pekas ut",
+      "factors": {
+        "camera": "support",
+        "telegram": "info"
+      },
+      "verdicts": {
+        "telegram": "Inget meddelande"
+      },
+      "cameraText": "Telegram använde kameran .* enligt PowerLog \\(PLCameraAgent\\)",
+      "typeLabel": "Telegrams tillfälliga fil",
+      "cameraTitle": "Telegrams kamera"
+    },
+    {
+      "name": "IMG_0045.JPG",
+      "what": "Sparad ur Safari (logg 10:29:46): ZIMPORTEDBY 8 men ingen skärmdump",
+      "T": "2026-11-04T10:29:45.921+01:00",
+      "typeLabel": "Sparad ur en app",
+      "factors": {
+        "app": "support"
+      }
+    },
+    {
+      "name": "IMG_0041.HEIC",
+      "what": "Dubblett i Bilder (logg 10:24:00): filsystemet behåller originalets tid, ctime och Tillagd är kopian",
+      "T": "2025-08-21T17:33:08.884+02:00",
+      "typeLabel": "Skapad i Bilder (till exempel en dubblett)",
+      "factors": {
+        "camera": "na",
+        "app": "na"
+      },
+      "timeText": "kan behålla källans tid"
+    },
+    {
+      "name": "IMG_0013.HEIC",
+      "what": "Originalet till dubbletten: mottaget med AirDrop, och dubbletten skrev om skaparappen till Bilder",
+      "typeLabel": "Mottagen med AirDrop",
+      "factors": {
+        "camera": "na",
+        "app": "na"
+      }
+    },
+    {
+      "name": "IMG_0044.AVIF",
+      "what": "Mottagen med AirDrop (logg 10:29:07): Tillagd 10:29:03, filsystemet behåller källans tid",
+      "T": "2025-09-19T14:59:14+02:00",
+      "typeLabel": "Mottagen med AirDrop",
+      "factors": {
+        "camera": "na",
+        "app": "na"
+      },
+      "timeText": "kan behålla källans tid"
+    },
+    {
+      "name": "IMG_0008.JPG",
+      "what": "Plats tillagd och ändrad i Bilder (logg 10:27:06 och 10:27:39)",
+      "texts": {
+        "position": "com\\.apple\\.assetsd\\.customLocation"
+      },
+      "timeText": "\\(ctime\\) 2026-11-04 10:27:37"
+    },
+    {
+      "name": "IMG_0003.PNG",
+      "what": "Flyttad till Raderade (logg 10:30:44)",
+      "typeLabel": "Skärmdump",
+      "flags": [
+        "trashed"
+      ],
+      "timeText": "Flyttad till Raderade 2026-11-04 10:30:46 \\(ZTRASHEDDATE\\)"
+    }
+  ]
+}

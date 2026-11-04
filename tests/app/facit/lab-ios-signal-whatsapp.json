@@ -55,7 +55,7 @@
     },
     {
       "name": "IMG_0032.JPG",
-      "what": "Ännu en bild med WhatsApps kamera; meddelandet med en bild 7 s senare, inte bilden 3 s före (typ 38, vald ur bildbiblioteket); vald ur bildbiblioteket och skickad i Telegram 12:18:33; WhatsApps kamera igång 12:15:32,3–12:15:34,1 enligt PowerLog",
+      "what": "Ännu en bild med WhatsApps kamera; meddelandet med en bild 7 s senare, inte bilden 3 s före (vald ur bildbiblioteket för engångsvisning); vald ur bildbiblioteket och skickad i Telegram 12:18:33; WhatsApps kamera igång 12:15:32,3–12:15:34,1 enligt PowerLog",
       "T": "2026-11-03T12:15:33.8+01:00",
       "factors": {
         "whatsapp": "info",
@@ -79,7 +79,7 @@
     },
     {
       "name": "IMG_0007.JPG",
-      "what": "Bild som Signal sparade 2025 (bilagan finns inte kvar i Signal), skickad som WhatsApps typ 38 ur bildbiblioteket 2026-11-03 12:15:30; i Telegram vald ur bildbiblioteket och skickad för engångsvisning 12:18:49",
+      "what": "Bild som Signal sparade 2025 (bilagan finns inte kvar i Signal), vald ur bildbiblioteket och skickad för engångsvisning i WhatsApp 2026-11-03 12:15:30 (typ 38, bekräftat av undersökaren); i Telegram vald ur bildbiblioteket och skickad för engångsvisning 12:18:49",
       "factors": {
         "signal": "missing",
         "whatsapp": "info"
@@ -93,7 +93,8 @@
         "messageId": 8,
         "by": "asset",
         "direction": "out",
-        "at": "2026-11-03T12:15:30+01:00"
+        "at": "2026-11-03T12:15:30+01:00",
+        "viewOnce": true
       },
       "telegram": {
         "messageId": 5,

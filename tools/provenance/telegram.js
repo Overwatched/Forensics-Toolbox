@@ -140,7 +140,8 @@
         var pk = picks(ctx);
         var pickRows = [];
         pk.forEach(function (p) { if (p.messages.length === 1) pickRows.push(p.messages[0]); });
-        var near = matches.length || pickRows.length ? [] : nearby(ctx, fromLibrary);
+        // En bild som valts ur biblioteket och skickats kan också ha skickats direkt med kameran.
+        var near = matches.length ? [] : nearby(ctx, fromLibrary);
         var fileMsgs = {};
         matches.forEach(function (x) { fileMsgs[key(x.row)] = true; });
         pickRows.forEach(function (r) { fileMsgs[key(r)] = true; });

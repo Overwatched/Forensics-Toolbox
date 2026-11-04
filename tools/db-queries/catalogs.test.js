@@ -239,7 +239,7 @@ test('Signal på iOS (beta): krypterad med iOS-profilen, en rekommenderad query,
         if (q.hidden) { assert.strictEqual(q.epoch, 'unixMs'); assert.ok(q.fields, q.id + ': fields'); }
         for (const p of q.params || []) if (!/^time(Start|End)$/.test(p)) assert.ok(signalIos.paramLabels[p], q.id + ': etikett för ' + p);
     }
-    assert.deepStrictEqual(db.queries.filter((q) => q.hidden).map((q) => q.role).sort(), ['attachments', 'coverage', 'messages', 'recipients']);
+    assert.deepStrictEqual(db.queries.filter((q) => q.hidden).map((q) => q.role).sort(), ['attachments', 'coverage', 'messages', 'recipients', 'stories']);
     const att = db.queries.find((q) => q.role === 'attachments');
     for (const f of ['id', 'messageId', 'ownerType', 'sha256', 'fileName', 'sent', 'received', 'type', 'threadName', 'isGroup', 'authorId']) assert.ok(att.fields[f], 'attachments.' + f);
     assert.deepStrictEqual(await prepareAll(signalIos, SCHEMAS['signal-ios']), []);
@@ -256,7 +256,7 @@ test('WhatsApp på iOS (beta): okrypterad, Cocoa-tider, SHA-256 och bildbibliote
         if (q.hidden) { assert.strictEqual(q.epoch, 'cocoa'); assert.ok(q.fields, q.id + ': fields'); }
         for (const p of q.params || []) if (!/^time(Start|End)$/.test(p)) assert.ok(whatsappIos.paramLabels[p], q.id + ': etikett för ' + p);
     }
-    assert.deepStrictEqual(db.queries.filter((q) => q.hidden).map((q) => q.role).sort(), ['coverage', 'media', 'messages']);
+    assert.deepStrictEqual(db.queries.filter((q) => q.hidden).map((q) => q.role).sort(), ['coverage', 'media', 'messages', 'stanzas']);
     const media = db.queries.find((q) => q.role === 'media');
     assert.match(media.sql, /instr\(i\.ZMETADATA, CAST\('\/L0\/001' AS BLOB\)\)/, 'bildbibliotekets id ur ZMETADATA');
     assert.match(media.sql, /length\(i\.ZVCARDNAME\) = 44/, 'SHA-256 i base64 ur ZVCARDNAME');

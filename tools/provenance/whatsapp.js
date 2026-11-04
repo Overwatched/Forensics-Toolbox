@@ -14,7 +14,9 @@
     var NEARBY_MS = 60000;      // en sparad kamerabild och ett skickat meddelande inom så här lång tid (sett: 2 och 7 s)
     var B64 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
     // ZMESSAGETYPE: bara de typer som syns i labbet får ett namn (3, 5 och 8 är vanliga tolkningar).
-    var TYPES = { 0: 'text', 1: 'bild', 2: 'video', 3: 'ljud', 4: 'kontaktkort', 5: 'plats', 8: 'dokument', 10: 'systemmeddelande' };
+    var TYPES = { 0: 'text', 1: 'bild', 2: 'video', 3: 'ljud', 4: 'kontaktkort', 5: 'plats', 8: 'dokument', 10: 'systemmeddelande', 38: 'bild', 39: 'video' };
+    // Engångsvisning: 38 är kontrollerad (bild, labbsessionen 2026-11-03), 39 (video) är en vanlig tolkning.
+    function isViewOnce(t) { return Number(t) === 38 || Number(t) === 39; }
     // Ett meddelande skickat, en bild skickad.
     var NEUTER = { meddelande: 1, kontaktkort: 1, dokument: 1, ljud: 1, systemmeddelande: 1 };
 
@@ -113,7 +115,9 @@
         var byMessage = {};
         media.forEach(function (m) { byMessage[m.messageId] = m; });
         var matches = match(ctx, media);
-        var near = matches.length ? [] : nearby(ctx, media);
+        // En bild som valts ur biblioteket och skickats kan också ha skickats direkt med kameran.
+        var onlyPicks = matches.every(function (x) { return Number(x.row.fromMe) === 1 && x.by.length === 1 && x.by[0] === 'asset'; });
+        var near = onlyPicks ? nearby(ctx, media) : [];
         var fileMessages = {};
         matches.forEach(function (x) { fileMessages[x.row.messageId] = true; });
         var nearMessages = {};
@@ -131,16 +135,30 @@
             var who = counterpart(m);
             var isFile = !!fileMessages[m.id];
             var near1 = !!nearMessages[m.id];
-            var fromLibrary = !!(item && item.assetUuid);
+            // Bibliotekets id i ett mottaget meddelande betyder att bilden sparades dit, inte att den valdes därifrån.
+            var fromLibrary = !!(own && item && item.assetUuid);
+            var savedThere = !!(!own && item && item.assetUuid);
+            var once = isViewOnce(type);
             var verb = NEUTER[what] ? (own ? 'skickat till ' : 'mottaget från ') : (own ? 'skickad till ' : 'mottagen från ');
-            var text = 'WhatsApp: ' + what + ' ' + verb + who + ' (meddelande ' + m.id + ')' + (fromLibrary ? ', vald ur bildbiblioteket' : '');
+            var text = 'WhatsApp: ' + what + ' ' + verb + who + ' (meddelande ' + m.id + ')' + (fromLibrary ? ', vald ur bildbiblioteket' : '') + (savedThere ? ', sparad i bildbiblioteket' : '') + (once ? ', engångsvisning' : '');
             var noun = hasFile ? (what === 'video' ? 'En video' : what === 'bild' ? 'En bild' : 'En fil') : null;
-            var plain = noun ? (own ? noun + ' skickas från den här telefonen i WhatsApp till ' + who + (fromLibrary ? ' (vald ur bildbiblioteket)' : '') : noun + ' tas emot i WhatsApp från ' + who) : null;
+            var plain = noun ? (own ? noun + ' skickas från den här telefonen i WhatsApp till ' + who + (fromLibrary ? ' (vald ur bildbiblioteket)' : '') : noun + ' tas emot i WhatsApp från ' + who) + (once ? ' för engångsvisning' : '') : null;
             if (isFile) { text = 'Den bedömda filen: ' + text; plain = own ? 'Den bedömda filen skickas från den här telefonen i WhatsApp till ' + who : 'Den bedömda filen tas emot i WhatsApp från ' + who; }
             else if (near1) { text += '; skickad strax efter att den bedömda filen skapades'; }
-            events.push({ ms: ms, kind: 'wa-message', lane: 'whatsapp', app: APP, own: own, bold: isFile, isFile: isFile, near: near1, messageId: m.id, media: hasFile ? 1 : 0, mediaKind: hasFile ? what : null, fromLibrary: fromLibrary,
+            events.push({ ms: ms, kind: 'wa-message', lane: 'whatsapp', app: APP, own: own, bold: isFile, isFile: isFile, near: near1, messageId: m.id, media: hasFile ? 1 : 0, mediaKind: hasFile ? what : null, fromLibrary: fromLibrary, viewOnce: once,
                 active: own, activeText: own ? 'ett meddelande skickades' : null,
                 text: text, plain: plain, source: Object.assign({}, srcMain, { column: own ? 'ZSENTDATE' : 'ZMESSAGEDATE' }) });
+        });
+
+        // Meddelanden som tillägget tog emot i bakgrunden men som inte finns i databasen.
+        var known = {};
+        (ctx.stanzaIds || []).forEach(function (id) { known[String(id)] = true; });
+        var pending = (ctx.extensionLog || []).filter(function (r) { return !known[r.stanzaId]; });
+        pending.forEach(function (r) {
+            events.push({ ms: r.ms, kind: 'wa-pending', lane: 'whatsapp', app: APP, own: false, bold: false, isFile: false, near: false, messageId: r.stanzaId, media: r.kind === 'media' ? 1 : 0, active: false,
+                text: 'WhatsApp: ' + (r.kind === 'media' ? 'meddelande med media' : 'meddelande') + ' mottaget i bakgrunden (id ' + r.stanzaId + '), finns inte i ChatStorage.sqlite',
+                plain: (r.kind === 'media' ? 'Ett meddelande med media' : 'Ett meddelande') + ' tas emot i WhatsApp i bakgrunden. Det finns inte i databasen',
+                source: { db: r.file || 'ServiceExtension-loggen', table: 'xmpp//< recv <', column: 'id' } });
         });
 
         if (typeof ctx.keep === 'function') events = events.filter(function (e) { return ctx.keep(e.ms); });
@@ -158,15 +176,48 @@
             return {
                 mediaId: m.id, messageId: m.messageId, by: by || [], direction: Number(m.fromMe) === 1 ? 'out' : 'in', who: counterpart(m), chat: chatName(m),
                 kind: kindOf(m), mime: m.mime || null, size: m.size, path: m.path ? 'Message/' + m.path : null, assetUuid: m.assetUuid || null,
-                sentMs: m.sentMs, dateMs: m.dateMs, uploadMs: m.uploadMs,
+                sentMs: m.sentMs, dateMs: m.dateMs, uploadMs: m.uploadMs, viewOnce: isViewOnce(m.type),
             };
         };
         var link = {
             matches: matches.map(function (x) { return row(x.row, x.by); }),
             nearby: near.map(function (m) { return Object.assign(row(m), { afterMs: m.sentMs - ctx.createdMs }); }),
             media: media.filter(function (m) { return m.path || m.size > 0; }).length,
+            pending: pending.length,
         };
         return { events: events, notes: notes, link: link };
+    }
+
+    // Tilläggets logg (Logs/ServiceExtension_*/whatsapp-….log): meddelanden som togs emot medan appen var
+    // stängd eller telefonen låst. De köas och skrivs till ChatStorage.sqlite först när appen öppnas
+    // (labbet: en bild med låst telefon 2026-11-04). Raderna har klockslag utan datum, i telefonens zon:
+    // zonen räknas ut ur filens ändringstid (zippen) och loggens sista klockslag.
+    // opts: { name (filnamnet, med ÅÅÅÅ-MM-DD-TT-MM-SS), mtimeMs }. Returnerar [{ ms, kind, stanzaId, file }].
+    function parseExtensionLog(text, opts) {
+        var name = /whatsapp-(\d{4})-(\d{2})-(\d{2})-(\d{2})-(\d{2})-(\d{2})/.exec(opts.name || '');
+        if (!name) return [];
+        var day = Date.UTC(Number(name[1]), Number(name[2]) - 1, Number(name[3]));
+        var startOfDay = Number(name[4]) * 3600000 + Number(name[5]) * 60000 + Number(name[6]) * 1000;
+        var lines = String(text || '').split(/\r?\n/);
+        var rows = [];
+        var last = null;
+        var seen = {};
+        lines.forEach(function (l) {
+            var t = /^(\d{2}):(\d{2}):(\d{2})\.(\d{3}) /.exec(l);
+            if (!t) return;
+            var ofDay = Number(t[1]) * 3600000 + Number(t[2]) * 60000 + Number(t[3]) * 1000 + Number(t[4]);
+            // En logg som går över midnatt börjar om på klockslagen.
+            var local = day + ofDay + (ofDay < startOfDay - 60000 ? 86400000 : 0);
+            last = local;
+            var m = /xmpp\/\/< recv < \[(media|msg|message|text)\/ id=([0-9A-Za-z]+)/.exec(l);
+            if (m && !seen[m[2]]) {
+                seen[m[2]] = true;
+                rows.push({ local: local, kind: m[1] === 'media' ? 'media' : 'text', stanzaId: m[2] });
+            }
+        });
+        if (!rows.length || last == null || opts.mtimeMs == null) return [];
+        var offset = Math.round((last - opts.mtimeMs) / 900000) * 900000;
+        return rows.map(function (r) { return { ms: r.local - offset, kind: r.kind, stanzaId: r.stanzaId, file: String(opts.name).split('/').pop() }; });
     }
 
     // En mening om en mediefil som hittats på sin summa (hashsökningen).
@@ -181,7 +232,7 @@
 
     var api = {
         APP: APP, APP_BUSINESS: APP_BUSINESS, isWhatsAppApp: isWhatsAppApp, b64ToHex: b64ToHex, hexToB64: hexToB64, typeName: typeName, kindOf: kindOf,
-        counterpart: counterpart, match: match, nearby: nearby, build: build, mediaText: mediaText, NEARBY_MS: NEARBY_MS,
+        counterpart: counterpart, match: match, nearby: nearby, build: build, mediaText: mediaText, parseExtensionLog: parseExtensionLog, isViewOnce: isViewOnce, NEARBY_MS: NEARBY_MS,
     };
     if (typeof module !== 'undefined' && module.exports) module.exports = api;
     else root.ProvenanceWhatsApp = api;

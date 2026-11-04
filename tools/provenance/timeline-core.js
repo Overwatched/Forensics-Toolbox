@@ -14,6 +14,8 @@
 
     var IOS_CAMERA = 'com.apple.camera';
     var IOS_SPRINGBOARD = 'com.apple.springboard';
+    var IOS_SHARINGD = 'com.apple.sharingd';
+    var IOS_PHOTOS = 'com.apple.mobileslideshow';
     var SNAPCHAT = 'com.toyopagroup.picaboo';
     var SNAPCHAT_ANDROID = 'com.snapchat.android';
     var SIGNAL_ANDROID = 'org.thoughtcrime.securesms';
@@ -98,6 +100,7 @@
         var reasons = [];
         var flags = [];
         var type = 'unknown';
+        var transfer = null;
         var importer = file.importer || '';
         var importedBy = file.importedBy == null ? null : Number(file.importedBy);
         var rel = lower(file.relativePath);
@@ -140,15 +143,33 @@
                     ' och sparad ' + duration(Math.abs((file.addedMs || file.createdMs) - mem.createdMs)) + ' ' + (mem.createdMs <= (file.addedMs || file.createdMs) ? 'före' : 'efter') + ' filen (snap_capture_time, create_time, front_facing)');
             }
         } else {
-            if (importedBy === 1 || importedBy === 2 || importer === IOS_CAMERA) {
+            if (file.chatTemp) {
+                // En fil i en chattapps tmp/, utan rad i bildbiblioteket.
+                type = 'saved';
+                importer = file.chatTemp.app;
+                reasons.push('filen ligger i ' + file.chatTemp.appName + 's tillfälliga mapp (' + file.chatTemp.path + ')');
+            } else if (importedBy === 1 || importedBy === 2 || importer === IOS_CAMERA) {
                 type = 'camera';
                 reasons.push(importedBy === 1 || importedBy === 2 ? 'ZIMPORTEDBY ' + importedBy + ' (' + (importedBy === 1 ? 'bakre' : 'främre') + ' kameran enligt iLEAPP)' : 'skaparappen är com.apple.camera');
-            } else if (importedBy === 8 || importer === IOS_SPRINGBOARD || Number(file.kindSubtype) === 10) {
+            } else if (importer === IOS_SPRINGBOARD || Number(file.kindSubtype) === 10) {
+                // ZIMPORTEDBY 8 räcker inte: i labbet har också en bild ur Safari och en dubblett i Bilder 8.
                 type = 'screenshot';
                 if (importedBy === 8) reasons.push('ZIMPORTEDBY 8');
                 if (importer === IOS_SPRINGBOARD) reasons.push('skaparappen är com.apple.springboard');
                 if (Number(file.kindSubtype) === 10) reasons.push('ZKINDSUBTYPE 10');
-            } else if (importedBy === 3 || importedBy === 6 || importedBy === 9 || importer) {
+            } else if (importedBy === 13 || importer === IOS_SHARINGD) {
+                // ZIMPORTEDBY 13 står kvar när en dubblett skriver om skaparappen på originalet (labbet).
+                type = 'saved';
+                transfer = 'airdrop';
+                if (importedBy === 13) reasons.push('ZIMPORTEDBY 13');
+                if (importer) reasons.push('skaparappen är ' + importer);
+                importer = IOS_SHARINGD;
+            } else if (importer === IOS_PHOTOS) {
+                type = 'saved';
+                transfer = 'photos';
+                if (importedBy != null) reasons.push('ZIMPORTEDBY ' + importedBy);
+                reasons.push('skaparappen är ' + importer);
+            } else if (importedBy === 3 || importedBy === 6 || importedBy === 8 || importedBy === 9 || importer) {
                 type = 'saved';
                 if (importedBy != null) reasons.push('ZIMPORTEDBY ' + importedBy);
                 if (importer) reasons.push('skaparappen är ' + importer);
@@ -161,9 +182,22 @@
         if (Number(file.trashed) === 1) flags.push('trashed');
         if (Number(file.hidden) === 1) flags.push('hidden');
         var labels = { camera: 'Kamerabild', screenshot: 'Skärmdump', saved: 'Sparad ur en app', snapchat: 'Snapchat-media utanför bildbiblioteket', unknown: 'Okänd typ' };
-        return { type: type, label: chat ? chat.appName + '-media utanför bildbiblioteket' : labels[type], reasons: reasons, flags: flags, importer: importer, importedBy: importedBy, chat: chat,
+        var label = chat ? chat.appName + '-media utanför bildbiblioteket' : transfer === 'airdrop' ? 'Mottagen med AirDrop' : transfer === 'photos' ? 'Skapad i Bilder (till exempel en dubblett)'
+            : file.chatTemp ? file.chatTemp.appName + 's tillfälliga fil' : labels[type];
+        return { type: type, label: label, reasons: reasons, flags: flags, importer: importer, importedBy: importedBy, chat: chat, transfer: transfer, chatTemp: file.chatTemp || null,
             snapchat: type === 'snapchat' || isSnapchatApp(importer), origin: snapOrigin(sc), who: sc && sc.who || null, recipient: sc && sc.external && sc.external.recipient || null,
             memory: file.memory || null };
+    }
+
+    // Klockslag i rapportens zon, med datum och, om zonen är bildens fasta förskjutning, zonen när det är
+    // en annan dag än T. Bildens förskjutning gäller vid tagningen och kan vara en annan än vid tiden som visas.
+    function stamper(input) {
+        var fmt = input.format || formatUtc;
+        var T = input.file.createdMs;
+        return function (ms) {
+            if (T && fmt(ms).slice(0, 10) === fmt(T).slice(0, 10)) return fmt(ms).slice(11, 19);
+            return fmt(ms).slice(0, 19) + (input.fixedZone ? ' (' + input.fixedZone + ')' : '');
+        };
     }
 
     // ---------- Fönster ----------
@@ -405,9 +439,7 @@
                 plain: 'Det går inte att se när filen skapades.' };
         }
         // Klockslag i rapportens zon, med datum bara när det är ett annat än T:s.
-        var fmt = input.format || formatUtc;
-        var dayOf = function (ms) { return fmt(ms).slice(0, 10); };
-        var at = function (ms) { return dayOf(ms) === dayOf(file.createdMs) ? fmt(ms).slice(11, 19) : fmt(ms).slice(0, 19); };
+        var at = stamper(input);
         var apart = function (ms, ref) { return Math.abs(ms) < 1000 ? 'samma sekund som ' + ref : duration(ms) + (ms < 0 ? ' före ' : ' efter ') + ref; };
         if (file.createdFrom === 'date_added') {
             items.push({ state: 'info', text: 'Tagningstiden (datetaken) saknas i MediaStore, så T är när filen lades till i galleriet (date_added), inte när bilden togs. Så ser filer ut som en app sparar till galleriet utan tid i EXIF.' });
@@ -466,7 +498,9 @@
         if (input.fileEntry && input.fileEntry.createdMs) {
             var cdiff2 = input.fileEntry.createdMs - file.createdMs;
             items.push({ state: Math.abs(cdiff2) <= SAME_TIME_MS ? 'support' : 'info', text: 'Skapad i filsystemet ' + at(input.fileEntry.createdMs) + ', ' + apart(cdiff2, 'Skapad') + '.' +
-                (cdiff2 > SAME_TIME_MS ? ' Filen kom alltså till i filsystemet senare än den skapades, som när en fil kopieras, tas emot eller återställs.' : '') });
+                (cdiff2 > 0 && cdiff2 <= 5 * MINUTE && /\.hei[cf]$/i.test(input.fileEntry.name || file.filename || '') ? ' iOS skriver HEIC-filen färdigt efter att bilden tagits (9–50 s i labbet, med och utan Live Photo).'
+                    : cdiff2 > SAME_TIME_MS ? ' Filen kom alltså till i filsystemet senare än den skapades, som när en fil kopieras, tas emot eller återställs.' : '') +
+                (file.addedMs && file.addedMs - input.fileEntry.createdMs > LATE_MS ? ' En kopia eller överföring kan behålla källans tid (AirDrop och dubbletter i Bilder gör det i labbet), så tiden säger inte när filen kom till telefonen.' : '') });
         }
         if (input.fileEntry && input.fileEntry.changedMs) {
             items.push({ state: 'info', text: 'Metadata ändrad i filsystemet (ctime) ' + at(input.fileEntry.changedMs) + ', ' + apart(input.fileEntry.changedMs - file.createdMs, 'Skapad') + '. Tiden flyttas också när filens metadata ändras, så den säger inte när filen kom till.' });
@@ -474,6 +508,8 @@
         if (input.fileEntry && input.fileEntry.thirdMs) {
             items.push({ state: 'info', text: 'Tredje tiden i zippen (skapad eller ctime) ' + at(input.fileEntry.thirdMs) + ', ' + apart(input.fileEntry.thirdMs - file.createdMs, 'Skapad') + '. Vilken av dem det är syns inte i zippen.' });
         }
+        if (file.adjustedAtMs) items.push({ state: 'info', text: 'Redigerad i bildbiblioteket ' + at(file.adjustedAtMs) + ' (ZADJUSTMENTTIMESTAMP). Originalfilen ändras inte; den redigerade versionen ligger under PhotoData/Mutations/.' });
+        if (Number(file.trashed) === 1) items.push({ state: 'info', text: 'Flyttad till Raderade' + (file.trashedAtMs ? ' ' + at(file.trashedAtMs) + ' (ZTRASHEDDATE)' : '') + '. Filen ligger kvar tills den rensas.' });
         if (items.some(function (i) { return i.state === 'contradiction'; })) state = 'contradiction';
         else if (items.some(function (i) { return i.state === 'support'; })) state = 'support';
         else state = 'info';
@@ -571,12 +607,17 @@
                 plain: Noun + ' saknar positionsuppgift. Telefonen registrerade var den var ' + duration(near.offsetMs) + (near.offsetMs < 0 ? ' före' : ' efter') + (noun === 'filen' ? ' tidpunkten.' : ' att bilden togs.') };
         }
         var exifRow = pos.list.filter(function (p) { return p.kind === 'exif' && p.distanceM != null; })[0];
+        // Sist i faktorn: var positionen kommer ifrån, när den inte är filens egen.
+        var custom = !!(input.fileEntry && input.fileEntry.customLocation);
+        var originNote = custom ? { state: 'info', text: 'Platsen är satt i efterhand i Bilder (com.apple.assetsd.customLocation på filen). Den visar inte var bilden togs.' }
+            : input.platform === 'iOS' && input.exif && input.exif.read && !input.exif.position && !file.memory ? { state: 'info', text: 'Positionen finns i bildbiblioteket men inte i filen (ingen GPS i EXIF). Den kan ha lagts till i efterhand.' } : null;
         if (exifRow) items.push({ state: exifRow.distanceM <= 50 ? 'support' : 'contradiction', text: 'Positionen i EXIF i filen ligger ' + metres(exifRow.distanceM) + ' från positionen i databasen.' });
         var memRow = pos.list.filter(function (p) { return p.kind === 'memory'; })[0];
         if (memRow && memRow.distanceM != null) items.push({ state: memRow.distanceM <= 50 ? 'support' : 'contradiction', text: 'Positionen i Snapchats Memories ligger ' + metres(memRow.distanceM) + ' från positionen i databasen.' });
         else if (memRow) items.push({ state: 'info', text: 'Bildens position kommer ur Snapchats Memories (latitude, longitude), inte ur MediaStore, som saknar position för filen.' });
         if (!phone.length) {
             items.push({ state: 'missing', text: 'Telefonen har inga registrerade positioner i fönstret' + noPhoneLog + '.' });
+            if (originNote) items.push(originNote);
             return { id: 'position', title: 'Position', state: memRow && !exifRow ? 'info' : 'missing', items: withOther(items), plain: memRow && !exifRow ? 'Snapchat sparade var bilden togs, men det finns ingen annan registrering av var telefonen var vid den tiden.' : 'Bilden har en position, men det finns ingen registrering av var telefonen var vid den tiden.' };
         }
         var tol = Math.max(100, 2 * (Number(near.accuracy) || 0));
@@ -587,7 +628,11 @@
         else { state = 'info'; items.push({ state: 'info', text: 'Telefonen var ' + metres(near.distanceM) + ' från bildens position ' + when + ' bilden. Avståndet kan bero på GPS-fel.' }); }
         var within = phone.filter(function (p) { return p.distanceM <= Math.max(100, 2 * (Number(p.accuracy) || 0)); }).length;
         if (phone.length > 1) items.push({ state: 'info', text: within + ' av ' + phone.length + ' registrerade positioner i fönstret ligger inom noggrannheten från bildens position.' });
-        var plain = state === 'support' ? 'Telefonen var på samma plats som bilden togs, ' + when + '.'
+        if (originNote) items.push(originNote);
+        // En plats som satts för hand säger inget om var bilden togs, så avståndet väger inte.
+        if (custom && state !== 'info') { state = 'info'; items.forEach(function (it) { if (it.state !== 'info') it.state = 'info'; }); }
+        var plain = custom ? 'Platsen är satt i efterhand i Bilder, så avståndet till telefonen säger inget om var bilden togs.'
+            : state === 'support' ? 'Telefonen var på samma plats som bilden togs, ' + when + '.'
             : state === 'contradiction' ? 'Telefonen var ' + metres(near.distanceM) + ' från platsen där bilden ska ha tagits, ' + when + '. Det stämmer inte med att den här telefonen tog bilden där.'
                 : 'Telefonen var ' + metres(near.distanceM) + ' från bildens position, ' + when + '. Så stora avstånd kan bero på GPS-fel.';
         return { id: 'position', title: 'Position', state: state, items: withOther(items), plain: plain };
@@ -635,6 +680,10 @@
         var state;
         var plain;
         var via = null;
+        if (type.transfer) {
+            var moved = type.transfer === 'airdrop' ? 'togs emot med AirDrop' : 'skapades i Bilder';
+            return { id: 'app', title: title, state: 'na', items: [{ state: 'na', text: 'Filen ' + moved + ', så T är tiden från källan. Ingen app behöver ha varit igång då.' }], plain: 'Filen ' + moved + ', så frågan om vilken app som var igång vid T ställs inte.', running: [], via: null };
+        }
         if (type.type === 'snapchat') {
             // Snapchats egen rad i registret vid T är ett tecken på att appen kördes, utöver knowledgeC.
             var own = events.filter(function (e) { return /^snap-/.test(e.kind) && Math.abs(e.ms - T) <= SAME_TIME_MS; }).sort(function (a, b) { return Math.abs(a.ms - T) - Math.abs(b.ms - T); });
@@ -691,6 +740,17 @@
         return { id: 'app', title: title, state: state, items: items, plain: plain, running: running.map(function (e) { return e.app; }), via: via || null };
     }
 
+    // Meddelandet där filen togs emot i en chattapp, när filen inte också skickades från telefonen.
+    function receivedIn(input) {
+        var apps = [['Signal', input.signal], ['WhatsApp', input.whatsapp], ['Telegram', input.telegram]];
+        for (var i = 0; i < apps.length; i++) {
+            var ms = apps[i][1] && apps[i][1].link && apps[i][1].link.matches || [];
+            var inn = ms.filter(function (m) { return m.direction === 'in'; });
+            if (inn.length && inn.length === ms.length) return { app: apps[i][0], who: inn[0].who, messageId: inn[0].messageId };
+        }
+        return null;
+    }
+
     function factorCamera(input, type, events, appFactor) {
         var file = input.file;
         var T = file.createdMs;
@@ -703,6 +763,15 @@
             var via = type.chat.direction === 'in' ? 'togs emot' : 'skickades';
             return { id: 'camera', title: 'Kamera igång', state: 'na', items: [{ state: 'na', text: 'Filen är ' + type.chat.appName + 's kopia av en fil som ' + via + ' i appen (meddelande ' + type.chat.messageId + '), så kameran frågas inte.' }],
                 plain: 'Filen ' + via + ' i ' + type.chat.appName + ', så frågan om kameran ställs inte.' };
+        }
+        if (type.transfer) {
+            var moved = type.transfer === 'airdrop' ? 'togs emot med AirDrop' : 'skapades i Bilder';
+            return { id: 'camera', title: 'Kamera igång', state: 'na', items: [{ state: 'na', text: 'Filen ' + moved + ', så kameran på den här telefonen frågas inte.' }], plain: 'Filen ' + moved + ', så frågan om kameran ställs inte.' };
+        }
+        var gotIn = type.type === 'saved' ? receivedIn(input) : null;
+        if (gotIn) {
+            return { id: 'camera', title: 'Kamera igång', state: 'na', items: [{ state: 'na', text: 'Filen togs emot i ' + gotIn.app + ' från ' + gotIn.who + ' (meddelande ' + gotIn.messageId + '), så kameran på den här telefonen frågas inte.' }],
+                plain: 'Filen togs emot i ' + gotIn.app + ', så frågan om kameran ställs inte.' };
         }
         var li = logInfo(input);
         // Android: tagningstiden enligt Snapchats Memories är då kameran måste ha varit igång; T är exporten.
@@ -740,7 +809,7 @@
             }
             // En tredjepartsapp med egen kamera ger inga rader för systemkameran.
             var f = Object.assign({}, appFactor, { id: 'camera', title: 'Skaparappen igång' });
-            f.items = f.items.concat([{ state: 'info', text: 'Filen skapades av ' + creator + '. En sådan app använder kameran i sin egen process, så systemkameran syns inte i loggen. Därför bedöms om skaparappen var igång.' }]);
+            f.items = f.items.concat([{ state: 'info', text: 'Filen skapades av ' + creator + '. Har appen en egen kamera syns den inte som systemkameran i loggen. Därför bedöms om skaparappen var igång.' }]);
             return f;
         }
         var cam = atCam;
@@ -824,10 +893,8 @@
     function factorSignal(input, type) {
         var s = input.signal || {};
         var title = 'Signal';
-        var fmt = input.format || formatUtc;
         var T = input.file.createdMs;
-        // Klockslag, med datum bara när det är ett annat än T:s.
-        var at = function (ms) { return T && fmt(ms).slice(0, 10) === fmt(T).slice(0, 10) ? fmt(ms).slice(11, 19) : fmt(ms).slice(0, 19); };
+        var at = stamper(input);
         if (s.error) {
             return { id: 'signal', title: title, state: 'missing', items: [{ state: 'missing', text: s.error }],
                 plain: 'Signals databas kunde inte läsas.', verdictText: 'Kunde inte läsas' };
@@ -839,10 +906,10 @@
         var sent = ms.filter(function (m) { return m.direction === 'out'; });
         var items = [];
         recv.forEach(function (m) {
-            items.push({ state: 'info', text: 'Mottagen från ' + m.who + ' ' + at(m.receivedMs) + ' (meddelande ' + m.messageId + (m.sentMs ? ', avsändarens klocka ' + at(m.sentMs) : '') + ')' + (m.viewOnce ? ', engångsvisning' : '') + '. Samma SHA-256 som bilagan.' });
+            items.push({ state: 'info', text: 'Mottagen från ' + m.who + ' ' + at(m.receivedMs) + ' (meddelande ' + m.messageId + (m.sentMs ? ', avsändarens klocka ' + at(m.sentMs) : '') + ')' + (m.viewOnce ? ', engångsvisning' : '') + (m.openedMs ? ', öppnad ' + at(m.openedMs) + ' (expireStartedAt)' : '') + '. Samma SHA-256 som bilagan.' });
         });
         sent.forEach(function (m) {
-            items.push({ state: 'info', text: 'Skickad till ' + m.who + ' ' + at(m.sentMs) + ' (meddelande ' + m.messageId + ')' + (m.deleted ? ', raderad för alla senare' : '') + '. ' +
+            items.push({ state: 'info', text: 'Skickad till ' + m.who + ' ' + at(m.sentMs) + ' (meddelande ' + m.messageId + ')' + (m.deleted ? ', raderad för alla senare' : '') + (m.linked ? ', skickad från en länkad enhet (wasNotCreatedLocally)' : '') + '. ' +
                 (m.on === 'start' ? 'Filen är originalet; Signal skickade en omkodad kopia' + (m.width ? ' (' + m.width + '×' + m.height + ')' : '') + '.'
                     : m.on === 'name' ? 'Bilagan lades till med filens namn (' + m.fileName + '); Signal skickade en omkodad kopia' + (m.width ? ' (' + m.width + '×' + m.height + ')' : '') + '. Namnet binder svagare än en summa.'
                         : 'Samma SHA-256 som bilagan.') });
@@ -897,9 +964,8 @@
     function factorWhatsApp(input, type) {
         var w = input.whatsapp || {};
         var title = 'WhatsApp';
-        var fmt = input.format || formatUtc;
         var T = input.file.createdMs;
-        var at = function (ms) { return T && fmt(ms).slice(0, 10) === fmt(T).slice(0, 10) ? fmt(ms).slice(11, 19) : fmt(ms).slice(0, 19); };
+        var at = stamper(input);
         if (w.error) {
             return { id: 'whatsapp', title: title, state: 'missing', items: [{ state: 'missing', text: w.error }],
                 plain: 'WhatsApps databas kunde inte läsas.', verdictText: 'Kunde inte läsas' };
@@ -911,14 +977,16 @@
         var how = function (m) {
             var parts = [];
             if (m.by.indexOf('sha256') >= 0) parts.push('samma SHA-256 som mediefilen');
-            if (m.by.indexOf('asset') >= 0) parts.push('vald ur bildbiblioteket (samma post, ZUUID ' + m.assetUuid + ')');
+            if (m.by.indexOf('asset') >= 0) parts.push((m.direction === 'in' ? 'sparad i bildbiblioteket' : 'vald ur bildbiblioteket') + ' (samma post, ZUUID ' + m.assetUuid + ')');
             if (m.by.indexOf('path') >= 0) parts.push('filen är WhatsApps egen (' + m.path + ')');
             return parts.join(', ');
         };
         var items = [];
-        recv.forEach(function (m) { items.push({ state: 'info', text: 'Mottagen från ' + m.who + ' ' + at(m.dateMs) + ' (meddelande ' + m.messageId + '): ' + how(m) + '.' }); });
-        sent.forEach(function (m) { items.push({ state: 'info', text: 'Skickad till ' + m.who + ' ' + at(m.sentMs != null ? m.sentMs : m.dateMs) + ' (meddelande ' + m.messageId + '): ' + how(m) + '.' }); });
+        recv.forEach(function (m) { items.push({ state: 'info', text: 'Mottagen från ' + m.who + ' ' + at(m.dateMs) + ' (meddelande ' + m.messageId + (m.viewOnce ? ', engångsvisning' : '') + '): ' + how(m) + '.' }); });
+        sent.forEach(function (m) { items.push({ state: 'info', text: 'Skickad till ' + m.who + ' ' + at(m.sentMs != null ? m.sentMs : m.dateMs) + ' (meddelande ' + m.messageId + (m.viewOnce ? ', engångsvisning' : '') + '): ' + how(m) + '.' }); });
         var near = (link.nearby || [])[0] || null;
+        var nearOwner = type.chatTemp ? 'Filen ligger i WhatsApps tillfälliga mapp.' : 'WhatsApp sparade filen.';
+        var pending = link.pending ? ' ' + link.pending + (link.pending === 1 ? ' meddelande med media togs emot i bakgrunden men finns' : ' meddelanden med media togs emot i bakgrunden men finns') + ' inte i databasen (ServiceExtension-loggen), och filen kan höra till ' + (link.pending === 1 ? 'det' : 'något av dem') + '. Öppnas inte appen hamnar meddelandet inte i ChatStorage.sqlite.' : '';
         // WhatsApps egen fil under Message/: databasen säger vilket meddelande den hör till.
         var own = type.chat ? ms.find(function (m) { return m.by.indexOf('path') >= 0; }) : null;
         if (own) {
@@ -930,18 +998,24 @@
         var savedByWhatsApp = !type.chat && (type.importer === WHATSAPP || type.importer === WHATSAPP_BUSINESS);
         if (savedByWhatsApp && (recv.length || sent.length)) {
             items.forEach(function (it) { it.state = 'support'; });
+            if (near) items.push({ state: 'info', text: 'En ' + near.kind + ' skickades också till ' + near.who + ' ' + at(near.sentMs) + ', ' + duration(near.afterMs) + ' efter att filen skapades (meddelande ' + near.messageId + '). Det kan vara samma bild, tagen med kameran. Bara tiden binder ihop dem.' });
             var first = recv[0] || sent[0];
             return { id: 'whatsapp', title: title, state: 'support', items: items, verdictText: recv.length ? 'Mottagen i WhatsApp' : 'Skickad i WhatsApp',
                 plain: recv.length ? 'Filen togs emot i WhatsApp från ' + first.who + ' och sparades i bildbiblioteket.' : 'Filen skickades i WhatsApp till ' + first.who + ' och sparades i bildbiblioteket.' };
         }
         if (savedByWhatsApp && near) {
             return { id: 'whatsapp', title: title, state: 'info', verdictText: 'Möjlig koppling',
-                items: [{ state: 'info', text: 'WhatsApp sparade filen. En ' + near.kind + ' skickades i WhatsApp till ' + near.who + ' ' + at(near.sentMs) + ', ' + duration(near.afterMs) + ' efter att filen skapades (meddelande ' + near.messageId + '). Bara tiden binder ihop dem: WhatsApp skickar en omkodad kopia och sparar ingen summa för originalet.' }],
-                plain: 'WhatsApp sparade filen, och en ' + near.kind + ' skickades i WhatsApp ' + duration(near.afterMs) + ' senare. Det kan vara samma bild; bara tiden binder ihop dem.' };
+                items: [{ state: 'info', text: nearOwner + ' En ' + near.kind + ' skickades i WhatsApp till ' + near.who + ' ' + at(near.sentMs) + ', ' + duration(near.afterMs) + ' efter att filen skapades (meddelande ' + near.messageId + '). Bara tiden binder ihop dem: WhatsApp skickar en omkodad kopia och sparar ingen summa för originalet.' }],
+                plain: nearOwner.slice(0, -1) + ', och en ' + near.kind + ' skickades i WhatsApp ' + duration(near.afterMs) + ' senare. Det kan vara samma bild; bara tiden binder ihop dem.' };
+        }
+        if (savedByWhatsApp && type.chatTemp) {
+            return { id: 'whatsapp', title: title, state: 'info', verdictText: 'Inget meddelande',
+                items: [{ state: 'info', text: 'Filen ligger i WhatsApps tillfälliga mapp (' + type.chatTemp.path + '), och inget meddelande med en bild skickades inom en minut. Bilden kan ha tagits med WhatsApps kamera utan att skickas, eller meddelandet kan ha raderats.' }],
+                plain: 'Filen ligger i WhatsApps tillfälliga mapp, och inget meddelande skickades strax efter. Den kan ha tagits utan att skickas.' };
         }
         if (savedByWhatsApp) {
             return { id: 'whatsapp', title: title, state: 'missing', verdictText: 'Hittas inte',
-                items: [{ state: 'missing', text: 'WhatsApp sparade filen, men varken summan eller bildbibliotekets post finns bland WhatsApps ' + (link.media || 0) + ' mediefiler, och inget meddelande med en bild skickades strax efter. Bilden kan ha tagits med WhatsApps kamera utan att skickas, eller meddelandet kan ha raderats.' }],
+                items: [{ state: 'missing', text: 'WhatsApp sparade filen, men varken summan eller bildbibliotekets post finns bland WhatsApps ' + (link.media || 0) + ' mediefiler, och inget meddelande med en bild skickades strax efter. Bilden kan ha tagits med WhatsApps kamera utan att skickas, eller meddelandet kan ha raderats.' + pending }],
                 plain: 'WhatsApp sparade filen, men den hittas inte bland WhatsApps meddelanden.' };
         }
         if (recv.length && !sent.length && (type.type === 'camera' || type.type === 'screenshot')) {
@@ -960,7 +1034,7 @@
             return { id: 'whatsapp', title: title, state: 'info', items: items, verdictText: 'Mottagen i WhatsApp', plain: 'Filen togs emot i WhatsApp från ' + recv[0].who + '.' };
         }
         return { id: 'whatsapp', title: title, state: 'info', verdictText: 'Inte i WhatsApp',
-            items: [{ state: 'info', text: 'Filen finns inte bland WhatsApps ' + (link.media || 0) + ' mediefiler: varken samma SHA-256, samma post i bildbiblioteket eller samma sökväg.' }],
+            items: [{ state: 'info', text: 'Filen finns inte bland WhatsApps ' + (link.media || 0) + ' mediefiler: varken samma SHA-256, samma post i bildbiblioteket eller samma sökväg.' + pending }],
             plain: 'Filen finns inte bland WhatsApps mediefiler.' };
     }
 
@@ -971,9 +1045,8 @@
     function factorTelegram(input, type) {
         var t = input.telegram || {};
         var title = 'Telegram';
-        var fmt = input.format || formatUtc;
         var T = input.file.createdMs;
-        var at = function (ms) { return T && fmt(ms).slice(0, 10) === fmt(T).slice(0, 10) ? fmt(ms).slice(11, 19) : fmt(ms).slice(0, 19); };
+        var at = stamper(input);
         var after = function (ms) { return T ? (ms >= T ? duration(ms - T) + ' efter T' : at(ms)) : at(ms); };
         if (t.error) {
             return { id: 'telegram', title: title, state: 'missing', items: [{ state: 'missing', text: t.error }],
@@ -998,11 +1071,14 @@
         var picks = link.picks || [];
         var sent = [];
         picks.forEach(function (p) { if (p.messages.length === 1) sent.push({ pick: p, m: p.messages[0] }); });
+        var near = (link.nearby || [])[0] || null;
+        var nearOwner = type.chatTemp ? 'Filen ligger i Telegrams tillfälliga mapp.' : 'Telegram sparade filen.';
         if (sent.length) {
             var lead = sent[0];
             var items = sent.map(function (x) {
                 return { state: savedBy ? 'support' : 'info', text: 'Vald ur bildbiblioteket i Telegram och skickad till ' + x.m.who + ' ' + at(x.m.timeMs) + ' (meddelande ' + x.m.messageId + (x.m.viewOnce ? ', engångsvisning' : '') + '): lagringsdatabasen har bibliotekets id (' + x.pick.resourceId + '), och den uppladdade bilden är ' + x.pick.size + ' byte, lika stor som bilden i meddelandet.' };
             });
+            if (savedBy && near) items.push({ state: 'info', text: 'En ' + near.kind + ' skickades också till ' + near.who + ' ' + at(near.timeMs) + ', ' + duration(near.afterMs) + ' efter att filen skapades (meddelande ' + near.messageId + '). Det kan vara samma ' + near.kind + ', tagen med kameran. Bara tiden binder ihop dem.' });
             return { id: 'telegram', title: title, state: savedBy ? 'support' : 'info', items: items, verdictText: 'Skickad i Telegram',
                 plain: 'Filen valdes ur bildbiblioteket och skickades i Telegram till ' + lead.m.who + ', ' + after(lead.m.timeMs) + (lead.m.viewOnce ? ', för engångsvisning' : '') + '. ' + (savedBy ? '' : 'Det säger inget om hur den skapades.') };
         }
@@ -1013,11 +1089,15 @@
                 items: [{ state: 'info', text: 'Telegram läste filen ur bildbiblioteket för chatten ' + (p0.chat || '') + ' (' + p0.resourceId + ', ' + (p0.size || 0) + ' byte). ' + (many ? p0.messages.length + ' meddelanden har en bild av samma storlek (' + p0.messages.map(function (m) { return m.messageId; }).join(', ') + '), så det går inte att säga vilket.' : 'Inget meddelande i chatten har en bild av samma storlek. Bilden kan ha skickats och raderats, eller valts utan att skickas.') }],
                 plain: many ? 'Filen valdes ur bildbiblioteket i Telegram, men flera meddelanden passar.' : 'Filen valdes ur bildbiblioteket i Telegram, men meddelandet finns inte kvar.' };
         }
-        var near = (link.nearby || [])[0] || null;
         if (savedBy && near) {
             return { id: 'telegram', title: title, state: 'info', verdictText: 'Möjlig koppling',
-                items: [{ state: 'info', text: 'Telegram sparade filen. En ' + near.kind + ' skickades i Telegram till ' + near.who + ' ' + at(near.timeMs) + ', ' + duration(near.afterMs) + ' efter att filen skapades (meddelande ' + near.messageId + '). Bara tiden binder ihop dem: Telegram skickar en omkodad kopia.' }],
-                plain: 'Telegram sparade filen, och en ' + near.kind + ' skickades i Telegram ' + duration(near.afterMs) + ' senare. Det kan vara samma ' + near.kind + '; bara tiden binder ihop dem.' };
+                items: [{ state: 'info', text: nearOwner + ' En ' + near.kind + ' skickades i Telegram till ' + near.who + ' ' + at(near.timeMs) + ', ' + duration(near.afterMs) + ' efter att filen skapades (meddelande ' + near.messageId + '). Bara tiden binder ihop dem: Telegram skickar en omkodad kopia.' }],
+                plain: nearOwner.slice(0, -1) + ', och en ' + near.kind + ' skickades i Telegram ' + duration(near.afterMs) + ' senare. Det kan vara samma ' + near.kind + '; bara tiden binder ihop dem.' };
+        }
+        if (savedBy && type.chatTemp) {
+            return { id: 'telegram', title: title, state: 'info', verdictText: 'Inget meddelande',
+                items: [{ state: 'info', text: 'Filen ligger i Telegrams tillfälliga mapp (' + type.chatTemp.path + '), och inget meddelande med en ' + (link.camera && link.camera.video ? 'video' : 'bild') + ' skickades inom en minut. Den kan ha tagits med Telegrams kamera utan att skickas, eller meddelandet kan ha raderats.' }],
+                plain: 'Filen ligger i Telegrams tillfälliga mapp, och inget meddelande skickades strax efter. Den kan ha tagits utan att skickas.' };
         }
         if (savedBy) {
             return { id: 'telegram', title: title, state: 'missing', verdictText: 'Hittas inte',
@@ -1071,8 +1151,10 @@
         var lit = litBy.length > 0;
         var items = [{ state: lit ? 'support' : 'contradiction', text: (lit ? 'Skärmen var tänd vid tidpunkten (' : 'Skärmen var släckt vid tidpunkten (') + (lit ? litBy : darkBy).join(', ') + ').' }];
         if (lockItem) items.push(lockItem);
+        var litLocked = lit && lockedBy.length && !openBy.length;
+        if (litLocked) items.push({ state: 'info', text: 'Aviseringar tänder skärmen medan telefonen är låst (labbet), så en tänd skärm visar inte att någon använde telefonen.' });
         return { id: 'screen', title: 'Skärm', state: lit ? 'support' : 'contradiction', items: items,
-            plain: lit ? 'Skärmen var tänd.' : 'Skärmen var släckt vid den här tiden, vilket inte stämmer med att någon använde telefonen då.' };
+            plain: litLocked ? 'Skärmen var tänd, men telefonen var låst. En avisering kan ha tänt den.' : lit ? 'Skärmen var tänd.' : 'Skärmen var släckt vid den här tiden, vilket inte stämmer med att någon använde telefonen då.' };
     }
 
     function alternatives(input, type, factors) {
@@ -1219,6 +1301,9 @@
         return type.type === 'screenshot' ? 'att skärmdumpen togs på den här telefonen'
             : type.type === 'saved' && type.memory ? 'att ' + (type.memory.video ? 'videon spelades in' : 'bilden togs') + ' med Snapchats ' + (type.memory.front ? 'frontkamera' : 'bakre kamera') + ' på den här telefonen och sparades till galleriet'
             : type.type === 'saved' && type.chat ? (type.chat.direction === 'in' ? 'att filen togs emot i ' + type.chat.appName + ' på den här telefonen' + (type.chat.who ? ' från ' + type.chat.who : '') : 'att filen skickades från den här telefonen i ' + type.chat.appName)
+            : type.transfer === 'airdrop' ? 'att filen togs emot med AirDrop på den här telefonen'
+            : type.transfer === 'photos' ? 'att filen skapades i Bilder på den här telefonen'
+            : type.chatTemp ? 'att filen skapades med ' + type.chatTemp.appName + ' på den här telefonen'
             : type.type === 'saved' ? 'att filen sparades på den här telefonen av ' + (type.importer ? appName(type.importer, names) : 'appen')
                 : type.type === 'snapchat' ? (type.origin === 'recorded' || type.origin === 'sent' ? 'att filen skapades med Snapchat på den här telefonen'
                     : type.origin === 'received' ? 'att filen togs emot i Snapchat på den här telefonen' + (type.who ? ' från ' + type.who : '')
@@ -1230,7 +1315,7 @@
     // och meningen säger vad svaret betyder för hypotesen. Nycklarna är faktorernas rubriker.
     var FACTOR_WORDS = {
         'Skapandetid': { q: 'Stämmer filens egna tider med varandra: Skapad, Tillagd, tiden i bildfilen och filsystemets tid?', support: 'Tiderna stämmer', contradiction: 'Tiderna går isär', info: 'Kan inte jämföras', missing: 'Tid saknas' },
-        'App igång': { q: 'Var appen som skapade filen igång vid T?', support: 'Appen var igång', contradiction: 'En annan app var igång', missing: 'Inte registrerat' },
+        'App igång': { q: 'Var appen som skapade filen igång vid T?', support: 'Appen var igång', contradiction: 'En annan app var igång', missing: 'Inte registrerat', na: 'Frågas inte' },
         'App på skärmen': { q: 'Vilken app var på skärmen när skärmdumpen togs?', missing: 'Inte registrerat' },
         'Snapchat igång': { q: 'Var Snapchat igång när filen skapades?', support: 'Snapchat var igång', contradiction: 'Snapchat var inte igång', missing: 'Inte registrerat' },
         'Kamera igång': { q: 'Användes kameran när bilden togs?', support: 'Kameran användes', contradiction: 'Kameran användes inte', missing: 'Inte registrerat', na: 'Frågas inte' },
@@ -1271,7 +1356,12 @@
         return 'Det går inte att bedöma ' + hyp + ' utifrån det här materialet: registreringar saknas.';
     }
 
+    // Flaggorna i klartext.
+    var FLAG_LABELS = { edited: 'redigerad', 'received-later': 'tillagd långt efter att den skapades', trashed: 'i Raderade', hidden: 'dold' };
+    function flagText(flags) { return (flags || []).map(function (f) { return FLAG_LABELS[f] || f; }).join(', '); }
+
     var api = {
+        flagText: flagText, stamper: stamper,
         classify: classify, windows: windows, intervalsFromEvents: intervalsFromEvents, mergeIntervals: mergeIntervals,
         buildEvents: buildEvents, narrative: narrative, build: build, summaryText: summaryText, hypothesis: hypothesis, FACTOR_WORDS: FACTOR_WORDS,
         formatWithOffset: formatWithOffset, formatUtc: formatUtc, duration: duration, appName: appName, isCameraApp: isCameraApp, covers: covers,

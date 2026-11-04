@@ -157,3 +157,20 @@ test('böjningen och motparten: meddelande skickat, bild skickad, samtal, grupp'
     assert.strictEqual(text(20), 'Telegram: bild mottagen från Alex i gruppen Klubben (meddelande 20)');
     assert.strictEqual(out.events.find((e) => e.messageId === 7).call, true);
 });
+
+test('en bild vald ur biblioteket behåller den möjliga kopplingen till kamerameddelandet', () => {
+    const resources = [res(11, 21, 94297, 960, 1280), res(12, 49, 441431, 1920, 2560)];
+    const out = tg.build({ uuid: LIB_CAM, savedByTelegram: true, createdMs: at(18), originalFilename: 'camphoto_1.jpg', resources: resources, storage: [store(LIB_CAM, 441431)], storageRead: true, messages: [] });
+    assert.deepStrictEqual(out.link.picks[0].messages.map((m) => m.messageId), [12]);
+    assert.deepStrictEqual(out.link.nearby.map((m) => m.messageId), [11]);
+    const f = core.factorTelegram({ file: { createdMs: at(18) }, format: fmt, telegram: { link: out.link } }, { type: 'saved', importer: tg.APP });
+    assert.strictEqual(f.verdictText, 'Skickad i Telegram');
+    assert.match(f.items[1].text, /skickades också .*meddelande 11\)/);
+});
+
+test('en kamerafil i Telegrams tmp utan meddelande', () => {
+    const t = { type: 'saved', importer: tg.APP, chatTemp: { app: tg.APP, appName: 'Telegram', path: 'tmp/camphoto_1.jpg' } };
+    const out = tg.build({ savedByTelegram: true, createdMs: at(500), originalFilename: 'camphoto_1.jpg', resources: RESOURCES, storage: [], storageRead: true, messages: [] });
+    const f = core.factorTelegram({ file: { createdMs: at(500) }, format: fmt, telegram: { link: out.link } }, t);
+    assert.deepStrictEqual([f.state, f.verdictText], ['info', 'Inget meddelande']);
+});

@@ -142,6 +142,8 @@
             case 'sig-capture': return 'Video med Signals kamera';
             case 'sig-saved': return e.isFile ? 'Filen sparas ur Signal' : 'Bilaga sparas';
             case 'sig-deleted': return e.forAll ? 'Raderas för alla' : 'Raderas';
+            case 'sig-opened': return e.isFile ? 'Filen öppnas i Signal' : 'Meddelande öppnas';
+            case 'sig-story': return e.isFile ? 'Filen som berättelse' : e.own ? 'Berättelse läggs upp' : 'Berättelse tas emot';
             default: return null;
         }
     }
@@ -615,7 +617,9 @@
         if (ids.indexOf('signal') >= 0) {
             if (has(function (e) { return e.kind === 'sig-message' && e.own; })) items.push(['▲', 'Skickat i Signal', COLORS.signal]);
             if (has(function (e) { return e.kind === 'sig-message' && !e.own; })) items.push(['▼', 'Mottaget i Signal', COLORS.signal]);
-            if (has(function (e) { return /^sig-/.test(e.kind) && e.kind !== 'sig-message'; })) items.push(['●', 'Signals logg', COLORS.signal]);
+            if (has(function (e) { return /^sig-/.test(e.kind) && e.kind !== 'sig-message' && e.kind !== 'sig-opened' && e.kind !== 'sig-story'; })) items.push(['●', 'Signals logg', COLORS.signal]);
+            if (has(function (e) { return e.kind === 'sig-opened'; })) items.push(['●', 'Öppnat i Signal', COLORS.signal]);
+            if (has(function (e) { return e.kind === 'sig-story'; })) items.push(['●', 'Berättelse i Signal', COLORS.signal]);
             if (has(function (e) { return /^sig-/.test(e.kind) && e.isFile; })) items.push(['◉', 'Svart kant: den bedömda filen', COLORS.file]);
         }
         Object.keys(CHATS).forEach(function (id) {

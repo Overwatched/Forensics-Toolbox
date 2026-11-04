@@ -443,7 +443,7 @@ Plan och provkörning: [PLAN-harkomst.md](PLAN-harkomst.md).
   (64 hextecken för Android, 96 för iOS).
 - `queries/ios/signal/catalog.json`: meddelanden, bilagor (SHA-256 i hex, `sourceFilename`), en bilaga efter
   SHA-256, samtal (`CallRecord`), konversationer och kontakter. `recordType` 21 skickat, 19 mottaget, 20 samtal
-  (Signals `SDSRecordType`; 19 är inte kontrollerat mot data). Rollerna: `attachments`, `messages`,
+  (Signals `SDSRecordType`, kontrollerat mot data). Rollerna: `attachments`, `messages`,
   `recipients`, `coverage`.
 - `ProvenanceSignal.buildIos`: kopplingen på SHA-256 (`sha256ContentHash`, den lagrade bilagan) och på namnet
   (`sourceFilename`, utom Signals egna `signal-ÅÅÅÅ-MM-DD-TTMMSS.jpeg` som ges till alla bilder utan namn),
@@ -469,6 +469,30 @@ Plan och provkörning: [PLAN-harkomst.md](PLAN-harkomst.md).
   nyckelring och WhatsApp med HTML i namnen. `tests/app/lab-ios.js` kontrollerar labbzippen
   (`FT_LAB_IOS_DIR`) mot `facit/lab-ios-signal-whatsapp.json`. De förväntningarna är inget facit ur
   anteckningar, utan kontrollerade mellan källorna i extraktionen.
+  `facit/lab-ios-tidsstamplar.json` (`FT_LAB_IOS_LOG_DIR`) är ett facit ur en labbsession med loggad ordning
+  (2026-11-04).
+
+#### Kontrollerat mot den loggade labbsessionen (1.45)
+
+- **Photos:** `ZIMPORTEDBY` 8 har setts för SpringBoard, Safari och Bilder, så skärmdump kräver SpringBoard eller
+  `ZKINDSUBTYPE` 10. `ZIMPORTEDBY` 13 är AirDrop (en loggad mottagning) och står kvar när en dubblett skriver om
+  `ZIMPORTEDBYBUNDLEIDENTIFIER` på originalet till `com.apple.mobileslideshow`. Bilder visar originalnamnet, inte
+  `ZFILENAME`. `ZMODIFICATIONDATE` flyttas på filer som ingen rört.
+- **Filsystemets tider:** ctime flyttas när utökade attribut skrivs (favorit, Raderade, ny tid, plats); ändrings- och
+  skapandetiden står still. Det är en iakttagelse, inte dokumenterat av extraktionsverktyget. HEIC-filen skrivs
+  färdig 9–50 s efter bilden. AirDrop och dubbletter behåller källans skapandetid.
+- **0x4b47** i zippen har filens utökade attribut. `com.apple.assetsd.customLocation` finns bara när en plats satts i
+  Bilder (`entry.customLocation`).
+- **Signal på iOS:** `wasNotCreatedLocally` är skickat från en länkad enhet, `hasSyncedTranscript` från telefonen.
+  `expireStartedAt` på ett mottaget meddelande med försvinnande tid är när det öppnades, på telefonen eller en
+  länkad enhet. Händelserna är `sig-opened` och `sig-story`.
+- **WhatsApp:** typ 38 är engångsvisning. Bibliotekets id på ett mottaget meddelande betyder att filen sparats dit.
+  Ett meddelande som tas emot medan appen är stängd finns bara i `Logs/ServiceExtension_*/` tills appen öppnas:
+  `parseExtensionLog` jämför loggens id med `ZSTANZAID` (händelsen `wa-pending`, `link.pending`).
+- **Chattappars `tmp/`:** `tmp/documents/Camera/` (WhatsApp) och `tmp/camphoto_…`, `tmp/camvideo_…` (Telegram) ger
+  `file.chatTemp`. Telegrams filer ligger kvar också när bilden skickats, så bara tiden avgör om meddelandet finns.
+- **Inga spår:** redigering i Signal, när ett samtal besvarades (`CallRecord` har bara starten) och "radera för mig"
+  (bara ett hopp i `id`).
 
 #### PowerLog på iOS (1.43)
 

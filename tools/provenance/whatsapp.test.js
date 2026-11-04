@@ -42,7 +42,7 @@ test('SHA-256 mellan base64 och hex åt båda hållen, typerna som syns i labbet
     }
     assert.strictEqual(wa.hexToB64('00ff10'), Buffer.from('00ff10', 'hex').toString('base64'));
     assert.strictEqual(wa.hexToB64('zz'), null);
-    assert.deepStrictEqual([0, 1, 2, 4, 10, 38, 59].map(wa.typeName), ['text', 'bild', 'video', 'kontaktkort', 'systemmeddelande', 'typ 38', 'typ 59']);
+    assert.deepStrictEqual([0, 1, 2, 4, 10, 38, 59].map(wa.typeName), ['text', 'bild', 'video', 'kontaktkort', 'systemmeddelande', 'bild', 'typ 59']);
     assert.strictEqual(wa.kindOf(MEDIA[2]), 'bild', 'typ 38 med image/jpeg är en bild');
 });
 
@@ -127,4 +127,55 @@ test('böjningen: ett meddelande skickat, en bild skickad, ett kontaktkort skick
     assert.strictEqual(text(6), 'WhatsApp: bild skickad till Kim (meddelande 6)');
     assert.strictEqual(text(7), 'WhatsApp: kontaktkort skickat till Kim (meddelande 7)');
     assert.strictEqual(text(15), 'WhatsApp: bild mottagen från Kim (meddelande 15)');
+});
+
+test('mottagen fil med bibliotekets id är sparad dit, inte vald därifrån, och typ 38 är engångsvisning', () => {
+    const uuid = '0D8E64D2-4038-4259-BD53-8B7AC769EF32';
+    const media = [{ id: 19, messageId: 19, type: 1, fromMe: 0, dateMs: at(10), chatId: 3, chatName: 'Kim', sessionType: 0, sender: 'Kim', path: 'Media/1@lid/5/0/5077.jpg', size: 94446, mime: 'image/jpeg', assetUuid: uuid }];
+    const out = wa.build({ uuid: uuid, savedByWhatsApp: true, createdMs: at(10), media: media, messages: [{ id: 19, type: 1, fromMe: 0, dateMs: at(10), chatId: 3, chatName: 'Kim', sessionType: 0, sender: 'Kim', mediaId: 19 }] });
+    assert.match(out.events[0].text, /sparad i bildbiblioteket/);
+    assert.doesNotMatch(out.events[0].text, /vald ur/);
+    assert.strictEqual(out.events[0].fromLibrary, false);
+    const f = core.factorWhatsApp({ file: { createdMs: at(10) }, whatsapp: { link: out.link } }, { type: 'saved', importer: wa.APP });
+    assert.match(f.items[0].text, /sparad i bildbiblioteket \(samma post/);
+    const once = wa.build({ messages: [MESSAGES[3]], media: MEDIA }).events[0];
+    assert.ok(once.viewOnce);
+    assert.match(once.text, /engångsvisning/);
+    assert.deepStrictEqual([38, 39, 1].map(wa.isViewOnce), [true, true, false]);
+});
+
+test('en bild vald ur biblioteket behåller den möjliga kopplingen till kamerameddelandet', () => {
+    const media = [
+        { id: 1, messageId: 1, type: 1, fromMe: 1, dateMs: at(2), sentMs: at(2), chatId: 3, chatName: 'Kim', sessionType: 0, path: 'Media/a.jpg', size: 9, mime: 'image/jpeg' },
+        { id: 2, messageId: 2, type: 1, fromMe: 1, dateMs: at(20), sentMs: at(20), chatId: 3, chatName: 'Kim', sessionType: 0, path: 'Media/b.jpg', size: 9, mime: 'image/jpeg', assetUuid: UUID_CAM },
+    ];
+    const out = wa.build({ uuid: UUID_CAM, savedByWhatsApp: true, createdMs: at(0), media: media, messages: [] });
+    assert.deepStrictEqual(out.link.matches.map((m) => m.messageId), [2]);
+    assert.deepStrictEqual(out.link.nearby.map((m) => m.messageId), [1]);
+    const f = core.factorWhatsApp({ file: { createdMs: at(0) }, whatsapp: { link: out.link } }, { type: 'saved', importer: wa.APP });
+    assert.strictEqual(f.verdictText, 'Skickad i WhatsApp');
+    assert.match(f.items[1].text, /skickades också .*meddelande 1\)/);
+});
+
+test('tilläggets logg: mottaget i bakgrunden, inte i databasen, med zonen ur filens ändringstid', () => {
+    const name = 'x/Logs/ServiceExtension_2/whatsapp-2026-11-04-10-42-45-2199-ServiceExtension-0-launch.log';
+    const text = '10:42:45.955 [ 1] [main] LL_A start\n10:42:48.267 [ 2] [net] LL_N xmpp//< recv < [media/ id=AC5997993A5F57B10D5B6261890AF112 f=****:0@lid [enc {1251b}]]\n10:42:52.100 [ 2] [net] LL_A slut\n';
+    const mtimeMs = Date.parse('2026-11-04T10:42:52+01:00');
+    const rows = wa.parseExtensionLog(text, { name: name, mtimeMs: mtimeMs });
+    assert.deepStrictEqual(rows.map((r) => [r.kind, r.stanzaId, r.ms]), [['media', 'AC5997993A5F57B10D5B6261890AF112', Date.parse('2026-11-04T10:42:48.267+01:00')]]);
+    assert.deepStrictEqual(wa.parseExtensionLog(text, { name: 'utan-datum.log', mtimeMs: mtimeMs }), []);
+    const out = wa.build({ media: [], messages: [], extensionLog: rows, stanzaIds: ['ANNAT'] });
+    assert.strictEqual(out.link.pending, 1);
+    assert.strictEqual(out.events[0].kind, 'wa-pending');
+    assert.match(out.events[0].text, /finns inte i ChatStorage/);
+    assert.strictEqual(wa.build({ media: [], messages: [], extensionLog: rows, stanzaIds: [rows[0].stanzaId] }).link.pending, 0);
+    const f = core.factorWhatsApp({ file: { createdMs: at(0) }, whatsapp: { link: out.link } }, { type: 'camera' });
+    assert.match(f.items[0].text, /1 meddelande med media togs emot i bakgrunden/);
+});
+
+test('en kamerafil i WhatsApps tmp utan meddelande: inget meddelande, ingen slutsats om att den inte skickats', () => {
+    const t = { type: 'saved', importer: wa.APP, chatTemp: { app: wa.APP, appName: 'WhatsApp', path: 'tmp/documents/Camera/a.jpg' } };
+    const f = core.factorWhatsApp({ file: { createdMs: at(0) }, whatsapp: { link: wa.build({ savedByWhatsApp: true, createdMs: at(0), media: [], messages: [] }).link } }, t);
+    assert.deepStrictEqual([f.state, f.verdictText], ['info', 'Inget meddelande']);
+    assert.match(f.items[0].text, /tillfälliga mapp/);
 });

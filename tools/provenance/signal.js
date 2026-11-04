@@ -239,14 +239,17 @@
             var isFile = !!matchedMessages[m.id];
             var deleted = m.deletedBy != null && m.deletedBy !== '';
             var viewOnce = Number(m.viewOnce) === 1;
+            var viewed = viewOnce && Number(m.viewOnceDone) === 1;
+            var linked = own && Number(m.linked) === 1;
             var ms = own ? m.sentMs : (m.receivedMs != null ? m.receivedMs : m.sentMs);
             if (ms == null) return;
+            var from = linked ? 'en länkad enhet' : 'den här telefonen';
             var text = 'Signal: ' + what + ' ' + verb + who + ' (meddelande ' + m.id + ')' +
-                (viewOnce ? ', engångsvisning' : '') + (deleted ? ', raderat för alla senare' : '') +
+                (viewOnce ? (viewed ? ', engångsvisning, visad' : ', engångsvisning, inte visad') : '') + (deleted ? ', raderat för alla senare' : '') + (linked ? ', skickat från en länkad enhet' : '') +
                 (!own && m.sentMs != null ? '; avsändarens klocka ' + wall(m.sentMs) + (m.serverMs > 0 ? ', servern ' + wall(m.serverMs) : '') : '');
             var noun = n === 1 ? 'En ' + what : n ? what.charAt(0).toUpperCase() + what.slice(1) : 'Ett meddelande';
-            var plain = n ? (own ? noun + ' skickas från den här telefonen i Signal till ' + who : noun + ' tas emot i Signal från ' + who) + (viewOnce ? ' för engångsvisning' : '') : null;
-            if (deleted) plain = (own ? 'Ett meddelande skickas från den här telefonen i Signal till ' + who : 'Ett meddelande tas emot i Signal från ' + who) + ' (det raderades senare för alla)';
+            var plain = n ? (own ? noun + ' skickas från ' + from + ' i Signal till ' + who : noun + ' tas emot i Signal från ' + who) + (viewOnce ? ' för engångsvisning' : '') : (linked ? 'Ett meddelande skickas från en länkad enhet i Signal till ' + who : null);
+            if (deleted) plain = (own ? 'Ett meddelande skickas från ' + from + ' i Signal till ' + who : 'Ett meddelande tas emot i Signal från ' + who) + ' (det raderades senare för alla)';
             if (isFile) { text = 'Den bedömda filen: ' + text; plain = (own ? 'Den bedömda filen skickas från den här telefonen i Signal till ' + who : 'Den bedömda filen tas emot i Signal från ' + who) + (deleted ? ' (meddelandet raderades senare för alla)' : ''); }
             events.push({ ms: ms, kind: 'sig-message', lane: 'signal', app: APP, own: own, bold: isFile, isFile: isFile, messageId: m.id, attachments: n, viewOnce: Number(m.viewOnce) === 1, deleted: deleted,
                 active: own, activeText: own ? 'ett meddelande skickades' : null,
@@ -359,7 +362,10 @@
     // ---------- Signal på iOS ----------
 
     // recordType i model_TSInteraction (Signals SDSRecordType): 19 mottaget, 21 skickat, 20 samtal,
-    // 65 gruppsamtal, 10 info. Bara 21, 20 och 10 är kontrollerade mot data (labbtelefon, iOS 26.4.1).
+    // 65 gruppsamtal, 10 info. 19, 21, 20 och 10 är kontrollerade mot data (labbtelefon, iOS 26.4.1).
+    // wasNotCreatedLocally: skickat från en länkad enhet. hasSyncedTranscript: skickat från telefonen.
+    // expireStartedAt på ett mottaget meddelande med försvinnande tid: när det öppnades.
+    // De tre är kontrollerade mot en labbsession med loggad ordning (2026-11-04).
     var APP_IOS = 'org.whispersystems.signal';
     var IOS_IN = 19, IOS_OUT = 21, IOS_CALL = 20, IOS_GROUP_CALL = 65;
 
@@ -368,6 +374,11 @@
     function directionIos(recordType) {
         var t = Number(recordType);
         return t === IOS_IN ? 'in' : t === IOS_OUT ? 'out' : null;
+    }
+
+    // När ett mottaget meddelande öppnades: expireStartedAt, bara med försvinnande tid.
+    function openedMs(row) {
+        return directionIos(row.type) === 'in' && Number(row.expiresIn) > 0 && Number(row.expireStartedMs) > 0 ? Number(row.expireStartedMs) : null;
     }
 
     function stem(name) { return String(name || '').replace(/\.[A-Za-z0-9]+$/, '').toLowerCase(); }
@@ -453,17 +464,38 @@
             var isFile = !!matchedMessages[m.id];
             var deleted = Number(m.deleted) === 1;
             var viewOnce = Number(m.viewOnce) === 1;
+            var viewed = viewOnce && Number(m.viewOnceDone) === 1;
+            var linked = own && Number(m.linked) === 1;
             var ms = own ? m.sentMs : (m.receivedMs != null ? m.receivedMs : m.sentMs);
             if (ms == null) return;
-            var text = 'Signal: ' + what + ' ' + verb + who + ' (meddelande ' + m.id + ')' + (viewOnce ? ', engångsvisning' : '') + (deleted ? ', raderat för alla senare' : '') +
+            var from = linked ? 'en länkad enhet' : 'den här telefonen';
+            var text = 'Signal: ' + what + ' ' + verb + who + ' (meddelande ' + m.id + ')' + (viewOnce ? (viewed ? ', engångsvisning, visad' : ', engångsvisning, inte visad') : '') + (deleted ? ', raderat för alla senare' : '') + (linked ? ', skickat från en länkad enhet' : '') +
                 (!own && m.sentMs != null ? '; avsändarens klocka ' + wall(m.sentMs) + (m.serverMs > 0 ? ', servern ' + wall(m.serverMs) : '') : '');
             var noun = n === 1 ? 'En ' + what : n ? what.charAt(0).toUpperCase() + what.slice(1) : 'Ett meddelande';
-            var plain = n ? (own ? noun + ' skickas från den här telefonen i Signal till ' + who : noun + ' tas emot i Signal från ' + who) + (viewOnce ? ' för engångsvisning' : '') : null;
-            if (deleted) plain = (own ? 'Ett meddelande skickas från den här telefonen i Signal till ' + who : 'Ett meddelande tas emot i Signal från ' + who) + ' (det raderades senare för alla)';
-            if (isFile) { text = 'Den bedömda filen: ' + text; plain = own ? 'Den bedömda filen skickas från den här telefonen i Signal till ' + who : 'Den bedömda filen tas emot i Signal från ' + who; }
-            events.push({ ms: ms, kind: 'sig-message', lane: 'signal', app: APP_IOS, own: own, bold: isFile, isFile: isFile, messageId: m.id, attachments: n, viewOnce: viewOnce, deleted: deleted,
-                active: own, activeText: own ? 'ett meddelande skickades' : null,
+            var plain = n ? (own ? noun + ' skickas från ' + from + ' i Signal till ' + who : noun + ' tas emot i Signal från ' + who) + (viewOnce ? ' för engångsvisning' : '') : (linked ? 'Ett meddelande skickas från en länkad enhet i Signal till ' + who : null);
+            if (deleted) plain = (own ? 'Ett meddelande skickas från ' + from + ' i Signal till ' + who : 'Ett meddelande tas emot i Signal från ' + who) + ' (det raderades senare för alla)';
+            if (isFile) { text = 'Den bedömda filen: ' + text; plain = own ? 'Den bedömda filen skickas från ' + from + ' i Signal till ' + who : 'Den bedömda filen tas emot i Signal från ' + who; }
+            events.push({ ms: ms, kind: 'sig-message', lane: 'signal', app: APP_IOS, own: own, bold: isFile, isFile: isFile, messageId: m.id, attachments: n, viewOnce: viewOnce, viewed: viewed, deleted: deleted, linked: linked,
+                active: own && !linked, activeText: own && !linked ? 'ett meddelande skickades' : null,
                 text: text, plain: plain, source: Object.assign({}, srcMain, { column: own ? 'timestamp' : 'receivedAtTimestamp (timestamp, serverTimestamp)' }) });
+            var opened = openedMs(m);
+            if (opened != null) {
+                events.push({ ms: opened, kind: 'sig-opened', lane: 'signal', app: APP_IOS, own: false, bold: isFile, isFile: isFile, messageId: m.id, active: false,
+                    text: (isFile ? 'Den bedömda filen: ' : 'Signal: ') + 'meddelande ' + m.id + ' från ' + who + ' öppnas (försvinnande tid startar)',
+                    plain: isFile ? 'Den bedömda filen öppnas i Signal, på telefonen eller en länkad enhet' : 'Ett mottaget meddelande öppnas i Signal, på telefonen eller en länkad enhet',
+                    source: Object.assign({}, srcMain, { column: 'expireStartedAt' }) });
+            }
+        });
+
+        // Berättelser (stories). Bara Signals egen introduktion och det som skickats eller tagits emot.
+        (ctx.stories || []).forEach(function (st) {
+            if (st.sentMs == null) return;
+            var out = Number(st.direction) === 1;
+            var same = /^[0-9a-f]{64}$/.test(String(ctx.sha256 || '').toLowerCase()) && String(st.sha256 || '').toLowerCase() === String(ctx.sha256).toLowerCase();
+            events.push({ ms: st.sentMs, kind: 'sig-story', lane: 'signal', app: APP_IOS, own: out, bold: same, isFile: same, messageId: 'berättelse ' + st.id, active: out, activeText: out ? 'en berättelse lades upp' : null,
+                text: (same ? 'Den bedömda filen: ' : 'Signal: ') + (out ? 'berättelse publicerad' : 'berättelse mottagen') + ' (id ' + st.id + (st.contentType ? ', ' + st.contentType : '') + ')',
+                plain: same ? 'Den bedömda filen läggs upp som berättelse i Signal' : out ? 'En berättelse läggs upp i Signal' : 'En berättelse tas emot i Signal',
+                source: { db: srcMain.db, table: 'model_StoryMessage', column: 'timestamp', queryId: ctx.sources && ctx.sources.stories || null } });
         });
 
         if (typeof ctx.keep === 'function') events = events.filter(function (e) { return ctx.keep(e.ms); });
@@ -487,7 +519,7 @@
                     contentType: a.contentType, size: a.size, width: a.width, height: a.height, fileName: a.fileName || null,
                     dataFile: a.dataFile ? 'attachment_files/' + a.dataFile : null,
                     sentMs: a.sentMs, receivedMs: a.receivedMs != null ? a.receivedMs : a.refReceivedMs, serverMs: a.serverMs, uploadMs: a.uploadMs,
-                    viewOnce: Number(a.viewOnce) === 1, deleted: Number(a.deleted) === 1,
+                    viewOnce: Number(a.viewOnce) === 1, deleted: Number(a.deleted) === 1, linked: Number(a.linked) === 1, openedMs: openedMs(a),
                 };
             }),
             picks: [], saved: null,

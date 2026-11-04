@@ -5,7 +5,7 @@
 // röktestet (smoke.js) mot påhittade data. Finns labbzipparna kör den också facit-testerna
 // (facit.js), som jämför Härkomsts tider med det som loggades på Android-labbtelefonen, och
 // kontrollerna mot iOS-labbtelefonen (lab-ios.js). Labbzipparna ligger inte i repot; sökvägarna
-// tas ur FT_LAB_ZIP och FT_LAB_IOS_DIR, annars ~/Documents/Exampleextractions/.
+// tas ur FT_LAB_ZIP, FT_LAB_IOS_DIR och FT_LAB_IOS_LOG_DIR, annars ~/Documents/Exampleextractions/.
 //
 //   npm run test:app                röktestet, och labbtesterna om labbzipparna finns
 //   npm run test:app -- --smoke     bara röktestet
@@ -31,9 +31,8 @@ function labZip() {
     return fs.existsSync(p) ? p : null;
 }
 
-function labIosDir() {
-    const facit = require('./facit/lab-ios-signal-whatsapp.json');
-    const d = process.env.FT_LAB_IOS_DIR || path.join(os.homedir(), 'Documents', 'Exampleextractions', facit.dir);
+function labIosDir(facit, envName) {
+    const d = process.env[envName] || path.join(os.homedir(), 'Documents', 'Exampleextractions', facit.dir);
     return require('./lab-ios').labFiles(d) ? d : null;
 }
 
@@ -57,9 +56,12 @@ async function main() {
         process.exit(1);
     }
     const lab = labZip();
-    const labIos = labIosDir();
-    if (onlyFacit && !lab && !labIos) {
-        console.error('Labbzipparna finns inte. Ange sökvägarna i FT_LAB_ZIP och FT_LAB_IOS_DIR.');
+    const iosFacit = require('./facit/lab-ios-signal-whatsapp.json');
+    const logFacit = require('./facit/lab-ios-tidsstamplar.json');
+    const labIos = labIosDir(iosFacit, 'FT_LAB_IOS_DIR');
+    const labIosLog = labIosDir(logFacit, 'FT_LAB_IOS_LOG_DIR');
+    if (onlyFacit && !lab && !labIos && !labIosLog) {
+        console.error('Labbzipparna finns inte. Ange sökvägarna i FT_LAB_ZIP, FT_LAB_IOS_DIR och FT_LAB_IOS_LOG_DIR.');
         process.exit(1);
     }
     const fx = await fixtures.build();
@@ -75,8 +77,10 @@ async function main() {
         if (!onlyFacit) groups.push(['Röktest', require('./smoke').scenarios]);
         if (!onlySmoke && lab) groups.push(['Facit mot Android-labbtelefonen', require('./facit').scenarios(lab)]);
         if (!onlySmoke && !lab) console.log('Facit: Android-labbzippen finns inte, hoppar över (FT_LAB_ZIP).\n');
-        if (!onlySmoke && labIos) groups.push(['Kontroller mot iOS-labbtelefonen', require('./lab-ios').scenarios(labIos)]);
+        if (!onlySmoke && labIos) groups.push(['Kontroller mot iOS-labbtelefonen', require('./lab-ios').scenarios(labIos, iosFacit)]);
         if (!onlySmoke && !labIos) console.log('iOS-labbtelefonen: mappen finns inte, hoppar över (FT_LAB_IOS_DIR).\n');
+        if (!onlySmoke && labIosLog) groups.push(['Facit mot iOS-labbtelefonen (loggad session)', require('./lab-ios').scenarios(labIosLog, logFacit)]);
+        if (!onlySmoke && !labIosLog) console.log('iOS-labbtelefonen, loggad session: mappen finns inte, hoppar över (FT_LAB_IOS_LOG_DIR).\n');
         for (const [group, list] of groups) {
             console.log(group);
             for (const [name, fn] of list) {
