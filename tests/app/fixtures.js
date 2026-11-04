@@ -8,7 +8,8 @@
 // databas med en bild vald ur bildbiblioteket och en mottagen bild. Namnen i chattarna bär HTML.
 // Fem dagar efter T: Telegrams databaser (i Telegrams eget format, kodat av postbox-encode.js) med en
 // bild vald ur bildbiblioteket, en bild tagen med Telegrams kamera (kvar i Telegrams tmp/) och en
-// mottagen bild under postbox/media/.
+// mottagen bild under postbox/media/. PowerLog täcker samma timmar (knowledgeC gör det inte): skärmen,
+// låset, kameraappen och Telegram på skärmen och Telegrams kamera när IMG_0008 togs.
 'use strict';
 
 const crypto = require('node:crypto');
@@ -22,6 +23,7 @@ const { buildZip } = require(path.join(ROOT, 'tools', 'db-queries', 'fixtures', 
 const schemas = require(path.join(ROOT, 'tools', 'db-queries', 'fixtures', 'photos-schema.json'));
 const chatSchemas = require(path.join(ROOT, 'tools', 'db-queries', 'fixtures', 'chat-schemas.json'));
 const TG = require(path.join(ROOT, 'tools', 'db-queries', 'fixtures', 'postbox-encode.js'));
+const { powerlogDb } = require(path.join(ROOT, 'tools', 'db-queries', 'fixtures', 'powerlog-fixture.js'));
 
 const COCOA = 978307200;
 const T = Date.UTC(2024, 5, 1, 12, 34, 56) / 1000;   // tiden i exif-sample.jpg (14:34:56 +02:00)
@@ -36,6 +38,7 @@ const UUID_TG = '7B7B7B7B-2222-4333-8444-955555555555';   // bildbibliotekets id
 const GROUP_TG = 'AppGroup/BBBBBBBB-CCCC-4DDD-8EEE-FFFFFFFFFFFF/';
 const APP_TG = 'Application/12121212-3434-4565-8787-909090909090/';
 const TG_MEDIA = 'telegram-cloud-photo-size-4-777-y';
+const GUID_PL = '13131313-2424-4535-8646-757575757575/';
 
 async function loadSql() {
     const vendor = path.join(ROOT, 'tools', 'ios-keychain', 'vendor', 'sqljs');
@@ -205,6 +208,21 @@ function telegramDbs(SQL) {
     };
 }
 
+// PowerLog runt T3: kameraappen tar IMG_0007, Telegram är på skärmen och dess kamera är igång när
+// IMG_0008 tas (T3+300). PowerLogs egen tid går 15 minuter fel, som på labbtelefonen.
+function powerlog(SQL) {
+    const hb = [];
+    for (let t = T3 - 7200; t <= T3 + 7200; t += 600) hb.push(t);
+    return Buffer.from(powerlogDb(SQL, {
+        offsets: [{ at: T3 - 7200, system: -903.4 }],
+        backlight: [{ t: T3 - 100, active: 1 }, { t: T3 + 900, active: 0 }],
+        lock: [{ t: T3 - 120, locked: 0 }, { t: T3 + 905, locked: 1 }],
+        screen: [{ t: T3 - 6, bundle: 'com.apple.camera' }, { t: T3 + 6, bundle: 'com.apple.springboard.home-screen' }, { t: T3 + 280, bundle: 'ph.telegra.Telegraph' }, { t: T3 + 420, bundle: 'com.apple.springboard.home-screen' }],
+        camera: [{ t: T3 - 4, app: 'com.apple.camera', state: 1 }, { t: T3 + 3, state: 0 }, { t: T3 + 296, app: 'ph.telegra.Telegraph', state: 1 }, { t: T3 + 302, state: 0 }],
+        heartbeat: hb,
+    }));
+}
+
 // En binär plist med en dict av strängar, som behållarens metadata (.com.apple.mobile_container_manager.metadata.plist).
 function bplistDict(obj) {
     const keys = Object.keys(obj);
@@ -277,6 +295,8 @@ async function build() {
         { name: P + 'Containers/Shared/' + GROUP_TG + 'telegram-data/account-1/postbox/media/' + TG_MEDIA, data: other('tg-mottagen'), mtime: T3 + 401 },
         { name: P + 'Containers/Data/' + APP_TG + '.com.apple.mobile_container_manager.metadata.plist', data: bplistDict({ MCMMetadataIdentifier: 'ph.telegra.Telegraph' }) },
         { name: P + 'Containers/Data/' + APP_TG + 'tmp/camphoto_123456.jpg', data: tgCamera, mtime: T3 + 300 },
+        { name: 'filesystem1/private/var/containers/Shared/SystemGroup/' + GUID_PL + 'Library/BatteryLife/CurrentPowerlog.PLSQL', data: powerlog(SQL), deflate: true },
+        { name: 'filesystem1/private/var/containers/Shared/SystemGroup/' + GUID_PL + 'Library/BatteryLife/CurrentPowerlog.PLSQL-wal', data: '' },
     ]);
     const files = {
         dir,
@@ -284,11 +304,13 @@ async function build() {
         image: path.join(dir, 'IMG_0001.JPG'),
         knowledge: path.join(dir, 'knowledgeC.db'),
         keychain: path.join(dir, 'Testextraktion-iOS17_keychain.plist'),
+        powerlogArchive: path.join(dir, 'powerlog_2024-06-06_ABCDEF12.PLSQL.gz'),
     };
     fs.writeFileSync(files.zip, zip);
     fs.writeFileSync(files.keychain, keychainPlist());
     fs.writeFileSync(files.image, jpeg);
     fs.writeFileSync(files.knowledge, knowledge);
+    fs.writeFileSync(files.powerlogArchive, require('node:zlib').gzipSync(powerlog(SQL)));
     return { files, T: T * 1000, imageName: 'IMG_0001.JPG', T2: T2 * 1000, waMedia: 'mottagen.jpg', T3: T3 * 1000, tgMedia: TG_MEDIA };
 }
 

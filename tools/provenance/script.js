@@ -428,7 +428,8 @@
         // Sökvägen i zippen följer med, så att queryn kan öppnas och köras i Queries.
         var timeColumns = (timeKeys || []).map(function (k) { return ProvenanceRoles.fieldSpec(query, k); })
             .filter(function (t, i, a) { return t && a.findIndex(function (x) { return x && x.col === t.col; }) === i; });
-        run.queries.push({ id: query.id, db: loaded.label, title: query.title, sql: sql, path: loaded.dbEntry.name, walPath: loaded.walEntry ? loaded.walEntry.name : null, timeColumns: timeColumns });
+        // Ett komprimerat arkiv går inte att öppna i Queries, så det får ingen sökväg (ingen knapp).
+        run.queries.push({ id: query.id, db: loaded.label, title: query.title, sql: sql, path: loaded.gz ? null : loaded.dbEntry.name, walPath: loaded.walEntry ? loaded.walEntry.name : null, timeColumns: timeColumns });
         return { rows: ProvenanceRoles.mapRows(query, res, timeKeys), result: res, sql: sql };
     }
 
@@ -1002,6 +1003,18 @@
             } else {
                 input.missingDbs['/app/usage'] = true;
                 input.missingDbs['/display/isBacklit'] = true;
+            }
+            // PowerLog: skärmen, låset och kameran per app, och appen på skärmen när knowledgeC saknar
+            // /app/usage i fönstret. Tiderna är rättade med PowerLogs tidsförskjutning (powerlog.js).
+            var pl = hitFor('powerlog');
+            var plArchives = await powerlogArchives();
+            if (pl || plArchives.length) try {
+                await addPowerLog(input, meta, pl, plArchives, range, run);
+            } catch (e) {
+                input.warnings.push('PowerLog (CurrentPowerlog.PLSQL) kunde inte läsas: ' + e.message);
+                input.missingDbs.PowerLog = 'unread';
+            } else {
+                input.missingDbs.PowerLog = true;
             }
             var rt = hitFor('routined-cache');
             if (rt) try {
@@ -1715,6 +1728,127 @@
             if (cov) meta.coverage.push(['Telegram (meddelanden kvar)', cov.firstMs ? ProvenanceCore.formatUtc(cov.firstMs) : '', cov.lastMs ? ProvenanceCore.formatUtc(cov.lastMs) : '', Number(cov.rows)]);
         }
         input.warnings = input.warnings.concat(db.warnings);
+    }
+
+    // ---------- PowerLog (iOS) ----------
+
+    // PowerLogs dagsarkiv (gzip). Sparas per zip; en sökning i innehållsförteckningen.
+    var PL_ARCHIVE = /\/Library\/BatteryLife\/Archives\/powerlog_(\d{4})-(\d{2})-(\d{2})_[0-9A-Fa-f]+\.PLSQL\.gz$/;
+    async function powerlogArchives() {
+        var z = state.zip;
+        if (z.plArchives) return z.plArchives;
+        var hits = await ExtractionCore.find(z.read, z.file.size, function (n) { return PL_ARCHIVE.test(n); });
+        z.plArchives = hits.map(function (e) {
+            var m = PL_ARCHIVE.exec(e.name);
+            return { entry: e, date: m[1] + '-' + m[2] + '-' + m[3], dayMs: Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])) };
+        }).sort(function (a, b) { return a.dayMs - b.dayMs; });
+        return z.plArchives;
+    }
+
+    async function gunzip(bytes) {
+        if (typeof DecompressionStream !== 'function') throw new Error('Den här webbläsaren kan inte packa upp gzip.');
+        var stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('gzip'));
+        return new Uint8Array(await new Response(stream).arrayBuffer());
+    }
+
+    // Ett PowerLog-arkiv: läses ur zippen med CRC-kontroll, packas upp i minnet och öppnas som databas.
+    // SHA-256 i protokollet gäller det komprimerade arkivet, som det ligger i zippen.
+    async function loadGzDb(entry, label) {
+        var key = entry.name;
+        if (state.loaded[key]) return state.loaded[key];
+        await loadSql();
+        var r = await ExtractionCore.readEntry(state.zip.read, entry);
+        var sha = await ExtractionCore.sha256(r.bytes);
+        var bytes = await gunzip(r.bytes);
+        var loaded = {
+            bytes: bytes, stats: {}, hashes: { db: sha, wal: '' }, lines: [state.zip.zipLine, r.line], dbEntry: entry, walEntry: null, crcOk: r.crcOk,
+            warnings: r.crcOk ? [] : ['CRC32 för ' + ExtractionCore.baseName(entry.name) + ' stämmer inte med zippen.'], label: label, keySource: null, gz: true,
+            derived: { line: 'Arkivet är gzip-komprimerat och packades upp i minnet (' + bytes.length + ' byte). SHA-256 gäller den komprimerade filen.' },
+        };
+        loaded.sqlDb = new SQL.Database(bytes);
+        state.loaded[key] = loaded;
+        return loaded;
+    }
+
+    // Övergångarna ur PowerLog blir intervall (powerlog.js), ur den aktuella filen och dagsarkiven vars
+    // datum ligger nära fönstret. Ett arkiv utan tidsförskjutning används inte. Glapp räknas i varje fil
+    // och mellan filer som inte möts; ett glapp som en annan fil täcker utan glapp räknas inte.
+    async function addPowerLog(input, meta, hit, archives, range, run) {
+        var src = sourceByKey('powerlog');
+        var roles = src.roles;
+        var DAY = 86400000;
+        var dbs = [];
+        if (hit) dbs.push(await loadDb(hit, src.title));
+        var near = archives.filter(function (a) { return a.dayMs >= range.startMs - 2 * DAY && a.dayMs <= range.endMs + DAY; });
+        for (var i = 0; i < near.length; i++) {
+            try { dbs.push(await loadGzDb(near[i].entry, 'PowerLog-arkiv ' + near[i].date)); }
+            catch (e) { input.warnings.push('PowerLog-arkivet ' + near[i].date + ' kunde inte läsas: ' + e.message); }
+        }
+        var all = { backlight: [], lock: [], screenState: [], camera: [] };
+        var parts = [];
+        dbs.forEach(function (db) {
+            var cov = roles['pl-coverage'] ? runRole(db, roles['pl-coverage'], {}, ['first', 'last'], run).rows[0] : null;
+            if (!cov || cov.firstMs == null || cov.lastMs == null) {
+                input.warnings.push(db.label + ': PowerLogs tidsförskjutning eller täta tabeller saknas, så tiderna kan inte rättas. Filen används inte.');
+                return;
+            }
+            var gaps = [];
+            try { gaps = runRole(db, roles['pl-gaps'], {}, ['start', 'end'], run).rows.filter(function (g) { return g.startMs != null; }).map(function (g) { return { startMs: g.startMs, endMs: g.endMs }; }); }
+            catch (e) { input.warnings.push(db.label + ': glappen kunde inte räknas (' + e.message + '). Ett läge kan därför sträcka sig över en tid då telefonen var avstängd.'); }
+            parts.push({ db: db, cov: cov, gaps: gaps });
+            var rows = function (role) { return roles[role] ? runRole(db, roles[role], { window: range }, ['time'], run).rows.filter(function (r) { return r.timeMs != null; }) : []; };
+            all.backlight = all.backlight.concat(rows('pl-backlight'));
+            all.lock = all.lock.concat(rows('pl-lock'));
+            all.screenState = all.screenState.concat(rows('pl-screen'));
+            all.camera = all.camera.concat(rows('pl-camera'));
+            meta.coverage.push([db.label, ProvenanceCore.formatUtc(cov.firstMs), ProvenanceCore.formatUtc(cov.lastMs), Number(cov.rows)]);
+            input.warnings = input.warnings.concat(db.warnings);
+        });
+        if (!parts.length) return;
+        // Samma rad kan finnas i två filer, eftersom arkiven överlappar.
+        var dedupe = function (list, key) { var seen = {}; return list.filter(function (r) { var k = key(r); if (seen[k]) return false; seen[k] = true; return true; }); };
+        all.backlight = dedupe(all.backlight, function (r) { return r.raw + '|' + r.active; });
+        all.lock = dedupe(all.lock, function (r) { return r.raw + '|' + r.locked; });
+        all.screenState = dedupe(all.screenState, function (r) { return r.raw + '|' + r.role + '|' + r.bundle; });
+        all.camera = dedupe(all.camera, function (r) { return r.raw + '|' + r.app + '|' + r.type + '|' + r.state; });
+        var gaps = [];
+        parts.forEach(function (p) {
+            p.gaps.forEach(function (g) {
+                var covered = parts.some(function (o) {
+                    return o !== p && o.cov.firstMs <= g.startMs && o.cov.lastMs >= g.endMs && !o.gaps.some(function (h) { return h.startMs < g.endMs && h.endMs > g.startMs; });
+                });
+                if (!covered) gaps.push(g);
+            });
+        });
+        var sorted = parts.slice().sort(function (a, b) { return a.cov.firstMs - b.cov.firstMs; });
+        var reach = sorted[0].cov.lastMs;
+        sorted.slice(1).forEach(function (p) {
+            if (p.cov.firstMs - reach > 2 * 3600000) gaps.push({ startMs: reach, endMs: p.cov.firstMs });
+            reach = Math.max(reach, p.cov.lastMs);
+        });
+        gaps.sort(function (a, b) { return a.startMs - b.startMs; });
+        var firstMs = sorted[0].cov.firstMs;
+        var lastMs = Math.max.apply(null, parts.map(function (p) { return p.cov.lastMs; }));
+        var built = ProvenancePowerLog.build({ backlight: all.backlight, lock: all.lock, screenState: all.screenState, camera: all.camera, gaps: gaps, coverage: { lastMs: lastMs } });
+        var source = function (table, column, role) { return { db: 'CurrentPowerlog.PLSQL' + (dbs.length > 1 ? ' och arkiven' : ''), table: table, column: column, queryId: roles[role] ? roles[role].id : role }; };
+        var inRange = function (iv) { return iv.startMs <= range.endMs && (iv.endMs != null ? iv.endMs : iv.startMs) >= range.startMs; };
+        built.screen.filter(inRange).forEach(function (iv) {
+            input.screen.push({ startMs: iv.startMs, endMs: iv.endMs, on: iv.on, stream: 'PowerLog', source: source('PLDisplayAgent_EventPoint_Display', 'timestamp + tidsförskjutning, Active', 'pl-backlight') });
+        });
+        built.lock.filter(inRange).forEach(function (iv) {
+            input.lock.push({ startMs: iv.startMs, endMs: iv.endMs, locked: iv.locked, stream: 'PowerLog', source: source('PLSpringBoardAgent_EventForward_SBLock', 'timestamp + tidsförskjutning, Locked', 'pl-lock') });
+        });
+        built.camera.filter(inRange).forEach(function (c) {
+            input.cameraUse.push({ startMs: c.startMs, endMs: c.endMs, app: c.app, stream: 'PowerLog', source: source('PLCameraAgent_EventForward_Camera', 'timestamp + tidsförskjutning, BundleId, State', 'pl-camera') });
+        });
+        // knowledgeC:s /app/usage går före: PowerLogs app på skärmen fyller bara ett fönster utan den.
+        if (!input.appIntervals.some(function (iv) { return iv.stream === '/app/usage'; })) {
+            built.apps.filter(inRange).forEach(function (iv) {
+                input.appIntervals.push({ startMs: iv.startMs, endMs: iv.endMs, app: iv.app, stream: 'PowerLog', source: source('PLScreenStateAgent_EventForward_ScreenState', 'timestamp + tidsförskjutning, bundleID', 'pl-screen') });
+            });
+        }
+        input.coverage.PowerLog = { firstMs: firstMs, lastMs: lastMs, rows: parts.reduce(function (n, p) { return n + Number(p.cov.rows || 0); }, 0), gaps: gaps };
+        gaps.forEach(function (g) { meta.coverage.push(['PowerLog: glapp (avstängd eller ingen loggning)', ProvenanceCore.formatUtc(g.startMs), ProvenanceCore.formatUtc(g.endMs), 0]); });
     }
 
     // ---------- Appversioner ----------

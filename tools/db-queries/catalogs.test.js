@@ -146,7 +146,7 @@ test('rollqueryer för Härkomst: dolda, med epoch och fältkarta som stämmer m
     for (const db of appUsage.databases) for (const q of db.queries) if (q.hidden) groups.push([db.id + '/' + q.id, q]);
     for (const db of routined.databases) for (const q of db.queries) if (q.hidden) groups.push([db.id + '/' + q.id, q]);
     for (const db of snapchat.databases) for (const q of db.queries) if (q.hidden) groups.push([db.id + '/' + q.id, q]);
-    for (const db of signalIos.databases.concat(whatsappIos.databases)) for (const q of db.queries) if (q.hidden) groups.push([db.id + '/' + q.id, q]);
+    for (const db of signalIos.databases.concat(whatsappIos.databases, telegramIos.databases)) for (const q of db.queries) if (q.hidden) groups.push([db.id + '/' + q.id, q]);
     for (const cat of android.categories) for (const q of cat.queries) if (q.hidden) groups.push(['android-' + cat.id + '/' + q.id, q]);
     assert.ok(groups.length >= 12, 'för få rollqueryer: ' + groups.length);
     for (const [name, q] of groups) {
@@ -355,3 +355,48 @@ test('Telegram: varje query körs mot påhittade databaser i labbets form, och n
     db.close();
 });
 
+
+// ---------- PowerLog på iOS ----------
+
+test('PowerLog: queryerna körs, tiden rättas med förskjutningen som gällde, glapp och täckning', async () => {
+    const S = await sqlJs();
+    const { powerlogDb } = require('./fixtures/powerlog-fixture');
+    const Roles = require('../provenance/roles');
+    const def = appUsage.databases.find((d) => d.id === 'powerlog');
+    assert.deepStrictEqual(def.paths, ['Library/BatteryLife/CurrentPowerlog.PLSQL']);
+    checkGroup(def.id, def.queries, (q) => q.subtitle);
+    const T = 1793700000;
+    const hb = [];
+    for (let t = T - 7200; t <= T + 1800; t += 600) hb.push(t);
+    for (let t = T + 1800 + 5 * 3600; t <= T + 1800 + 6 * 3600; t += 600) hb.push(t);   // telefonen avstängd i fem timmar
+    const db = new S.Database(powerlogDb(S, {
+        offsets: [{ at: T - 7200, system: -900 }, { at: T + 600, system: -905 }],
+        camera: [{ t: T - 2, app: 'net.whatsapp.WhatsApp', state: 1 }, { t: T + 1, state: 0 }, { t: T + 900, app: 'ph.telegra.Telegraph', state: 1 }, { t: T + 903, state: 0 }],
+        backlight: [{ t: T - 60, active: 1 }, { t: T + 1200, active: 0 }],
+        blank: [{ t: T - 60, blanked: 0 }],
+        lock: [{ t: T - 70, locked: 0 }],
+        screen: [{ t: T - 30, bundle: 'net.whatsapp.WhatsApp' }, { t: T + 40, bundle: 'com.apple.springboard.home-screen' }],
+        heartbeat: hb,
+    }));
+    for (const q of def.queries.filter((x) => !x.hidden)) {
+        const sql = q.sql.replace(/\{\{unixStart\}\}/g, String(T - 3600)).replace(/\{\{unixEnd\}\}/g, String(T + 3600));
+        try { db.exec(sql); } catch (e) { assert.fail(q.id + ': ' + e.message); }
+    }
+    const win = { startMs: (T - 600) * 1000, endMs: (T + 1800) * 1000 };
+    const run = (role, keys) => {
+        const q = def.queries.find((x) => x.role === role);
+        const res = db.exec(Roles.fill(q.sql, q.params.length ? { window: win } : {}));
+        return Roles.mapRows(q, res.length ? res[res.length - 1] : { columns: [], values: [] }, keys);
+    };
+    // Varje rad rättas med förskjutningen som gällde vid raden: före T+600 -900 s, efter -905 s.
+    assert.deepStrictEqual(run('pl-camera', ['time']).map((r) => [Math.round(r.timeMs / 1000) - T, r.app, Number(r.state)]),
+        [[-2, 'net.whatsapp.WhatsApp', 1], [1, null, 0], [900, 'ph.telegra.Telegraph', 1], [903, null, 0]]);
+    assert.deepStrictEqual(run('pl-backlight', ['time']).map((r) => [Math.round(r.timeMs / 1000) - T, Number(r.active)]), [[-60, 1], [1200, 0]]);
+    assert.deepStrictEqual(run('pl-lock', ['time']).map((r) => Math.round(r.timeMs / 1000) - T), [-70]);
+    assert.deepStrictEqual(run('pl-screen', ['time']).map((r) => r.bundle), ['net.whatsapp.WhatsApp', 'com.apple.springboard.home-screen']);
+    const gaps = run('pl-gaps', ['start', 'end']);
+    assert.deepStrictEqual(gaps.map((g) => [Math.round(g.startMs / 1000) - T, Math.round(g.endMs / 1000) - T]), [[1800, 1800 + 5 * 3600]]);
+    const cov = run('pl-coverage', ['first', 'last'])[0];
+    assert.deepStrictEqual([Math.round(cov.firstMs / 1000) - T, Math.round(cov.lastMs / 1000) - T, Number(cov.rows)], [-7200, 1800 + 6 * 3600, hb.length]);
+    db.close();
+});

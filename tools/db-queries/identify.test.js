@@ -56,6 +56,7 @@ const HEAD = (s) => Uint8Array.from(Buffer.from(s, 'binary'));
 test('kindOf: zip, SQLite, -wal och resten', () => {
     assert.strictEqual(DbIdentify.kindOf(HEAD('PK\x03\x04rest of header'), 'x.bin'), 'zip');
     assert.strictEqual(DbIdentify.kindOf(HEAD('PK\x05\x06'), 'tom'), 'zip');
+    assert.strictEqual(DbIdentify.kindOf(HEAD('\x1f\x8b\x08\x00'), 'powerlog_2026-02-12_6AF36970.PLSQL.gz'), 'gzip');
     assert.strictEqual(DbIdentify.kindOf(HEAD('SQLite format 3\x00'), 'Photos.sqlite'), 'sqlite');
     assert.strictEqual(DbIdentify.kindOf(HEAD('SQLite format 3\x00'), 'app_usage'), 'sqlite');
     assert.strictEqual(DbIdentify.kindOf(HEAD('\x37\x7f\x06\x82\x00\x2d\xe2\x18'), 'okänt namn'), 'wal');

@@ -419,6 +419,22 @@
         return openLoose(files[p.dbs[0]], wal, p.journal === null ? null : files[p.journal]);
     }
 
+    // Ett gzip-komprimerat arkiv (PowerLogs dagsarkiv) packas upp i minnet och öppnas som databasen inuti.
+    // Spårbarheten säger det, med det komprimerade arkivets storlek och SHA-256.
+    function gzipSource(file) {
+        return {
+            name: file.name.replace(/\.gz$/i, ''),
+            archive: true,
+            read: async function () {
+                if (typeof DecompressionStream !== 'function') throw new Error('Den här webbläsaren kan inte packa upp gzip.');
+                var gz = new Uint8Array(await file.arrayBuffer());
+                var bytes = new Uint8Array(await new Response(new Blob([gz]).stream().pipeThrough(new DecompressionStream('gzip'))).arrayBuffer());
+                var sha = await ExtractionCore.sha256(gz);
+                return { bytes: bytes, lines: ['Från disk: ' + file.name + ' (' + file.size + ' byte, ändrad ' + new Date(file.lastModified).toISOString() + ', SHA-256 ' + sha + '), gzip-komprimerad och uppackad i minnet (' + bytes.length + ' byte)'] };
+            },
+        };
+    }
+
     // Läser in filen, provar katalogens queries mot schemat och väljer databasen den känns igen som.
     // En krypterad fil känns igen på namnet. Känns filen inte igen används den för databasen som
     // visas, annars stannar översikten med en rad om filen.
@@ -426,13 +442,15 @@
         var app = window.QueriesApp;
         var run = window.QueriesRun;
         var kind = await sniff(dbFile);
-        var src = { db: run.fileSource(dbFile), wal: walFile ? run.fileSource(walFile) : null };
+        var gz = kind === 'gzip';
+        if (gz) kind = 'sqlite';
+        var src = { db: gz ? gzipSource(dbFile) : run.fileSource(dbFile), wal: walFile ? run.fileSource(walFile) : null };
         var cur = app.currentDb();
         // Den visade databasen går före när filen passar flera, och dess operativsystem när det inte
         // finns någon zip. Utom när den bara var gissad på namnet, till exempel innan -wal lades till.
         var src0 = app.source() || {};
         var guessed = !!(src0.file && loose && loose.found && loose.found.byName);
-        var opts = { name: dbFile.name, prefer: cur && !guessed ? cur.id : '', os: zipOs() || (cur && !guessed ? cur.os : '') };
+        var opts = { name: src.db.name, prefer: cur && !guessed ? cur.id : '', os: zipOs() || (cur && !guessed ? cur.os : '') };
         var opened = null;
         var found = null;
         say('Läser in ' + escapeHtml(dbFile.name) + '…');

@@ -91,9 +91,11 @@
 
     // Källan på en rad: filerna och var de kom ifrån.
     function updateState() {
-        var ready = !!files.db && (!!files.wal || noWal.checked);
+        // Ett packat arkiv (PowerLogs dagsarkiv) är en stängd databas utan -wal.
+        var closed = !!(files.db && files.db.archive);
+        var ready = !!files.db && (!!files.wal || noWal.checked || closed);
         runButton.disabled = !ready;
-        noWalLabel.classList.toggle('display-none', !files.db || !!files.wal || !!files.zip);
+        noWalLabel.classList.toggle('display-none', !files.db || !!files.wal || !!files.zip || closed);
         var name = function (f) { return '<strong>' + escapeHtml(f.name) + '</strong>'; };
         var html;
         if (!files.db) html = 'Ingen databas öppen. Öppna den, eller extraktionen, med knappen högst upp.';
@@ -101,7 +103,8 @@
             html = name(files.db) + (files.wal ? ' och ' + name(files.wal) : '') + (files.zip ? ' ur ' + escapeHtml(files.zip) : ' från disk');
             if (files.cipher && files.cipher.passphrase && !keyInput.value.trim()) html += ', nyckeln ur ' + escapeHtml(files.cipher.source);
             html += '.';
-            if (!files.wal && files.zip) html += ' <span class="run-warn">Extraktionen har ingen -wal för databasen: allt som finns i databasfilen kommer med.</span>';
+            if (closed) html += ' Arkivet är gzip-komprimerat och packas upp i minnet. Ett arkiv har ingen -wal.';
+            else if (!files.wal && files.zip) html += ' <span class="run-warn">Extraktionen har ingen -wal för databasen: allt som finns i databasfilen kommer med.</span>';
             else if (!files.wal && !noWal.checked) html += ' <span class="run-warn">Ingen -wal vald: poster som bara finns i -wal kommer att saknas.</span>';
             if (files.mismatch) html += ' <span class="run-warn">-wal har inte samma namn som databasen. Kontrollera att de hör ihop.</span>';
         }

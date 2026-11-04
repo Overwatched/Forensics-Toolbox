@@ -31,7 +31,9 @@ async function assess(c, name) {
         const m = ProvenanceApp.model();
         if (!m || m.file.filename !== ${JSON.stringify(name)}) return { error: document.getElementById('run-status').innerText };
         const f = Object.fromEntries(m.factors.map(x => [x.id, { state: x.state, verdict: x.verdictText || '' }]));
+        const cam = m.factors.find(x => x.id === 'camera');
         return { T: m.file.createdMs, type: m.type.label, factors: f, titles: Object.fromEntries(m.factors.map(x => [x.id, x.title])), versions: ProvenanceApp.meta().appVersionsText || '',
+            cameraText: cam ? cam.items.map(i => i.text).join(' ') : '',
             events: m.events.filter(e => /^(sig|wa|tg)-/.test(e.kind)).map(e => ({ kind: e.kind, isFile: !!e.isFile, near: !!e.near, messageId: e.messageId, ms: e.ms, own: !!e.own, viewOnce: !!e.viewOnce })) };
     })()`);
 }
@@ -63,6 +65,7 @@ function check(f, d) {
     nearby(f.nearby, 'wa-message', 'WhatsApp');
     nearby(f.telegramNearby, 'tg-message', 'Telegram');
     if (f.cameraTitle) expect(d.titles.camera === f.cameraTitle, 'Kamerafaktorn heter ' + d.titles.camera + ', väntat ' + f.cameraTitle);
+    if (f.cameraText) expect(new RegExp(f.cameraText).test(d.cameraText), 'Kamerafaktorn säger: ' + d.cameraText);
     if (f.typeLabel) expect(d.type === f.typeLabel, 'Typen är ' + d.type);
     (facit.versions || []).forEach((v) => expect(d.versions.includes(v), 'Appversionen ' + v + ' saknas i protokollet: ' + d.versions));
     return 'T ' + (d.T ? iso(d.T).slice(11, 23) + 'Z' : '–');

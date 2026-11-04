@@ -206,9 +206,11 @@
                         <li>knowledgeC: <code>/private/var/mobile/Library/CoreDuet/Knowledge/knowledgeC.db</code></li>
                         <li><code>/app/usage</code> (app och kamera), <code>/display/isBacklit</code> (skärm), <code>/device/isLocked</code> (lås)</li>
                         <li><code>/app/inFocus</code> saknas på iOS 18 och 26 (de versioner som kontrollerats) och används bara som reserv</li>
-                        <li>Biome <code>App.InFocus</code> är SEGB/protobuf, inte SQLite: iLEAPP</li>
+                        <li>PowerLog: <code>…/SystemGroup/&lt;GUID&gt;/Library/BatteryLife/CurrentPowerlog.PLSQL</code> och dagsarkiven i <code>Archives/</code>. Skärm, lås, appen på skärmen och kameran per app, också en apps egen kamera. På iOS 26 finns skärmen och låset bara där</li>
+                        <li>PowerLog skriver med en egen tid, som rättas med tabellen för tidsförskjutning. Utan den går tiden fel med allt från sekunder till år</li>
+                        <li>Biome <code>App.InFocus</code> är SEGB/protobuf, inte SQLite: iLEAPP. Biomes strömmar för skärm och lås skrevs inte längre i de extraktioner som kontrollerats</li>
                     </ul>
-                    <p class="tools"><a href="../tools/db-queries/queries.html?db=knowledgec" data-tool="tools/db-queries/queries.html?db=knowledgec">Queries</a></p>
+                    <p class="tools"><a href="../tools/db-queries/queries.html?db=knowledgec" data-tool="tools/db-queries/queries.html?db=knowledgec">Queries</a> · <a href="../tools/db-queries/queries.html?db=powerlog" data-tool="tools/db-queries/queries.html?db=powerlog">PowerLog i Queries</a></p>
                 </div>
                 <div>
                     <h3>Android</h3>

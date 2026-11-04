@@ -26,6 +26,8 @@
         var b = head || [];
         var n = String(name || '');
         if (b[0] === 0x50 && b[1] === 0x4b && ((b[2] === 3 && b[3] === 4) || (b[2] === 5 && b[3] === 6) || (b[2] === 7 && b[3] === 8))) return 'zip';
+        // gzip, till exempel PowerLogs dagsarkiv (powerlog_….PLSQL.gz): en databas som packas upp i minnet.
+        if (b[0] === 0x1f && b[1] === 0x8b) return 'gzip';
         if (/-wal$/i.test(n) || (b[0] === 0x37 && b[1] === 0x7f && b[2] === 0x06 && (b[3] === 0x82 || b[3] === 0x83))) return 'wal';
         if (/-(shm|journal)$/i.test(n)) return 'companion';
         var plain = b.length >= 16;

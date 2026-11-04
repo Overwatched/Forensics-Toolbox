@@ -1,0 +1,13 @@
+{
+  "_": "CREATE TABLE ur CurrentPowerlog.PLSQL på en labbtelefon (iOS 26.4.1, 2026-11-03), bara schemat för tabellerna som PowerLog-queryerna läser. Inga data.",
+  "powerlog-ios26": {
+    "PLStorageOperator_EventForward_TimeOffset": "CREATE TABLE 'PLStorageOperator_EventForward_TimeOffset' ('ID' INTEGER PRIMARY KEY AUTOINCREMENT, 'timestamp' REAL, 'baseband' REAL, 'kernel' REAL, 'system' REAL)",
+    "PLCameraAgent_EventForward_Camera": "CREATE TABLE 'PLCameraAgent_EventForward_Camera' ('ID' INTEGER PRIMARY KEY AUTOINCREMENT, 'timestamp' REAL, 'AverageFramerate' REAL, 'BackgroundBlurEnabled' INTEGER, 'BundleId' TEXT, 'CameraType' INTEGER, 'CenterStageEnabled' INTEGER, 'ContinuityCameraType' INTEGER, 'DeferredCount' INTEGER, 'IsWired' INTEGER, 'MaximumSupportedFrameRate' REAL, 'PixelFormatIsTenBit' INTEGER, 'SecondaryInterFrameReferenceEnabled' INTEGER, 'SensorHeight' INTEGER, 'SensorWidth' INTEGER, 'State' INTEGER, 'VideoCaptureHeight' INTEGER, 'VideoCaptureWidth' INTEGER)",
+    "PLDisplayAgent_EventPoint_Display": "CREATE TABLE 'PLDisplayAgent_EventPoint_Display' ('ID' INTEGER PRIMARY KEY AUTOINCREMENT, 'timestamp' REAL, 'Block' TEXT, 'Active' INTEGER)",
+    "PLSpringBoardAgent_EventForward_SBBlank": "CREATE TABLE 'PLSpringBoardAgent_EventForward_SBBlank' ('ID' INTEGER PRIMARY KEY AUTOINCREMENT, 'timestamp' REAL, 'Blanked' INTEGER)",
+    "PLSpringBoardAgent_EventForward_SBLock": "CREATE TABLE 'PLSpringBoardAgent_EventForward_SBLock' ('ID' INTEGER PRIMARY KEY AUTOINCREMENT, 'timestamp' REAL, 'Locked' INTEGER)",
+    "PLScreenStateAgent_EventForward_ScreenState": "CREATE TABLE 'PLScreenStateAgent_EventForward_ScreenState' ('ID' INTEGER PRIMARY KEY AUTOINCREMENT, 'timestamp' REAL, 'AppRole' INTEGER, 'Display' INTEGER, 'Level' REAL, 'Orientation' INTEGER, 'ScreenWeight' REAL, 'bundleID' TEXT)",
+    "PLApplicationAgent_EventForward_Application": "CREATE TABLE 'PLApplicationAgent_EventForward_Application' ('ID' INTEGER PRIMARY KEY AUTOINCREMENT, 'timestamp' REAL, 'Identifier' TEXT, 'pid' INTEGER, 'State' INTEGER, 'Reason' INTEGER)",
+    "PLPowerAssertionAgent_EventForward_Assertion": "CREATE TABLE 'PLPowerAssertionAgent_EventForward_Assertion' ('ID' INTEGER PRIMARY KEY AUTOINCREMENT, 'timestamp' REAL, 'Action' INTEGER, 'AssertName' TEXT, 'AssertType' INTEGER, 'AssertionOnBehalfOfPID' INTEGER, 'Category' INTEGER, 'FrameworkBundleID' TEXT, 'GlobalUniqueID' INTEGER, 'GlobalUniqueIDReference' INTEGER, 'InstanceMetadata' TEXT, 'pid' INTEGER, 'timestampActionOffset' INTEGER)"
+  }
+}

@@ -209,6 +209,189 @@
           "sql": "SELECT\n  MIN(timestamp) AS first_start,\n  MAX(timestamp) AS last_start,\n  COUNT(*) AS n_rows\nFROM events;"
         }
       ]
+    },
+    {
+      "id": "powerlog",
+      "label": "iOS — CurrentPowerlog.PLSQL (PowerLog)",
+      "blurb": "Skärmen tänd och släckt, låst och olåst, appen på skärmen och kameran per app, också en apps egen kamera. Tiderna är rättade med PowerLogs tidsförskjutning.",
+      "dbPathHint": "/private/var/containers/Shared/SystemGroup/<GUID>/Library/BatteryLife/CurrentPowerlog.PLSQL (+ -wal). Äldre dagar ligger komprimerade i Archives/powerlog_*.PLSQL.gz och läses inte här.",
+      "paths": [
+        "Library/BatteryLife/CurrentPowerlog.PLSQL"
+      ],
+      "source": "PowerLog skriver med en egen tid. Den rättade tiden är PowerLogs tid plus tidsförskjutningen som gällde då (PLStorageOperator_EventForward_TimeOffset, kolumnen system, den senaste raden före händelsen). Utan förskjutningsrader blir den rättade tiden tom, och raderna visas inte: PowerLogs egen tid kan räknas från omstarten. Kontrollerat mot en labbtelefon (iOS 26.4.1, 2026-11-03): appen på skärmen och kameran stämmer med knowledgeC på ungefär en sekund. Strax före ett byte av förskjutningen kan tiden avvika med bytets storlek, några sekunder. Kameran: en rad med State 1 och appens bundle-id startar en kamera, en rad med State 0 stänger den. Skärmen: Backlight Active 1 tänd, 0 släckt; SBBlank 1 släckt. Låset: SBLock Locked 1 låst, 0 olåst. Appen på skärmen: AppRole 1 är appen, andra roller ligger ovanpå (Face ID, kontrollcenter, låsskärmen).",
+      "queries": [
+        {
+          "id": "pl-camera",
+          "title": "Kameran per app",
+          "recommended": true,
+          "timeEpoch": "unix",
+          "params": [
+            "timeStart",
+            "timeEnd"
+          ],
+          "subtitle": "Visar när en app startade och stängde kameran, också WhatsApps, Telegrams och Signals egna kameror, med appens bundle-id, kameran och upplösningen.",
+          "returns": "tid, händelse, app, kamera, upplösning, bilder/s, PowerLogs tid, UTC",
+          "sql": "WITH c AS (\n  SELECT c.timestamp AS raw, c.timestamp + COALESCE((SELECT o.system FROM PLStorageOperator_EventForward_TimeOffset o WHERE o.timestamp <= c.timestamp ORDER BY o.timestamp DESC LIMIT 1), (SELECT o.system FROM PLStorageOperator_EventForward_TimeOffset o ORDER BY o.timestamp LIMIT 1)) AS t,\n    c.BundleId, c.CameraType, c.State, c.VideoCaptureWidth, c.VideoCaptureHeight, c.MaximumSupportedFrameRate\n  FROM PLCameraAgent_EventForward_Camera c\n)\nSELECT\n  strftime('%Y-%m-%d %H:%M:%f', t, 'unixepoch', 'localtime') AS tid_lokal,\n  CASE State WHEN 1 THEN 'kameran startas' WHEN 0 THEN 'kameran stängs' ELSE 'State ' || State END AS handelse,\n  BundleId AS app,\n  CameraType AS kamera,\n  CASE WHEN VideoCaptureWidth > 0 THEN VideoCaptureWidth || '×' || VideoCaptureHeight END AS upplosning,\n  MaximumSupportedFrameRate AS max_bilder_per_s,\n  printf('%.3f', raw) AS powerlog_tid,\n  strftime('%Y-%m-%d %H:%M:%f', t, 'unixepoch') AS tid_utc\nFROM c\nWHERE t BETWEEN {{unixStart}} AND {{unixEnd}}\nORDER BY t;"
+        },
+        {
+          "id": "pl-screen",
+          "title": "Skärmen tänd och släckt",
+          "timeEpoch": "unix",
+          "params": [
+            "timeStart",
+            "timeEnd"
+          ],
+          "subtitle": "Visar när skärmen tändes och släcktes, ur skärmens bakgrundsljus (Backlight) och SpringBoard (SBBlank).",
+          "returns": "tid, händelse, källa, PowerLogs tid, UTC",
+          "sql": "WITH s AS (\n  SELECT d.timestamp AS raw, d.timestamp + COALESCE((SELECT o.system FROM PLStorageOperator_EventForward_TimeOffset o WHERE o.timestamp <= d.timestamp ORDER BY o.timestamp DESC LIMIT 1), (SELECT o.system FROM PLStorageOperator_EventForward_TimeOffset o ORDER BY o.timestamp LIMIT 1)) AS t, d.Active AS tand, 'PLDisplayAgent_EventPoint_Display (Backlight)' AS kalla\n  FROM PLDisplayAgent_EventPoint_Display d WHERE d.Block = 'Backlight'\n  UNION ALL\n  SELECT b.timestamp, b.timestamp + COALESCE((SELECT o.system FROM PLStorageOperator_EventForward_TimeOffset o WHERE o.timestamp <= b.timestamp ORDER BY o.timestamp DESC LIMIT 1), (SELECT o.system FROM PLStorageOperator_EventForward_TimeOffset o ORDER BY o.timestamp LIMIT 1)), 1 - b.Blanked, 'PLSpringBoardAgent_EventForward_SBBlank'\n  FROM PLSpringBoardAgent_EventForward_SBBlank b\n)\nSELECT\n  strftime('%Y-%m-%d %H:%M:%f', t, 'unixepoch', 'localtime') AS tid_lokal,\n  CASE tand WHEN 1 THEN 'skärmen tänds' WHEN 0 THEN 'skärmen släcks' END AS handelse,\n  kalla,\n  printf('%.3f', raw) AS powerlog_tid,\n  strftime('%Y-%m-%d %H:%M:%f', t, 'unixepoch') AS tid_utc\nFROM s\nWHERE t BETWEEN {{unixStart}} AND {{unixEnd}}\nORDER BY t, kalla;"
+        },
+        {
+          "id": "pl-lock",
+          "title": "Låst och olåst",
+          "timeEpoch": "unix",
+          "params": [
+            "timeStart",
+            "timeEnd"
+          ],
+          "subtitle": "Visar när telefonen låstes och låstes upp enligt SpringBoard (SBLock).",
+          "returns": "tid, händelse, PowerLogs tid, UTC",
+          "sql": "WITH l AS (\n  SELECT l.timestamp AS raw, l.timestamp + COALESCE((SELECT o.system FROM PLStorageOperator_EventForward_TimeOffset o WHERE o.timestamp <= l.timestamp ORDER BY o.timestamp DESC LIMIT 1), (SELECT o.system FROM PLStorageOperator_EventForward_TimeOffset o ORDER BY o.timestamp LIMIT 1)) AS t, l.Locked\n  FROM PLSpringBoardAgent_EventForward_SBLock l\n)\nSELECT\n  strftime('%Y-%m-%d %H:%M:%f', t, 'unixepoch', 'localtime') AS tid_lokal,\n  CASE Locked WHEN 1 THEN 'låses' WHEN 0 THEN 'låses upp' ELSE 'Locked ' || Locked END AS handelse,\n  printf('%.3f', raw) AS powerlog_tid,\n  strftime('%Y-%m-%d %H:%M:%f', t, 'unixepoch') AS tid_utc\nFROM l\nWHERE t BETWEEN {{unixStart}} AND {{unixEnd}}\nORDER BY t;"
+        },
+        {
+          "id": "pl-apps",
+          "title": "App på skärmen",
+          "timeEpoch": "unix",
+          "params": [
+            "timeStart",
+            "timeEnd"
+          ],
+          "subtitle": "Visar vilken app som var på skärmen, hemskärmen, låsskärmen och det som låg ovanpå (Face ID, kontrollcenter).",
+          "returns": "tid, app, vad, roll, nivå, PowerLogs tid, UTC",
+          "sql": "WITH a AS (\n  SELECT a.timestamp AS raw, a.timestamp + COALESCE((SELECT o.system FROM PLStorageOperator_EventForward_TimeOffset o WHERE o.timestamp <= a.timestamp ORDER BY o.timestamp DESC LIMIT 1), (SELECT o.system FROM PLStorageOperator_EventForward_TimeOffset o ORDER BY o.timestamp LIMIT 1)) AS t, a.bundleID, a.AppRole, a.Level\n  FROM PLScreenStateAgent_EventForward_ScreenState a\n)\nSELECT\n  strftime('%Y-%m-%d %H:%M:%f', t, 'unixepoch', 'localtime') AS tid_lokal,\n  bundleID AS app,\n  CASE WHEN AppRole = 1 AND bundleID IN ('com.apple.springboard.home-screen', 'com.apple.springboard.app-switcher') THEN 'hemskärmen eller appväxlaren'\n    WHEN AppRole = 1 THEN 'appen på skärmen'\n    WHEN bundleID = 'com.apple.lock-screen' THEN 'låsskärmen'\n    ELSE 'ovanpå (roll ' || AppRole || ')' END AS vad,\n  AppRole AS roll,\n  Level AS niva,\n  printf('%.3f', raw) AS powerlog_tid,\n  strftime('%Y-%m-%d %H:%M:%f', t, 'unixepoch') AS tid_utc\nFROM a\nWHERE t BETWEEN {{unixStart}} AND {{unixEnd}}\nORDER BY t;"
+        },
+        {
+          "id": "pl-offsets",
+          "title": "PowerLogs tidsförskjutning",
+          "group": "advanced",
+          "params": [],
+          "subtitle": "Raderna som rättar PowerLogs tid. system är förskjutningen i sekunder som läggs till PowerLogs tid.",
+          "returns": "tid, system, baseband, kernel, PowerLogs tid, UTC",
+          "sql": "SELECT\n  strftime('%Y-%m-%d %H:%M:%f', timestamp + system, 'unixepoch', 'localtime') AS tid_lokal,\n  printf('%.3f', system) AS system_s,\n  printf('%.3f', baseband) AS baseband_s,\n  printf('%.3f', kernel) AS kernel_s,\n  printf('%.3f', timestamp) AS powerlog_tid,\n  strftime('%Y-%m-%d %H:%M:%f', timestamp + system, 'unixepoch') AS tid_utc\nFROM PLStorageOperator_EventForward_TimeOffset\nORDER BY timestamp;"
+        },
+        {
+          "id": "pl-tables",
+          "title": "Hjälp: tabeller och antal rader",
+          "group": "advanced",
+          "params": [],
+          "subtitle": "Listar PowerLogs tabeller för kameran, skärmen, SpringBoard och tiden, med antal rader för de som används.",
+          "returns": "tabell, rader",
+          "sql": "SELECT name AS tabell,\n  CASE name\n    WHEN 'PLCameraAgent_EventForward_Camera' THEN (SELECT count(*) FROM PLCameraAgent_EventForward_Camera)\n    WHEN 'PLDisplayAgent_EventPoint_Display' THEN (SELECT count(*) FROM PLDisplayAgent_EventPoint_Display)\n    WHEN 'PLSpringBoardAgent_EventForward_SBBlank' THEN (SELECT count(*) FROM PLSpringBoardAgent_EventForward_SBBlank)\n    WHEN 'PLSpringBoardAgent_EventForward_SBLock' THEN (SELECT count(*) FROM PLSpringBoardAgent_EventForward_SBLock)\n    WHEN 'PLScreenStateAgent_EventForward_ScreenState' THEN (SELECT count(*) FROM PLScreenStateAgent_EventForward_ScreenState)\n    WHEN 'PLStorageOperator_EventForward_TimeOffset' THEN (SELECT count(*) FROM PLStorageOperator_EventForward_TimeOffset)\n  END AS rader\nFROM sqlite_master\nWHERE type = 'table' AND (name LIKE 'PLCamera%' OR name LIKE 'PLDisplay%' OR name LIKE 'PLSpringBoard%' OR name LIKE 'PLScreenState%' OR name LIKE 'PLStorageOperator%')\nORDER BY rader IS NULL, name;"
+        },
+        {
+          "id": "role-pl-backlight",
+          "hidden": true,
+          "role": "pl-backlight",
+          "title": "Härkomst: skärmens övergångar",
+          "subtitle": "Används av Härkomst. Skärmen tänd och släckt (Backlight) med rättad tid, från ett dygn före fönstret.",
+          "params": [
+            "timeStart",
+            "timeEnd"
+          ],
+          "epoch": "unixS",
+          "fields": {
+            "time": "t",
+            "raw": "raw",
+            "active": "active"
+          },
+          "sql": "SELECT d.timestamp AS raw, d.timestamp + COALESCE((SELECT o.system FROM PLStorageOperator_EventForward_TimeOffset o WHERE o.timestamp <= d.timestamp ORDER BY o.timestamp DESC LIMIT 1), (SELECT o.system FROM PLStorageOperator_EventForward_TimeOffset o ORDER BY o.timestamp LIMIT 1)) AS t, d.Active AS active\nFROM PLDisplayAgent_EventPoint_Display d\nWHERE d.Block = 'Backlight' AND d.timestamp + COALESCE((SELECT o.system FROM PLStorageOperator_EventForward_TimeOffset o WHERE o.timestamp <= d.timestamp ORDER BY o.timestamp DESC LIMIT 1), (SELECT o.system FROM PLStorageOperator_EventForward_TimeOffset o ORDER BY o.timestamp LIMIT 1)) BETWEEN {{unixStart}} - 86400 AND {{unixEnd}}\nORDER BY d.timestamp;"
+        },
+        {
+          "id": "role-pl-lock",
+          "hidden": true,
+          "role": "pl-lock",
+          "title": "Härkomst: låsets övergångar",
+          "subtitle": "Används av Härkomst. Låst och olåst (SBLock) med rättad tid, från en vecka före fönstret.",
+          "params": [
+            "timeStart",
+            "timeEnd"
+          ],
+          "epoch": "unixS",
+          "fields": {
+            "time": "t",
+            "raw": "raw",
+            "locked": "locked"
+          },
+          "sql": "SELECT l.timestamp AS raw, l.timestamp + COALESCE((SELECT o.system FROM PLStorageOperator_EventForward_TimeOffset o WHERE o.timestamp <= l.timestamp ORDER BY o.timestamp DESC LIMIT 1), (SELECT o.system FROM PLStorageOperator_EventForward_TimeOffset o ORDER BY o.timestamp LIMIT 1)) AS t, l.Locked AS locked\nFROM PLSpringBoardAgent_EventForward_SBLock l\nWHERE l.timestamp + COALESCE((SELECT o.system FROM PLStorageOperator_EventForward_TimeOffset o WHERE o.timestamp <= l.timestamp ORDER BY o.timestamp DESC LIMIT 1), (SELECT o.system FROM PLStorageOperator_EventForward_TimeOffset o ORDER BY o.timestamp LIMIT 1)) BETWEEN {{unixStart}} - 604800 AND {{unixEnd}}\nORDER BY l.timestamp;"
+        },
+        {
+          "id": "role-pl-screen",
+          "hidden": true,
+          "role": "pl-screen",
+          "title": "Härkomst: appen på skärmen",
+          "subtitle": "Används av Härkomst. ScreenState med rättad tid, från ett dygn före fönstret.",
+          "params": [
+            "timeStart",
+            "timeEnd"
+          ],
+          "epoch": "unixS",
+          "fields": {
+            "time": "t",
+            "raw": "raw",
+            "role": "role",
+            "bundle": "bundle"
+          },
+          "sql": "SELECT a.timestamp AS raw, a.timestamp + COALESCE((SELECT o.system FROM PLStorageOperator_EventForward_TimeOffset o WHERE o.timestamp <= a.timestamp ORDER BY o.timestamp DESC LIMIT 1), (SELECT o.system FROM PLStorageOperator_EventForward_TimeOffset o ORDER BY o.timestamp LIMIT 1)) AS t, a.AppRole AS role, a.bundleID AS bundle\nFROM PLScreenStateAgent_EventForward_ScreenState a\nWHERE a.timestamp + COALESCE((SELECT o.system FROM PLStorageOperator_EventForward_TimeOffset o WHERE o.timestamp <= a.timestamp ORDER BY o.timestamp DESC LIMIT 1), (SELECT o.system FROM PLStorageOperator_EventForward_TimeOffset o ORDER BY o.timestamp LIMIT 1)) BETWEEN {{unixStart}} - 86400 AND {{unixEnd}}\nORDER BY a.timestamp;"
+        },
+        {
+          "id": "role-pl-camera",
+          "hidden": true,
+          "role": "pl-camera",
+          "title": "Härkomst: kameran per app",
+          "subtitle": "Används av Härkomst. Kamerans starter och stopp med rättad tid, från en timme före fönstret.",
+          "params": [
+            "timeStart",
+            "timeEnd"
+          ],
+          "epoch": "unixS",
+          "fields": {
+            "time": "t",
+            "raw": "raw",
+            "app": "app",
+            "type": "type",
+            "state": "state"
+          },
+          "sql": "SELECT c.timestamp AS raw, c.timestamp + COALESCE((SELECT o.system FROM PLStorageOperator_EventForward_TimeOffset o WHERE o.timestamp <= c.timestamp ORDER BY o.timestamp DESC LIMIT 1), (SELECT o.system FROM PLStorageOperator_EventForward_TimeOffset o ORDER BY o.timestamp LIMIT 1)) AS t, c.BundleId AS app, c.CameraType AS type, c.State AS state\nFROM PLCameraAgent_EventForward_Camera c\nWHERE c.timestamp + COALESCE((SELECT o.system FROM PLStorageOperator_EventForward_TimeOffset o WHERE o.timestamp <= c.timestamp ORDER BY o.timestamp DESC LIMIT 1), (SELECT o.system FROM PLStorageOperator_EventForward_TimeOffset o ORDER BY o.timestamp LIMIT 1)) BETWEEN {{unixStart}} - 3600 AND {{unixEnd}} + 3600\nORDER BY c.timestamp;"
+        },
+        {
+          "id": "role-pl-gaps",
+          "hidden": true,
+          "role": "pl-gaps",
+          "title": "Härkomst: glapp i PowerLog",
+          "subtitle": "Används av Härkomst. Glapp på mer än två timmar i PowerLogs täta tabeller: telefonen var avstängd eller PowerLog skrev inte.",
+          "params": [],
+          "epoch": "unixS",
+          "fields": {
+            "start": "gap_start",
+            "end": "gap_end"
+          },
+          "sql": "WITH hb AS (\n  SELECT timestamp AS raw FROM PLApplicationAgent_EventForward_Application\n  UNION ALL SELECT timestamp FROM PLPowerAssertionAgent_EventForward_Assertion\n), g AS (\n  SELECT raw, LEAD(raw) OVER (ORDER BY raw) AS nxt FROM hb\n)\nSELECT raw + COALESCE((SELECT o.system FROM PLStorageOperator_EventForward_TimeOffset o WHERE o.timestamp <= raw ORDER BY o.timestamp DESC LIMIT 1), (SELECT o.system FROM PLStorageOperator_EventForward_TimeOffset o ORDER BY o.timestamp LIMIT 1)) AS gap_start, nxt + COALESCE((SELECT o.system FROM PLStorageOperator_EventForward_TimeOffset o WHERE o.timestamp <= nxt ORDER BY o.timestamp DESC LIMIT 1), (SELECT o.system FROM PLStorageOperator_EventForward_TimeOffset o ORDER BY o.timestamp LIMIT 1)) AS gap_end\nFROM g\nWHERE nxt - raw > 7200\nORDER BY raw;"
+        },
+        {
+          "id": "role-pl-coverage",
+          "hidden": true,
+          "role": "pl-coverage",
+          "title": "Härkomst: PowerLogs täckning",
+          "subtitle": "Används av Härkomst. Första och sista raden i PowerLogs täta tabeller, med rättad tid.",
+          "params": [],
+          "epoch": "unixS",
+          "fields": {
+            "first": "first_t",
+            "last": "last_t",
+            "rows": "n_rows"
+          },
+          "sql": "WITH hb AS (\n  SELECT timestamp AS raw FROM PLApplicationAgent_EventForward_Application\n  UNION ALL SELECT timestamp FROM PLPowerAssertionAgent_EventForward_Assertion\n), m AS (\n  SELECT MIN(raw) AS a, MAX(raw) AS b, COUNT(*) AS n FROM hb\n)\nSELECT a + COALESCE((SELECT o.system FROM PLStorageOperator_EventForward_TimeOffset o WHERE o.timestamp <= a ORDER BY o.timestamp DESC LIMIT 1), (SELECT o.system FROM PLStorageOperator_EventForward_TimeOffset o ORDER BY o.timestamp LIMIT 1)) AS first_t, b + COALESCE((SELECT o.system FROM PLStorageOperator_EventForward_TimeOffset o WHERE o.timestamp <= b ORDER BY o.timestamp DESC LIMIT 1), (SELECT o.system FROM PLStorageOperator_EventForward_TimeOffset o ORDER BY o.timestamp LIMIT 1)) AS last_t, n AS n_rows\nFROM m;"
+        }
+      ]
     }
   ]
 }

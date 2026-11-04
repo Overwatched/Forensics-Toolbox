@@ -93,7 +93,7 @@ window.TELEGRAM_IOS_CATALOG = {
             "timeStart",
             "timeEnd"
           ],
-          "epoch": "unix",
+          "epoch": "unixS",
           "fields": {
             "id": "id",
             "peerId": "peer_id",
@@ -127,7 +127,7 @@ window.TELEGRAM_IOS_CATALOG = {
           "title": "Härkomst: alla resurser i meddelandena",
           "description": "Används av Härkomst. Varje resurs (en storlek av en bild, en video, en miniatyr) med meddelandets tid, riktning och chatt. Ingen tidsgräns: filen jämförs med varje resurs.",
           "params": [],
-          "epoch": "unix",
+          "epoch": "unixS",
           "fields": {
             "resourceId": "resource_id",
             "role": "role",
@@ -153,7 +153,7 @@ window.TELEGRAM_IOS_CATALOG = {
           "role": "coverage",
           "title": "Härkomst: täckning",
           "params": [],
-          "epoch": "unix",
+          "epoch": "unixS",
           "fields": {
             "first": "first_date",
             "last": "last_date",
@@ -215,6 +215,7 @@ window.TELEGRAM_IOS_CATALOG = {
           "hidden": true,
           "role": "storage",
           "title": "Härkomst: resurser per chatt",
+          "epoch": "unixS",
           "description": "Används av Härkomst. Alla resurser som hör till en chatt, med meddelande och bildbibliotekets id.",
           "params": [],
           "fields": {

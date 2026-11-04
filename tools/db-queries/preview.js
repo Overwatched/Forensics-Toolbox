@@ -32,15 +32,30 @@
     var PRAGMA_COLUMNS = ['cid', 'name', 'type', 'notnull', 'dflt_value', 'pk'];
 
     // Första SELECT-listan på yttersta nivån, som uttryck.
+    // Texten med innehållet i strängar utbytt mot x, så att parenteser och ord i en sträng inte räknas.
+    function maskStrings(text) {
+        return text.replace(/'(?:[^']|'')*'/g, function (m) { return "'" + new Array(m.length - 1).join('x') + "'"; });
+    }
+
+    // Kolumnerna i den första SELECT som står utanför parenteser, så att en WITH före huvudfrågan hoppas över.
     function selectItems(text) {
-        var m = /\bSELECT\s+(?:DISTINCT\s+)?/i.exec(text);
-        if (!m) return [];
-        var rest = text.slice(m.index + m[0].length);
+        var masked = maskStrings(text);
         var depth = 0;
-        var end = -1;
-        var re = /\(|\)|\bFROM\b/gi;
+        var start = -1;
+        var re = /\(|\)|\bSELECT\s+(?:DISTINCT\s+)?/gi;
         var t;
-        while ((t = re.exec(rest))) {
+        while ((t = re.exec(masked))) {
+            if (t[0] === '(') depth++;
+            else if (t[0] === ')') depth--;
+            else if (depth === 0) { start = t.index + t[0].length; break; }
+        }
+        if (start < 0) return [];
+        var rest = text.slice(start);
+        var restMasked = masked.slice(start);
+        depth = 0;
+        var end = -1;
+        var re2 = /\(|\)|\bFROM\b/gi;
+        while ((t = re2.exec(restMasked))) {
             if (t[0] === '(') depth++;
             else if (t[0] === ')') depth--;
             else if (depth === 0) { end = t.index; break; }
@@ -115,6 +130,18 @@
         [/^user_?id$/i, function () { return '9e6f7a8b-1c2d-4e3f-8a9b-0c1d2e3f4a5b'; }],
         [/notification_?id/i, function () { return '4d28a744-acc5-4607-a3c1-dbdde70795d3'; }],
         [/^category$/i, function () { return '1'; }],
+        // PowerLog (CurrentPowerlog.PLSQL)
+        [/^handelse$/i, pick(['kameran startas', 'kameran stängs'])],
+        [/^kamera$/i, function () { return '0'; }],
+        [/^upplosning$/i, function () { return '1920×1080'; }],
+        [/^max_bilder_per_s$/i, function () { return '30'; }],
+        [/^powerlog_tid$/i, function (i) { return String(1717246196 + i * 7) + '.118'; }],
+        [/^kalla$/i, function () { return 'PLDisplayAgent_EventPoint_Display (Backlight)'; }],
+        [/^vad$/i, pick(['appen på skärmen', 'hemskärmen eller appväxlaren'])],
+        [/^roll$/i, function () { return '1'; }],
+        [/^niva$/i, function () { return '1.0'; }],
+        [/^(system|baseband|kernel)_s$/i, function () { return '-903.427'; }],
+        [/^rader$/i, function (i) { return String(47 + i * 13); }],
         [/_hex$/i, function () { return '0a0b…'; }],
         [/(innehall|storlek|_bytes)/i, function (i) { return String(21293 + i * 1000); }],
         [/timezonename/i, function () { return 'Europe/Stockholm'; }],

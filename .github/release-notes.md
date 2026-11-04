@@ -1,5 +1,17 @@
 Automatiskt byggd från commit `{{SHA}}`.
 
+## Nytt i 1.43
+
+PowerLog på iOS: skärmen, låset och kameran per app i Härkomst och Queries.
+
+- **Skärmen och låset på iOS 26.** knowledgeC registrerar inte längre skärmen på iOS 26, och Biome inte heller. Härkomst läser därför skärmen och låset ur PowerLog (`CurrentPowerlog.PLSQL` och dagsarkiven). Finns både knowledgeC och PowerLog, står båda källorna i faktorn, och säger de olika står det så.
+- **Kameran per app.** PowerLog registrerar när en app startar och stänger kameran, också WhatsApps, Telegrams och Signals egna kameror. Kamerafaktorn kan därför avgöra om appen som sparade bilden använde kameran när bilden togs. Förut bedömdes bara om appen var igång.
+- **Appen på skärmen** ur PowerLog, när knowledgeC saknar app-aktivitet i fönstret.
+- **Rättad tid.** PowerLog skriver med en egen tid, som rättas med PowerLogs tabell för tidsförskjutning. Kontrollerat mot knowledgeC, där tiderna stämmer på ungefär en sekund. Utan tabellen används inte raderna, eftersom felet kan vara allt från sekunder till år.
+- **Dagsarkiven** (`Archives/powerlog_….PLSQL.gz`) packas upp i minnet för dagarna kring fönstret. Ibland är den aktuella filen tom, och då finns allt i arkiven.
+- **Glapp:** när telefonen var avstängd har PowerLog ett glapp. Där gäller inget läge, och faktorerna säger det.
+- **Queries:** PowerLog under App-aktivitet, med kameran per app, skärmen, låset, appen på skärmen och tidsförskjutningen. Tiderna är rättade. Ett dagsarkiv (`.PLSQL.gz`) kan öppnas direkt och packas upp i minnet.
+
 ## Nytt i 1.42
 
 Telegram på iOS i Härkomst och Queries (beta), och skydd mot formler i CSV-filerna.

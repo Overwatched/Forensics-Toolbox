@@ -126,6 +126,22 @@ const scenarios = [
         return 'knowledgeC.db';
     }],
 
+    ['Queries: ett komprimerat PowerLog-arkiv packas upp i minnet och känns igen', async ({ c, fx }) => {
+        await c.setFiles(null, '#cb-input', [fx.files.powerlogArchive]);
+        await c.ev(null, `document.getElementById('cb-input').dispatchEvent(new Event('change')), 1`);
+        await c.waitFor(QUER, `QueriesApp.source() && /powerlog_/.test(QueriesApp.source().file || '')`, 30000, 'arkivet');
+        const db = await c.ev(QUER, `QueriesApp.currentDb() && QueriesApp.currentDb().id`);
+        expect(db === 'powerlog', 'Kändes igen som ' + db);
+        await c.ev(QUER, `document.querySelector('.side-q[data-db="powerlog"][data-q="pl-offsets"]').click(), 1`);
+        await sleep(300);
+        await c.ev(QUER, `document.getElementById('run-button').click(), 1`);
+        await c.waitFor(QUER, `/rad(er)? på/.test(document.getElementById('run-status').textContent) || /run-warn/.test(document.getElementById('run-status').innerHTML)`, 30000, 'körningen');
+        const trace = await c.ev(QUER, `document.getElementById('run-trace').innerText`);
+        expect(/gzip-komprimerad och uppackad i minnet/.test(trace), 'Spårbarheten säger inte att arkivet packades upp: ' + trace.slice(0, 300));
+        await c.ev(QUER, `document.getElementById('file-close').click(), 1`);
+        return 'powerlog_….PLSQL.gz';
+    }],
+
     ['Härkomst: filen i extraktionen bedöms, och -wal-varningen följer med till protokollet', async ({ c, fx, downloads }) => {
         await c.nav('Härkomst');
         // Härkomst visar testdatan och byter inte bort den av sig själv: bytet erbjuds på en rad.
@@ -202,6 +218,12 @@ const scenarios = [
         const cam = await assessNamed(c, 'IMG_0008.JPG');
         expect(cam.model.titles.camera === 'Telegrams kamera' && cam.f.camera && cam.f.camera.state === 'support', 'Kameran: ' + JSON.stringify(cam.f.camera) + ' ' + cam.model.titles.camera);
         expect(cam.f.telegram && /Möjlig koppling/.test(cam.f.telegram.verdict), 'Telegram: ' + JSON.stringify(cam.f.telegram));
+        // PowerLog: Telegrams kamera var igång när bilden togs, skärmen var tänd och Telegram på skärmen
+        // (knowledgeC täcker inte de här timmarna).
+        const camText = await c.ev(PROV, `ProvenanceApp.model().factors.find(f => f.id === 'camera').items.map(i => i.text).join(' ')`);
+        expect(/Telegram använde kameran .* enligt PowerLog \(PLCameraAgent\), vilket täcker tidpunkten/.test(camText), 'PowerLogs kamera saknas: ' + camText);
+        expect(cam.f.screen && cam.f.screen.state === 'support', 'Skärmen: ' + JSON.stringify(cam.f.screen));
+        expect(cam.f.app && cam.f.app.state === 'support', 'Appen: ' + JSON.stringify(cam.f.app));
         // Telegrams egen mottagna fil under postbox/media/: prövas som mottagen, och kameran frågas inte.
         const own = await assessNamed(c, fx.tgMedia);
         expect(own.f.telegram && own.f.telegram.state === 'support' && /Mottagen i Telegram/.test(own.f.telegram.verdict), 'Telegrams fil: ' + JSON.stringify(own.f.telegram));
@@ -227,6 +249,24 @@ const scenarios = [
         expect(/Telegrams format avkodat i minnet: tg_message \(3 meddelanden ur t7\)/.test(r.trace), 'Spårbarheten säger inte att formatet avkodades: ' + r.trace.slice(0, 300));
         await noInjectedScript(c);
         return '3 meddelanden, avkodade i minnet';
+    }],
+
+    ['Queries: PowerLogs kamera per app med tiden rättad med PowerLogs förskjutning', async ({ c, fx }) => {
+        await c.nav('Queries');
+        await c.ev(QUER, `(function(){ const b = document.querySelector('.side-db[data-family="powerlog"]'); if (b.getAttribute('aria-expanded') !== 'true') b.click(); return 1; })()`);
+        await c.ev(QUER, `document.querySelector('.side-q[data-db="powerlog"][data-q="pl-camera"]').click(), 1`);
+        await sleep(300);
+        const day = new Date(fx.T3).toISOString().slice(0, 10);
+        await c.ev(QUER, `(function(){ const s = document.querySelector('[data-param="timeStart"]'), e = document.querySelector('[data-param="timeEnd"]'); s.value = '${day} 00:00'; e.value = '${day} 23:59'; s.dispatchEvent(new Event('input')); e.dispatchEvent(new Event('input')); return 1; })()`);
+        await c.ev(QUER, `document.getElementById('run-button').click(), 1`);
+        await c.waitFor(QUER, `/rad(er)? på/.test(document.getElementById('run-status').textContent) || /run-warn/.test(document.getElementById('run-status').innerHTML)`, 30000, 'körningen');
+        const r = await c.ev(QUER, `({ status: document.getElementById('run-status').innerText, cols: [...document.querySelectorAll('#run-result thead th')].map(t => t.textContent), rows: [...document.querySelectorAll('#run-result tbody tr')].map(tr => [...tr.children].map(td => td.textContent)) })`);
+        expect(r.rows.length === 4, 'PowerLogs kamera: ' + r.rows.length + ' rader. ' + r.status);
+        // Telegrams kamera startar T3+296 s i rätt tid; PowerLogs egen tid går 903,4 s före.
+        const utc = r.cols.indexOf('tid_utc');
+        const want = new Date(fx.T3 + 296000).toISOString().slice(0, 19).replace('T', ' ');
+        expect(r.rows.some((row) => row[utc] && row[utc].startsWith(want) && row.includes('ph.telegra.Telegraph')), 'Rättad tid ' + want + ' saknas: ' + JSON.stringify(r.rows.map((row) => row[utc])));
+        return '4 rader, rättad tid';
     }],
 
     ['Queries: Signals databas på iOS dekrypteras med nyckelringen från raden högst upp', async ({ c, fx }) => {

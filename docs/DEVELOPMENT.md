@@ -301,7 +301,8 @@ i extraktionen med `-wal` pålagd, och bygger en händelselista i UTC.
   båda exporterna. Kartans laddning kräver att fönstret ritas: med låst skärm kommer ingen
   bildruta, och då går exporten vidare utan kartbild efter tio sekunder.
 - På iOS kommer app och kamera ur knowledgeC `/app/usage` (`/app/inFocus` saknas på iOS 18
-  och 26, de versioner som kontrollerats, och är bara reserv). På Android ur `usagestats` (app, skärm, lås) och `appops`
+  och 26, de versioner som kontrollerats, och är bara reserv). Skärmen, låset och kameran per app kommer
+  också ur PowerLog (se nedan). På Android ur `usagestats` (app, skärm, lås) och `appops`
   (kameran per app), lästa som filer ur zippen av `android-logs.js`; Wellbeing är reserv.
 - `android-logs.js` (UMD `ProvenanceAndroidLogs`): `abxParse` för Androids binära XML (ABX,
   magic `ABX\0`, internerade strängar, samma utskrift som `abx2xml`), `discreteOps`/`opIntervals`
@@ -461,6 +462,51 @@ Plan och provkörning: [PLAN-harkomst.md](PLAN-harkomst.md).
   nyckelring och WhatsApp med HTML i namnen. `tests/app/lab-ios.js` kontrollerar labbzippen
   (`FT_LAB_IOS_DIR`) mot `facit/lab-ios-signal-whatsapp.json`. De förväntningarna är inget facit ur
   anteckningar, utan kontrollerade mellan källorna i extraktionen.
+
+#### PowerLog på iOS (1.43)
+
+- **Varför:** på iOS 26 slutade knowledgeC att registrera skärmen (`/display/isBacklit`), och Biome har
+  inte skärm eller lås för samma tid (strömmarna `Device.Display.Backlight`, `Device.ScreenLocked` och
+  `_DKEvent.Keybag.IsLocked` skrevs senast månader före i labbzippen). PowerLog har dem.
+- **Filen:** `SystemGroup/<GUID>/Library/BatteryLife/CurrentPowerlog.PLSQL` (+ `-wal`), som databasen
+  `powerlog` i `queries/app-usage/catalog.json`. Äldre dagar ligger i `Archives/powerlog_ÅÅÅÅ-MM-DD_….PLSQL.gz`.
+  Ibland är den aktuella filen tom, och då finns allt i arkiven (sett på iOS 18.5).
+- **Tabellerna:**
+  - `PLDisplayAgent_EventPoint_Display`: skärmen, med `Backlight` och `Active` 1 eller 0.
+  - `PLSpringBoardAgent_EventForward_SBBlank`: SpringBoards bild av skärmen.
+  - `…_SBLock`: låset, `Locked`.
+  - `PLScreenStateAgent_EventForward_ScreenState`: appen på skärmen. `AppRole` 1 är appen; andra roller
+    ligger ovanpå, som Face ID, kontrollcentret och låsskärmen.
+  - `PLCameraAgent_EventForward_Camera`: kameran per app. En rad med `State` 1 och `BundleId` startar en
+    kamera, och en rad med `State` 0 stänger samma `CameraType`. Den visar också WhatsApps, Telegrams och
+    Signals egna kameror.
+- **Tiden:**
+  - PowerLog skriver med en egen tid. Den rättade tiden är PowerLogs tid plus `system` ur
+    `PLStorageOperator_EventForward_TimeOffset`, den senaste raden före händelsen. Rättningen görs i SQL,
+    där händelsetabellen måste ha ett alias. Utan alias pekar `timestamp` i underfrågan på förskjutningens
+    egen kolumn.
+  - Förskjutningen var −903 till −908 s på labbtelefonen, −10 till 0 s på iOS 26.0 och cirka 1,76 miljarder
+    sekunder på iOS 18.7, där PowerLogs tid räknas nära noll.
+  - Utan förskjutningsrader blir den rättade tiden NULL, och raderna används inte.
+- **Kontroll:**
+  - **Labbtelefonen:** appen på skärmen och kameran stämmer med knowledgeC på ungefär en sekund, i 139 av
+    142 par. Med den senaste förskjutningen för alla rader, som iLEAPP gör, avviker det 4–6 s.
+  - **Skärmen mot `/display/isBacklit`:** −3 till +4 s med median +2 s på iOS 26.0, och −6 till +4 s på iOS 18.7.
+  - Strax före ett byte av förskjutningen kan tiden avvika med bytets storlek.
+- `tools/provenance/powerlog.js` (`ProvenancePowerLog`) gör övergångarna till intervall för skärmen,
+  låset, appen och kameran.
+  - Ett läge gäller till nästa övergång, men inte över ett glapp på mer än två timmar i PowerLogs täta
+    tabeller (`role-pl-gaps`). Då var telefonen avstängd.
+  - Kamerasessioner för samma app inom två sekunder slås ihop.
+- **Härkomst** (`addPowerLog`):
+  - Läser den aktuella filen och dagsarkiven vars datum ligger inom ett dygn från fönstret. Arkiven packas upp i
+    minnet med `DecompressionStream('gzip')`, och varje arkiv är en egen källa i protokollet.
+  - Skärm, lås och kamera per app läggs alltid till. Appen på skärmen läggs bara till när knowledgeC saknar
+    `/app/usage` i fönstret.
+  - Kameran per app är `cameraUse`, samma form som appops på Android, med `stream: 'PowerLog'`. Den har en
+    marginal på 1,5 s mot T, i stället för 5 s.
+  - Faktorerna säger källan. Täckningen och glappen står i texterna när registreringar saknas (`reasonAt`).
+- Queries: förhandsvisningen hoppar över en `WITH` och tar kolumnerna ur huvudfrågan (`selectItems`).
 
 #### Telegram på iOS (beta, 1.42)
 

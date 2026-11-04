@@ -1,5 +1,5 @@
 {
-  "description": "Kontroller mot iOS-labbtelefonen (iOS 26.4.1, Signal 8.28, WhatsApp 26.43.75, Telegram 13.1.2, 2026-11-03, tidszon Europe/Stockholm). Inget facit ur anteckningar: förväntningarna är hämtade ur extraktionen och kontrollerade mellan källor som inte beror av varandra (bildbiblioteket, knowledgeC /app/usage, WhatsApps, Signals och Telegrams databaser, Telegrams lagringsdatabas och filernas SHA-256). De ersätts av ett facit när en labbsession med dokumenterad ordning finns. Labbzippen (…_fs.zip) och nyckelringen (…_keychain.plist) ligger inte i repot och hittas i mappen; här står inga namn, nycklar eller enhets-id.",
+  "description": "Kontroller mot iOS-labbtelefonen (iOS 26.4.1, Signal 8.28, WhatsApp 26.43.75, Telegram 13.1.2, 2026-11-03, tidszon Europe/Stockholm). Inget facit ur anteckningar: förväntningarna är hämtade ur extraktionen och kontrollerade mellan källor som inte beror av varandra (bildbiblioteket, knowledgeC /app/usage, WhatsApps, Signals och Telegrams databaser, Telegrams lagringsdatabas, PowerLog och filernas SHA-256). De ersätts av ett facit när en labbsession med dokumenterad ordning finns. Labbzippen (…_fs.zip) och nyckelringen (…_keychain.plist) ligger inte i repot och hittas i mappen; här står inga namn, nycklar eller enhets-id.",
   "dir": "iPhone - Signal_Whatsapp",
   "toleranceMs": 1000,
   "versions": [
@@ -14,7 +14,8 @@
       "T": "2026-11-03T12:15:56.5+01:00",
       "factors": {
         "camera": "support",
-        "whatsapp": "info"
+        "whatsapp": "info",
+        "screen": "support"
       },
       "verdicts": {
         "whatsapp": "Skickad i WhatsApp",
@@ -35,10 +36,12 @@
     },
     {
       "name": "IMG_0031.JPG",
-      "what": "Bild med WhatsApps kamera, sparad i bildbiblioteket av WhatsApp; ett meddelande med en bild skickades 2 s senare",
+      "what": "Bild med WhatsApps kamera, sparad i bildbiblioteket av WhatsApp; ett meddelande med en bild skickades 2 s senare; WhatsApps kamera igång 12:15:00,1–12:15:02,1 enligt PowerLog",
       "T": "2026-11-03T12:15:01.4+01:00",
       "factors": {
-        "whatsapp": "info"
+        "whatsapp": "info",
+        "screen": "support",
+        "camera": "support"
       },
       "verdicts": {
         "whatsapp": "Möjlig koppling",
@@ -47,14 +50,17 @@
       "nearby": {
         "messageId": 6,
         "afterMs": 2000
-      }
+      },
+      "cameraText": "WhatsApp använde kameran .* enligt PowerLog \\(PLCameraAgent\\), vilket täcker tidpunkten"
     },
     {
       "name": "IMG_0032.JPG",
-      "what": "Ännu en bild med WhatsApps kamera; meddelandet med en bild 7 s senare, inte bilden 3 s före (typ 38, vald ur bildbiblioteket); vald ur bildbiblioteket och skickad i Telegram 12:18:33",
+      "what": "Ännu en bild med WhatsApps kamera; meddelandet med en bild 7 s senare, inte bilden 3 s före (typ 38, vald ur bildbiblioteket); vald ur bildbiblioteket och skickad i Telegram 12:18:33; WhatsApps kamera igång 12:15:32,3–12:15:34,1 enligt PowerLog",
       "T": "2026-11-03T12:15:33.8+01:00",
       "factors": {
-        "whatsapp": "info"
+        "whatsapp": "info",
+        "screen": "support",
+        "camera": "support"
       },
       "verdicts": {
         "whatsapp": "Möjlig koppling",
@@ -68,7 +74,8 @@
         "messageId": 3,
         "direction": "out",
         "at": "2026-11-03T12:18:33+01:00"
-      }
+      },
+      "cameraText": "WhatsApp använde kameran .* enligt PowerLog \\(PLCameraAgent\\), vilket täcker tidpunkten"
     },
     {
       "name": "IMG_0007.JPG",
@@ -102,20 +109,23 @@
       "factors": {
         "camera": "support",
         "signal": "info",
-        "whatsapp": "info"
+        "whatsapp": "info",
+        "screen": "support"
       },
       "verdicts": {
         "signal": "Ingen koppling",
         "whatsapp": "Inte i WhatsApp",
         "telegram": "Ingen koppling"
-      }
+      },
+      "cameraText": "Kameraappen använde kameran .* \\(PowerLog, PLCameraAgent\\)"
     },
     {
       "name": "ac8febc3-bf53-4ddf-ae96-266775e16942.jpg",
       "what": "WhatsApps egen kopia av en mottagen bild (Message/Media/), meddelande 15 kl. 12:17:11",
       "factors": {
         "whatsapp": "support",
-        "camera": "na"
+        "camera": "na",
+        "screen": "support"
       },
       "verdicts": {
         "whatsapp": "Mottagen i WhatsApp"
@@ -130,10 +140,12 @@
     },
     {
       "name": "IMG_0034.JPG",
-      "what": "Bild som Telegram sparade i bildbiblioteket (originalnamn med 32 hextecken); ett meddelande med en bild skickades i Telegram 2 s senare",
+      "what": "Bild som Telegram sparade i bildbiblioteket (originalnamn med 32 hextecken); ett meddelande med en bild skickades i Telegram 2 s senare; Telegrams kamera stängdes 3,8 s före och startade igen 3 s efter enligt PowerLog",
       "T": "2026-11-03T12:18:40.016+01:00",
       "factors": {
-        "telegram": "info"
+        "telegram": "info",
+        "screen": "support",
+        "camera": "info"
       },
       "verdicts": {
         "telegram": "Möjlig koppling"
@@ -141,7 +153,8 @@
       "telegramNearby": {
         "messageId": 4,
         "afterMs": 1984
-      }
+      },
+      "cameraText": "Telegram använde kameran .* enligt PowerLog \\(PLCameraAgent\\), 4 s före tidpunkten"
     },
     {
       "name": "IMG_0035.JPG",
@@ -149,7 +162,8 @@
       "T": "2026-11-03T12:19:03.425+01:00",
       "factors": {
         "camera": "support",
-        "telegram": "info"
+        "telegram": "info",
+        "screen": "support"
       },
       "cameraTitle": "Telegrams kamera",
       "verdicts": {
@@ -158,7 +172,8 @@
       "telegramNearby": {
         "messageId": 6,
         "afterMs": 8575
-      }
+      },
+      "cameraText": "Telegram använde kameran .* enligt PowerLog \\(PLCameraAgent\\), vilket täcker tidpunkten"
     },
     {
       "name": "IMG_0036.MP4",
@@ -166,7 +181,8 @@
       "T": "2026-11-03T12:19:46+01:00",
       "factors": {
         "camera": "support",
-        "telegram": "info"
+        "telegram": "info",
+        "screen": "support"
       },
       "cameraTitle": "Telegrams kamera",
       "verdicts": {
@@ -175,7 +191,8 @@
       "telegramNearby": {
         "messageId": 8,
         "afterMs": 6000
-      }
+      },
+      "cameraText": "Telegram använde kameran .* enligt PowerLog \\(PLCameraAgent\\), vilket täcker tidpunkten"
     }
   ]
 }

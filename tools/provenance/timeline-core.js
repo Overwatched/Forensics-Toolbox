@@ -7,6 +7,7 @@
 
     var MINUTE = 60000;
     var TOLERANCE_MS = 5000;        // ett intervall "täcker" T med den här marginalen
+    var POWERLOG_TOL_MS = 1500;     // PowerLogs kamera: rättad tid stämmer med bildbiblioteket på ungefär en sekund
     var SAME_TIME_MS = 60000;       // Skapad och Tillagd räknas som samtidiga inom en minut
     var LATE_MS = 3600000;          // Tillagd mer än en timme efter Skapad: kom till telefonen senare
     var MERGE_GAP_MS = 2000;        // täta händelser från samma app slås ihop i förklaringen
@@ -333,17 +334,18 @@
             add({ ms: iv.startMs, endMs: iv.endMs, kind: 'app', lane: lane, app: iv.app, stream: iv.stream, openEnded: iv.openEnded,
                 text: name + ' igång (' + iv.stream + ')', plain: name + ' öppnas', plainEnd: name + ' lämnas', source: iv.source });
         });
-        // Android: kameran per app ur appops (op 26). Kamerabandet, inte appbandet: appen själv
-        // står redan i appraden. Utan slutrad är slutet okänt och bandet en sekund långt.
-        // Tätt följande kameraoperationer från samma app (kameran öppnas igen inom två sekunder, t.ex.
-        // vid byte mellan fram- och bakkamera) slås ihop till ett intervall.
+        // Kameran per app: ur appops (op 26) på Android och PowerLog (PLCameraAgent) på iOS. Kamerabandet,
+        // inte appbandet: appen själv står redan i appraden. Utan slutrad är slutet okänt och bandet en
+        // sekund långt. Tätt följande kameraoperationer från samma app (kameran öppnas igen inom två
+        // sekunder, t.ex. vid byte mellan fram- och bakkamera) slås ihop till ett intervall.
         var camUse = mergeIntervals((input.cameraUse || []).map(function (iv) {
-            return { startMs: iv.startMs, endMs: iv.endMs != null ? iv.endMs : iv.startMs + 1000, app: iv.app, stream: 'appops', source: iv.source, openEnded: iv.endMs == null };
+            return { startMs: iv.startMs, endMs: iv.endMs != null ? iv.endMs : iv.startMs + 1000, app: iv.app, stream: iv.stream || 'appops', source: iv.source, openEnded: iv.endMs == null };
         }));
         camUse.forEach(function (iv) {
             var name = appName(iv.app, names);
-            add({ ms: iv.startMs, endMs: iv.endMs, kind: 'app', lane: 'camera', app: iv.app, stream: 'appops', openEnded: !!iv.openEnded, cameraOp: true, merged: iv.merged || null,
-                text: name + ' använder kameran (appops op 26' + (iv.merged ? ', ' + iv.merged + ' operationer i följd' : '') + (iv.openEnded ? ', slutet inte registrerat' : '') + ')', plain: name + ' startar kameran', plainEnd: name + ' stänger kameran', source: iv.source });
+            var pl = iv.stream === 'PowerLog';
+            add({ ms: iv.startMs, endMs: iv.endMs, kind: 'app', lane: 'camera', app: iv.app, stream: iv.stream, openEnded: !!iv.openEnded, cameraOp: true, merged: iv.merged || null,
+                text: name + ' använder kameran (' + (pl ? 'PowerLog, PLCameraAgent' : 'appops op 26') + (iv.merged ? ', ' + iv.merged + (pl ? ' sessioner' : ' operationer') + ' i följd' : '') + (iv.openEnded ? ', slutet inte registrerat' : '') + ')', plain: name + ' startar kameran', plainEnd: name + ' stänger kameran', source: iv.source });
         });
         (input.screen || []).forEach(function (iv) {
             add({ ms: iv.startMs, endMs: iv.endMs, kind: 'screen', lane: 'screen', on: !!iv.on, stream: iv.stream, openEnded: iv.openEnded,
@@ -377,6 +379,22 @@
         }
         return 'Inga registreringar i tidsfönstret.';
     }
+
+    // Skälet till att en registrering saknas vid T: knowledgeC:s (eller Androids loggs) täckning och, på
+    // iOS, PowerLogs täckning och glapp.
+    function reasonAt(input, key, ms, label) {
+        var r = coverageReason(key, input.coverage, input.missingDbs, ms, label);
+        if (input.platform === 'Android') return r;
+        var c = input.coverage && input.coverage.PowerLog;
+        if (!c) return r + (input.missingDbs && input.missingDbs.PowerLog === 'unread' ? ' PowerLog kunde inte läsas.' : '');
+        var gap = (c.gaps || []).find(function (g) { return g.startMs <= ms && ms <= g.endMs; });
+        if (gap) return r + ' PowerLog har ett glapp från ' + formatUtc(gap.startMs) + ' till ' + formatUtc(gap.endMs) + ': telefonen var avstängd eller PowerLog skrev inte.';
+        if (c.firstMs != null && c.lastMs != null && (ms < c.firstMs || ms > c.lastMs)) return r + ' Tidpunkten ligger också utanför PowerLogs täckning (' + formatUtc(c.firstMs) + ' till ' + formatUtc(c.lastMs) + ').';
+        return r + ' PowerLog har inga registreringar heller.';
+    }
+
+    // Var en kameraanvändning per app kommer ifrån: Androids appops (op 26) eller PowerLog på iOS.
+    function camSource(e) { return e && e.stream === 'PowerLog' ? 'PowerLog (PLCameraAgent)' : 'appops (op 26)'; }
 
     function factorTime(input, type) {
         var file = input.file;
@@ -623,20 +641,20 @@
         }
         if (!running.length && camOps.length) {
             state = 'support';
-            items.push({ state: 'support', text: appName(camOps[0].app, names) + ' använde kameran vid tidpunkten (appops), så appen var igång.' });
-            items.push({ state: 'info', text: 'Förgrundsloggen: ' + coverageReason(streamKey, input.coverage, input.missingDbs, T, kcLabel) });
+            items.push({ state: 'support', text: appName(camOps[0].app, names) + ' använde kameran vid tidpunkten (' + (camOps[0].stream === 'PowerLog' ? 'PowerLog' : 'appops') + '), så appen var igång.' });
+            items.push({ state: 'info', text: 'Förgrundsloggen: ' + reasonAt(input, streamKey, T, kcLabel) });
             plain = 'Kameraappen använde kameran när bilden togs.';
-            var via = { l1: appName(camOps[0].app, names) + ' använder kameran', l2: 'appops, ingen förgrundslogg' };
+            var via = { l1: appName(camOps[0].app, names) + ' använder kameran', l2: (camOps[0].stream === 'PowerLog' ? 'PowerLog' : 'appops') + ', ingen förgrundslogg' };
         } else if (!running.length && expected && activityAt(events, T).some(function (a) { return a.app === expected; })) {
             var act = activityAt(events, T).filter(function (a) { return a.app === expected; })[0];
             state = 'support';
             items.push({ state: 'support', text: appName(expected, names) + ' användes vid tidpunkten: ' + act.text + ' (' + act.db + ').' });
-            items.push({ state: 'info', text: 'Förgrundsloggen: ' + coverageReason(streamKey, input.coverage, input.missingDbs, T, kcLabel) });
+            items.push({ state: 'info', text: 'Förgrundsloggen: ' + reasonAt(input, streamKey, T, kcLabel) });
             plain = appName(expected, names) + ' användes när filen sparades.';
             via = { l1: appName(expected, names) + ': ' + act.text, l2: act.db + ', ingen förgrundslogg' };
         } else if (!running.length) {
             state = 'missing';
-            var reason = anyInWindow ? 'Ingen app är registrerad som igång vid tidpunkten, men det finns registreringar i fönstret.' : coverageReason(streamKey, input.coverage, input.missingDbs, T, kcLabel);
+            var reason = anyInWindow ? 'Ingen app är registrerad som igång vid tidpunkten, men det finns registreringar i fönstret.' : reasonAt(input, streamKey, T, kcLabel);
             items.push({ state: 'missing', text: reason });
             plain = 'Det finns ingen registrering av vilken app som var öppen vid den här tiden. Det betyder inte att ingen app var öppen.';
         } else if (type.type === 'screenshot') {
@@ -676,31 +694,38 @@
             return { id: 'camera', title: 'Kamera igång', state: 'na', items: [{ state: 'na', text: 'Filen är ' + type.chat.appName + 's kopia av en fil som ' + via + ' i appen (meddelande ' + type.chat.messageId + '), så kameran frågas inte.' }],
                 plain: 'Filen ' + via + ' i ' + type.chat.appName + ', så frågan om kameran ställs inte.' };
         }
-        var tgCam = type.type === 'saved' && type.importer === TELEGRAM && input.telegram && input.telegram.link ? input.telegram.link.camera : null;
-        if (tgCam) return factorTelegramCamera(tgCam);
         var li = logInfo(input);
         // Android: tagningstiden enligt Snapchats Memories är då kameran måste ha varit igång; T är exporten.
         var tCam = file.capturedMs || T;
         var atCam = appsAt(events, tCam, 'camera');
         var ops = events.filter(function (e) { return e.kind === 'app' && e.cameraOp; });
         var whenText = file.capturedMs ? 'tagningstiden enligt Memories (' + formatUtc(file.capturedMs) + ')' : 'tidpunkten';
+        // Appens egen kamera enligt appops (Android) eller PowerLog (iOS): igång vid T, eller stängd strax före.
+        // PowerLogs tider får en mindre marginal än appops, så att en session som börjar strax efter T
+        // inte räknas som igång vid T.
+        var tolOf = function (e) { return e.stream === 'PowerLog' ? POWERLOG_TOL_MS : TOLERANCE_MS; };
+        var importerCamera = function (app, creator) {
+            var at = ops.filter(function (e) { return e.app === app && covers(e, tCam, tolOf(e)); });
+            if (at.length) return { state: 'support', text: creator + ' använde kameran ' + formatUtc(at[0].ms) + ' till ' + formatUtc(at[0].endMs) + ' enligt ' + camSource(at[0]) + ', vilket täcker ' + whenText + '.',
+                plain: creator + ' använde kameran när ' + (file.memory && file.memory.video ? 'videon spelades in' : 'bilden togs') + '.' };
+            var before = ops.filter(function (e) { return e.app === app && e.endMs <= tCam + tolOf(e) && tCam - e.endMs <= 2 * MINUTE && !covers(e, tCam, tolOf(e)); });
+            if (before.length) {
+                var last = before[before.length - 1];
+                return { state: 'info', text: creator + ' använde kameran ' + formatUtc(last.ms) + ' till ' + formatUtc(last.endMs) + ' enligt ' + camSource(last) + ', ' + duration(tCam - last.endMs) + ' före ' + whenText + '. Appen sparar filen när användaren väljer det, så kameran kan ha stängts innan.',
+                    plain: creator + ' använde kameran ' + duration(tCam - last.endMs) + ' innan filen sparades.' };
+            }
+            return null;
+        };
+        var tgCam = type.type === 'saved' && type.importer === TELEGRAM && input.telegram && input.telegram.link ? input.telegram.link.camera : null;
+        if (tgCam) return factorTelegramCamera(tgCam, importerCamera(TELEGRAM, 'Telegram'));
         if (type.type === 'saved' && type.importer && !isCameraApp(type.importer, input.cameraApps)) {
             var creator = appName(type.importer, names);
-            // Androids appops registrerar kameran per app, även en tredjepartsapps egen kamera.
-            var byImporter = atCam.filter(function (e) { return e.app === type.importer && e.cameraOp; });
-            if (byImporter.length) {
-                return { id: 'camera', title: 'Kamera igång', state: 'support', items: [{ state: 'support', text: creator + ' använde kameran ' + formatUtc(byImporter[0].ms) + ' till ' + formatUtc(byImporter[0].endMs) + ' enligt appops (op 26), vilket täcker ' + whenText + '.' }],
-                    plain: creator + ' använde kameran när ' + (file.memory && file.memory.video ? 'videon spelades in' : 'bilden togs') + '.' };
-            }
+            // Appops (Android) och PowerLog (iOS) registrerar kameran per app, även en tredjepartsapps egen kamera.
+            var own = importerCamera(type.importer, creator);
+            if (own) return { id: 'camera', title: 'Kamera igång', state: own.state, items: [{ state: own.state, text: own.text }], plain: own.plain };
             if (ops.length) {
-                var before = ops.filter(function (e) { return e.app === type.importer && e.endMs <= tCam + TOLERANCE_MS && tCam - e.endMs <= 2 * MINUTE; });
-                if (before.length) {
-                    var last = before[before.length - 1];
-                    return { id: 'camera', title: 'Kamera igång', state: 'info', items: [{ state: 'info', text: creator + ' använde kameran ' + formatUtc(last.ms) + ' till ' + formatUtc(last.endMs) + ' enligt appops (op 26), ' + duration(tCam - last.endMs) + ' före ' + whenText + '. Appen sparar filen när användaren väljer det, så kameran kan ha stängts innan.' }],
-                        plain: creator + ' använde kameran ' + duration(tCam - last.endMs) + ' innan filen sparades.' };
-                }
                 var f0 = Object.assign({}, appFactor, { id: 'camera', title: 'Skaparappen igång' });
-                f0.items = f0.items.concat([{ state: 'info', text: 'Ingen kameraanvändning av ' + creator + ' är registrerad i appops kring ' + whenText + '. Filen kan ha tagits emot, valts ur galleriet eller skapats på annat sätt i appen.' }]);
+                f0.items = f0.items.concat([{ state: 'info', text: 'Ingen kameraanvändning av ' + creator + ' är registrerad i ' + (ops[0].stream === 'PowerLog' ? 'PowerLog' : 'appops') + ' kring ' + whenText + '. Filen kan ha tagits emot, valts ur galleriet eller skapats på annat sätt i appen.' }]);
                 return f0;
             }
             // En tredjepartsapp med egen kamera ger inga rader för systemkameran.
@@ -714,14 +739,21 @@
         var kcLabel = li.label;
         var streamKey = li.key;
         if (cam.length) {
-            return { id: 'camera', title: 'Kamera igång', state: 'support', items: [{ state: 'support', text: appName(cam[0].app, names) + (cam[0].cameraOp ? ' använde kameran ' : ' var igång ') + formatUtc(cam[0].ms) + ' till ' + formatUtc(cam[0].endMs) + ' (' + cam[0].stream + (cam[0].cameraOp ? ', op 26' : '') + ').' }],
+            // Varje källa för sig: knowledgeC (kameraappen i förgrunden) och PowerLog eller appops (kameran används).
+            var camItems = [];
+            cam.forEach(function (e) {
+                if (camItems.some(function (it) { return it.stream === e.stream; })) return;
+                var who = e.cameraOp && isCameraApp(e.app, input.cameraApps) ? 'Kameraappen' : appName(e.app, names);
+                camItems.push({ stream: e.stream, state: 'support', text: who + (e.cameraOp ? ' använde kameran ' : ' var igång ') + formatUtc(e.ms) + ' till ' + formatUtc(e.endMs) + ' (' + (e.cameraOp ? camSource(e).replace(' (', ', ').replace(/\)$/, '') : e.stream) + ').' });
+            });
+            return { id: 'camera', title: 'Kamera igång', state: 'support', items: camItems.map(function (it) { return { state: it.state, text: it.text }; }),
                 plain: 'Kameran var igång när bilden togs.' };
         }
         if (running.length) {
             return { id: 'camera', title: 'Kamera igång', state: 'contradiction', items: [{ state: 'contradiction', text: 'Kameran är inte registrerad vid tidpunkten. Igång var ' + uniq(running.map(function (e) { return appName(e.app, names); })).join(', ') + '.' }],
                 plain: 'Kameran är inte registrerad som igång vid den här tiden. ' + uniq(running.map(function (e) { return appName(e.app, names); })).join(' och ') + ' var igång.' };
         }
-        var reason = anyCamInWindow ? 'Kameran var igång i fönstret, men inte vid själva tidpunkten.' : coverageReason(streamKey, input.coverage, input.missingDbs, T, kcLabel);
+        var reason = anyCamInWindow ? 'Kameran var igång i fönstret, men inte vid själva tidpunkten.' : reasonAt(input, streamKey, T, kcLabel);
         return { id: 'camera', title: 'Kamera igång', state: 'missing', items: [{ state: 'missing', text: reason }],
             plain: 'Det finns ingen registrering av om kameran var igång vid den här tiden. Det betyder inte att den inte var det.' };
     }
@@ -729,15 +761,20 @@
     // Telegrams kamera för en fil som Telegram sparat i bildbiblioteket: originalnamnet (camphoto_…,
     // camvideo_…) är det Telegrams kamera gav filerna i labbet, och samma fil (SHA-256) i Telegrams tmp/
     // binder. Utan filen i tmp/ är namnet en upplysning.
-    function factorTelegramCamera(c) {
+    // used: Telegrams kameraanvändning enligt PowerLog ({ state, text }) eller null.
+    function factorTelegramCamera(c, used) {
         var what = c.video ? 'videon' : 'bilden';
+        var items = used ? [{ state: used.state, text: used.text }] : [];
         if (c.same) {
-            return { id: 'camera', title: 'Telegrams kamera', state: 'support',
-                items: [{ state: 'support', text: 'Originalnamnet ' + c.name + ' är namnet Telegrams kamera ger ' + (c.video ? 'en video' : 'en bild') + ', och samma fil (SHA-256) ligger kvar i Telegrams behållare (' + c.path + ').' }],
+            items.push({ state: 'support', text: 'Originalnamnet ' + c.name + ' är namnet Telegrams kamera ger ' + (c.video ? 'en video' : 'en bild') + ', och samma fil (SHA-256) ligger kvar i Telegrams behållare (' + c.path + ').' });
+            return { id: 'camera', title: 'Telegrams kamera', state: 'support', items: items,
                 plain: (c.video ? 'Videon spelades in' : 'Bilden togs') + ' med Telegrams kamera på den här telefonen.' };
         }
-        return { id: 'camera', title: 'Telegrams kamera', state: 'info',
-            items: [{ state: 'info', text: 'Originalnamnet ' + c.name + ' är namnet Telegrams kamera ger ' + (c.video ? 'en video' : 'en bild') + '. ' + (!c.path ? 'Filen finns inte kvar i Telegrams tmp/.' : c.same === false ? 'Filen ' + c.path + ' i Telegrams behållare har en annan SHA-256.' : 'Filen ' + c.path + ' finns i Telegrams behållare, men summorna kunde inte jämföras.') }],
+        items.push({ state: 'info', text: 'Originalnamnet ' + c.name + ' är namnet Telegrams kamera ger ' + (c.video ? 'en video' : 'en bild') + '. ' + (!c.path ? 'Filen finns inte kvar i Telegrams tmp/.' : c.same === false ? 'Filen ' + c.path + ' i Telegrams behållare har en annan SHA-256.' : 'Filen ' + c.path + ' finns i Telegrams behållare, men summorna kunde inte jämföras.') });
+        if (used && used.state === 'support') {
+            return { id: 'camera', title: 'Telegrams kamera', state: 'support', items: items, plain: (c.video ? 'Videon spelades in' : 'Bilden togs') + ' med Telegrams kamera på den här telefonen.' };
+        }
+        return { id: 'camera', title: 'Telegrams kamera', state: 'info', items: items,
             plain: 'Namnet tyder på att ' + what + ' kom från Telegrams kamera.' };
     }
 
@@ -988,7 +1025,7 @@
         if (!on.length) {
             var any = events.some(function (e) { return e.kind === 'screen'; });
             var li = logInfo(input);
-            var reason = any ? 'Ingen registrering av skärmen vid själva tidpunkten.' : coverageReason(li.screenKey, input.coverage, input.missingDbs, T, li.label);
+            var reason = any ? 'Ingen registrering av skärmen vid själva tidpunkten.' : reasonAt(input, li.screenKey, T, li.label);
             // Kameravyn och åtgärder i en app kräver tänd skärm: då användes telefonen vid T.
             var act = activityAt(events, T)[0];
             if (act) {
@@ -1000,10 +1037,30 @@
             }
             return { id: 'screen', title: 'Skärm', state: 'missing', items: [{ state: 'missing', text: reason }], plain: 'Det finns ingen registrering av om skärmen var tänd.' };
         }
-        var lit = on.some(function (e) { return e.on; });
-        var lock = events.filter(function (e) { return e.kind === 'lock' && covers(e, T); });
-        var items = [{ state: lit ? 'support' : 'contradiction', text: lit ? 'Skärmen var tänd vid tidpunkten (' + on[0].stream + ').' : 'Skärmen var släckt vid tidpunkten (' + on[0].stream + ').' }];
-        if (lock.length) items.push({ state: 'info', text: 'Telefonen var ' + (lock[0].locked ? 'låst' : 'olåst') + ' vid tidpunkten. Kameran går att starta från låsskärmen, så det avgör inget.' });
+        // Flera källor (knowledgeC och PowerLog på iOS) räknas var för sig. En källa räknar skärmen som tänd
+        // om den var tänd inom marginalen kring T, som förut; en övergång nära T är alltså inte två lägen.
+        // Säger källorna olika är det en upplysning.
+        var litBy = uniq(on.filter(function (e) { return e.on; }).map(function (e) { return e.stream; }));
+        var darkBy = uniq(on.filter(function (e) { return !e.on; }).map(function (e) { return e.stream; })).filter(function (st) { return litBy.indexOf(st) < 0; });
+        // Låset: läget exakt vid T per källa, annars det närmaste inom marginalen.
+        var lockNear = events.filter(function (e) { return e.kind === 'lock' && covers(e, T); });
+        var lockAt = [];
+        uniq(lockNear.map(function (e) { return e.stream; })).forEach(function (st) {
+            var mine = lockNear.filter(function (e) { return e.stream === st; });
+            lockAt.push(mine.filter(function (e) { return covers(e, T, 0); })[0] || mine[0]);
+        });
+        var lockedBy = lockAt.filter(function (e) { return e.locked; }).map(function (e) { return e.stream; });
+        var openBy = lockAt.filter(function (e) { return !e.locked; }).map(function (e) { return e.stream; });
+        var lockItem = lockedBy.length && openBy.length ? { state: 'info', text: 'Källorna säger olika om låset vid tidpunkten: låst enligt ' + lockedBy.join(', ') + ', olåst enligt ' + openBy.join(', ') + '.' }
+            : lockAt.length ? { state: 'info', text: 'Telefonen var ' + (lockedBy.length ? 'låst' : 'olåst') + ' vid tidpunkten (' + (lockedBy.length ? lockedBy : openBy).join(', ') + '). Kameran går att starta från låsskärmen, så det avgör inget.' } : null;
+        if (litBy.length && darkBy.length) {
+            var mixed = [{ state: 'info', text: 'Källorna säger olika vid tidpunkten: skärmen tänd enligt ' + litBy.join(', ') + ', släckt enligt ' + darkBy.join(', ') + '. Kontrollera övergångarna i båda källorna.' }];
+            if (lockItem) mixed.push(lockItem);
+            return { id: 'screen', title: 'Skärm', state: 'info', items: mixed, plain: 'Källorna säger olika om skärmen var tänd vid den här tiden.' };
+        }
+        var lit = litBy.length > 0;
+        var items = [{ state: lit ? 'support' : 'contradiction', text: (lit ? 'Skärmen var tänd vid tidpunkten (' : 'Skärmen var släckt vid tidpunkten (') + (lit ? litBy : darkBy).join(', ') + ').' }];
+        if (lockItem) items.push(lockItem);
         return { id: 'screen', title: 'Skärm', state: lit ? 'support' : 'contradiction', items: items,
             plain: lit ? 'Skärmen var tänd.' : 'Skärmen var släckt vid den här tiden, vilket inte stämmer med att någon använde telefonen då.' };
     }

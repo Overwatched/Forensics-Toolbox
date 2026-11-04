@@ -20,7 +20,7 @@ const catalogs = {
 test('alla källor och roller finns', () => {
     const sources = roles.collect(catalogs);
     const byKey = Object.fromEntries(sources.map((s) => [s.key, s]));
-    assert.deepStrictEqual(Object.keys(byKey).sort(), ['android-mediastore', 'knowledgec', 'photos', 'routined-cache', 'signal-android-logs', 'signal-android-main', 'snapchat-android-arroyo', 'snapchat-android-cache', 'snapchat-android-friends', 'snapchat-android-journal', 'snapchat-android-memories', 'snapchat-android-notifications', 'snapchat-arroyo', 'snapchat-cache', 'snapchat-friends', 'snapchat-notifications', 'wellbeing']);
+    assert.deepStrictEqual(Object.keys(byKey).sort(), ['android-mediastore', 'knowledgec', 'photos', 'powerlog', 'routined-cache', 'signal-android-logs', 'signal-android-main', 'snapchat-android-arroyo', 'snapchat-android-cache', 'snapchat-android-friends', 'snapchat-android-journal', 'snapchat-android-memories', 'snapchat-android-notifications', 'snapchat-arroyo', 'snapchat-cache', 'snapchat-friends', 'snapchat-notifications', 'wellbeing']);
     assert.strictEqual(byKey['signal-android-main'].cipher, 'signal');
     assert.strictEqual(byKey['signal-android-main'].databases[0].cipher, 'signal');
     assert.deepStrictEqual(Object.keys(byKey['signal-android-main'].roles).sort(), ['attachments', 'coverage', 'messages', 'recipients']);
@@ -40,6 +40,8 @@ test('alla källor och roller finns', () => {
         assert.strictEqual(band.roles.file.epoch, 'cocoa');
     }
     assert.deepStrictEqual(Object.keys(byKey.knowledgec.roles).sort(), ['app-infocus', 'app-usage', 'coverage', 'lock', 'screen']);
+    assert.deepStrictEqual(Object.keys(byKey.powerlog.roles).sort(), ['pl-backlight', 'pl-camera', 'pl-coverage', 'pl-gaps', 'pl-lock', 'pl-screen']);
+    assert.strictEqual(byKey.powerlog.platform, 'iOS');
     assert.deepStrictEqual(Object.keys(byKey.wellbeing.roles).sort(), ['app-events', 'coverage']);
     assert.strictEqual(byKey.wellbeing.platform, 'Android');
     assert.strictEqual(byKey.knowledgec.platform, 'iOS');
