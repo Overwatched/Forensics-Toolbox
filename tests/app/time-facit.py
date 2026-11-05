@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Fristående facit för tiderna i en iOS-extraktion, till labbtesterna (tests/app/lab-ios.js).
 
-Använder varken programmets kod eller ExifTool. Läser zippens rådata (lokala poster), EXIF ur HEIC, JPEG och
-PNG, QuickTime ur MOV och MP4, och Photos.sqlite med -wal. Rör aldrig zippen, och skriver bara till utmappen.
+Använder varken programmets kod eller ExifTool. Läser zippens rådata (lokala poster, eller metadataN/metadata.msgpack
+när zippen har den), EXIF ur HEIC, JPEG och PNG, QuickTime ur MOV och MP4, och Photos.sqlite med -wal. Rör aldrig
+zippen, och skriver bara till utmappen.
 
     time-facit.py <zip> <utmapp>      skriver <utmapp>/facit.json
 """
@@ -41,6 +42,60 @@ def zip_times(z, info):
         return None
     m, a, ctime, crtime = struct.unpack('<4i', ut[1:17])
     return {'m': m * 1000, 'a': a * 1000, 'ctime': ctime * 1000, 'crtime': crtime * 1000}
+
+
+def msgpack(b, i=0):
+    """Ett värde ur msgpack och platsen efter det."""
+    c = b[i]
+    i += 1
+    if c <= 0x7f:
+        return c, i
+    if c >= 0xe0:
+        return c - 256, i
+    if c <= 0x8f or c in (0xde, 0xdf):
+        n = c & 15 if c <= 0x8f else int.from_bytes(b[i:i + (2 if c == 0xde else 4)], 'big')
+        i += 0 if c <= 0x8f else (2 if c == 0xde else 4)
+        out = {}
+        for _ in range(n):
+            k, i = msgpack(b, i)
+            out[k], i = msgpack(b, i)
+        return out, i
+    if c <= 0x9f or c in (0xdc, 0xdd):
+        n = c & 15 if c <= 0x9f else int.from_bytes(b[i:i + (2 if c == 0xdc else 4)], 'big')
+        i += 0 if c <= 0x9f else (2 if c == 0xdc else 4)
+        out = []
+        for _ in range(n):
+            v, i = msgpack(b, i)
+            out.append(v)
+        return out, i
+    if c <= 0xbf or c in (0xd9, 0xda, 0xdb):
+        w = {0xd9: 1, 0xda: 2, 0xdb: 4}.get(c, 0)
+        n = c & 0x1f if not w else int.from_bytes(b[i:i + w], 'big')
+        i += w
+        return b[i:i + n].decode('utf-8', 'replace'), i + n
+    if c in (0xc4, 0xc5, 0xc6):
+        w = {0xc4: 1, 0xc5: 2, 0xc6: 4}[c]
+        n = int.from_bytes(b[i:i + w], 'big')
+        i += w
+        return bytes(b[i:i + n]), i + n
+    if 0xcc <= c <= 0xcf:
+        w = 1 << (c - 0xcc)
+        return int.from_bytes(b[i:i + w], 'big'), i + w
+    if 0xd0 <= c <= 0xd3:
+        w = 1 << (c - 0xd0)
+        return int.from_bytes(b[i:i + w], 'big', signed=True), i + w
+    if c in (0xc0, 0xc2, 0xc3):
+        return {0xc0: None, 0xc2: False, 0xc3: True}[c], i
+    raise ValueError('msgpack: byte %d' % c)
+
+
+def named_times(z, entries):
+    """Tiderna ur metadata1/metadata.msgpack i ms, efter sökvägen under filesystem1/. None när filen saknas."""
+    if 'metadata1/metadata.msgpack' not in entries:
+        return None
+    meta, _ = msgpack(z.read('metadata1/metadata.msgpack'))
+    ms = lambda v: v // 1000000 if v and v > 0 else 0
+    return {k: {'m': ms(r['mtime']), 'a': ms(r['atime']), 'ctime': ms(r['ctime']), 'crtime': ms(r['btime'])} for k, r in meta.items()}
 
 
 def tiff(b):
@@ -163,6 +218,7 @@ def main():
     os.makedirs(out, exist_ok=True)
     z = zipfile.ZipFile(zpath)
     entries = {i.filename: i for i in z.infolist()}
+    named = named_times(z, entries)
     db = [n for n in entries if re.search(r'/Media/PhotoData/Photos\.sqlite(-wal|-shm)?$', n)]
     for n in db:
         with z.open(n) as src, open(os.path.join(out, os.path.basename(n)), 'wb') as dst:
@@ -178,7 +234,7 @@ def main():
         rows.append({
             'name': r['n'], 'source': r['s'],
             'library': {'created': ms(r['c']), 'added': ms(r['ad']), 'modified': ms(r['mo']), 'trashed': ms(r['tr']), 'adjusted': ms(r['aj'])},
-            'fs': zip_times(z, info) if info else None,
+            'fs': None if not info else named.get(info.filename.replace('filesystem1/', '', 1)) if named is not None else zip_times(z, info),
             'fileTime': file_time(z.read(info), r['o']) if info else None,
         })
     c.close()

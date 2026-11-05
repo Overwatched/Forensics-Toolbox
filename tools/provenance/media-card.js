@@ -79,9 +79,10 @@
         if (opts.thumb) return { source: 'thumbnail', kind: 'image', note: kind === 'video' ? 'Telefonens egen miniatyr av videon.' : 'Telefonens egen miniatyr av bilden.' };
         if (kind === 'video' && opts.hasBytes && small && /\.(mp4|m4v|webm)$/i.test(baseName(opts.name))) return { source: 'video', kind: 'video', note: 'En bildruta ur videon.' };
         if (kind === 'image' && opts.hasBytes) return { source: 'original', kind: 'image', note: 'Bilden i förminskad form.' };
-        var why = kind === 'heic' ? 'HEIC-bilder kan inte visas utan telefonens egen tumnagel, och ingen hittades i zippen.'
-            : kind === 'video' ? 'Videon kan inte visas här, och ingen tumnagel hittades i zippen.'
-                : !opts.hasBytes ? 'Filen lästes inte ur zippen.'
+        var word = opts.word || 'zippen';
+        var why = kind === 'heic' ? 'HEIC-bilder kan inte visas utan telefonens egen tumnagel, och ingen hittades i ' + word + '.'
+            : kind === 'video' ? 'Videon kan inte visas här, och ingen tumnagel hittades i ' + word + '.'
+                : !opts.hasBytes ? 'Filen lästes inte ur ' + word + '.'
                     : 'Filtypen kan inte visas.';
         return { source: 'none', kind: null, note: why };
     }
@@ -162,24 +163,47 @@
     }
 
     // Kortets rader i grupper efter var uppgifterna kommer ifrån: [{ title, rows }], utan tomma grupper.
-    // fileEntry: { path, size, crc32, crcOk, md5, sha256 }. opts.sizeText(byte) -> text.
+    // fileEntry: { path, size, crc32, crcOk, md5, sha256, reportRows }. opts.sizeText(byte) -> text, opts.word: zippen eller rapporten.
     function cardGroups(fileEntry, exifRows, opts) {
         opts = opts || {};
         if (!fileEntry) return [];
+        var word = opts.word || 'zippen';
         var size = opts.sizeText ? opts.sizeText(fileEntry.size) + ' (' + fileEntry.size + ' byte)' : fileEntry.size + ' byte';
         var rows = [
             ['Filnamn', baseName(fileEntry.path)],
-            ['Sökväg i zippen', fileEntry.path],
+            ['Sökväg i ' + word, fileEntry.path],
             ['Storlek', size],
-            ['CRC32', (fileEntry.crc32 || '') + (fileEntry.crcOk === false ? ' (stämmer inte med zippen)' : '')],
+            ['CRC32', (fileEntry.crc32 || '') + (fileEntry.crcOk === false ? ' (stämmer inte med ' + word + ')' : '')],
             ['MD5', fileEntry.md5 || 'inte beräknad'],
         ].concat(fileEntry.sha1 ? [['SHA-1', fileEntry.sha1]] : []).concat([
             ['SHA-256', fileEntry.sha256 || 'inte beräknad'],
         ]);
         return [
             { title: 'Filen i extraktionen', rows: rows },
+            { title: 'I rapporten (rapportverktygets uppgifter och tolkning)', rows: fileEntry.reportRows || [] },
             { title: 'Inuti filen (EXIF eller QuickTime)', rows: exifSummary(exifRows) },
         ].filter(function (g) { return g.rows.length; });
+    }
+
+    // Vad rapporten säger om filen, för kortet och protokollet: posten, kategorin och rapportverktygets tolkning.
+    // Summorna jämförs med filens egna, som räknats på det som lästes ur rapporten (own: { md5, sha256 }).
+    // Inget av detta används i bedömningen.
+    function reportRows(report, own) {
+        if (!report) return [];
+        own = own || {};
+        var sum = function (want, got) { return !got ? want : want.toLowerCase() === got ? 'samma som filens' : 'SKILJER SIG från filens: ' + want; };
+        var rows = [];
+        if (report.member) rows.push(['Post i rapporten', report.member]);
+        if (report.md5) rows.push(['MD5 i report.xml', sum(report.md5, own.md5)]);
+        if (report.sha256) rows.push(['SHA-256 i report.xml', sum(report.sha256, own.sha256)]);
+        if (report.tags) rows.push(['Kategori', report.tags]);
+        if (report.deleted) rows.push(['Status', report.deleted]);
+        if (report.deletedMs) rows.push(['Raderad', new Date(report.deletedMs).toISOString().slice(0, 23).replace('T', ' ') + ' UTC']);
+        if (report.origin || report.originReason) rows.push(['Ursprung', [report.origin, report.originReason].filter(Boolean).join(', ')]);
+        if (report.service) rows.push(['Tjänst', report.service]);
+        if (report.adjustedTime) rows.push(['Justerad tid', report.adjustedTime]);
+        if (report.adjustedLocation) rows.push(['Justerad plats', report.adjustedLocation]);
+        return rows;
     }
 
     // Ett inskrivet datum med eller utan klockslag, svensk skrivning: "2026-10-31", "2026-10-31 14:30",
@@ -311,7 +335,7 @@
     // DOS-tiden tolkad i zonen, eftersom zippen inte säger vilken zon den är i. { ms, assumed } eller null.
     function entryMs(e, zone) {
         if (!e) return null;
-        if (e.mtime) return { ms: e.mtime * 1000, assumed: false };
+        if (e.mtime) return { ms: Math.round(e.mtime * 1000), assumed: false };
         var p = parseLocal(e.dosTime || '');
         if (!p) return null;
         return { ms: toUtcMs(p, zone), assumed: true };
@@ -331,7 +355,7 @@
     var api = {
         decodeUserComment: decodeUserComment,
         kindOf: kindOf, mimeOf: mimeOf, baseName: baseName, thumbnailSuffix: thumbnailSuffix, suffixKeeper: suffixKeeper, pickBySuffix: pickBySuffix,
-        previewPlan: previewPlan, exifSummary: exifSummary, cardGroups: cardGroups, parseLocal: parseLocal, parseWhen: parseWhen, dateText: dateText, timeText: timeText, dayRange: dayRange, zoneOffsetAt: zoneOffsetAt, toUtcMs: toUtcMs, exifTakenMs: exifTakenMs, exifZone: exifZone,
+        previewPlan: previewPlan, exifSummary: exifSummary, cardGroups: cardGroups, reportRows: reportRows, parseLocal: parseLocal, parseWhen: parseWhen, dateText: dateText, timeText: timeText, dayRange: dayRange, zoneOffsetAt: zoneOffsetAt, toUtcMs: toUtcMs, exifTakenMs: exifTakenMs, exifZone: exifZone,
         nearestFirst: nearestFirst, deltaText: deltaText, mediaKeeper: mediaKeeper, entryMs: entryMs, dataUrl: dataUrl, THUMB_FILE: THUMB_FILE,
     };
     if (typeof module !== 'undefined' && module.exports) module.exports = api;

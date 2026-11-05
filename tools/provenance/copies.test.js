@@ -98,3 +98,10 @@ test('appens namn i stället för behållarens GUID eller paketnamnet, när det 
     // Snapchat och bildbiblioteket behåller sina egna namn.
     assert.match(copies.classifyPath('private/var/mobile/Containers/Data/Application/' + guid + '/Documents/x', { snapchatContainers: [guid], containerApps: { [guid]: 'Snapchat (com.toyopagroup.picaboo)' } }).label, /^Snapchat, /);
 });
+
+test('kopior med lika långa sökvägar står i samma ordning oavsett zippens ordning', () => {
+    const file = { name: 'x', size: 1, crc32: 1 };
+    const a = { name: 'private/var/mobile/Library/a/1.jpg', size: 1, crc32: 1 };
+    const b = { name: 'private/var/mobile/Library/b/1.jpg', size: 1, crc32: 1 };
+    assert.deepStrictEqual(copies.findCopies([a, b], file).map((e) => e.name), copies.findCopies([b, a], file).map((e) => e.name));
+});

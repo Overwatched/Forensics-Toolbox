@@ -202,6 +202,105 @@ const scenarios = [
         return before.rows.length + ' rader, samma slutsats i UTC';
     }],
 
+    ['Härkomst: filens tidpunkter väljs med knappar, T står bara på T, och protokollet har alla tidslinjer', async ({ c, fx, downloads }) => {
+        await c.nav('Härkomst');
+        const view = () => c.ev(PROV, `(function () {
+            const box = document.getElementById('timelines');
+            const list = [...box.querySelectorAll('.timeline')];
+            const shown = list.filter((t) => !t.classList.contains('display-none'));
+            return {
+                buttons: [...box.querySelectorAll('button.moment')].map((b) => ({ title: b.querySelector('strong').textContent, sub: b.querySelector('span').textContent, on: b.classList.contains('on'), pressed: b.getAttribute('aria-pressed') })),
+                note: (box.querySelector('.moment-note') || {}).textContent || '',
+                all: list.length, shown: shown.length,
+                texts: shown[0] ? [...shown[0].querySelector('.timeline-svg svg').querySelectorAll('text')].map((x) => x.textContent) : [],
+                close: shown[0] ? [...shown[0].querySelectorAll('.timeline-svg svg')[1].querySelectorAll('text')].map((x) => x.textContent) : [],
+                clips: [...box.querySelectorAll('clipPath')].map((x) => x.id),
+                height: shown[0] ? shown[0].getBoundingClientRect().height : 0,
+                factors: document.getElementById('factors').innerText,
+            };
+        })()`);
+        const on = (v) => JSON.stringify(v.buttons.map((b) => b.on));
+        const PILLS = ['Förenligt', 'Inte förenligt', 'Saknas', 'Upplysning', 'Inte tillämplig'];
+        const notAtT = (v, label) => [v.texts, v.close].forEach((texts) => {
+            expect(texts.some((t) => /^\d\d:\d\d:\d\d /.test(t) && t.endsWith(label)), 'Markeringen: ' + texts.join(' | '));
+            expect(texts.some((t) => /^Läget · /.test(t)), 'Kolumnen: ' + texts.join(' | '));
+            expect(!texts.some((t) => /^T \d\d:/.test(t) || /^Vid T/.test(t)), 'T står på fel tid: ' + texts.join(' | '));
+            expect(!texts.some((t) => PILLS.includes(t)), 'Bedömningsord utanför T: ' + texts.join(' | '));
+        });
+        const atT = (v) => expect(v.texts.some((t) => /^Vid T · /.test(t)) && v.texts.some((t) => /^T \d\d:/.test(t)) && v.texts.some((t) => PILLS.includes(t)), 'T-tidslinjen: ' + v.texts.join(' | '));
+
+        // Tiderna ligger nära varandra: inga knappar, och samma tidslinje som förut.
+        await assessNamed(c, 'IMG_0005.JPG');
+        const one = await view();
+        expect(one.buttons.length === 0 && one.all === 1 && one.shown === 1 && !one.note, 'En tidpunkt: ' + JSON.stringify(one.buttons));
+        atT(one);
+
+        // Telefonen har händelser vid båda: T visas först. Tidslinjerna får inte dela klippområden, för då klipps banden
+        // i den ena efter den andra.
+        await assessNamed(c, 'IMG_0010.JPG');
+        const both = await view();
+        expect(on(both) === '[true,false]' && both.all === 2 && both.shown === 1, 'Startvalet med händelser vid båda: ' + JSON.stringify(both.buttons));
+        atT(both);
+        expect(both.buttons.every((b) => /\d+ händelser? på telefonen$/.test(b.sub)), 'Händelserna: ' + JSON.stringify(both.buttons));
+        expect(both.clips.length >= 4 && new Set(both.clips).size === both.clips.length, 'Klippområdena: ' + both.clips.join(' '));
+
+        // Telefonen har inga händelser vid T: den andra tidpunkten visas först.
+        await assessNamed(c, 'IMG_0009.JPG');
+        const first = await view();
+        expect(JSON.stringify(first.buttons.map((b) => b.title)) === JSON.stringify(['När filen skapades (T)', 'När filen kom till telefonen']), 'Knapparna: ' + JSON.stringify(first.buttons));
+        expect(/inga registrerade händelser$/.test(first.buttons[0].sub) && /\d+ händelser? på telefonen$/.test(first.buttons[1].sub), 'Händelserna: ' + JSON.stringify(first.buttons));
+        expect(on(first) === '[false,true]' && first.buttons[1].pressed === 'true' && first.all === 2 && first.shown === 1, 'Startvalet: ' + JSON.stringify(first.buttons));
+        notAtT(first, ' filen kom till telefonen');
+        expect(first.note.includes('400 dygn') && first.note.includes('efter T') && first.note.includes('Källa: Photos.sqlite → ZASSET → ZADDEDDATE') && first.note.includes('Bedömningen ovan gäller T') && first.note.includes('Båda tidslinjerna'), 'Raden: ' + first.note);
+
+        // Knappen byter tidslinje och inget annat.
+        await c.ev(PROV, `document.querySelector('button.moment[data-moment="0"]').click(), 1`);
+        const second = await view();
+        expect(on(second) === '[true,false]' && second.shown === 1 && second.height > 100, 'Efter klicket: ' + JSON.stringify(second.buttons));
+        atT(second);
+        expect(second.factors === first.factors, 'Bedömningen ändrades av knappen');
+        expect(/vid T/.test(second.note) && !second.note.includes('ZADDEDDATE'), 'Raden: ' + second.note);
+
+        // Valet står kvar när tidslinjerna ritas om, med Det viktiga och Allt och med en annan zon.
+        await c.ev(PROV, `[...document.querySelectorAll('#timelines .seg button.detail')].find((b) => !b.classList.contains('on')).click(), 1`);
+        await sleep(300);
+        await c.waitFor(PROV, `document.querySelectorAll('#timelines button.moment').length === 2 && !ProvenanceApp.busy()`, 20000, 'omritningen');
+        expect(on(await view()) === '[true,false]', 'Valet efter Allt');
+        await c.ev(PROV, `(function () { const z = document.getElementById('zone'); z.value = 'utc'; z.dispatchEvent(new Event('change')); return 1; })()`);
+        await sleep(300);
+        await waitResult(c, 'zonen');
+        const utc = await view();
+        expect(on(utc) === '[true,false]' && utc.shown === 1, 'Valet efter zonen: ' + JSON.stringify(utc.buttons));
+        atT(utc);
+
+        // Protokollet har båda, vilken knapp som än är vald.
+        for (const old of fs.readdirSync(downloads)) if (/^harkomst-IMG_0009-protokoll-/.test(old)) fs.unlinkSync(path.join(downloads, old));
+        await c.ev(PROV, `document.getElementById('save-protocol').click(), 1`);
+        const html = await download(downloads, /^harkomst-IMG_0009-protokoll-.*\.html$/);
+        expect(html.includes('Översikt när filen skapades (T):') && html.includes('Översikt när filen kom till telefonen:') && html.includes('Bedömningen i avsnitt 2 gäller T.'), 'Protokollet saknar en tidslinje');
+        const images = (html.match(/<img[^>]+src="data:image\/png/g) || []).length;
+        expect(images >= 4, 'Protokollet har ' + images + ' bilder');
+
+        // En annan fil börjar om från programmets startval.
+        await assessNamed(c, 'IMG_0005.JPG');
+        await assessNamed(c, 'IMG_0009.JPG');
+        expect(on(await view()) === '[false,true]', 'Startvalet efter en annan fil');
+        await c.ev(PROV, `(function () { const z = document.getElementById('zone'); z.value = 'file'; z.dispatchEvent(new Event('change')); return 1; })()`);
+        await sleep(300);
+        await waitResult(c, 'zonen');
+
+        // Utanför biblioteket: tiden i filen är två år gammal, och filsystemets tid blir den andra tidpunkten.
+        await assessNamed(c, 'gammal.jpg');
+        const old = await view();
+        const T = await c.ev(PROV, `ProvenanceApp.model().file.createdMs`);
+        expect(T === Date.UTC(2022, 5, 1, 12, 34, 56), 'T är ' + new Date(T).toISOString());
+        expect(JSON.stringify(old.buttons.map((b) => b.title)) === JSON.stringify(['Enligt tiden i filen (T)', 'När filen skapades i filsystemet']), 'Knapparna: ' + JSON.stringify(old.buttons));
+        expect(on(old) === '[false,true]' && /inga registrerade händelser$/.test(old.buttons[0].sub) && /\d+ händelser? på telefonen$/.test(old.buttons[1].sub), 'Startvalet: ' + JSON.stringify(old.buttons));
+        notAtT(old, ' filen skapades i filsystemet');
+        expect(old.texts.includes('Filen skapades i filsystemet') && old.texts.includes('731 dygn efter T'), 'Filens rad: ' + old.texts.join(' | '));
+        expect(/Källa: Zippen → .*fjärde tiden/.test(old.note), 'Raden: ' + old.note);
+        return 'två tidpunkter i biblioteket och utanför, ' + images + ' bilder i protokollet';
+    }],
     ['Härkomst: en fil från disk väljer raden i rätt mapp utan vallista', async ({ c, fx }) => {
         await c.setFiles(PROV, '#disk-input', [fx.files.image]);
         await c.ev(PROV, `document.getElementById('disk-input').dispatchEvent(new Event('change')), 1`);
@@ -477,6 +576,99 @@ const scenarios = [
         await c.ev('time-converter/time.html', `(function(){ const i = document.getElementById('raw-input'); i.value = '738937296'; i.dispatchEvent(new Event('input')); document.getElementById('convert-button').click(); return 1; })()`);
         await c.waitFor('time-converter/time.html', `/2024-06-01/.test(document.body.innerText)`, 10000, 'Time Converter');
         return 'ok';
+    }],
+
+    ['Rapport (UFDR): öppnas som en extraktion, med telefonens sökvägar, namngivna tider och nyckelringen ur rapporten', async ({ c, fx, downloads }) => {
+        await c.nav('Härkomst');
+        await c.setFiles(null, '#cb-input', [fx.files.ufdr]);
+        await c.ev(null, `document.getElementById('cb-input').dispatchEvent(new Event('change')), 1`);
+        await c.waitFor(PROV, `!ProvenanceApp.busy() && /report\\.xml: \\d+ filer från telefonen/.test(document.getElementById('ex-status').textContent)`, 60000, 'rapporten i Härkomst');
+        const list = await c.ev(PROV, `document.getElementById('ex-list').innerText`);
+        expect(/Rapport i UFDR-format, rapportverktygets version 10\.11\.0\.3022/.test(list), 'Rapporten: ' + list);
+        expect(!/cellebrite|physical analyzer/i.test(list), 'Verktygets namn står i texten: ' + list);
+        expect(/säger inte att den saknades på telefonen/.test(list) && /ctime/.test(list), 'Vad en rapport inte kan säga: ' + list);
+        expect(/1 filer som rapportverktyget utvunnit/.test(list), 'Det utvunna: ' + list);
+        expect(/Sökväg i rapporten/.test(list), 'Tabellen: ' + list);
+        const note = await c.waitFor(PROV, `/Nyckeln läses ur/.test(document.getElementById('signal-key-note').textContent) && document.getElementById('signal-key-note').textContent`, 20000, 'nyckelringen');
+        expect(/Testrapport_keychain\.plist i rapporten/.test(note), 'Nyckeln: ' + note);
+
+        // Filen med de namngivna tiderna. Samma T som ur zippen, och ctime sägs saknas i stället för att gissas.
+        // Namnet finns i två mappar, så en vallista visas först.
+        const first = async () => {
+            await c.ev(PROV, `document.getElementById('filename').value = '${fx.imageName}', document.getElementById('run').click(), 1`);
+            await c.waitFor(PROV, `!document.getElementById('hits').classList.contains('display-none') && document.querySelectorAll('#hits tr.pick').length`, 60000, 'vallistan');
+            await c.ev(PROV, `[...document.querySelectorAll('#hits tr.pick')].find(tr => /100APPLE/.test(tr.innerText)).click(), 1`);
+            await sleep(300);
+            await waitResult(c, 'bedömningen');
+        };
+        await first();
+        const T = await c.ev(PROV, `ProvenanceApp.model().file.createdMs`);
+        expect(T === fx.T, 'T är ' + new Date(T).toISOString());
+        const st = await c.ev(PROV, `(function(){ const t = ProvenanceApp.model().factors.find(x => x.id === 'time'); const row = (id) => t.times.find(r => r.id === id);
+            const src = (r) => r && r.source ? [r.source.db, r.source.table, r.source.column].join(' / ') : '';
+            return { modified: src(row('fs-modified')), modifiedMs: row('fs-modified') && row('fs-modified').ms, created: src(row('fs-created')), accessed: src(row('fs-accessed')), changed: row('fs-changed') && row('fs-changed').absent, card: document.getElementById('file-card').innerText, path: ProvenanceApp.meta().fileEntry.path }; })()`);
+        expect(st.modified === 'Rapporten / report.xml / ModifyTime' && st.modifiedMs === fx.T + 1000, 'Ändrad: ' + JSON.stringify(st));
+        expect(st.created === 'Rapporten / report.xml / CreationTime' && st.accessed === 'Rapporten / report.xml / AccessTime', 'Tiderna: ' + JSON.stringify(st));
+        expect(/Rapporten anger ingen sådan tid/.test(st.changed || ''), 'ctime: ' + JSON.stringify(st));
+        expect(/^\/private\/var\/mobile\/Media\/DCIM\/100APPLE\/IMG_0001\.JPG$/.test(st.path), 'Sökvägen är telefonens: ' + st.path);
+        expect(/Post i rapporten/.test(st.card) && /samma som filens/.test(st.card) && /Device Captured, Native Camera App/.test(st.card), 'Kortet: ' + st.card);
+
+        // Nyckeln ur rapporten låser upp Signal, och samma innehåll på två ställen hittas som kopia.
+        const sig = await assessNamed(c, 'IMG_0006.JPG');
+        expect(sig.f.signal && sig.f.signal.state === 'support', 'Signal: ' + JSON.stringify(sig.f.signal));
+        const cam = await assessNamed(c, 'IMG_0008.JPG');
+        const copies = await c.ev(PROV, `(ProvenanceApp.model().copies || []).map(x => x.name)`);
+        expect(copies.some((n) => /tmp\/camphoto_123456\.jpg$/.test(n)), 'Kopian under RelatedNodes: ' + copies);
+        expect(cam.model.titles.camera === 'Telegrams kamera', 'Kameran: ' + cam.model.titles.camera);
+
+        // Det utvalda: filen finns i biblioteket men inte i rapporten, och det sägs som det är.
+        const gone = await assessNamed(c, 'IMG_0002.JPG');
+        expect(gone.model.name === 'IMG_0002.JPG', 'Bedömningen: ' + JSON.stringify(gone.model));
+        const reason = await c.ev(PROV, `ProvenanceApp.meta().fileMissingReason`);
+        expect(/finns inte i rapporten \(den kan ha valts bort/.test(reason), 'Skälet: ' + reason);
+        await c.ev(PROV, `document.getElementById('filename').value = 'finns-inte.jpg', document.getElementById('run').click(), 1`);
+        await c.waitFor(PROV, `!ProvenanceApp.busy() && /finns-inte\.jpg/.test(document.getElementById('run-status').textContent)`, 30000, 'namnet utan träff');
+        const none = await c.ev(PROV, `document.getElementById('run-status').textContent`);
+        expect(/ingen fil med det namnet i rapporten/.test(none) && /säger inte att filen saknades på telefonen/.test(none), 'Utan träff: ' + none);
+
+        // Protokollet säger vad källan är.
+        await first();
+        // Protokollet ur zippen ligger kvar i mappen från ett tidigare steg, med samma namn.
+        fs.readdirSync(downloads).filter((n) => /^harkomst-IMG_0001-protokoll-/.test(n)).forEach((n) => fs.unlinkSync(path.join(downloads, n)));
+        await c.ev(PROV, `document.getElementById('save-protocol').click(), 1`);
+        const html = await download(downloads, /^harkomst-IMG_0001-protokoll-.*\.html$/);
+        expect(html.includes('Källan är en rapport') && html.includes('Bildfilen i rapporten') && html.includes('Testrapport_Report.ufdr'), 'Protokollet saknar rapporten');
+        expect(html.includes('Post i rapporten'), 'Protokollet saknar raderna ur rapporten');
+        expect(!/cellebrite|physical analyzer/i.test(html), 'Verktygets namn står i protokollet');
+
+        // Queries läser samma rapport. Fliken har en databas ur zippen och byter inte av sig själv, så en ny flik tar rapporten.
+        await c.nav('Queries');
+        await c.ev(QUER, `document.getElementById('tab-new').click(), 1`);
+        await c.waitFor(QUER, `/databaser hittades/.test(document.getElementById('ex-status').textContent) && document.getElementById('bar-zip').textContent === 'Testrapport_Report.ufdr'`, 60000, 'rapporten i Queries');
+        await c.ev(QUER, `(function(){ const b = document.querySelector('.side-db[data-family="knowledgec"]'); if (b.getAttribute('aria-expanded') !== 'true') b.click(); document.querySelector('.side-q[data-db="knowledgec"][data-q="app-usage"]').click(); return 1; })()`);
+        await sleep(300);
+        await c.ev(QUER, `document.getElementById('run-button').click(), 1`);
+        await c.waitFor(QUER, `/rad(er)? på/.test(document.getElementById('run-status').textContent)`, 30000, 'queryn');
+        const q = await c.ev(QUER, `({ rows: document.querySelectorAll('#run-result tbody tr').length, status: document.getElementById('run-status').innerText, trace: document.getElementById('run-trace').textContent })`);
+        expect(q.rows === 3, 'app-usage ur rapporten: ' + q.rows + ' rader. ' + q.status);
+        expect(/Rapport \(UFDR, rapportverktygets version 10\.11\.0\.3022\)/.test(q.trace) && /Ur rapporten: \/private\/var\/mobile\/Library\/CoreDuet\/Knowledge\/knowledgeC\.db \(posten files\//.test(q.trace), 'Spårbarheten: ' + q.trace.slice(0, 400));
+        await noInjectedScript(c);
+        return 'tider, nyckel, kopia, urval, protokoll och Queries';
+    }],
+
+    ['Nyckelringen som väljs med zippen i Queries följer med till ett verktyg som öppnas senare', async ({ c, fx }) => {
+        await c.nav('Queries');
+        await c.setFiles(null, '#cb-input', [fx.files.zip, fx.files.keychain]);
+        await c.ev(null, `document.getElementById('cb-input').dispatchEvent(new Event('change')), 1`);
+        await c.waitFor(QUER, `/databaser hittades/.test(document.getElementById('ex-status').textContent) && document.getElementById('bar-zip').textContent === 'Testextraktion-iOS17.zip'`, 60000, 'zippen i Queries');
+        await sleep(300);
+        // Härkomst laddas om, som när den öppnas först nu: då har den bara det huvudfönstret minns.
+        await c.ev(PROV, `location.reload(), 1`);
+        await sleep(800);
+        await c.waitFor(PROV, `window.ProvenanceApp && /databaser hittades/.test(document.getElementById('ex-status').textContent)`, 60000, 'zippen i Härkomst');
+        const note = await c.waitFor(PROV, `/Nyckeln läses ur/.test(document.getElementById('signal-key-note').textContent) && document.getElementById('signal-key-note').textContent`, 10000, 'nyckelringen i Härkomst');
+        expect(/Testextraktion-iOS17_keychain\.plist/.test(note), 'Nyckeln: ' + note);
+        return 'nyckeln läses i Härkomst';
     }],
 ];
 

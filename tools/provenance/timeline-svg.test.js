@@ -253,3 +253,75 @@ test('närbilden visar som standard det viktiga: filens händelser med text, sam
         assert.ok(![...keep].some((e) => e.neighbour), 'grannbilder är sammanhang');
     }
 });
+
+// ---------- En annan tidpunkt än T ----------
+
+const FAR = 400 * 86400 * S;
+function twoMoments(over) {
+    const later = T + FAR;
+    return model(Object.assign({
+        file: { pk: 1, filename: 'IMG_0044.HEIC', createdMs: T, addedMs: later, importedBy: 1, importer: 'com.apple.camera', latitude: 59.33255, longitude: 18.064 },
+        appIntervals: [{ startMs: later - 20 * S, endMs: later + 12 * S, app: 'com.apple.Preferences', stream: '/app/usage' }],
+        screen: [{ startMs: later - 60 * S, endMs: later + 180 * S, on: true, stream: '/display/isBacklit' }],
+        lock: [],
+        locations: [{ ms: later + 5 * S, lat: 59.33258, lon: 18.06398, accuracy: 10, type: 1 }],
+        neighbours: [],
+    }, over || {}));
+}
+
+test('tidslinjen vid en annan tidpunkt kallar den inte T och har inga bedömningsord', () => {
+    const m = twoMoments();
+    assert.deepStrictEqual(m.windows.map((w) => w.id), ['created', 'added']);
+    const later = tl.svg(m, { window: m.windows[1], format: fmt, appName: names, footer: '' });
+    const texts = [...later.matchAll(/<text[^>]*>(.*?)<\/text>/g)].map((x) => x[1].replace(/<[^>]+>/g, ''));
+    assert.ok(texts.some((t) => /^\d\d:\d\d:\d\d filen kom till telefonen$/.test(t)), texts.join(' | '));
+    assert.ok(texts.some((t) => /^Läget · \d\d:\d\d:\d\d$/.test(t)), texts.join(' | '));
+    assert.ok(!texts.some((t) => /^T \d\d:/.test(t) || /^Vid T/.test(t)), 'T står på fel tid');
+    for (const word of Object.values(tl.STATE_LABEL)) assert.ok(!texts.includes(word), 'bedömningsordet ' + word);
+    // Avståndet till T är det enda som nämner T.
+    assert.deepStrictEqual(texts.filter((t) => /(^| )T( |$)/.test(t)), ['400 dygn efter T']);
+    assert.ok(texts.includes('Filen kom till telefonen'));
+    assert.ok(texts.includes('Tidpunkten'), 'teckenförklaringen');
+    assert.ok(texts.includes('tänd') && texts.includes('närmaste position'), texts.join(' | '));
+    // T ser ut som förut.
+    const atT = tl.svg(m, { window: m.windows[0], format: fmt, appName: names, footer: '' });
+    assert.ok(atT.includes('Vid T · ') && atT.includes('>T ' + fmt(T).slice(11, 19) + '<'), 'T-tidslinjen');
+    assert.ok(Object.values(tl.STATE_LABEL).some((w) => atT.includes('>' + w + '<')), 'T-tidslinjen har bedömningsorden');
+});
+
+test('närbilden vid en annan tidpunkt säger samma sak som översikten', () => {
+    const m = twoMoments();
+    const w = m.windows[1];
+    const close = tl.svg(m, { window: w.closeup, stateWindow: w, labels: true, format: fmt, appName: names, footer: '' });
+    assert.ok(close.includes('Läget · ') && close.includes(' filen kom till telefonen<') && !close.includes('Vid T'));
+});
+
+test('kolumnen vid T visar inte vanliga händelser från en annan tidpunkt, men väl det som rör filen', () => {
+    const later = T + FAR;
+    const msg = (over) => Object.assign({ kind: 'wa-message', lane: 'whatsapp', ms: later, own: true, media: true, mediaKind: 'bild', plain: 'x', text: 'x', source: {} }, over);
+    const other = twoMoments({ extraEvents: [msg({})] });
+    const row = (m) => tl.rowsFor(m).find((r) => r.id === 'whatsapp');
+    const ctx = (m) => ({ model: m, T, atT: true, window: m.windows[0], fmt, appName: names, positions: m.positions });
+    assert.strictEqual(tl.stateAt(row(other), ctx(other)).l1, '–', 'ett meddelande långt från T');
+    const mine = twoMoments({ extraEvents: [msg({ isFile: true })] });
+    const s = tl.stateAt(row(mine), ctx(mine));
+    assert.strictEqual(s.l1, 'Filen skickas i WhatsApp');
+    assert.strictEqual(s.l2, '400 dygn efter T');
+    const atOther = tl.stateAt(row(other), { model: other, T: later, atT: false, window: other.windows[1], fmt, appName: names, positions: other.positions });
+    assert.strictEqual(atOther.state, null);
+    assert.strictEqual(atOther.l2, 'vid tidpunkten');
+});
+
+test('klippområdena har egna id per tidslinje', () => {
+    const m = twoMoments();
+    const a = tl.svg(m, { window: m.windows[1], prefix: 'w1o', format: fmt, appName: names, footer: '' });
+    const b = tl.svg(m, { window: m.windows[1], prefix: 'w0o', format: fmt, appName: names, footer: '' });
+    const ids = (x) => [...x.matchAll(/<clipPath id="([^"]+)"/g)].map((y) => y[1]);
+    assert.ok(ids(a).length > 0 && ids(a).every((i) => i.startsWith('w1o')) && ids(b).every((i) => i.startsWith('w0o')));
+});
+
+test('långa tider står i dygn', () => {
+    assert.strictEqual(tl.dur(47 * 3600 * S), '47 tim');
+    assert.strictEqual(tl.dur(48 * 3600 * S), '2 dygn');
+    assert.strictEqual(tl.dur(410 * 86400 * S + 20 * 3600 * S), '410 dygn 20 tim');
+});

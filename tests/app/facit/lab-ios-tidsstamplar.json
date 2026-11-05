@@ -59,6 +59,7 @@
       "T": "2026-11-04T10:24:19.984+01:00",
       "typeLabel": "Kamerabild",
       "factors": {
+        "position": "support",
         "camera": "support",
         "screen": "support",
         "time": "support"
@@ -73,6 +74,7 @@
       "T": "2026-11-04T10:24:36.632+01:00",
       "typeLabel": "Kamerabild",
       "factors": {
+        "position": "support",
         "camera": "support",
         "screen": "support",
         "time": "support"
@@ -107,6 +109,7 @@
       "T": "2026-11-04T10:08:07.279+01:00",
       "typeLabel": "Kamerabild",
       "factors": {
+        "position": "support",
         "camera": "support",
         "signal": "info"
       },
@@ -360,7 +363,7 @@
       "name": "IMG_0008.JPG",
       "what": "Plats tillagd och ändrad i Bilder (logg 10:27:06 och 10:27:39)",
       "texts": {
-        "position": "com\\.apple\\.assetsd\\.customLocation"
+        "position": "(com\\.apple\\.assetsd\\.customLocation|AdjustedLocation)"
       },
       "times": {
         "fs-changed": "2026-11-04T10:27:37+01:00"

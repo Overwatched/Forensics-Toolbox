@@ -34,7 +34,7 @@
         for (var i = 0; plain && i < 16; i++) if (b[i] !== SQLITE.charCodeAt(i)) plain = false;
         if (plain && b.length >= 108 && b[20] >= 32 && !btreeHead(b)) return 'other';
         if (plain) return 'sqlite';
-        return /\.zip$/i.test(n) ? 'zip' : 'other';
+        return /\.(zip|ufdr)$/i.test(n) ? 'zip' : 'other';
     }
 
     // Filerna som valdes på en gång: [{ name, kind }] med kind från kindOf(). Ger index för zippar,

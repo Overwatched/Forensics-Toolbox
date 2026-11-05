@@ -1,5 +1,20 @@
 Automatiskt byggd från commit `{{SHA}}`.
 
+## Nytt i 1.50
+
+Rapporter i UFDR-format går att läsa, Härkomst kan visa tidslinjen vid flera av filens tidpunkter, och tiderna läses rätt ur extraktioner som har filen `metadata.msgpack`.
+
+- **Välj tidpunkt i Härkomst:** en fil vars tider ligger långt isär, till exempel en gammal bild som nyss kom till telefonen, har knappar ovanför tidslinjen, en per tidpunkt, med tid och antal händelser. En tidslinje visas i taget. Filer med tider nära varandra ser ut som förut. Tidslinjen börjar vid T, om inte materialet saknar allt om telefonen vid T och har något vid en annan tidpunkt. Bedömningen gäller alltid T, och protokollet har alla tidslinjer, oavsett vilken knapp som är vald.
+- **Filer utanför biblioteket:** de hade bara en tidslinje, vid tiden i filen. Nu blir filsystemets tid en egen tidpunkt när den ligger långt från den tiden, eftersom en mottagen fil kan behålla avsändarens tid.
+- **T står bara på T:** i en tidslinje vid en annan tidpunkt hette mitten T, och kolumnen Vid T visade bedömningens ord från den riktiga T, så att "Saknas" kunde stå bredvid "tänd". Nu har markeringen tidpunktens namn, och kolumnen heter Läget och saknar bedömningens ord. Händelser vid en annan tidpunkt räknas inte längre som "registreringar i fönstret" runt T.
+- **Rapport i UFDR-format:** en rapport öppnas som en extraktion, i Härkomst och Queries, med telefonens sökvägar, tiderna ur `report.xml` och nyckelringen om rapporten har den. Rapportverktygets hashsummor kontrolleras mot filerna, och dess tolkningar, som ursprung och justerad plats, står för sig. En rapport är ett urval, så programmet säger att en fil som saknas i rapporten inte behöver saknas på telefonen. Rapporterna har ingen ctime, och programmet säger att den saknas.
+- **Provat mot råzippen:** två rapporter från samma telefon som en zipp med 352 747 filer, en med 115 023 och en med 311 807 filer. Storlek, CRC32 och tider skiljer sig inte på någon fil, och 74 queries ger samma rader. I Härkomst ger 37 filer samma T och samma faktorer. Android, skyddade rapporter och raderade rader är inte provade.
+- **Tider ur `metadata.msgpack`:** i zippar med den filen håller zippens egna tidsfält bara senaste åtkomst, tre gånger. Programmet tog den för ändringstid, vilket gav fel T för filer utanför biblioteket och falska skillnader i tabellen över filens tider. Nu läses de namngivna tiderna ur `metadata.msgpack`. I två sådana extraktioner har programmet samma tider som en fristående läsning av filen, på alla filer.
+- **Plats satt i efterhand:** texten kom på varje bild med attributet `customLocation`, också när platsen var samma som GPS-positionen i filen. I labbet hade 8 av 34 bilder attributet, och sju av dem var vanliga foton. Nu kommer texten bara när filen saknar GPS-position eller när den ligger mer än 50 m från platsen.
+- **Okänd filtyp:** en fil av okänd typ fick Inte förenligt i rutan Kamera när en annan app var igång. En sådan fil behöver inte ha tagits med kameran, så nu är det en upplysning.
+- **Nyckelringen:** en nyckelring som väljs tillsammans med zippen i Queries följer nu med till ett verktyg som öppnas senare.
+- **Positionstexten:** samma tidpunkt kunde stå två gånger ("när filen skickades i WhatsApp och när filen skickades i WhatsApp").
+
 ## Nytt i 1.49
 
 Filens tider står öppet i en tabell, och slutsatserna om dem är rättade. Tiderna lästes rätt också förut, men programmet drog för mycket av dem.

@@ -1,11 +1,11 @@
-// Delad läsning av en extraktion (zip): hitta katalogernas databaser, läsa iOS-versionen,
+// Delad läsning av en extraktion (zip eller UFDR): hitta katalogernas databaser, läsa iOS-versionen,
 // läsa ut databas och -wal till minnet med CRC-kontroll och lägga på WAL-ramarna. Används
-// av Queries (extraction.js) och Härkomst. Zippen nås bara via read(offset, length), som i
+// av Queries (extraction.js) och Härkomst. Filen nås bara via read(offset, length), som i
 // appen är File.slice(). Inget skrivs någonsin. Testas i Node.
 (function (root) {
     'use strict';
 
-    // ZipRead, ZipLocate och SqliteWal är globala i webbläsaren. I Node skickas de in med use().
+    // ZipRead, ZipLocate, UfdrRead, FsTimes och SqliteWal är globala i webbläsaren. I Node skickas de in med use().
     var deps = {};
     function dep(name) {
         if (deps[name]) return deps[name];
@@ -34,9 +34,9 @@
         var utc = function (s) { return s ? new Date(s * 1000).toISOString().slice(0, 19).replace('T', ' ') + ' UTC' : ''; };
         return {
             modified: entryTime(e), created: utc(e.crtime), changed: utc(e.ctime), third: utc(e.utThird), accessed: utc(e.atime),
-            modifiedMs: e.mtime ? e.mtime * 1000 : null, createdMs: e.crtime ? e.crtime * 1000 : null, changedMs: e.ctime ? e.ctime * 1000 : null,
-            thirdMs: e.utThird ? e.utThird * 1000 : null, accessedMs: e.atime ? e.atime * 1000 : null,
-            field: e.timeField === 'NTFS' ? 'NTFS-fältet' : e.timeField === 'UT' ? 'UT-fältet' : '',
+            modifiedMs: e.mtime ? Math.round(e.mtime * 1000) : null, createdMs: e.crtime ? Math.round(e.crtime * 1000) : null, changedMs: e.ctime ? Math.round(e.ctime * 1000) : null,
+            thirdMs: e.utThird ? e.utThird * 1000 : null, accessedMs: e.atime ? Math.round(e.atime * 1000) : null,
+            field: e.timeField === 'NTFS' ? 'NTFS-fältet' : e.timeField === 'UT' ? 'UT-fältet' : e.timeField === 'report.xml' || e.timeField === 'metadata.msgpack' ? e.timeField : '',
         };
     }
 
@@ -77,13 +77,49 @@
         return hit ? { db: hit, guessed: false } : { db: target.dbs[target.dbs.length - 1], guessed: true };
     }
 
-    // Läser ut en post och beskriver var den kom ifrån, med CRC32 kontrollerad mot zippen.
+    // Vad källan heter i texterna. En rapport är också en zip, men det undersökaren valde är en rapport.
+    function sourceWord(entry) { return entry && entry.report ? 'rapporten' : 'zippen'; }
+
+    // Läser ut en post och beskriver var den kom ifrån, med CRC32 kontrollerad mot zippen. I en rapport står
+    // telefonens sökväg först och rapportens egen post efter.
     async function readEntry(read, entry) {
         var out = await dep('ZipRead').extract(read, entry);
-        var line = 'Ur zippen: ' + entry.name + ' (' + entry.size + ' byte, ändrad ' + entryTime(entry) +
+        var where = entry.report ? (entry.report.member ? 'posten ' + entry.report.member + ', ' : 'tom fil utan post i rapporten, ') : '';
+        var line = 'Ur ' + sourceWord(entry) + ': ' + entry.name + ' (' + where + entry.size + ' byte, ändrad ' + entryTime(entry) +
             ', CRC32 ' + hex(entry.crc32) + (out.crcOk ? ' stämmer' : ' STÄMMER INTE') + ')';
-        if (!out.crcOk) line += '. Varning: innehållet skiljer sig från det zippen anger.';
+        if (!out.crcOk) line += '. Varning: innehållet skiljer sig från det ' + sourceWord(entry) + ' anger.';
         return { bytes: out.bytes, crcOk: out.crcOk, line: line };
+    }
+
+    // Filens SHA-256 mot den report.xml anger. true, false, eller null när det inte går att jämföra.
+    function reportHashOk(entry, sha) {
+        var want = entry && entry.report && entry.report.sha256;
+        return want && sha ? want.toLowerCase() === sha : null;
+    }
+
+    // Extraktionen som en fil: { read, report, fsTimes, timesError }. report är rapportens uppgifter för en UFDR,
+    // och read känner då redan till filerna på telefonen. fsTimes: { count } när zippens filer har sina tider i en
+    // egen fil. timesError: den gick inte att läsa, så tiderna i zippen säger inget säkert.
+    // opts.onReport(lästa byte, alla) medan report.xml läses, opts.onTimes() när tiderna ska läsas.
+    async function openSource(file, opts) {
+        opts = opts || {};
+        var read = dep('ZipRead').fileReader(file);
+        var Ufdr = deps.UfdrRead || root.UfdrRead;
+        if (Ufdr && await Ufdr.detect(read, file.size, file.name)) {
+            var opened = await Ufdr.open(read, file.size, { onProgress: opts.onReport });
+            return { read: opened.read, report: opened.report, fsTimes: null, timesError: '' };
+        }
+        var Times = deps.FsTimes || root.FsTimes;
+        var out = { read: read, report: null, fsTimes: null, timesError: '' };
+        if (Times) {
+            try {
+                var times = await Times.load(read, file.size, { onStart: opts.onTimes });
+                if (times) { read.fsTimes = times; out.fsTimes = { count: times.count }; }
+            } catch (err) {
+                out.timesError = err && err.message ? err.message : String(err);
+            }
+        }
+        return out;
     }
 
     // En källa i samma form som "Kör i appen" i Queries använder: { name, size, key, read() -> { bytes, lines } }.
@@ -186,10 +222,12 @@
         // En -wal som inte går att lägga på (trasigt huvud, fel sidstorlek) hoppar SQLite över. Här
         // läses databasen likadant utan den, och varningen säger det.
         if (walRead && merged.stats.error) warnings.push(baseName(hit.wal.name) + ' lades inte på: ' + merged.stats.error + '. ' + baseName(hit.db.name) + ' lästes utan -wal, som SQLite gör med en sådan fil. Poster som bara finns i -wal saknas.');
-        if (!walRead) warnings.push(baseName(hit.db.name) + ' lästes utan -wal: extraktionen har ingen. Poster som bara fanns i -wal kan saknas.');
+        if (!walRead) warnings.push(baseName(hit.db.name) + ' lästes utan -wal: ' + (hit.db.report ? 'rapporten har ingen, men den kan ha funnits på telefonen.' : 'extraktionen har ingen.') + ' Poster som bara fanns i -wal kan saknas.');
         if (hit.journal && hit.journal.size) warnings.push(baseName(hit.db.name) + ' har en -journal: databasen kan vara mitt i en transaktion.');
-        if (!dbRead.crcOk) warnings.push('CRC32 för ' + baseName(hit.db.name) + ' stämmer inte med zippen.');
-        if (walRead && !walRead.crcOk) warnings.push('CRC32 för ' + baseName(hit.wal.name) + ' stämmer inte med zippen.');
+        if (!dbRead.crcOk) warnings.push('CRC32 för ' + baseName(hit.db.name) + ' stämmer inte med ' + sourceWord(hit.db) + '.');
+        if (walRead && !walRead.crcOk) warnings.push('CRC32 för ' + baseName(hit.wal.name) + ' stämmer inte med ' + sourceWord(hit.wal) + '.');
+        if (reportHashOk(hit.db, hashes.db) === false) warnings.push('SHA-256 för ' + baseName(hit.db.name) + ' stämmer inte med report.xml.');
+        if (walRead && reportHashOk(hit.wal, hashes.wal) === false) warnings.push('SHA-256 för ' + baseName(hit.wal.name) + ' stämmer inte med report.xml.');
         var lines = (lead || []).concat([dbRead.line]).concat(walRead ? [walRead.line] : []);
         if (hashes.db) lines.push('SHA-256 ' + baseName(hit.db.name) + ': ' + hashes.db);
         if (hashes.wal) lines.push('SHA-256 ' + baseName(hit.wal.name) + ': ' + hashes.wal);
@@ -219,7 +257,7 @@
 
     var api = {
         use: function (d) { Object.keys(d).forEach(function (k) { deps[k] = d[k]; }); },
-        targets: targets, dbForVersion: dbForVersion, open: open, find: find,
+        targets: targets, dbForVersion: dbForVersion, open: open, openSource: openSource, find: find, sourceWord: sourceWord, reportHashOk: reportHashOk,
         readEntry: readEntry, zipSource: zipSource, loadDatabase: loadDatabase, walSummary: walSummary, entryTimes: entryTimes,
         sha256: sha256, noCopy: noCopy, entryTime: entryTime, hex: hex, sizeText: sizeText, baseName: baseName,
     };

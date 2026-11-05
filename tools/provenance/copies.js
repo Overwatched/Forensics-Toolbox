@@ -86,7 +86,7 @@
         var rank = { library: 0, snapchat: 1, messages: 2, picker: 3, downloads: 4, app: 5, appgroup: 6, plugin: 7, tmp: 8, other: 9 };
         out.sort(function (a, b) {
             var ra = rank[classifyPath(a.name, opts).area], rb = rank[classifyPath(b.name, opts).area];
-            return ra - rb || a.name.length - b.name.length;
+            return ra - rb || a.name.length - b.name.length || (a.name < b.name ? -1 : a.name > b.name ? 1 : 0);
         });
         return out;
     }

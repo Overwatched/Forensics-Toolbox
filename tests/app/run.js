@@ -5,7 +5,8 @@
 // röktestet (smoke.js) mot påhittade data. Finns labbzipparna kör den också facit-testerna
 // (facit.js), som jämför Härkomsts tider med det som loggades på Android-labbtelefonen, och
 // kontrollerna mot iOS-labbtelefonen (lab-ios.js). Labbzipparna ligger inte i repot; sökvägarna
-// tas ur FT_LAB_ZIP, FT_LAB_IOS_DIR och FT_LAB_IOS_LOG_DIR, annars ~/Documents/Exampleextractions/.
+// tas ur FT_LAB_ZIP, FT_LAB_IOS_DIR och FT_LAB_IOS_LOG_DIR, annars ~/Documents/Exampleextractions/. Zippar med
+// metadata.msgpack kontrolleras mot det fristående facit om sökvägarna står i FT_LAB_NAMED_ZIPS (åtskilda med kolon).
 //
 //   npm run test:app                röktestet, och labbtesterna om labbzipparna finns
 //   npm run test:app -- --smoke     bara röktestet
@@ -60,7 +61,8 @@ async function main() {
     const logFacit = require('./facit/lab-ios-tidsstamplar.json');
     const labIos = labIosDir(iosFacit, 'FT_LAB_IOS_DIR');
     const labIosLog = labIosDir(logFacit, 'FT_LAB_IOS_LOG_DIR');
-    if (onlyFacit && !lab && !labIos && !labIosLog) {
+    const namedZips = (process.env.FT_LAB_NAMED_ZIPS || '').split(path.delimiter).filter((p) => p && fs.existsSync(p));
+    if (onlyFacit && !lab && !labIos && !labIosLog && !namedZips.length) {
         console.error('Labbzipparna finns inte. Ange sökvägarna i FT_LAB_ZIP, FT_LAB_IOS_DIR och FT_LAB_IOS_LOG_DIR.');
         process.exit(1);
     }
@@ -80,7 +82,9 @@ async function main() {
         if (!onlySmoke && labIos) groups.push(['Kontroller mot iOS-labbtelefonen', require('./lab-ios').scenarios(labIos, iosFacit)]);
         if (!onlySmoke && !labIos) console.log('iOS-labbtelefonen: mappen finns inte, hoppar över (FT_LAB_IOS_DIR).\n');
         if (!onlySmoke && labIosLog) groups.push(['Facit mot iOS-labbtelefonen (loggad session)', require('./lab-ios').scenarios(labIosLog, logFacit)]);
+        if (!onlySmoke && labIosLog) require('./lab-ios').labReports(labIosLog).forEach((r) => groups.push(['Samma facit mot rapporten i ' + r.name, require('./lab-ios').scenarios(labIosLog, logFacit, r.path)]));
         if (!onlySmoke && !labIosLog) console.log('iOS-labbtelefonen, loggad session: mappen finns inte, hoppar över (FT_LAB_IOS_LOG_DIR).\n');
+        if (!onlySmoke) namedZips.forEach((z, i) => groups.push(['Tiderna ur metadata.msgpack, zipp ' + (i + 1), require('./lab-ios').namedTimesScenarios(z)]));
         for (const [group, list] of groups) {
             console.log(group);
             for (const [name, fn] of list) {

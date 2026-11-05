@@ -1,4 +1,4 @@
-// Källorna i en flik: en extraktion (zip) och en databas från disk. Knappen högst upp tar emot
+// Källorna i en flik: en extraktion (zip eller UFDR) och en databas från disk. Knappen högst upp tar emot
 // båda, och identify.js avgör vad det är: en zip öppnas som extraktion, en databas känns igen på
 // schemat och öppnas med sina queries, och en -wal läggs till databasen som redan är öppen. I en zip
 // gås innehållsförteckningen igenom och katalogens databaser och deras -wal listas. Allt läses
@@ -101,6 +101,9 @@
 
     function isoTime(ms) { return new Date(ms).toISOString().slice(0, 19).replace('T', ' ') + ' UTC'; }
 
+    // Vad källan heter i texterna.
+    function theZip() { return current && current.report ? 'rapporten' : 'zippen'; }
+
     // Översikten: zippens databaser i en tabell, och databasen från disk på en rad under.
     function looseLine() {
         var f = loose.found;
@@ -116,7 +119,8 @@
     function render() {
         var html = '';
         var c = current;
-        if (c && !c.found.length) html += '<p class="muted">Inga av databaserna som Queries har queries för hittades i zippen.</p>';
+        if (c && c.report) html += '<p class="muted ex-report-note">' + escapeHtml(UfdrRead.summaryText(c.report) + ' ' + UfdrRead.limitText(c.report)) + '</p>';
+        if (c && !c.found.length) html += '<p class="muted">Inga av databaserna som Queries har queries för hittades i ' + theZip() + '.</p>';
         else if (c) {
             var rows = c.found.map(function (f, i) {
                 var d = describe(f);
@@ -133,7 +137,7 @@
             }).join('');
             html += '<div class="ex-summary">' + escapeHtml(summary()) + ' · ' +
                 c.scan.count.toLocaleString('sv-SE') + ' poster</div>' +
-                '<div class="result-scroll"><table class="ex-table"><thead><tr><th>Databas</th><th>Sökväg i zippen</th>' +
+                '<div class="result-scroll"><table class="ex-table"><thead><tr><th>Databas</th><th>Sökväg i ' + theZip() + '</th>' +
                 '<th>Storlek</th><th>Ändrad (filsystemet)</th><th>-wal</th></tr></thead><tbody>' + rows + '</tbody></table></div>';
         }
         list.innerHTML = html + (loose ? looseLine() : '');
@@ -212,7 +216,7 @@
         $('ex-notes').innerHTML = notes.join(' · ');
         $('about-zip').innerHTML = '<p><strong>I extraktionen:</strong> <code>' + escapeHtml(f.db.name) + '</code></p>' +
             '<p>' + sizeText(f.db.size) + ', ändrad ' + escapeHtml(entryTime(f.db)) + ' i filsystemet. ' +
-            (f.wal ? '<code>-wal</code> ' + sizeText(f.wal.size) + '.' : '<span class="run-warn">Ingen -wal i zippen.</span>') + '</p>';
+            (f.wal ? '<code>-wal</code> ' + sizeText(f.wal.size) + '.' : '<span class="run-warn">Ingen -wal i ' + theZip() + '.</span>') + '</p>';
     }
 
     // Nyckelfiler som valts i Queries eller kommit från navet: [{ source, apps, error }].
@@ -252,7 +256,7 @@
         c.chosen = i;
         c.override = db !== d.db ? db.id : null;
         window.QueriesApp.selectDb(db.id, { source: { zip: c.file.name }, keepQuery: !!keepQuery });
-        var zipLine = 'Extraktion: ' + c.file.name + ' (' + c.file.size + ' byte, ändrad ' +
+        var zipLine = (c.report ? 'Rapport (UFDR' + (c.report.paVersion ? ', rapportverktygets version ' + c.report.paVersion : '') + '): ' : 'Extraktion: ') + c.file.name + ' (' + c.file.size + ' byte, ändrad ' +
             new Date(c.file.lastModified).toISOString() + ')';
         // En krypterad databas (Signal) får nyckeln som extraktionsverktyget sparade, eller nyckeln ur
         // en nyckelfil som valts (nyckelringen bredvid zippen på iOS), om den finns.
@@ -347,7 +351,11 @@
     async function open(file, from) {
         close();
         status.textContent = 'Läser zippens innehållsförteckning…';
-        var read = ZipRead.fileReader(file);
+        // En rapport (UFDR) läses in här, och sedan är den en extraktion som en zip.
+        var source = await ExtractionCore.openSource(file, { onReport: function (done, total) {
+            status.textContent = 'Läser rapportens förteckning över filerna (report.xml)… ' + Math.round(100 * done / total) + ' %';
+        }, onTimes: function () { status.textContent = 'Läser filernas tider (metadata.msgpack)…'; } });
+        var read = source.read;
         var opened = await ExtractionCore.open(read, file.size, targets(), function (done, total) {
             status.textContent = 'Läser zippens innehållsförteckning… ' + Math.round(100 * done / total) + ' %';
         });
@@ -359,10 +367,15 @@
             try {
                 var sEntries = await ExtractionCore.find(read, file.size, AppSecrets.isSecretsPath);
                 if (sEntries.length) secrets.push(AppSecrets.fromSecretsFile((await ExtractionCore.readEntry(read, sEntries[0])).bytes, sEntries[0].name));
+                // Nyckelringen ligger i rapporten, när den lästes in i rapportverktyget.
+                if (source.report) for (var k = 0; k < source.report.keychains.length; k++) {
+                    var ke = source.report.keychains[k];
+                    secrets.push(AppSecrets.fromKeyFile((await ExtractionCore.readEntry(read, ke)).bytes, ExtractionCore.baseName(ke.name) + ' i rapporten'));
+                }
             } catch (e) { console.warn('Nyckelfilen kunde inte läsas', e); }
         }
         current = {
-            file: file, read: read, scan: opened.scan, found: opened.found, version: opened.version, chosen: -1, secrets: secrets,
+            file: file, read: read, report: source.report, scan: opened.scan, found: opened.found, version: opened.version, chosen: -1, secrets: secrets,
             statusText: (from ? 'Samma extraktion som i ' + from + '. ' : '') +
                 opened.found.length + (opened.found.length === 1 ? ' databas hittades' : ' databaser hittades') +
                 ' på ' + secs + ' s.' + (opened.found.length ? ' Välj en här eller i listan till vänster.' : ''),

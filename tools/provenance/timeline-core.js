@@ -213,12 +213,75 @@
         // Egna fönster, t.ex. när Snapchat-meddelandet som filen hör till skickades.
         (file.extraWindows || []).forEach(function (w) {
             if (w.centerMs == null || out.some(function (o) { return Math.abs(o.centerMs - w.centerMs) <= windowMs; })) return;
-            out.push({ id: w.id, label: w.label, centerMs: w.centerMs, startMs: w.centerMs - windowMs, endMs: w.centerMs + windowMs });
+            out.push({ id: w.id, label: w.label, centerMs: w.centerMs, startMs: w.centerMs - windowMs, endMs: w.centerMs + windowMs, source: w.source || null });
         });
         // Närbilden: en tiondel av fönstret åt varje håll, minst 30 s. ±15 min ger ±90 s.
         var half = Math.max(30000, Math.round(windowMs / 10));
         out.forEach(function (w) { w.closeup = { id: w.id + '-closeup', label: 'närbild', centerMs: w.centerMs, startMs: w.centerMs - half, endMs: w.centerMs + half }; });
         return out;
+    }
+
+    // Fönstren är filens tidpunkter: T och de tider som ligger långt från T. Bara T bedöms. Vad T heter beror på
+    // var tiden kommer ifrån, och varje tidpunkt vet sin källa.
+    function describeWindows(wins, input) {
+        var src = input.fileSource || {};
+        var android = input.platform === 'Android';
+        wins.forEach(function (w) {
+            w.isT = w.id === 'created';
+            if (w.isT) {
+                w.source = src;
+                if (src.db === 'bildfilen') w.label = 'enligt tiden i filen';
+                else if (isFsSource(src)) w.label = 'när filen ändrades i filsystemet';
+            }
+            if (w.id === 'added') w.source = Object.assign({}, src, { column: android ? 'date_added' : 'ZADDEDDATE' });
+        });
+        return wins;
+    }
+
+    // Kolumnen för en av filsystemets tider, efter fältet den kommer ur.
+    var FS_COLUMNS = {
+        'NTFS-fältet': { created: 'skapad', modified: 'ändrad', accessed: 'åtkomst' },
+        'report.xml': { created: 'CreationTime', modified: 'ModifyTime', accessed: 'AccessTime', changed: 'ChangeTime' },
+        'metadata.msgpack': { created: 'btime', modified: 'mtime', accessed: 'atime', changed: 'ctime' },
+    };
+    var FS_ORDINALS = { created: 'fjärde tiden', modified: 'första tiden', accessed: 'andra tiden', changed: 'tredje tiden', third: 'tredje tiden' };
+    function fsColumn(field, which) { return (FS_COLUMNS[field] || {})[which] || FS_ORDINALS[which]; }
+    function fsSource(fe, which) {
+        var db = fe.timeField === 'report.xml' ? 'Rapporten' : 'Zippen';
+        return fe.timeField ? { db: db, table: fe.timeField, column: fsColumn(fe.timeField, which) } : { db: db, column: fsColumn(fe.timeField, which) };
+    }
+
+    // Filens tid i filsystemet som egen tidpunkt: en tid inuti filen kan vara år gammal när filen är ny på
+    // telefonen. Hamnar den nära en annan tidpunkt tar windows() bort den. fe: input.fileEntry.
+    function fsMoment(fe) {
+        if (!fe) return null;
+        var which = fe.createdMs ? 'created' : fe.mtimeMs ? 'modified' : null;
+        if (!which) return null;
+        return { id: 'filesystem', label: which === 'created' ? 'när filen skapades i filsystemet' : 'när filen ändrades i filsystemet', centerMs: which === 'created' ? fe.createdMs : fe.mtimeMs, source: fsSource(fe, which) };
+    }
+
+    // Tidpunkterna till knapparna: vad var och en heter, när den är och vad telefonen har då. Filens egna rader
+    // räknas inte. phoneEvents är allt i fönstret; phoneLines är raderna i händelsetabellen under tidslinjen,
+    // där positioner bara står som en summering.
+    function momentsOf(wins, events, file, perWindow) {
+        return wins.map(function (w, i) {
+            var phone = events.filter(function (e) { return e.lane !== 'file' && (inRange(e.ms, w) || (e.endMs != null && e.endMs >= w.startMs && e.ms <= w.endMs)); }).length;
+            var lines = perWindow[i].lines.filter(function (l) { return l.lane !== 'file'; }).length;
+            return { index: i, id: w.id, label: w.label, centerMs: w.centerMs, isT: !!w.isT, phoneEvents: phone, phoneLines: lines, source: w.source || null, offsetMs: file.createdMs ? w.centerMs - file.createdMs : null };
+        });
+    }
+
+    // Knappens text. "Inga registrerade" och inte "inga": materialet kan sakna tiden, telefonen behöver inte ha varit stilla.
+    function momentEvents(mo) {
+        if (mo.phoneLines) return mo.phoneLines + (mo.phoneLines === 1 ? ' händelse' : ' händelser') + ' på telefonen';
+        if (mo.phoneEvents) return mo.phoneEvents + (mo.phoneEvents === 1 ? ' registrering' : ' registreringar') + ' på telefonen';
+        return 'inga registrerade händelser';
+    }
+
+    // Tidslinjen som visas först: T, om inte telefonen saknar händelser vid T och har dem vid en annan tidpunkt.
+    function defaultMoment(moments) {
+        var hit = moments.filter(function (m) { return m.phoneEvents > 0; })[0];
+        return hit ? hit.index : 0;
     }
 
     function unionRange(wins) {
@@ -319,7 +382,7 @@
         var noun = fileNoun(type.type);
         // Utan rad i biblioteket är T tiden i filen eller filsystemets ändringstid, och heter det.
         var tInFile = fileSrc.db === 'bildfilen';
-        var tInFs = fileSrc.db === 'zippen';
+        var tInFs = isFsSource(fileSrc);
         var created = { ms: file.createdMs, kind: 'file-created', lane: 'file', bold: true,
             text: tInFile ? 'Tiden i filen (' + (fileSrc.column || 'EXIF') + ')' : tInFs ? 'Ändrad i filsystemet (' + (fileSrc.column || 'ändringstid') + ')'
                 : 'Skapad (' + (fileSrc.column || (input.platform === 'Android' ? 'datetaken' : 'ZDATECREATED')) + ')',
@@ -342,7 +405,12 @@
         }
         if (input.fileEntry && input.fileEntry.mtimeMs && !tInFs) {
             add({ ms: input.fileEntry.mtimeMs, kind: 'fs-mtime', lane: 'file', text: 'Ändrad i filsystemet', plain: null,
-                source: { db: 'zippen', table: input.fileEntry.name, column: 'ändringstid' } });
+                source: { db: input.container || 'zippen', table: input.fileEntry.name, column: input.fileEntry.timeField === 'report.xml' ? 'ModifyTime' : input.fileEntry.timeField === 'metadata.msgpack' ? 'mtime' : 'ändringstid' } });
+        }
+        // Filens skapandetid, när den är en egen tidpunkt: annars skulle tidslinjen sakna det den visar.
+        var fsWin = wins.filter(function (w) { return w.id === 'filesystem'; })[0];
+        if (fsWin && input.fileEntry && input.fileEntry.createdMs === fsWin.centerMs) {
+            add({ ms: fsWin.centerMs, kind: 'fs-created', lane: 'file', text: 'Skapad i filsystemet', plain: noun + ' skapas i filsystemet', source: fsWin.source });
         }
         if (input.pairedVideo && input.pairedVideo.takenMs) {
             add({ ms: input.pairedVideo.takenMs, kind: 'paired-video', lane: 'file', text: 'Live Photo-videon ' + input.pairedVideo.name + ' (QuickTime CreateDate, UTC)',
@@ -457,6 +525,9 @@
     // Filens tider, en rad per källa: det undersökaren ska kunna kontrollera, utan tolkning. Tolkningen står i
     // faktorn Skapandetid. Raderna står i tidsordning, och det som saknas sist.
     // [{ id, ms, text, label, source: { db, table, column, queryId }, note, isT, deltaMs, gap, absent }]
+    // Är källan till T filsystemets tid, ur zippen eller rapporten?
+    function isFsSource(src) { return src.db === 'zippen' || src.db === 'rapporten'; }
+
     function fileTimes(input) {
         var file = input.file;
         var ex = input.exif;
@@ -465,7 +536,7 @@
         var src = input.fileSource || {};
         var T = file.createdMs || null;
         var tInFile = src.db === 'bildfilen';
-        var tInFs = src.db === 'zippen';
+        var tInFs = isFsSource(src);
         var library = !tInFile && !tInFs && !file.snapchatCache && !!src.db;
         var rows = [];
         var missing = [];
@@ -528,21 +599,23 @@
         if (file.snapchatCache && file.snapchatCache.messageCreatedMs) add('snap-message', file.snapchatCache.messageCreatedMs, 'Meddelandet skickades i Snapchat', { db: 'arroyo.db', column: 'creation_timestamp' });
         if (input.pairedVideo && input.pairedVideo.takenMs) add('paired-video', input.pairedVideo.takenMs, 'Live Photo-videon skapad', Object.assign({}, input.pairedVideo.source || {}, { db: 'Filen', table: input.pairedVideo.name }));
 
-        // Filsystemet, som extraktionsverktyget sparade det i zippen.
+        // Filsystemet, som extraktionsverktyget sparade det i zippen eller rapportverktyget i rapporten.
+        var inReport = input.container === 'rapporten';
         if (fe) {
-            var ntfs = fe.timeField === 'NTFS-fältet';
-            var fs = function (what) { return fe.timeField ? { db: 'Zippen', table: fe.timeField, column: what } : { db: 'Zippen', column: what }; };
-            add('fs-created', fe.createdMs, 'Skapad i filsystemet', fs(ntfs ? 'skapad' : 'fjärde tiden'));
-            add('fs-third', fe.thirdMs, 'Tredje tiden i zippen (skapad eller ctime)', fs('tredje tiden'), 'Zippen säger inte vilken av dem det är.');
-            if (fe.mtimeMs) add('fs-modified', fe.mtimeMs, 'Ändrad i filsystemet', fs(ntfs ? 'ändrad' : 'första tiden'), '', tInFs);
+            var named = fe.timeField === 'report.xml';
+            var fs = function (which) { return fsSource(fe, which); };
+            add('fs-created', fe.createdMs, 'Skapad i filsystemet', fs('created'));
+            add('fs-third', fe.thirdMs, 'Tredje tiden i zippen (skapad eller ctime)', fs('third'), 'Zippen säger inte vilken av dem det är.');
+            if (fe.mtimeMs) add('fs-modified', fe.mtimeMs, 'Ändrad i filsystemet', fs('modified'), '', tInFs);
             else if (tInFs) add('fs-modified', T, 'Ändrad i filsystemet', { db: 'Zippen', column: 'DOS-tid' }, 'I zippen: ' + (fe.mtimeText || '') + '. Zippen anger ingen tidszon.', true);
             else if (fe.mtimeText) missing.push({ id: 'fs-modified', ms: null, label: 'Ändrad i filsystemet', source: { db: 'Zippen', column: 'DOS-tid' }, note: '', isT: false, text: fe.mtimeText });
-            add('fs-changed', fe.changedMs, 'Metadata ändrad (ctime)', fs('tredje tiden'), 'Flyttas också när filens metadata ändras, så den säger inte när filen kom till.');
-            add('fs-accessed', fe.accessedMs, 'Senast läst i filsystemet', fs(ntfs ? 'åtkomst' : 'andra tiden'));
+            if (named && !fe.changedMs) absent('fs-changed', 'Metadata ändrad (ctime)', 'Rapporten anger ingen sådan tid för filen.');
+            else add('fs-changed', fe.changedMs, 'Metadata ändrad (ctime)', fs('changed'), 'Flyttas också när filens metadata ändras, så den säger inte när filen kom till.');
+            add('fs-accessed', fe.accessedMs, 'Senast läst i filsystemet', fs('accessed'));
         } else if (tInFs) {
-            add('fs-modified', T, 'Ändrad i filsystemet', { db: 'Zippen', column: src.column || 'ändringstid' }, '', true);
+            add('fs-modified', T, 'Ändrad i filsystemet', { db: inReport ? 'Rapporten' : 'Zippen', column: src.column || 'ändringstid' }, '', true);
         } else {
-            absent('fs', 'Filsystemets tider', 'Filen hittades inte i zippen.');
+            absent('fs', 'Filsystemets tider', inReport ? 'Filen finns inte i rapporten.' : 'Filen hittades inte i zippen.');
         }
 
         // Inom samma sekund i källornas ordning: zippens tider har hela sekunder och skulle annars alltid hamna först.
@@ -571,7 +644,7 @@
         var src = input.fileSource || {};
         // Utan rad i biblioteket är T tiden i filen eller filsystemets ändringstid. Den tiden jämförs inte med sig själv.
         var tInFile = src.db === 'bildfilen';
-        var tInFs = src.db === 'zippen';
+        var tInFs = isFsSource(src);
         var ref = tInFile ? 'tiden i filen' : tInFs ? 'ändringstiden' : 'Skapad';
         // Var bibliotekets Skapad kommer ifrån: 1 ur tiden i filen, 3 ur filens skapandetid i filsystemet.
         // Samma källa läst två gånger bevisar inget, så de jämförelserna är upplysningar.
@@ -791,9 +864,9 @@
         var logged = pos.list.filter(function (p) { return p.kind === 'phone'; });
         var phone = logged.filter(function (p) { return p.offsetMs != null && Math.abs(p.offsetMs) <= span; });
         var elsewhere = logged.filter(function (p) { return phone.indexOf(p) < 0; });
-        var otherLabels = (wins || []).filter(function (w) {
+        var otherLabels = uniq((wins || []).filter(function (w) {
             return w.id !== 'created' && elsewhere.some(function (p) { return inRange(p.ms, w); });
-        }).map(function (w) { return w.label; });
+        }).map(function (w) { return w.label; }));
         var other = elsewhere.length ? { state: 'info', text: elsewhere.length + (elsewhere.length === 1 ? ' position till ligger' : ' positioner till ligger') +
             (otherLabels.length ? ' i fönstret ' + otherLabels.join(' och ') : ' utanför fönstret runt T') + '. De visas på kartan men räknas inte här, eftersom de inte gäller T.' } : null;
         var withOther = function (list) { return other ? list.concat([other]) : list; };
@@ -810,9 +883,14 @@
                 plain: Noun + ' saknar positionsuppgift. Telefonen registrerade var den var ' + duration(near.offsetMs) + (near.offsetMs < 0 ? ' före' : ' efter') + (noun === 'filen' ? ' tidpunkten.' : ' att bilden togs.') };
         }
         var exifRow = pos.list.filter(function (p) { return p.kind === 'exif' && p.distanceM != null; })[0];
-        // Sist i faktorn: var positionen kommer ifrån, när den inte är filens egen.
-        var custom = !!(input.fileEntry && input.fileEntry.customLocation);
-        var originNote = custom ? { state: 'info', text: 'Platsen är satt i efterhand i Bilder (com.apple.assetsd.customLocation på filen). Den visar inte var bilden togs.' }
+        // Sist i faktorn: var positionen kommer ifrån, när den inte är filens egen. Attributet finns också på
+        // vanliga bilder med GPS i filen (7 av 8 i labbet), så det visar en plats satt i efterhand bara när
+        // filens egen position saknas eller är en annan. Har filen inte lästs går det inte att säga.
+        var marked = !!(input.fileEntry && input.fileEntry.customLocation);
+        var fileRead = !!(input.exif && input.exif.read);
+        var custom = marked && fileRead && !(exifRow && exifRow.distanceM <= 50);
+        var originNote = marked && !fileRead ? { state: 'info', text: 'Filen har attributet ' + (input.fileEntry.customLocationField || 'com.apple.assetsd.customLocation') + ', men filen lästes inte, så det går inte att säga om platsen är satt i efterhand.' }
+            : custom ? { state: 'info', text: 'Platsen är satt i efterhand i Bilder (' + (input.fileEntry.customLocationField || 'com.apple.assetsd.customLocation på filen') + '). Den visar inte var bilden togs.' }
             : input.platform === 'iOS' && input.exif && input.exif.read && !input.exif.position && !file.memory ? { state: 'info', text: 'Positionen finns i bildbiblioteket men inte i filen (ingen GPS i EXIF). Den kan ha lagts till i efterhand.' } : null;
         if (exifRow) items.push({ state: exifRow.distanceM <= 50 ? 'support' : 'contradiction', text: 'Positionen i EXIF i filen ligger ' + metres(exifRow.distanceM) + ' från positionen i databasen.' });
         var memRow = pos.list.filter(function (p) { return p.kind === 'memory'; })[0];
@@ -862,6 +940,13 @@
         return out.sort(function (a, b) { return Number(b.camera) - Number(a.camera) || Math.abs(a.ms - T) - Math.abs(b.ms - T); });
     }
 
+    // Ligger händelsen i fönstret runt T? Händelser vid en annan tidpunkt säger inget om T.
+    function nearT(e, input) {
+        var T = input.file.createdMs;
+        var span = input.windowMs || 15 * MINUTE;
+        return e.ms <= T + span && (e.endMs != null ? e.endMs : e.ms) >= T - span;
+    }
+
     function factorApp(input, type, events) {
         var file = input.file;
         var T = file.createdMs;
@@ -878,7 +963,7 @@
         var camApp = function (e) { return isCameraApp(e.app, input.cameraApps) || (type.importer && e.app === type.importer); };
         // Använde kameraappen kameran vid T (appops) var den igång, även när förgrundsloggen saknas då.
         var camOps = type.type === 'camera' ? appsAt(events, T).filter(function (e) { return e.cameraOp && camApp(e) && covers(e, T, 0); }) : [];
-        var anyInWindow = events.some(function (e) { return e.kind === 'app'; });
+        var anyInWindow = events.some(function (e) { return e.kind === 'app' && nearT(e, input); });
         var items = [];
         var state;
         var plain;
@@ -1016,7 +1101,7 @@
             return f;
         }
         var cam = atCam;
-        var anyCamInWindow = events.some(function (e) { return e.kind === 'app' && e.lane === 'camera'; });
+        var anyCamInWindow = events.some(function (e) { return e.kind === 'app' && e.lane === 'camera' && nearT(e, input); });
         var running = appsAt(events, tCam).filter(function (e) { return !e.cameraOp; });
         var kcLabel = li.label;
         var streamKey = li.key;
@@ -1030,6 +1115,11 @@
             });
             return { id: 'camera', title: 'Kamera igång', state: 'support', items: camItems.map(function (it) { return { state: it.state, text: it.text }; }),
                 plain: 'Kameran var igång när bilden togs.' };
+        }
+        // En fil av okänd typ behöver inte ha tagits med kameran, så att kameran inte var igång talar inte emot något.
+        if (running.length && type.type === 'unknown') {
+            return { id: 'camera', title: 'Kamera igång', state: 'info', verdictText: 'Kameran inte registrerad', items: [{ state: 'info', text: 'Kameran är inte registrerad vid tidpunkten. Igång var ' + uniq(running.map(function (e) { return appName(e.app, names); })).join(', ') + '. Filens typ är okänd, så det säger inte varifrån filen kommer.' }],
+                plain: 'Kameran är inte registrerad som igång vid den här tiden. Eftersom filens typ är okänd säger det inte varifrån filen kommer.' };
         }
         if (running.length) {
             return { id: 'camera', title: 'Kamera igång', state: 'contradiction', items: [{ state: 'contradiction', text: 'Kameran är inte registrerad vid tidpunkten. Igång var ' + uniq(running.map(function (e) { return appName(e.app, names); })).join(', ') + '.' }],
@@ -1256,7 +1346,7 @@
                 plain: 'Telegrams databas kunde inte läsas.', verdictText: 'Kunde inte läsas' };
         }
         var link = t.link || {};
-        var storageNote = link.storageRead ? '' : ' Telegrams lagringsdatabas finns inte i zippen, så val ur bildbiblioteket syns inte.';
+        var storageNote = link.storageRead ? '' : ' Telegrams lagringsdatabas finns inte i ' + (input.container || 'zippen') + ', så val ur bildbiblioteket syns inte.';
         var savedBy = !type.chat && type.importer === TELEGRAM;
         // Telegrams egen fil under postbox/media/: resursen säger vilket meddelande den hör till.
         var own = type.chat && type.chat.app === TELEGRAM ? (link.matches || [])[0] || null : null;
@@ -1459,7 +1549,7 @@
     function build(input) {
         var file = input.file;
         var type = classify(file, input.platform, input);
-        var wins = windows(file, input.windowMs);
+        var wins = describeWindows(windows(file, input.windowMs), input);
         var built = buildEvents(input, type, wins);
         var events = built.events;
         var factors = [];
@@ -1489,8 +1579,9 @@
         var summary = summaryText(type, factors, input.appNames);
         var hyp = hypothesis(type, input.appNames);
         factors.forEach(function (f) { Object.assign(f, describeFactor(f, type, hyp)); });
+        var moments = momentsOf(wins, events, file, perWindow);
         return {
-            platform: input.platform, file: file, type: type, windows: wins, events: events, outside: built.outside,
+            platform: input.platform, file: file, type: type, windows: wins, moments: moments, defaultMoment: defaultMoment(moments), events: events, outside: built.outside,
             factors: factors, alternatives: alts, narrative: perWindow, warnings: warnings, summary: summary,
             positions: pos.list, filePosition: pos.filePos, copies: input.copies || [],
             beta: !!(type.snapchat || (input.extraEvents || []).length || input.signal || input.whatsapp || input.telegram),
@@ -1567,7 +1658,7 @@
 
     var api = {
         flagText: flagText, stamper: stamper, fileTimes: fileTimes, gapText: gapText, isQuickTimeTag: isQuickTimeTag,
-        classify: classify, windows: windows, intervalsFromEvents: intervalsFromEvents, mergeIntervals: mergeIntervals,
+        classify: classify, windows: windows, fsMoment: fsMoment, momentEvents: momentEvents, intervalsFromEvents: intervalsFromEvents, mergeIntervals: mergeIntervals,
         buildEvents: buildEvents, narrative: narrative, build: build, summaryText: summaryText, hypothesis: hypothesis, FACTOR_WORDS: FACTOR_WORDS,
         formatWithOffset: formatWithOffset, formatUtc: formatUtc, duration: duration, appName: appName, isCameraApp: isCameraApp, covers: covers,
         positions: positions, distanceM: distanceM, metres: metres, validCoord: validCoord, inWindows: inWindows, activityAt: activityAt,

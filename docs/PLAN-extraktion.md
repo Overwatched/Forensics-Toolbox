@@ -5,7 +5,7 @@ tar med deras `-wal` och kör queryn utan att något packas upp på disk. Källa
 aldrig skrivs.
 
 Status: byggt i `tools/db-queries/zip.js`, `locate.js` och `extraction.js`. Katalogerna har fått
-`paths`, och Photos-banden har fått `ios`. Släppt i 1.25.
+`paths`, och Photos-banden har fått `ios`. Släppt i 1.25. Rapporter (UFDR) läses sedan med `ufdr.js`, se DEVELOPMENT.md.
 
 ## Vad extraktionerna i K123456-26 visar
 
@@ -13,7 +13,7 @@ Status: byggt i `tools/db-queries/zip.js`, `locate.js` och `extraction.js`. Kata
 |---|---|---|---|---|
 | iPhone, iOS 18.7.7, `EXTRACTION_FFS.zip` | 22 GB | 568 526 | ingen (stored) | `filesystem1/private/var/...` |
 | Pixel 9, `..._files_full.zip` | 15 GB | 30 070 | ingen (stored) | `/data/data/...` (inleds med `/`) |
-| Solflare, UFED-mapp | 19 GB | – | – | bara rapporter och `.ufdx`, ingen filsystemsdump |
+| Solflare, UFED-mapp | 19 GB | – | ingen (stored) | `filesystem1/...` i `Manual/EXTRACTION_FFS 01/EXTRACTION_FFS.zip` |
 
 Slutsatser:
 - **Zip64 krävs.** Båda zipparna är större än 4 GB.
@@ -156,14 +156,14 @@ eller ändringstid.
 - **Uppackad mapp.** `webkitdirectory` räknar upp alla filer, vilket är tungt med 500 000 filer.
   Skrivbordsappen kan göra det billigare genom att bara titta på de kända sökvägarna, men det kräver
   IPC och en egen säkerhetsgenomgång.
-- **Andra format.** `.tar` (vanligt från andra verktyg), UFDR, `.ufdx` och krypterade containrar
-  kommer inte med nu.
+- **Andra format.** `.tar` (vanligt från andra verktyg), `.ufdx` och krypterade containrar
+  kommer inte med nu. UFDR kom senare (`ufdr.js`).
 - **Alla databaser i extraktionen.** Det betyder att hitta alla SQLite-filer, även de som saknar
   queries.
 
 ## Beslut
 
-- **Bara zip.** Mappar, `.tar` m.fl. tas inte med.
+- **Bara zip och UFDR.** Mappar, `.tar` m.fl. tas inte med.
 - **Zippen får aldrig ändras.** Se avsnittet ovan.
 
 ## Gränssnitt (byggt)

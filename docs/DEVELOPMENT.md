@@ -276,6 +276,19 @@ i extraktionen med `-wal` pålagd, och bygger en händelselista i UTC.
   ritar om tidslinjerna med `renderTimelines()` när reglaget byts; exporterna får bilderna som visas. Varje fönster bär sin
   närbild (`w.closeup`, en tiondel av fönstret åt varje håll, minst 30 s), och förklaringens
   rader vet sin källa och om de ligger inom närbilden (`near`), vilket styr nyckelhändelserna.
+  **Filens tidpunkter.** En fil kan ha flera tider långt från varandra: en gammal bild som nyss kom till telefonen har T
+  år före den tid då undersökaren vill se vad telefonen gjorde. `windows()` ger T, `added` och `file.extraWindows`, och tar
+  bort varje tidpunkt inom fönstret från en tidigare. `describeWindows()` sätter `isT`, källan, och namnet på T efter var
+  tiden kommer ifrån. Filer utanför biblioteket saknar `addedMs`, så `assess()` lägger `fsMoment()` i `extraWindows` när
+  filen lästs: skapandetiden i filsystemet, annars ändringstiden. Bibliotekets filer får den inte, för där är `added` den
+  andra tidpunkten. `model.moments` ger knapparna ovanför tidslinjen, och de syns bara med minst två tidpunkter. En
+  tidslinje i taget visas, de andra är dolda i sidan så att bilderna finns kvar. Startvalet (`defaultMoment`) är T, om inte
+  telefonen saknar allt vid T och har något vid en annan tidpunkt. Samma fil behåller valet när tidslinjerna ritas om
+  (`state.moment`). `phoneLines` är raderna i händelsetabellen och `phoneEvents` allt i fönstret; bara positioner ger
+  "registreringar". Faktorerna gäller T, så `nearT()` håller händelser vid andra tidpunkter utanför "i fönstret". Utanför T
+  (`ctx.atT === false` i `timeline-svg.js`) heter markeringen tidpunktens namn och kolumnen Läget, utan faktorns ord, och
+  kolumnen visar bara det som syns i tidslinjen. Närbilden får översiktens fönster i `opts.stateWindow`, så att de säger samma sak.
+  Protokollet och förklaringen har alla tidpunkter, oavsett vilken knapp som är vald.
   `report.js` bygger protokollet och förklaringen som HTML med inline-stilar för Word; båda
   får översikt, närbild och undersökarens egen bedömning (`meta.ownAssessment`).
   `keyEventsTable()` och `eventsTable()` ger nyckelhändelserna och händelserna med källa som egna
@@ -293,6 +306,11 @@ i extraktionen med `-wal` pålagd, och bygger en händelselista i UTC.
   innehållsförteckningen; resten läses ur den lokala posten när posten läses (`extract`).
   Posten får `mtime`, `atime`, `crtime` (skapad), `ctime`, `utThird` (Unix-sekunder) och `timeField`;
   `ExtractionCore.entryTimes()` ger dem som text. Utan något av fälten finns bara DOS-tiden (lokal tid, zon okänd).
+- Zippar med metadata (`tools/db-queries/fs-times.js`): har zippen `metadataN/metadata.msgpack` bredvid `filesystemN/` kommer tiderna därifrån, med riktiga namn och
+  på millisekunden (`timeField` `metadata.msgpack`). Zippens egna fält säger inget i de zipparna: UT-fältet har flaggorna 7 och tre lika värden, alla lika med `atime`, och
+  DOS-tiden är samma tid i lokal tid. Prövat på två iPhone-extraktioner, 329 181 och 315 296 filer: alla finns i kartan, och alla fyra tider stämmer med en
+  oberoende läsning i Python. `ctime >= mtime >= btime` gäller på 99,99–100 %, och `-wal` med innehåll har `mtime` senare än `atime` på omkring 90 %. En post under
+  `filesystemN/` utan rad i kartan får inga tider. Går filen inte att läsa säger Härkomst det. En zip med samma fält men utan metadata går inte att känna igen, och då gäller nästa punkt.
 - UT-fältets tider efter flaggorna: `0x7` är ändring, åtkomst och en tredje tid. Info-ZIP kallar den
   skapandetid, men andra verktyg lägger ctime där och zippen säger inte vilket, så den blir `utThird` och visas
   som "Tredje tiden i zippen" utan slutsats. `0xf` (FFS-zippen från iOS-labbtelefonen) har en fjärde tid, utanför
@@ -300,6 +318,7 @@ i extraktionen med `-wal` pålagd, och bygger en händelselista i UTC.
   dokumenterad av verktyget: av 628 903 poster är den tredje tiden tidigare än ändringen i 101 och senare i
   116 560, den fjärde tidigare i 42 056 och senare i 8. I bildbiblioteket följer den tredje tiden `ZADDEDDATE`
   (`IMG_0013.HEIC`: Tillagd 09:18:16, tredje 09:18:17, fjärde 15:33:09 dygnet innan, samma som Skapad).
+  Physical Analyzer läser tiderna likadant: i rapporterna från samma zip är `ModifyTime` den första, `AccessTime` den andra och `CreationTime` den fjärde på alla 311 807 filer, och den tredje finns inte med.
   Prövat 2026-11-05 på samma telefon före och efter labbsessionen, 628 390 gemensamma poster: den tredje tiden flyttades
   ensam på 843 filer med samma innehåll. Den fjärde flyttades bara tillsammans med ändringstiden och den tredje (1 952 filer,
   nya filer på samma sökväg). Ingen av dem gick bakåt. Alla sex loggade metadataändringar (favorit, nytt datum, dubblett,
@@ -551,6 +570,70 @@ Plan och provkörning: [PLAN-harkomst.md](PLAN-harkomst.md).
   (200 000 meddelanden). `postbox.test.js` har ett hastighetstest för det.
 - **Kvar:** `TelegramPostbox.attach` körs i huvudtråden.
 
+### Rapporter (UFDR, `tools/db-queries/ufdr.js`)
+
+En UFDR är rapporten som Cellebrite Physical Analyzer skriver. Namnen står bara här och i kodens kommentarer: programmets texter och protokoll säger rapportverktyget. Queries och Härkomst läser den som en extraktion:
+`UfdrRead.open()` läser `report.xml` och bygger en innehållsförteckning i minnet i samma form som en zips, med telefonens
+sökvägar som namn och rapportens egna poster som plats (`read.directory`, med `built: true`). `ZipRead.scan`, `extract` och
+`stream` fungerar sedan som vanligt, med CRC32-kontroll mot posten i rapporten. Rapportens uppgifter ligger i extrafältet
+0x5546 som JSON och blir `entry.report` (`member`, `sha256`, `md5`, `tags`, `deleted`, `deletedMs`, `origin`, `originReason`,
+`service`, `adjustedTime`, `adjustedLocation`, `noData`). `zip.js` läser fältet bara i en byggd förteckning, så att en vanlig
+zip inte kan låtsas ha rapportens tider. Inget skrivs, och förteckningen hålls i minnet tills källan stängs.
+
+`report.xml` var 489 MB och 1,2 GB i de två rapporterna, större än en sträng i V8 får vara. Den läses därför i bitar, som byte, med en
+egen genomgång av taggarna (`createScanner`), som klarar att en tagg delas var som helst. Metadata utom avsnittet `File` hoppas
+över, och läsningen stannar vid `</taggedFiles>`. Det tog 1,7 och 4,5 s i Node och 2,2 och 5,6 s i Electron på en Mac.
+Varje verktyg läser rapporten en gång. `DbData/database.db` (en pg_dump) innehåller samma filer och tider i tabellerna
+`Nodes` och `ReportPaths`, men schemat är Physical Analyzers interna och äldre rapporter saknar den, så den används inte.
+
+Formatet är inte dokumenterat. Det här är vad två rapporter från Physical Analyzer 10.11.0.3022 (`reportVersion` 8.5) visar,
+skapade 2026-11-05 ur samma GrayKey-zip från iOS-labbtelefonen, en med och en utan okategoriserade filer. Rapporterna är
+jämförda fil för fil med zippen (630 910 poster, 352 747 filer), utan programmets kod:
+
+| | Utan okategoriserade | Med okategoriserade |
+|---|---|---|
+| `<file>` och `RelatedNodes` (= `NodeCount`) | 124 118 | 322 773 |
+| Filer från telefonen, med samma sökväg, storlek och CRC32 som i zippen | 115 023 | 311 807 |
+| Filer i zippen som rapporten inte nämner | 237 724 (67,4 %) | 40 940 (11,6 %) |
+| Utvunna ur andra filer, visas inte | 9 017 | 10 720 |
+| Rader som räknas som filer men inte finns i zippen | 77 | 245 |
+
+- **Innehållet är samma byte.** 0 avvikelser i CRC32 och storlek. MD5 och SHA-256 i `report.xml` stämmer för alla 280 443 respektive
+  95 663 poster under `files/`, omräknade med Python. HEIC är kvar som HEIC; omvandlingen till JPEG var inte på (provat bara så).
+- **Sökvägen** i `path` är exakt zippens namn, med inledande `/`. `Local Path` i avsnittet `File` är posten i rapporten, med `\`.
+- **Samma innehåll på flera ställen** ligger en gång och listas under `RelatedNodes`, med egna sökvägar och tider.
+- **Tom fil:** raden pekar på en post som inte finns, och MD5 och SHA256 är `N/A`. Posten får `noData` och läses som tom.
+- **Tiderna:** `ModifyTime` är zippens första tid, `AccessTime` den andra och `CreationTime` den fjärde, utan undantag. Det
+  bekräftar tolkningen av UT-fältet som annars bara är härledd. **ctime finns inte i de här rapporterna:** `ChangeTime` är tom i alla
+  rader, både i `report.xml` och i `Nodes`, och tabellen i Härkomst säger det. T och slutsatserna påverkas inte. En UFED-extraktion har
+  ctime, så en rapport ur en sådan kan ha den. Därför läses `ChangeTime` i `accessInfo` och `CoreFileSystemFileSystemNodeChangeTime` i
+  `MetaData`, om de finns (skrivsättet i `MetaData` är kontrollerat på de andra tiderna, 842 969 värden). Provat bara med byggda testfiler.
+- **1980 är ingen tid.** En fil utan tider i zippen (491 filer) får `ModifyTime` 1980-01-01 00:00:00 och inga andra tider, och det
+  görs till ingen tid. En äkta 1980 (1 fil) har de andra tiderna kvar och står kvar. En tid utan zon i texten räknas inte.
+- **Rader utan fil på telefonen:** `embedded="true"` (`….car_embedded_1.jpg`, `signal.sqlite.decrypted`) eller en fil i sökvägen
+  (`…/foo.zip/bild.jpg`). De visas inte, eftersom sökvägen inte finns på telefonen. Finns föräldrafilen inte i rapporten går det inte
+  att se: 180 sådana rader räknas som filer. 65 rader har styrtecken i namnet som rapporten skrivit om och stämmer därför inte med zippen.
+- **Nyckelringen** har `fs="Keychain"` och sökvägen `/Imported GrayKey Keychain/…_keychain.plist`. Den läses automatiskt, och Signal
+  låses upp utan att något väljs. Hur den ser ut i en rapport från en UFED-extraktion är inte provat.
+- **Urvalet:** vilka filer som saknas står ingenstans. Saknas `Uncategorized` sägs det, men också med den saknas filer: under
+  `/private/var/mobile/` 1 594 på 52 MB, bland annat `-shm`, kartresurser och 20 databaser på 4 096 byte, och utan den 17 023 på 2,3 GB. Ingen `-wal`
+  med innehåll saknas i någon av rapporterna, och alla 14 databaser som katalogerna känner igen finns i båda. Varför filerna saknas är okänt.
+  Därför säger texterna "i rapporten" och att frånvaro inte säger något om telefonen (`absentNote()` i Härkomst, `limitText()`).
+- **Hashsökning:** summorna i `report.xml` läggs i Härkomsts cache (`fillHashCache`), så en sökning på MD5 eller SHA-256 läser inga filer.
+  SHA-1 finns inte i rapporter och räknas som förut.
+- **Rapportverktygets tolkning** (`MediaOrigin`, `MediaOriginReasoning`, `ServiceIdentifier`, `deleted`, `DeletedTime`, `AdjustedTimestamp`) står i en egen grupp
+  på filkortet och i protokollet och används inte i bedömningen. Undantag: `AdjustedLocation` ger samma upplysning som attributet
+  `customLocation` i en zip, eftersom xattr inte finns i rapporten. Bara IMG_0008 har fältet, och det är den enda bilden där loggen säger att platsen ändrades.
+- **Inte läst:** `decodedData` (meddelanden, platser och annat som Physical Analyzer tolkat, samma 11 779 poster i båda rapporterna, 29 MB),
+  `extraInfos` (var det tolkade kommer ifrån), `carvedFiles` (tom här) och `DbData`.
+
+Härkomst är jämförd i appen: alla 34 rader i bildbiblioteket och tre filer utanför gav samma T, samma sammanvägning och samma svar i
+alla faktorer mot zippen, utom positionen på grund av `customLocation` ovan. Alla 74 körbara queries gav samma rader. Signals databas, dekrypterad av
+programmet, har samma rader i alla 92 tabeller som Physical Analyzers `signal.sqlite.decrypted`; sidorna skiljer sig bara i reservytan och i två byte i
+huvudet (18 och 19, WAL-läget). Inte provat: en UFED-extraktion som källa till rapporten, Android, en rapport med HEIC som JPEG, en skyddad rapport (känns igen på att
+den inte är en zip, med ett besked), rader med `deleted="Deleted"`, flera filsystem med samma sökvägar, en rapport över cirka 320 000 rader, och äldre generationer annat än
+med byggda testfiler och ett handgjort exempel (`FlorianRudolf/autopsy-udfr`, `reportVersion` 5.3.1.0, deflate, utan SHA-256).
+
 ### Databaser över 1,5 GB
 
 Den fasta gränsen `MAX_ENTRY` är borta. Det som tar stopp är minnet, och då ger `ZipRead.friendlyMemory` ett begripligt
@@ -618,8 +701,9 @@ Mätt 2026-11-04 i Edge 156 på en Windows-maskin i CI, med en slinga på 30 mil
 - **Filsystemets tider:** ctime flyttas när utökade attribut skrivs (favorit, Raderade, ny tid, plats); ändrings- och
   skapandetiden står still. Det är en iakttagelse, inte dokumenterat av extraktionsverktyget. HEIC-filen skrivs
   färdig 5–50 s efter bilden. AirDrop och dubbletter behåller källans skapandetid.
-- **0x4b47** i zippen har filens utökade attribut. `com.apple.assetsd.customLocation` finns bara när en plats satts i
-  Bilder (`entry.customLocation`).
+- **0x4b47** i zippen har filens utökade attribut (`entry.customLocation`). `com.apple.assetsd.customLocation` finns när en plats satts i
+  Bilder, men också på vanliga bilder med GPS i filen: 8 av 34 bilder i labbet har det, och loggen säger att platsen ändrades på en av dem (IMG_0008).
+  Därför säger Härkomst att platsen är satt i efterhand bara när filens egen position saknas eller ligger mer än 50 m från bibliotekets.
 - **Signal på iOS:** `wasNotCreatedLocally` är skickat från en länkad enhet, `hasSyncedTranscript` från telefonen.
   `expireStartedAt` på ett mottaget meddelande med försvinnande tid är när det öppnades, på telefonen eller en
   länkad enhet. Händelserna är `sig-opened` och `sig-story`.
@@ -847,8 +931,10 @@ i webbläsaren.
     Labbzippen ligger inte i repot: sökvägen tas ur `FT_LAB_ZIP`, annars
     `~/Documents/Exampleextractions/Lab-Android-Nord-2026-11-02.zip`. Zippens storlek, mtime och ctime
     kontrolleras efteråt. Bara tider och versioner står i facit, inga namn eller nycklar.
-  - **Filens tider mot ett fristående facit** (`lab-ios.js`, `time-facit.py`, kräver `python3`): skriptet läser zippens fält,
-    EXIF, QuickTime och Photos.sqlite utan programmets kod och utan ExifTool. Varje rad i bildbiblioteket bedöms, och tabellen
+  - **Rapporter** (`lab-ios.js`): finns en `.ufdr` i en undermapp till labbmappen körs samma facit och samma fristående facit mot den, utom
+    ctime, och nyckelringen ska läsas ur rapporten. Röktestet har en byggd rapport (`fixtures/ufdr-builder.js`), också i html-versionen.
+  - **Filens tider mot ett fristående facit** (`lab-ios.js`, `time-facit.py`, kräver `python3`): skriptet läser zippens fält eller
+    `metadata.msgpack`, EXIF, QuickTime och Photos.sqlite utan programmets kod och utan ExifTool. Zippar med `metadata.msgpack` anges i `FT_LAB_NAMED_ZIPS`. Varje rad i bildbiblioteket bedöms, och tabellen
     jämförs med facit: bibliotekets tider och tiden i filen på en millisekund, zippens tider exakt. Samma filer bedöms också i
     UTC och datorns zon, och slutsatsen och tiderna ska vara desamma (`zoneChecks` i facit-filen).
   - `FT_SHOTS=<mapp>` sparar en skärmdump efter varje del. En ny del är en post i `scenarios`, en
@@ -880,9 +966,10 @@ i webbläsaren.
   förklarar det inte (se Html-versionen). Inte provat: en äldre Edge, `AllowFileSelectionDialogs`, en spärr som också
   gäller `file://`, IE-läget (`SendIntranetToInternetExplorer` eller en webbplatslista) och att köra från en nätverksresurs.
 - Härkomst: Android är provkört mot en labbtelefon (Android 13, LineageOS), inte mot en kommersiell extraktion; `usagestats` i XML (version 3, Android 9 och äldre) läses inte, batterihistoriken läses inte, ingen positionslogg läses på Android, bildfiler över 200 MB läses inte för EXIF, och inklistringen i Word är provkörd bara via urklippsstatus, inte i Word självt
-- **Filens tider:** tolkningen av zippens tredje och fjärde tid är härledd ur labbdata, och Apple dokumenterar inte Photos.sqlite. Inte
+- **Rapporter (UFDR):** formatet är inte dokumenterat, och läsningen är provad mot två rapporter från en version av Physical Analyzer. Se Rapporter (UFDR). Programmets texter och protokoll nämner inte verktygets namn, utan säger rapportverktyget.
+- **Filens tider:** tolkningen av zippens tredje tid är härledd ur labbdata, och Apple dokumenterar inte Photos.sqlite. Inte
   provat: en vanlig video från Kamera-appen (labbarna har Live Photo-videor och två MP4 från appar), en bild från molnet
-  (`ZDATECREATEDSOURCE` 0), Android mot det fristående facit och zippar från andra extraktionsverktyg. T följer bibliotekets
+  (`ZDATECREATEDSOURCE` 0), Android mot det fristående facit och zippar från andra verktyg än de som provats. T följer bibliotekets
   tid också när den är ändrad, så kontrollerna av app och kamera körs då runt den ändrade tiden. Att tiderna stämmer visar att inget
   har ändrats efter importen, inte att tiden är sann.
 - **Snapchat (beta):** typkoder och protobuf-tolkning är härledda ur en enda extraktion. Memories

@@ -20,6 +20,7 @@ const vm = require('node:vm');
 
 const ROOT = path.join(__dirname, '..', '..');
 const { buildZip } = require(path.join(ROOT, 'tools', 'db-queries', 'fixtures', 'zip-builder.js'));
+const { buildUfdr } = require(path.join(ROOT, 'tools', 'db-queries', 'fixtures', 'ufdr-builder.js'));
 const schemas = require(path.join(ROOT, 'tools', 'db-queries', 'fixtures', 'photos-schema.json'));
 const chatSchemas = require(path.join(ROOT, 'tools', 'db-queries', 'fixtures', 'chat-schemas.json'));
 const TG = require(path.join(ROOT, 'tools', 'db-queries', 'fixtures', 'postbox-encode.js'));
@@ -59,7 +60,9 @@ function photosDb(SQL) {
     const db = new SQL.Database();
     for (const [table, cols] of Object.entries(schemas['17'])) db.run('CREATE TABLE "' + table + '" (' + cols.map((c) => '"' + c + '"').join(', ') + ')');
     // Rad 5 är en kamerabild som skickades i WhatsApp; rad 6 sparade Signal ur en mottagen bild.
-    // Rad 7 är en kamerabild som valdes i Telegram; rad 8 tog Telegrams kamera.
+    // Rad 7 är en kamerabild som valdes i Telegram; rad 8 tog Telegrams kamera. Rad 9 är gammal men kom till
+    // telefonen vid T, då telefonen har händelser; när den skapades har telefonen inga. Dess ändringstid ligger
+    // långt från båda: i biblioteket ger den ingen egen tidslinje. Rad 10 har händelser vid båda sina tidpunkter.
     const rows = [
         { pk: 1, dir: 'DCIM/100APPLE', name: 'IMG_0001.JPG', at: T, lat: 59.3326, lon: 18.0649 },
         { pk: 2, dir: 'DCIM/101APPLE', name: 'IMG_0001.JPG', at: T + 30 * 86400, lat: null, lon: null },
@@ -69,10 +72,12 @@ function photosDb(SQL) {
         { pk: 6, dir: 'DCIM/100APPLE', name: 'IMG_0006.JPG', at: T2 + 200, lat: null, lon: null, original: 'signal-2024-06-04-143850.jpg', importer: 'org.whispersystems.signal', importedBy: 3, display: 'Signal' },
         { pk: 7, dir: 'DCIM/100APPLE', name: 'IMG_0007.JPG', at: T3, lat: null, lon: null, uuid: UUID_TG },
         { pk: 8, dir: 'DCIM/100APPLE', name: 'IMG_0008.JPG', at: T3 + 300, lat: null, lon: null, original: 'camphoto_123456.jpg', importer: 'ph.telegra.Telegraph', importedBy: 3, display: 'Telegram' },
+        { pk: 9, dir: 'DCIM/100APPLE', name: 'IMG_0009.JPG', at: T - 400 * 86400, added: T + 30, lat: null, lon: null },
+        { pk: 10, dir: 'DCIM/100APPLE', name: 'IMG_0010.JPG', at: T - 86400 + 200, added: T + 30, lat: null, lon: null, uuid: '00000000-0000-4000-8000-000000000010' },
     ];
     rows.forEach((r) => {
         insert(db, 'ZASSET', {
-            Z_PK: r.pk, ZUUID: r.uuid || '00000000-0000-4000-8000-00000000000' + r.pk, ZDIRECTORY: r.dir, ZFILENAME: r.name, ZDATECREATED: r.at - COCOA, ZADDEDDATE: r.at + 0.3 - COCOA, ZMODIFICATIONDATE: r.at + 5 - COCOA,
+            Z_PK: r.pk, ZUUID: r.uuid || '00000000-0000-4000-8000-00000000000' + r.pk, ZDIRECTORY: r.dir, ZFILENAME: r.name, ZDATECREATED: r.at - COCOA, ZADDEDDATE: (r.added || r.at + 0.3) - COCOA, ZMODIFICATIONDATE: r.at + 5 - COCOA,
             ZSAVEDASSETTYPE: 3, ZKIND: 0, ZKINDSUBTYPE: 0, ZUNIFORMTYPEIDENTIFIER: 'public.jpeg', ZCLOUDLOCALSTATE: 1, ZTRASHEDSTATE: 0, ZHIDDEN: 0,
             ZLATITUDE: r.lat == null ? -180 : r.lat, ZLONGITUDE: r.lon == null ? -180 : r.lon, ZADDITIONALATTRIBUTES: r.pk, ZEXTENDEDATTRIBUTES: r.pk,
         });
@@ -253,6 +258,34 @@ function brokenWal() {
 }
 
 // Bygger filerna i en ny tillfällig mapp. Returnerar sökvägarna och de kända värdena.
+// Samma filer som rapporten Physical Analyzer skulle skriva om extraktionen, utan det som valts bort
+// (IMG_0002.JPG). Samma innehåll ligger en gång och listas under RelatedNodes, en tom fil har ingen post,
+// och nyckelringen och en dekrypterad kopia finns med, men är inga filer på telefonen.
+function reportRows(entries, keychain) {
+    const first = new Map();
+    const rows = [];
+    entries.forEach((e) => {
+        if (/IMG_0002\.JPG$/.test(e.name)) return;
+        const data = Buffer.from(e.data);
+        const secs = e.mtime || (e.ut && e.ut.m);
+        const m = secs ? secs * 1000 : undefined;
+        const row = {
+            path: '/' + e.name.replace(/^filesystem1\//, ''), data, c: m === undefined ? undefined : m - 1000, m, a: m === undefined ? undefined : m + 1000,
+            tag: /\.(jpg|heic|png)$/i.test(e.name) ? 'Image' : /sqlite|\.db|db_sqlite|PLSQL/.test(e.name) ? 'Database' : 'Configuration',
+            origin: /IMG_0001\.JPG$/.test(e.name) ? 'Device Captured' : undefined, originReason: /IMG_0001\.JPG$/.test(e.name) ? 'Native Camera App' : undefined,
+        };
+        if (!data.length) { row.member = null; row.local = 'files\\Configuration\\tom-fil'; rows.push(row); return; }
+        const key = crypto.createHash('sha256').update(data).digest('hex');
+        const owner = first.get(key);
+        if (owner) { owner.related = (owner.related || []).concat([Object.assign(row, { member: 'files\\' + owner.tag + '\\' + path.basename(owner.path) })]); return; }
+        first.set(key, row);
+        rows.push(row);
+    });
+    rows.push({ path: '/Imported Test Keychain/Testrapport_keychain.plist', data: keychain, tag: 'Configuration', fs: 'Keychain' });
+    rows.push({ path: '/private/var/mobile/Containers/Shared/' + GROUP_SIGNAL + 'grdb/signal.sqlite/signal.sqlite.decrypted', data: 'dekrypterad kopia', tag: 'Database', embedded: true });
+    return rows;
+}
+
 async function build() {
     const SQL = await loadSql();
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ft-provkorning-'));
@@ -267,7 +300,7 @@ async function build() {
     const tg = telegramDbs(SQL);
     const sha = (b) => crypto.createHash('sha256').update(b).digest();
     const P = 'filesystem1/private/var/mobile/';
-    const zip = buildZip([
+    const entries = [
         { name: 'filesystem1/System/Library/CoreServices/SystemVersion.plist', data: '<?xml version="1.0"?><plist><dict><key>ProductVersion</key><string>17.5.1</string></dict></plist>' },
         { name: P + 'Media/PhotoData/Photos.sqlite', data: photos, deflate: true },
         { name: P + 'Media/PhotoData/Photos.sqlite-wal', data: '' },
@@ -288,6 +321,10 @@ async function build() {
         { name: P + 'Containers/Shared/' + GROUP_WA + 'Message/Media/1@lid/c/d/mottagen.jpg', data: waReceived, mtime: T2 + 71 },
         { name: P + 'Media/DCIM/100APPLE/IMG_0007.JPG', data: other('IMG_0007'), mtime: T3 + 1 },
         { name: P + 'Media/DCIM/100APPLE/IMG_0008.JPG', data: tgCamera, mtime: T3 + 301 },
+        { name: P + 'Media/DCIM/100APPLE/IMG_0009.JPG', data: other('IMG_0009'), mtime: T + 10 * 86400 },
+        { name: P + 'Media/DCIM/100APPLE/IMG_0010.JPG', data: other('IMG_0010'), mtime: T + 31 },
+        // Utanför biblioteket: tiden i filen är två år gammal, och filen skapades i filsystemet vid T.
+        { name: P + 'Containers/Data/' + APP_TG + 'Documents/gammal.jpg', data: Buffer.from(jpeg.toString('latin1').split('2024:06:01').join('2022:06:01'), 'latin1'), ut: { m: T + 31, a: T + 40, c: T + 31, b: T + 31 } },
         { name: P + 'Containers/Shared/' + GROUP_TG + 'telegram-data/account-1/postbox/db/db_sqlite', data: tg.postbox, deflate: true },
         { name: P + 'Containers/Shared/' + GROUP_TG + 'telegram-data/account-1/postbox/db/db_sqlite-wal', data: '' },
         { name: P + 'Containers/Shared/' + GROUP_TG + 'telegram-data/account-1/postbox/media/storage/db/db_sqlite', data: tg.storage, deflate: true },
@@ -297,16 +334,19 @@ async function build() {
         { name: P + 'Containers/Data/' + APP_TG + 'tmp/camphoto_123456.jpg', data: tgCamera, mtime: T3 + 300 },
         { name: 'filesystem1/private/var/containers/Shared/SystemGroup/' + GUID_PL + 'Library/BatteryLife/CurrentPowerlog.PLSQL', data: powerlog(SQL), deflate: true },
         { name: 'filesystem1/private/var/containers/Shared/SystemGroup/' + GUID_PL + 'Library/BatteryLife/CurrentPowerlog.PLSQL-wal', data: '' },
-    ]);
+    ];
+    const zip = buildZip(entries);
     const files = {
         dir,
         zip: path.join(dir, 'Testextraktion-iOS17.zip'),
+        ufdr: path.join(dir, 'Testrapport_Report.ufdr'),
         image: path.join(dir, 'IMG_0001.JPG'),
         knowledge: path.join(dir, 'knowledgeC.db'),
         keychain: path.join(dir, 'Testextraktion-iOS17_keychain.plist'),
         powerlogArchive: path.join(dir, 'powerlog_2024-06-06_ABCDEF12.PLSQL.gz'),
     };
     fs.writeFileSync(files.zip, zip);
+    fs.writeFileSync(files.ufdr, buildUfdr(reportRows(entries, keychainPlist())).buf);
     fs.writeFileSync(files.keychain, keychainPlist());
     fs.writeFileSync(files.image, jpeg);
     fs.writeFileSync(files.knowledge, knowledge);

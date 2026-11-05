@@ -461,7 +461,7 @@
                 (hasMap ? ' <button type="button" class="link-btn" id="run-map-link">Visa på karta</button>' : '') +
                 (o.stats.error ? '<br><span class="run-warn">' + escapeHtml(walSummary(o)) + '</span>' : '') +
                 (deriveWarn ? '<br><span class="run-warn">' + escapeHtml(deriveWarn) + '</span>' : '') + (warn
-                ? '<br><span class="run-warn">CRC32 stämmer inte för en fil ur zippen.</span> <button type="button" class="link-btn" data-show-pane="trace">Visa spårbarheten</button>'
+                ? '<br><span class="run-warn">CRC32 stämmer inte för en fil ur extraktionen.</span> <button type="button" class="link-btn" data-show-pane="trace">Visa spårbarheten</button>'
                 : '');
             trace.innerHTML = hashLines(o).concat(derived ? [derived.line] : []).map(escapeHtml).join('<br>');
             if (warn) document.dispatchEvent(new CustomEvent('queries:show-pane', { detail: 'trace' }));

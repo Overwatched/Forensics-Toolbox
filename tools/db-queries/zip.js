@@ -126,8 +126,20 @@
         return false;
     }
 
+    // Fältet med rapportens uppgifter i en förteckning som byggts ur en UFDR (ufdr.js). En riktig zip har
+    // inget sådant: fältet läses bara i en byggd förteckning, så att en zip inte kan låtsas ha rapportens tider.
+    var REPORT_FIELD = 0x5546;
+    function applyReportField(e, fields) {
+        e.report = fields;
+        e.timeField = 'report.xml';
+        e.mtime = fields.m ? fields.m / 1000 : null;
+        e.atime = fields.a ? fields.a / 1000 : null;
+        e.crtime = fields.c ? fields.c / 1000 : null;
+        e.ctime = fields.x ? fields.x / 1000 : null;
+    }
+
     // Extrafälten: 0x0001 (Zip64-storlekar och offset), tiderna (UT och NTFS) och 0x4b47 (utökade attribut).
-    function readExtra(b, start, end, e) {
+    function readExtra(b, start, end, e, built) {
         var at = start;
         while (at + 4 <= end) {
             var id = u16(b, at);
@@ -139,8 +151,10 @@
                 if (e.size === 0xffffffff && p + 8 <= body + len) { e.size = u64(b, p); p += 8; }
                 if (e.compSize === 0xffffffff && p + 8 <= body + len) { e.compSize = u64(b, p); p += 8; }
                 if (e.localOffset === 0xffffffff && p + 8 <= body + len) { e.localOffset = u64(b, p); p += 8; }
+            } else if (id === REPORT_FIELD) {
+                if (built) applyReportField(e, JSON.parse(utf8.decode(b.subarray(body, body + len))));
             } else if (id === 0x4b47) {
-                // Extraktionsverktygets fält med filens utökade attribut. Attributet finns bara när platsen satts i Bilder.
+                // Extraktionsverktygets fält med filens utökade attribut. Attributet finns när platsen satts i Bilder, men också på bilder med GPS i filen.
                 if (hasAscii(b, body, len, CUSTOM_LOCATION)) e.customLocation = true;
             } else {
                 setTimes(e, readTimes(b, id, body, len));
@@ -162,7 +176,7 @@
     }
 
     // Posten på plats at i innehållsförteckningen, med tiderna och storlekarna ur extrafälten.
-    function entryAt(buf, at, name) {
+    function entryAt(buf, at, name, built) {
         var e = {
             name: name,
             flags: u16(buf, at + 8),
@@ -175,7 +189,7 @@
             mtime: null, atime: null, crtime: null, ctime: null, utThird: null, timeField: '',
         };
         var nameLen = u16(buf, at + 28);
-        readExtra(buf, at + 46 + nameLen, at + 46 + nameLen + u16(buf, at + 30), e);
+        readExtra(buf, at + 46 + nameLen, at + 46 + nameLen + u16(buf, at + 30), e, built);
         return e;
     }
 
@@ -202,13 +216,16 @@
         return d;
     }
 
-    function scanIndexed(d, keep, onProgress) {
+    // Posten med filens riktiga tider, när zippen har dem i en egen fil (fs-times.js).
+    function withTimes(e, times) { return times ? times.apply(e) : e; }
+
+    function scanIndexed(d, keep, onProgress, times) {
         var index = directoryIndex(d);
         var b = index.bytes;
         var kept = [];
         for (var i = 0; i < index.names.length; i++) {
             var at = index.places[i];
-            if (keep(index.names[i], u32(b, at + 24), u32(b, at + 16))) kept.push(entryAt(b, at, index.names[i]));
+            if (keep(index.names[i], u32(b, at + 24), u32(b, at + 16))) kept.push(withTimes(entryAt(b, at, index.names[i], d.built), times));
         }
         if (onProgress) onProgress(index.size, index.size);
         return { entries: kept, count: index.names.length, expected: index.entries, zip64: index.zip64, directorySize: index.size };
@@ -218,7 +235,7 @@
     // onProgress(lästa byte, totalt) anropas efter varje bit. Är förteckningen i minnet (cacheDirectory)
     // används den färdiga listan med namn.
     async function scan(read, size, keep, onProgress) {
-        if (read.directory) return scanIndexed(read.directory, keep, onProgress);
+        if (read.directory) return scanIndexed(read.directory, keep, onProgress, read.fsTimes);
         var dir = await readDirectory(read, size);
         var kept = [];
         var count = 0;
@@ -240,7 +257,7 @@
                 var name = utf8.decode(buf.subarray(at + 46, at + 46 + nameLen));
                 // keep får också storlek och CRC32 ur posten, så att dubbletter av en fil kan
                 // hittas utan att alla poster sparas. Zip64-storlekar är 0xFFFFFFFF här.
-                if (keep(name, u32(buf, at + 24), u32(buf, at + 16))) kept.push(entryAt(buf, at, name));
+                if (keep(name, u32(buf, at + 24), u32(buf, at + 16))) kept.push(withTimes(entryAt(buf, at, name), read.fsTimes));
                 at += total;
             }
             buf = buf.subarray(at);
@@ -285,6 +302,7 @@
             return read(offset, length);
         };
         info.read.directory = { bytes: bytes, size: dir.size, entries: dir.entries, zip64: dir.zip64, names: null, places: null };
+        info.read.fsTimes = read.fsTimes;
         return info;
     }
 
@@ -351,10 +369,17 @@
         return new Uint8Array(await new Response(stream).arrayBuffer());
     }
 
+    // Raden i en rapport utan fil i rapporten. En tom fil har inget att läsa; har filen storlek går den inte att få fram.
+    function noData(entry) {
+        if (entry.size) throw new Error(entry.name + ' står i report.xml, men filen finns inte i rapporten.');
+        return new Uint8Array(0);
+    }
+
     // Läser ut en post till minnet. Returnerar { bytes, crcOk }. opts.inflate och opts.alloc kan bytas ut
     // i testerna, och opts.piece är gränsen för vad som läses på en gång.
     async function extract(read, entry, opts) {
         opts = opts || {};
+        if (entry.report && entry.report.noData) return { bytes: noData(entry), crcOk: true };
         if (entry.flags & 1) throw new Error(entry.name + ' är krypterad i zippen och kan inte läsas.');
         if (entry.method !== 0 && entry.method !== 8) {
             throw new Error(entry.name + ' är komprimerad med metod ' + entry.method + ', som inte stöds (bara lagrad och deflate).');
@@ -362,8 +387,9 @@
         var local = await read(entry.localOffset, 30);
         if (u32(local, 0) !== SIG_LOCAL) throw new Error('Den lokala posten för ' + entry.name + ' är trasig.');
         var start = entry.localOffset + 30 + u16(local, 26) + u16(local, 28);
-        // Saknas åtkomst- eller skapandetid i innehållsförteckningen kan den lokala posten ha dem.
-        if (u16(local, 28) && entry.timeField !== 'NTFS' && (!entry.atime || !(entry.crtime || entry.utThird))) {
+        // Saknas åtkomst- eller skapandetid i innehållsförteckningen kan den lokala posten ha dem. Inte i en
+        // rapport eller med tiderna ur metadata.msgpack: där är den källan, och den lokala posten säger något annat.
+        if (u16(local, 28) && entry.timeField !== 'NTFS' && entry.timeField !== 'metadata.msgpack' && !entry.report && (!entry.atime || !(entry.crtime || entry.utThird))) {
             readLocalTimes(await read(entry.localOffset + 30 + u16(local, 26), u16(local, 28)), entry);
         }
         var piece = opts.piece || PIECE;
@@ -396,6 +422,7 @@
     var LOCAL_SLACK = 4096;   // den lokala postens namn och extrafält ryms nästan alltid i det här
     async function stream(read, entry, onChunk, opts) {
         opts = opts || {};
+        if (entry.report && entry.report.noData) { noData(entry); return 0; }
         if (entry.flags & 1) throw new Error(entry.name + ' är krypterad i zippen och kan inte läsas.');
         if (entry.method !== 0 && entry.method !== 8) {
             throw new Error(entry.name + ' är komprimerad med metod ' + entry.method + ', som inte stöds (bara lagrad och deflate).');

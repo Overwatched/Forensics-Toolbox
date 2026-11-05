@@ -258,7 +258,7 @@
     function timeRows(row) {
         var z = row.zipTimes;
         if (z) {
-            var src = 'zippen' + (z.field ? ', ' + z.field : '');
+            var src = (z.field === 'report.xml' ? 'rapporten' : 'zippen') + (z.field ? ', ' + z.field : '');
             return [['Skapad i filsystemet', z.created, src], ['Tredje tiden i zippen (skapad eller ctime)', z.third, src], ['Ändrad i filsystemet', z.modified, src],
                 ['Metadata ändrad (ctime)', z.changed, src], ['Senast läst i filsystemet', z.accessed, src]].filter(function (r) { return r[1]; });
         }
@@ -1033,7 +1033,7 @@
             });
         }
         var fsRows = timeRows(row);
-        if (fsRows.length) dl.append(make('dt', 'summary-group', row.zipTimes ? 'Filsystemets tider, sparade i zippen' : 'Filsystemets tider för filen på den här datorn'));
+        if (fsRows.length) dl.append(make('dt', 'summary-group', row.zipTimes ? 'Filsystemets tider, sparade i ' + (row.zipTimes.field === 'report.xml' ? 'rapporten' : 'zippen') : 'Filsystemets tider för filen på den här datorn'));
         fsRows.forEach(function (t) { summaryRow(dl, t[0], t[1] + (t[3] ? ' = ' + t[3] : ''), t[2]); });
         if (!s) {
             summaryRow(dl, 'Status', row === busy ? 'Läser…' : 'Väntar på ExifTool');

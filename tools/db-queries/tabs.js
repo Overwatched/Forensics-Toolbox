@@ -131,7 +131,7 @@
         }
         if (!window.QueriesExtraction.useByPath(d.path)) {
             tabs[active].key = null;
-            setNote('<span class="run-warn">Databasen ' + escapeHtml(d.path) + ' finns inte bland databaserna som Queries letar efter i zippen. SQL:en står i Härkomsts protokoll.</span>');
+            setNote('<span class="run-warn">Databasen ' + escapeHtml(d.path) + ' finns inte bland databaserna som Queries letar efter i extraktionen. SQL:en står i Härkomsts protokoll.</span>');
             render();
             return;
         }

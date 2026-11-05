@@ -139,12 +139,13 @@
     }
 
     // Varför en summa inte hittades, i klartext. res: svaret från search(). sizeText(byte) -> text.
-    function missingText(algo, res, sizeText) {
+    // report: källan är en rapport, som är ett urval.
+    function missingText(algo, res, sizeText, report) {
         var what = label(algo);
         if (res.stopped) return 'Sökningen avbröts efter ' + res.done.toLocaleString('sv-SE') + ' av ' + res.total.toLocaleString('sv-SE') + ' filer, innan ' + what + ':n hittades.';
-        var text = 'Ingen fil i zippen har den ' + what + ':n. Alla ' + res.total.toLocaleString('sv-SE') + ' filerna (' + sizeText(res.totalBytes) + ') är genomsökta';
+        var text = 'Ingen fil i ' + (report ? 'rapporten' : 'zippen') + ' har den ' + what + ':n. Alla ' + res.total.toLocaleString('sv-SE') + ' filerna (' + sizeText(res.totalBytes) + ') är genomsökta';
         if (res.skipped.length) text += ', utom ' + res.skipped.length + (res.skipped.length === 1 ? ' fil som inte gick att läsa' : ' filer som inte gick att läsa') + ' (' + res.skipped.slice(0, 3).map(function (s) { return baseName(s.entry.name); }).join(', ') + (res.skipped.length > 3 ? ' …' : '') + ')';
-        return text + '.';
+        return text + '.' + (report ? ' En rapport är ett urval, så det säger inte att filen saknades på telefonen.' : '');
     }
 
     var api = { algoOf: algoOf, label: label, tierOf: tierOf, plan: plan, keyOf: keyOf, emptyCache: emptyCache, search: search, missingText: missingText, TIER_TEXT: TIER_TEXT };

@@ -76,6 +76,7 @@ test('en summa som inte finns: alla filer lästa, och svaret säger det', async 
     assert.strictEqual(res.read, 5);
     assert.deepStrictEqual(res.found, {});
     assert.strictEqual(hs.missingText('md5', res, (n) => n + ' byte'), 'Ingen fil i zippen har den MD5:n. Alla 5 filerna (' + res.totalBytes + ' byte) är genomsökta.');
+    assert.strictEqual(hs.missingText('md5', res, (n) => n + ' byte', true), 'Ingen fil i rapporten har den MD5:n. Alla 5 filerna (' + res.totalBytes + ' byte) är genomsökta. En rapport är ett urval, så det säger inte att filen saknades på telefonen.');
 });
 
 test('SHA-1 och SHA-256 i samma sökning, och cachen gör nästa sökning utan läsning', async () => {

@@ -3,7 +3,9 @@
 // "på" (kameran igång, skärmen tänd, telefonen olåst), ett grått band "av", ingenting = ingen
 // registrering. T är en kolumn genom alla rader med en prick där den korsar ett band, och till
 // höger står kolumnen "Vid T" som säger läget per rad i klartext, med lägets ord (Förenligt,
-// Inte förenligt, Saknas, Upplysning) som på faktorkorten. Översikten markerar närbildens ruta
+// Inte förenligt, Saknas, Upplysning) som på faktorkorten. En tidslinje vid en annan tidpunkt än T
+// (när filen kom till telefonen) markerar den tiden med sitt namn och har kolumnen "Läget", utan
+// lägets ord: bedömningen gäller T. Översikten markerar närbildens ruta
 // (opts.zoom), närbilden (opts.labels) skriver ut händelserna på bilden. Fasta ljusa färger så
 // att bilden ser likadan ut i rapporten som på skärmen. Testas i Node.
 (function (root) {
@@ -50,6 +52,7 @@
         var m = Math.floor(s / 60); s = s % 60;
         if (m < 60) return m + ' min' + (s ? ' ' + s + ' s' : '');
         var h = Math.floor(m / 60); m = m % 60;
+        if (h >= 48) return Math.floor(h / 24) + ' dygn' + (h % 24 ? ' ' + (h % 24) + ' tim' : '');
         return h + ' tim' + (m ? ' ' + m + ' min' : '');
     }
     function metres(m) { return m < 1000 ? Math.round(m) + ' m' : (m / 1000).toFixed(1).replace('.', ',') + ' km'; }
@@ -126,7 +129,8 @@
             case 'file-added': return 'Tillagd i biblioteket';
             case 'file-modified': return 'Ändrad';
             case 'exif': return 'EXIF i filen';
-            case 'fs-mtime': return 'Ändringstid i zippen';
+            case 'fs-mtime': return 'Ändringstid i filsystemet';
+            case 'fs-created': return 'Skapad i filsystemet';
             case 'paired-video': return 'Live Photo-videon';
             case 'file-captured': return 'Tagen (Memories)';
             case 'neighbour': m = /^Granne: (\S+)/.exec(e.text || ''); return m ? m[1] : 'Annan bild';
@@ -209,18 +213,32 @@
         return keep;
     }
 
-    // Läget vid T per rad: faktorns tillstånd (pillen) och två korta rader text.
-    // ctx: { model, T, fmt, appName, positions }
+    // Tidpunktens namn utan "när": "filen kom till telefonen".
+    function momentName(w) { return String(w.label || '').replace(/^när /, ''); }
+
+    // Läget vid T per rad: faktorns tillstånd (pillen) och två korta rader text. Vid en annan tidpunkt
+    // (ctx.atT === false) bara läget: bedömningen gäller T.
+    // ctx: { model, T, atT, window, fmt, appName, positions }
     function stateAt(row, ctx) {
-        var T = ctx.T, ev = ctx.model.events, fmt = ctx.fmt, model = ctx.model;
-        var st = row.factor ? row.factor.state : null;
+        var T = ctx.T, fmt = ctx.fmt, model = ctx.model;
+        var atT = ctx.atT !== false;
+        // Chattar och Snapchat: det som rör filen, var det än ligger, och annars bara det som syns i tidslinjen.
+        var ev = ctx.window ? model.events.filter(function (e) { return e.isFile || e.near || overlaps(e, ctx.window); }) : model.events;
+        var st = atT && row.factor ? row.factor.state : null;
+        var factor = atT ? row.factor : null;
         var running = ev.filter(function (e) { return foreground(e) && covers(e, T); });
         var camOps = ev.filter(function (e) { return e.kind === 'app' && e.lane === 'camera' && covers(e, T); });
         var names = running.map(function (e) { return ctx.appName(e.app); }).filter(function (n, i, a) { return a.indexOf(n) === i; });
         var since = function (e) { return 'sedan ' + fmtTime(fmt, e.ms) + ' (' + dur(T - e.ms) + ')'; };
-        var when = function (ms) { return dur(ms - T) + (ms < T ? ' före T' : ' efter T'); };
+        var when = function (ms) { return dur(ms - T) + (ms < T ? ' före' : ' efter') + (atT ? ' T' : ''); };
+        var atWord = atT ? 'vid T' : 'vid tidpunkten';
         switch (row.id) {
             case 'file': {
+                if (!atT) {
+                    var name = momentName(ctx.window || {});
+                    var realT = model.file && model.file.createdMs;
+                    return { state: null, l1: name.charAt(0).toUpperCase() + name.slice(1), l2: realT ? dur(T - realT) + (T < realT ? ' före T' : ' efter T') : '' };
+                }
                 var created = ev.find(function (e) { return e.kind === 'file-created'; });
                 var parts = [];
                 var ex = ev.find(function (e) { return e.kind === 'exif'; });
@@ -234,30 +252,30 @@
                 else if (tSrc !== 'bildfilen') parts.push('ingen tid i filen');
                 if (added) parts.push(Math.abs(added.ms - T) <= 2000 ? 'tillagd direkt' : 'tillagd ' + dur(added.ms - T) + ' efter');
                 if (fsm) parts.push(Math.abs(fsm.ms - T) <= 2000 ? 'filsystemet stämmer' : 'filsystemet ' + dur(fsm.ms - T) + (fsm.ms < T ? ' före' : ' efter'));
-                var verb = tSrc === 'bildfilen' ? 'Tiden i filen' : tSrc === 'zippen' ? 'Ändringstid' : model.type && model.type.type === 'snapchat' ? 'Registrerad' : 'Skapad';
+                var verb = tSrc === 'bildfilen' ? 'Tiden i filen' : tSrc === 'zippen' || tSrc === 'rapporten' ? 'Ändringstid' : model.type && model.type.type === 'snapchat' ? 'Registrerad' : 'Skapad';
                 return { state: st, l1: verb + (created && created.source && created.source.db ? ' · ' + created.source.db : ''), l2: parts.join(' · ') };
             }
             case 'app':
-                if (!running.length && row.factor && row.factor.via) return { state: st, l1: row.factor.via.l1, l2: row.factor.via.l2 };
+                if (!running.length && factor && factor.via) return { state: st, l1: factor.via.l1, l2: factor.via.l2 };
                 if (!running.length) return { state: st, l1: 'ingen app registrerad', l2: '' };
                 return { state: st, l1: names.join(', ') + ' i förgrunden', l2: since(running[0]) };
             case 'camera': {
                 var cam = camOps[0];
                 if (cam) return { state: st, l1: cam.cameraOp ? 'används av ' + ctx.appName(cam.app) : 'igång', l2: since(cam) + ', ' + dur(cam.endMs - T) + ' till' };
                 var rec = ev.find(function (e) { return isRecording(e, T); });
-                if (rec) return { state: st, l1: 'Snapchats kamera', l2: rec.kind === 'snap-memory' ? 'tagning registrerad i Memories vid T' : 'inspelning registrerad vid T' };
-                var capAt = ev.find(function (e) { return e.kind === 'file-captured'; });
+                if (rec) return { state: st, l1: 'Snapchats kamera', l2: rec.kind === 'snap-memory' ? 'tagning registrerad i Memories ' + atWord : 'inspelning registrerad ' + atWord };
+                var capAt = atT ? ev.find(function (e) { return e.kind === 'file-captured'; }) : null;
                 var camAtCap = capAt ? ev.find(function (e) { return e.kind === 'app' && e.lane === 'camera' && e.ms - 5000 <= capAt.ms && capAt.ms <= e.endMs + 5000; }) : null;
                 if (camAtCap) return { state: st, l1: 'igång när bilden togs', l2: fmtTime(fmt, camAtCap.ms) + ' → ' + fmtTime(fmt, camAtCap.endMs) + ', ' + dur(T - capAt.ms) + ' före T' };
                 if (st === 'na') return { state: st, l1: 'behövs inte', l2: 'för den här filtypen' };
                 if (running.length) return { state: st, l1: 'inte igång', l2: names.join(', ') + ' i förgrunden' };
                 // En sparad fil: raden bedömer skaparappen, med samma underlag som appraden.
-                if (row.factor && row.factor.via) return { state: st, l1: row.factor.via.l1, l2: row.factor.via.l2 };
+                if (factor && factor.via) return { state: st, l1: factor.via.l1, l2: factor.via.l2 };
                 return { state: st, l1: 'ingen registrering', l2: '' };
             }
             case 'screen': {
                 var s = ev.find(function (e) { return e.kind === 'screen' && covers(e, T); });
-                if (!s && row.factor && row.factor.via) return { state: st, l1: row.factor.via.l1, l2: row.factor.via.l2 };
+                if (!s && factor && factor.via) return { state: st, l1: factor.via.l1, l2: factor.via.l2 };
                 if (!s) return { state: st, l1: 'ingen registrering', l2: '' };
                 return { state: st, l1: s.on ? 'tänd' : 'släckt', l2: since(s) };
             }
@@ -269,6 +287,13 @@
             case 'location': {
                 var ps = (ctx.positions || []).filter(function (p) { return p.kind === 'phone'; });
                 var mem = (ctx.positions || []).find(function (p) { return p.kind === 'memory'; });
+                // Vid en annan tidpunkt säger avståndet till bilden inget: bara var telefonen registrerades.
+                if (!atT) {
+                    var inside = ctx.window ? ps.filter(function (p) { return p.ms >= ctx.window.startMs && p.ms <= ctx.window.endMs; }) : ps;
+                    var nearby = nearest(inside, T);
+                    if (!nearby) return { state: null, l1: 'ingen position i fönstret', l2: '' };
+                    return { state: null, l1: 'närmaste position', l2: when(nearby.ms) + (nearby.accuracy ? ' · ±' + Math.round(nearby.accuracy) + ' m' : '') };
+                }
                 if (!ps.length && mem) return { state: st, l1: 'bildens position ur Memories', l2: mem.lat.toFixed(5) + ', ' + mem.lon.toFixed(5) + ' · ingen telefonposition' };
                 if (!ps.length) return { state: st, l1: 'ingen position i fönstret', l2: '' };
                 var near = nearest(ps, T);
@@ -279,18 +304,18 @@
             case 'snapchat': {
                 var n = snapAtT(ev, T);
                 if (!n) return { state: null, l1: '–', l2: '' };
-                return { state: null, l1: snapLabel(n) || 'Snapchat-händelse', l2: Math.abs(n.ms - T) <= 1000 ? 'vid T' : when(n.ms) };
+                return { state: null, l1: snapLabel(n) || 'Snapchat-händelse', l2: Math.abs(n.ms - T) <= 1000 ? atWord : when(n.ms) };
             }
             case 'signal': {
                 var sg = sigAtT(ev, T);
-                if (!sg) return { state: st, l1: row.factor ? row.factor.verdict || '–' : '–', l2: '' };
-                return { state: st, l1: sigLabel(sg) || 'Signal-händelse', l2: Math.abs(sg.ms - T) <= 1000 ? 'vid T' : when(sg.ms) };
+                if (!sg) return { state: st, l1: factor ? factor.verdict || '–' : '–', l2: '' };
+                return { state: st, l1: sigLabel(sg) || 'Signal-händelse', l2: Math.abs(sg.ms - T) <= 1000 ? atWord : when(sg.ms) };
             }
             case 'whatsapp':
             case 'telegram': {
                 var ch = chatAtT(ev, T, row.id);
-                if (!ch) return { state: st, l1: row.factor ? row.factor.verdict || '–' : '–', l2: '' };
-                return { state: st, l1: chatLabel(ch) || CHATS[row.id].name + '-meddelande', l2: Math.abs(ch.ms - T) <= 1000 ? 'vid T' : when(ch.ms) };
+                if (!ch) return { state: st, l1: factor ? factor.verdict || '–' : '–', l2: '' };
+                return { state: st, l1: chatLabel(ch) || CHATS[row.id].name + '-meddelande', l2: Math.abs(ch.ms - T) <= 1000 ? atWord : when(ch.ms) };
             }
         }
         return { state: st, l1: '', l2: '' };
@@ -343,7 +368,7 @@
             if (e.kind === 'snap-notification') return '<polygon points="' + cx.toFixed(1) + ',' + (mid - 4) + ' ' + (cx + 4).toFixed(1) + ',' + mid + ' ' + cx.toFixed(1) + ',' + (mid + 4) + ' ' + (cx - 4).toFixed(1) + ',' + mid + '" fill="' + COLORS.snapchat + '" fill-opacity="0.6">' + title + '</polygon>';
             return '<circle cx="' + cx.toFixed(1) + '" cy="' + mid + '" r="' + sr + '" fill="' + COLORS.snapchat + '"' + stroke + '>' + title + '</circle>';
         }
-        var color = e.neighbour ? COLORS.neighbour : e.kind === 'exif' || e.kind === 'fs-mtime' || e.kind === 'paired-video' ? COLORS.exif : COLORS.file;
+        var color = e.neighbour ? COLORS.neighbour : e.kind === 'exif' || e.kind === 'fs-mtime' || e.kind === 'fs-created' || e.kind === 'paired-video' ? COLORS.exif : COLORS.file;
         if (e.kind === 'file-created') return '<polygon points="' + cx.toFixed(1) + ',' + (mid - 8) + ' ' + (cx + 8).toFixed(1) + ',' + mid + ' ' + cx.toFixed(1) + ',' + (mid + 8) + ' ' + (cx - 8).toFixed(1) + ',' + mid + '" fill="' + color + '">' + title + '</polygon>';
         if (e.kind === 'file-added' || e.kind === 'file-modified') return '<rect x="' + (cx - 5).toFixed(1) + '" y="' + (mid - 5) + '" width="10" height="10" fill="none" stroke="' + color + '" stroke-width="2">' + title + '</rect>';
         return '<circle cx="' + cx.toFixed(1) + '" cy="' + mid + '" r="' + (e.neighbour ? 3 : 6) + '" fill="' + color + '">' + title + '</circle>';
@@ -570,17 +595,18 @@
 
         // T: streck, etikett och en prick per rad som har ett band under T
         out += '<line x1="' + tX.toFixed(1) + '" y1="' + (y0 - 6) + '" x2="' + tX.toFixed(1) + '" y2="' + plotBottom + '" stroke="' + COLORS.t + '" stroke-width="1.5" stroke-dasharray="4 3"/>';
-        out += text(tX + 4, y0 - 8, 'T ' + fmtTime(fmt, T), { size: 10.5, fill: COLORS.t, weight: 'bold' });
+        out += text(tX + 4, y0 - 8, ctx.atT !== false ? 'T ' + fmtTime(fmt, T) : fmtTime(fmt, T) + ' ' + momentName(ctx.window), { size: 10.5, fill: COLORS.t, weight: 'bold' });
         rows.forEach(function (r, i) {
             var m = tMarker(r, ctx);
             if (!m) return;
             out += '<circle cx="' + tX.toFixed(1) + '" cy="' + layout[i].mid + '" r="5.5" fill="' + m.fill + '" stroke="' + (m.stroke || COLORS.bg) + '" stroke-width="2"/>';
         });
 
-        // Kolumnen "Vid T": pill med faktorns ord, sedan två rader text.
+        // Kolumnen "Vid T": pill med faktorns ord, sedan två rader text. Vid en annan tidpunkt "Läget", utan pill.
         if (cfg.column) {
             var x0 = plotRight + GAP;
-            out += text(x0, y0 - 8, 'Vid T · ' + fmtTime(fmt, T), { size: 11, weight: 'bold' });
+            var pills = ctx.atT !== false;
+            out += text(x0, y0 - 8, (pills ? 'Vid T · ' : 'Läget · ') + fmtTime(fmt, T), { size: 11, weight: 'bold' });
             rows.forEach(function (r, i) {
                 var L = layout[i], mid = L.mid;
                 if (i % 2 === 0) out += '<rect x="' + (x0 - 6) + '" y="' + L.y + '" width="' + (COL + 6) + '" height="' + L.h + '" fill="' + COLORS.lane + '"/>';
@@ -590,25 +616,26 @@
                     out += '<rect x="' + x0 + '" y="' + (mid - 9) + '" width="' + pw.toFixed(1) + '" height="18" rx="9" fill="' + (COLORS.status[s.state] || COLORS.other) + '"/>';
                     out += text(x0 + pw / 2, mid + 3.5, lab, { size: 10, fill: '#ffffff', weight: 'bold', anchor: 'middle' });
                 }
-                var tx0 = x0 + PILL_W;
+                var tx0 = pills ? x0 + PILL_W : x0;
+                var cut1 = pills ? 33 : 50, cut2 = pills ? 38 : 56;
                 if (s.l2) {
-                    out += text(tx0, mid - 2, cut(s.l1, 33), { size: 11, weight: 'bold' });
-                    out += text(tx0, mid + 11, cut(s.l2, 38), { size: 10, fill: COLORS.muted });
-                } else out += text(tx0, mid + 4, cut(s.l1, 33), { size: 11, weight: 'bold' });
+                    out += text(tx0, mid - 2, cut(s.l1, cut1), { size: 11, weight: 'bold' });
+                    out += text(tx0, mid + 11, cut(s.l2, cut2), { size: 10, fill: COLORS.muted });
+                } else out += text(tx0, mid + 4, cut(s.l1, cut1), { size: 11, weight: 'bold' });
             });
         }
         return { svg: out, bottom: plotBottom };
     }
 
     // Teckenförklaringen: bara det som finns i bilden, radbruten så att den ryms i bredden.
-    function legendItems(rows, events, hasZoom) {
+    function legendItems(rows, events, hasZoom, atT) {
         var ids = rows.map(function (r) { return r.id; });
         var has = function (f) { return events.some(f); };
         var kind = function (k) { return function (e) { return e.kind === k; }; };
         var items = [];
         if (has(kind('file-created'))) items.push(['◆', 'Skapad', COLORS.file]);
         if (has(function (e) { return e.kind === 'file-added' || e.kind === 'file-modified'; })) items.push(['□', 'Tillagd/Ändrad', COLORS.file]);
-        if (has(function (e) { return e.kind === 'exif' || e.kind === 'fs-mtime' || e.kind === 'paired-video'; })) items.push(['●', 'EXIF/filsystem', COLORS.exif]);
+        if (has(function (e) { return e.kind === 'exif' || e.kind === 'fs-mtime' || e.kind === 'fs-created' || e.kind === 'paired-video'; })) items.push(['●', 'EXIF/filsystem', COLORS.exif]);
         if (has(function (e) { return e.neighbour; })) items.push(['•', 'Andra bilder', COLORS.neighbour]);
         items.push(['▬', 'Kamera', COLORS.camera]);
         if (ids.indexOf('snapchat') >= 0) items.push(['▬', 'Snapchat', COLORS.snapchat]);
@@ -643,7 +670,7 @@
             if (has(function (e) { return /^snap-/.test(e.kind) && e.isFile; })) items.push(['◉', 'Svart kant: den bedömda filen', COLORS.file]);
         }
         if (hasZoom) items.push(['▭', 'Närbild', COLORS.zoom]);
-        items.push(['┆', 'T', COLORS.t]);
+        items.push(['┆', atT === false ? 'Tidpunkten' : 'T', COLORS.t]);
         return items;
     }
 
@@ -659,14 +686,17 @@
         return { svg: out, lines: lines };
     }
 
-    // model: från ProvenanceCore.build. opts: { window, zoom, labels, detail ('focus' = standard, 'all'), column, width, format(ms) -> text, appName(id), title, footer, positions, prefix }
+    // model: från ProvenanceCore.build. opts: { window, stateWindow, zoom, labels, detail ('focus' = standard, 'all'), column, width, format(ms) -> text, appName(id), title, footer, positions, prefix }
     function svg(model, opts) {
         opts = opts || {};
         var w = opts.window || model.windows[0];
         var width = opts.width || 1100;
         var column = opts.column !== false;
         var ctx = {
-            model: model, T: w.centerMs,
+            // Kolumnen är densamma i översikten och närbilden: den gäller hela fönstret (opts.stateWindow).
+            model: model, T: w.centerMs, window: opts.stateWindow || w,
+            // T är filens tidpunkt. Andra fönster har egna namn, också när filen saknar T.
+            atT: !!model.file && model.file.createdMs === w.centerMs,
             fmt: opts.format || function (ms) { return new Date(ms).toISOString().slice(0, 19).replace('T', ' '); },
             appName: opts.appName || function (id) { return id; },
             positions: opts.positions || (Array.isArray(model.positions) ? model.positions : []),
@@ -677,7 +707,7 @@
         var focus = opts.detail !== 'all';
         var b = block(ctx, w, rows, { y0: TOP, rowH: rowH, labels: opts.labels, focus: focus, plotW: plotW, zoom: opts.zoom, column: column, prefix: opts.prefix || (opts.labels ? 'n' : 'o') });
         var inWindow = model.events.filter(function (e) { return overlaps(e, w); });
-        var items = legendItems(rows, inWindow, !!opts.zoom);
+        var items = legendItems(rows, inWindow, !!opts.zoom, ctx.atT);
         if (focus) {
             var keep = focusSet(model, ctx.T, ctx.positions);
             var hidden = inWindow.filter(function (e) { return !keep.has(e) && (e.lane === 'file' || e.kind === 'location' || /^snap-/.test(e.kind) || /^sig-/.test(e.kind) || !!chatOf(e)); }).length;

@@ -204,3 +204,30 @@ test('EXIF-tid utan zon räknas om med förskjutningen vid tagningen, inte dagen
     assert.deepStrictEqual(media.exifTakenMs(null, sthlm), { ms: null, assumed: false });
 });
 
+
+test('rapportens uppgifter om filen: summorna jämförs, och verktygets tolkning står för sig', () => {
+    const report = { member: 'files/Image/IMG_0003.PNG', md5: 'AA', sha256: 'BB', tags: 'Image', deleted: 'Trash', deletedMs: Date.UTC(2026, 10, 4, 9, 30, 46, 669), origin: 'Device Captured', originReason: 'Screenshot App', service: 'com.apple.springboard', adjustedLocation: '(1, 2)', adjustedTime: '2025-08-22' };
+    const rows = Object.fromEntries(media.reportRows(report, { md5: 'aa', sha256: 'bb' }));
+    assert.strictEqual(rows['Post i rapporten'], 'files/Image/IMG_0003.PNG');
+    assert.strictEqual(rows['MD5 i report.xml'], 'samma som filens');
+    assert.strictEqual(rows['SHA-256 i report.xml'], 'samma som filens');
+    assert.strictEqual(rows.Status, 'Trash');
+    assert.strictEqual(rows.Raderad, '2026-11-04 09:30:46.669 UTC');
+    assert.strictEqual(rows.Ursprung, 'Device Captured, Screenshot App');
+    assert.strictEqual(rows.Tjänst, 'com.apple.springboard');
+    assert.strictEqual(rows['Justerad plats'], '(1, 2)');
+    assert.strictEqual(rows['Justerad tid'], '2025-08-22');
+    const other = Object.fromEntries(media.reportRows(report, { md5: 'aa', sha256: 'cc' }));
+    assert.strictEqual(other['SHA-256 i report.xml'], 'SKILJER SIG från filens: BB');
+    assert.strictEqual(Object.fromEntries(media.reportRows(report, {}))['MD5 i report.xml'], 'AA', 'filen lästes inte: summan står som den är');
+    assert.deepStrictEqual(media.reportRows(null), []);
+    assert.deepStrictEqual(media.reportRows({ member: 'files/a', sha256: 'x' }, { sha256: 'x' }).map((r) => r[0]), ['Post i rapporten', 'SHA-256 i report.xml']);
+});
+
+test('kortet säger rapporten när källan är en rapport, med en egen grupp för dess uppgifter', () => {
+    const groups = media.cardGroups({ path: '/a/b.jpg', size: 1, crc32: '00000001', crcOk: false, reportRows: [['Kategori', 'Image']] }, [], { word: 'rapporten' });
+    assert.deepStrictEqual(groups.map((g) => g.title), ['Filen i extraktionen', 'I rapporten (rapportverktygets uppgifter och tolkning)']);
+    assert.ok(groups[0].rows.some((r) => r[0] === 'Sökväg i rapporten'));
+    assert.strictEqual(Object.fromEntries(groups[0].rows).CRC32, '00000001 (stämmer inte med rapporten)');
+    assert.match(media.previewPlan({ name: 'a.heic', hasBytes: true, word: 'rapporten' }).note, /ingen hittades i rapporten/);
+});

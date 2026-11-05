@@ -18,7 +18,7 @@
             <p>Tidslinje för en bildfil: när den skapades, vilken app som var igång och om kameran var igång.
                 Öppna extraktionen, ange filnamnet, en hashsumma eller en tidpunkt, och få ett protokoll med alla källor eller en
                 förklaring i vanlig svenska, båda att klistra in i Word. Filen visas med sökväg, MD5 och SHA-256 så att
-                det går att fastställa att det är rätt fil. Zippen läses bara, och <code>-wal</code> läses alltid med.
+                det går att fastställa att det är rätt fil. Extraktionen läses bara, och <code>-wal</code> läses alltid med.
                 <span class="badge beta">Beta</span> Filer utanför bildbiblioteket, Snapchats egna register och
                 "Var finns filen?" är nya och kontrollerade mot en enda extraktion: kontrollera mot SQL:en längst ned.</p>
         </header>
@@ -29,10 +29,10 @@
             <div class="box-head">
                 <div>
                     <div class="step-label">1. Extraktion</div>
-                    <p class="muted"><span class="standalone-only">Välj extraktionens zip-fil.</span><span class="hub-only">Öppna extraktionen i raden högst upp.</span> Databaserna hittas automatiskt. Inget packas upp eller skrivs.</p>
+                    <p class="muted"><span class="standalone-only">Välj extraktionens zip-fil eller rapporten (UFDR).</span><span class="hub-only">Öppna extraktionen i raden högst upp.</span> Databaserna hittas automatiskt. Inget packas upp eller skrivs.</p>
                 </div>
                 <div class="button-row">
-                    <button type="button" id="ex-pick" class="standalone-only">Öppna extraktion (zip)…</button>
+                    <button type="button" id="ex-pick" class="standalone-only">Öppna extraktion (zip eller UFDR)…</button>
                     <button type="button" class="secondary" id="fill-sample">Fyll med testdata</button>
                     <button type="button" class="secondary" id="fill-sample-snap">Testdata: Snapchat (beta)</button>
                     <button type="button" class="secondary" id="fill-sample-android">Testdata: Snapchat på Android (beta)</button>
@@ -51,7 +51,7 @@
                 </div>
                 <p class="muted" id="signal-key-note"></p>
             </div>
-            <input type="file" id="ex-input" accept=".zip,application/zip" hidden>
+            <input type="file" id="ex-input" accept=".zip,application/zip,.ufdr" hidden>
         </section>
 
         <section class="box display-none" id="file-box">
@@ -83,7 +83,7 @@
                     <button type="button" class="secondary" id="disk-pick" title="En lista: en textfil (.txt, .csv, .md5 och liknande) med filnamn eller MD5, SHA-1 eller SHA-256. Bilder: storlek och CRC32 räknas, och samma innehåll letas upp i zippen. Flera bilder går att välja.">Välj en lista eller bilder…</button>
                 </div>
             </div>
-            <p class="muted">Finns namnet inte i bildbiblioteket söks hela zippen. En hashsumma söks på filernas innehåll, vilket kan ta några minuter i en stor zip.
+            <p class="muted">Finns namnet inte i bildbiblioteket söks hela extraktionen. En hashsumma söks på filernas innehåll, vilket kan ta några minuter i en stor zip.
                 Enter bedömer, Skift+Enter ger en ny rad. En lista kan vara en textfil med ett filnamn eller en hashsumma per rad, utdata från md5sum, eller en CSV-fil med en kolumn för filnamn eller hashsumma.</p>
             <div class="field-row time-row">
                 <div class="param-block">
@@ -118,7 +118,7 @@
             <div class="box-head">
                 <div class="step-label">3. Filerna</div>
                 <div class="button-row">
-                    <button type="button" class="secondary hub-only" id="batch-exif" title="Filerna läses ur zippen och visas med alla EXIF-taggar, och positionerna på kartan">Visa listan i EXIF &amp; karta</button>
+                    <button type="button" class="secondary hub-only" id="batch-exif" title="Filerna läses ur extraktionen och visas med alla EXIF-taggar, och positionerna på kartan">Visa listan i EXIF &amp; karta</button>
                     <button type="button" class="secondary" id="batch-copy" title="En rad per fil med typ, faktorerna, programmets sammanvägning och din egen bedömning, och sökväg, MD5 och SHA-256 per fil">Kopiera listan för Word</button>
                     <button type="button" class="secondary" id="batch-save">Spara listan som HTML</button>
                 </div>
@@ -155,7 +155,7 @@
                         <button type="button" class="secondary" id="save-protocol">Spara protokoll som HTML</button>
                     </div>
                 </div>
-                <p class="muted">Färg betyder på, grått av och tomt ingen registrering. Kolumnen <strong>Vid T</strong> visar läget vid T.
+                <p class="muted">Färg betyder på, grått av och tomt ingen registrering. Kolumnen till höger visar läget vid den markerade tiden.
                     Förklaringen är skriven för den som inte är tekniker; protokollet har källorna.</p>
                 <div id="export-status" class="status"></div>
                 <div id="timelines"></div>
@@ -179,7 +179,7 @@
                 <div class="box-head">
                     <div class="step-label">7. Var filen finns i extraktionen <span class="badge beta">Beta</span></div>
                 </div>
-                <p class="muted">Alla kopior av filen i zippen (samma storlek och CRC32, bekräftat med SHA-256).</p>
+                <p class="muted">Alla kopior av filen i extraktionen (samma storlek och CRC32, bekräftat med SHA-256).</p>
                 <div id="copies" class="result-scroll"></div>
             </div>
 
@@ -229,6 +229,8 @@
     <script src="../_shared/map/vendor/maps/map-assets.js"></script>
     <script src="../_shared/map/map-view.js"></script>
     <script src="../db-queries/zip.js"></script>
+    <script src="../db-queries/ufdr.js"></script>
+    <script src="../db-queries/fs-times.js"></script>
     <script src="../db-queries/locate.js"></script>
     <script src="../db-queries/wal.js"></script>
     <script src="../db-queries/sqlcipher.js"></script>

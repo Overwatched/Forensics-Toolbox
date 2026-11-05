@@ -172,3 +172,60 @@ test('en databas lämnas till sql.js utan kopia, läses rätt och kan skrivas i'
     assert.strictEqual(db.exec('SELECT count(*) FROM tg_prov')[0].values[0][0], 500);
     db.close();
 });
+
+// En rapport (UFDR) som källa: samma väg som en zip, med telefonens sökvägar och rapportens egna summor.
+const { buildUfdr } = require('./fixtures/ufdr-builder');
+core.use({ UfdrRead: require('./ufdr') });
+require('./ufdr').use({ ZipRead: require('./zip') });
+
+// Som en File i webbläsaren: slice() och arrayBuffer().
+function fakeFile(buf, name) {
+    const slice = (a, b) => ({ arrayBuffer: async () => buf.buffer.slice(buf.byteOffset + a, buf.byteOffset + Math.min(b, buf.length)) });
+    return { name, size: buf.length, lastModified: 1, slice };
+}
+
+test('openSource: en zip är en zip, en UFDR läses in och databasen hittas på telefonens sökväg', { skip: !DatabaseSync && 'node:sqlite saknas' }, async () => {
+    const files = makePhotosDb();
+    const T = Date.UTC(2026, 10, 3);
+    const { buf } = buildUfdr([
+        { path: '/System/Library/CoreServices/SystemVersion.plist', data: PLIST, tag: 'Configuration', c: T, m: T, a: T },
+        { path: '/private/var/mobile/Media/PhotoData/Photos.sqlite', data: files.db, tag: 'Database', c: T, m: T, a: T },
+        { path: '/private/var/mobile/Media/PhotoData/Photos.sqlite-wal', data: files.wal, tag: 'Uncategorized', c: T, m: T, a: T },
+        { path: '/private/var/mobile/Library/CoreDuet/Knowledge/knowledgeC.db', data: files.db, member: 'files\\Database\\Photos.sqlite', tag: 'Database', c: T, m: T, a: T, sha256: 'f'.repeat(64) },
+        { path: '/private/var/mobile/Library/CoreDuet/Knowledge/knowledgeC.db-wal', data: '', member: null, local: 'files\\Uncategorized\\saknas', tag: 'Uncategorized', c: T, m: T, a: T },
+    ]);
+    const source = await core.openSource(fakeFile(buf, 'rapport.ufdr'));
+    assert.ok(source.report, 'rapporten kändes igen');
+    const r = await core.open(source.read, buf.length, core.targets(DATABASES));
+    assert.strictEqual(r.version, '18.7.7');
+    assert.deepStrictEqual(r.found.map((f) => [f.key, f.db.name, !!f.wal]), [
+        ['photos', '/private/var/mobile/Media/PhotoData/Photos.sqlite', true],
+        ['knowledgec', '/private/var/mobile/Library/CoreDuet/Knowledge/knowledgeC.db', true],
+    ]);
+    const photos = await core.loadDatabase(source.read, r.found[0], ['Rapport: rapport.ufdr']);
+    assert.ok(photos.stats.appliedFrames > 0);
+    assert.deepStrictEqual(photos.warnings, []);
+    assert.match(photos.lines[1], /^Ur rapporten: \/private\/var\/mobile\/Media\/PhotoData\/Photos\.sqlite \(posten files\/Database\/Photos\.sqlite, \d+ byte, ändrad 2026-11-03 00:00:00 UTC, CRC32 [0-9a-f]{8} stämmer\)$/);
+    const db = await openSqlJs(photos.bytes);
+    assert.deepStrictEqual(db.exec('SELECT ZFILENAME FROM ZASSET')[0].values, [['IMG_0001.HEIC']]);
+    assert.strictEqual(core.entryTimes(r.found[0].db).field, 'report.xml');
+    assert.strictEqual(core.entryTimes(r.found[0].db).createdMs, T);
+    assert.strictEqual(core.entryTimes(r.found[0].db).changedMs, null);
+    assert.strictEqual(core.reportHashOk(r.found[0].db, photos.hashes.db), true);
+
+    // Filen stämmer inte med summan i report.xml, och -wal är en tom fil utan post.
+    const kc = await core.loadDatabase(source.read, r.found[1]);
+    assert.ok(kc.warnings.some((w) => /SHA-256 för knowledgeC\.db stämmer inte med report\.xml/.test(w)), kc.warnings.join(' | '));
+    assert.ok(!kc.warnings.some((w) => /-wal/.test(w) && /SHA-256/.test(w)), 'en tom fil har ingen summa att jämföra');
+    assert.strictEqual(core.walSummary(kc), '-wal är tom (0 byte), så det fanns inga ramar att lägga på.');
+
+    // Rapporten har ingen -wal: det säger inget om telefonen.
+    const without = await core.loadDatabase(source.read, Object.assign({}, r.found[1], { wal: null }));
+    assert.ok(without.warnings.some((w) => /rapporten har ingen, men den kan ha funnits på telefonen/.test(w)), without.warnings.join(' | '));
+
+    const plain = buildZip([{ name: 'filesystem1/private/var/mobile/a.db', data: 'x' }]);
+    const zip = await core.openSource(fakeFile(plain, 'extraktion.zip'));
+    assert.strictEqual(zip.report, null);
+    assert.strictEqual(core.sourceWord({}), 'zippen');
+    assert.strictEqual(core.sourceWord({ report: {} }), 'rapporten');
+});

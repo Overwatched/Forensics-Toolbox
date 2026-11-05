@@ -254,3 +254,40 @@ test('protokollet har filens tider som tabell, med källa, UTC och skillnaden mo
     assert.match(alone, /<b>Filens tider<\/b>/);
     assert.match(report.plainText(alone), /Skapad enligt biblioteket \(T\)/);
 });
+
+test('protokollet säger att källan är en rapport, med vad en rapport inte kan säga', () => {
+    const meta = Object.assign({}, META, {
+        report: { summary: 'Rapport i UFDR-format, rapportverktygets version 10.11.', limits: 'Att en fil inte finns i rapporten säger inte att den saknades på telefonen.' },
+        fileEntry: Object.assign({}, META.fileEntry, { reportRows: [['Post i rapporten', 'files/Image/IMG_0042.HEIC'], ['Ursprung', 'Device Captured']] }),
+        thumbnail: { path: '/x/5005.JPG', size: 1, crc32: 'cafe0001', sha256: 'e'.repeat(64) },
+    });
+    const p = report.protocol(model({ container: 'rapporten' }), meta);
+    for (const needle of ['Rapport (UFDR)', 'Källan är en rapport.', 'rapportverktygets version 10.11.', 'säger inte att den saknades på telefonen', 'Bildfilen i rapporten:', 'Telefonens egen tumnagel i rapporten:', 'Post i rapporten', 'Device Captured', 'I rapporten (rapportverktygets uppgifter och tolkning)', 'Sökväg i rapporten']) {
+        assert.ok(p.includes(needle), 'protokollet saknar: ' + needle);
+    }
+    assert.ok(p.includes('Protokollet skapat') && p.includes('Tidszon i protokollet') && !p.includes('Rapporten skapad'), 'protokollet och källan blandas inte ihop');
+    const left = p.match(/.{0,70}zippen.{0,30}/g);
+    assert.strictEqual(left, null, String(left));
+    const zip = report.protocol(model(), META);
+    assert.ok(zip.includes('Bildfilen i zippen:') && !zip.includes('Källan är en rapport'));
+});
+
+test('listan säger rapporten när källan är en rapport', () => {
+    const rows = [{ name: 'saknas.jpg', status: 'missing', note: 'Finns inte i rapporten.', summary: null }];
+    const html = report.batchTable(rows, { extraction: { name: 'x.ufdr' }, report: true, zoneLabel: 'UTC', format: core.formatUtc, formatUtc: core.formatUtc });
+    assert.ok(html.includes('Finns inte i rapporten') && !html.includes('Finns inte i zippen'));
+});
+
+test('protokollet har alla tidslinjer och säger vilken som är T', () => {
+    const FAR = 400 * 86400 * S;
+    const m = model({ file: { pk: 1, filename: 'IMG_0042.HEIC', directory: 'DCIM/100APPLE', createdMs: T, addedMs: T + FAR, importedBy: 1, importer: 'com.apple.camera' } });
+    assert.strictEqual(m.windows.length, 2);
+    const meta = Object.assign({}, META, { timelinePngs: ['data:image/png;base64,AAA', 'data:image/png;base64,BBB'], closeupPngs: ['data:image/png;base64,CCC', 'data:image/png;base64,DDD'] });
+    const p = report.protocol(m, meta);
+    assert.ok(p.includes('<b>Översikt när filen skapades (T):</b>'));
+    assert.ok(p.includes('<b>Översikt när filen kom till telefonen:</b>'));
+    assert.ok(p.includes('Visar läget vid den här tiden. Bedömningen i avsnitt 2 gäller T.'));
+    for (const png of ['AAA', 'BBB', 'CCC', 'DDD']) assert.ok(p.includes('base64,' + png), png);
+    const one = report.protocol(model(), META);
+    assert.ok(!one.includes('Bedömningen i avsnitt 2 gäller T'), 'en tidslinje behöver inte förklaras');
+});

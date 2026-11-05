@@ -100,18 +100,21 @@
     function protocol(model, meta) {
         var fmt = meta.format;
         var fmtUtc = meta.formatUtc;
+        var word = meta.report ? 'rapporten' : 'zippen';
         var out = '<div style="' + FONT + '">';
         out += h(1, 'Härkomst: ' + model.file.filename);
         out += kv([
-            ['Extraktion', meta.extraction ? meta.extraction.name + ' (' + meta.extraction.size + ' byte, ändrad ' + meta.extraction.lastModified + ')' : 'filer valda för hand'],
+            [meta.report ? 'Rapport (UFDR)' : 'Extraktion', meta.extraction ? meta.extraction.name + ' (' + meta.extraction.size + ' byte, ändrad ' + meta.extraction.lastModified + ')' : 'filer valda för hand'],
             ['Enhet', meta.deviceLabel || model.platform],
-            ['Tidszon i rapporten', meta.zoneLabel + (meta.zoneNote ? ' (' + meta.zoneNote + ')' : '')],
+            // Med en rapport som källa är det här protokollet, så att de två inte blandas ihop.
+            [meta.report ? 'Tidszon i protokollet' : 'Tidszon i rapporten', meta.zoneLabel + (meta.zoneNote ? ' (' + meta.zoneNote + ')' : '')],
             ['Tidpunkt T (' + tLabel(model) + ')', model.file.createdMs ? fmt(model.file.createdMs) + ' · ' + fmtUtc(model.file.createdMs) : 'saknas'],
             ['Fönster', model.windows.map(function (w) { return w.label + ': ' + fmt(w.startMs) + ' till ' + fmt(w.endMs); }).join('; ')],
             ['Program', 'Forensics Toolbox ' + (meta.toolVersion || '') + ', verktyget Härkomst'],
-            ['Rapporten skapad', meta.createdText || ''],
+            [meta.report ? 'Protokollet skapat' : 'Rapporten skapad', meta.createdText || ''],
         ].concat(meta.appVersionsText ? [['Appversioner', meta.appVersionsText]] : []));
         if (meta.sampleNote) out += p('<b>' + esc(meta.sampleNote) + '</b>');
+        if (meta.report) out += p('<b>Källan är en rapport.</b> ' + esc(meta.report.summary + ' ' + meta.report.limits));
         if (model.beta) out += p('<b>Betafunktion:</b> ' + esc(BETA_NOTE));
         if (model.warnings.length) out += p('<b>Varningar:</b> ' + model.warnings.map(esc).join(' '));
 
@@ -124,11 +127,12 @@
         out += table(['Kolumn', 'Värde'], meta.fileRows || []);
         if (meta.fileEntry) {
             var fe = meta.fileEntry;
-            out += p('<b>Bildfilen i zippen:</b> ' + esc(fe.path) + ' (' + esc(fe.size) + ' byte' +
+            out += p('<b>Bildfilen i ' + word + ':</b> ' + esc(fe.path) + ' (' + esc(fe.size) + ' byte' +
                 ', CRC32 ' + esc(fe.crc32) + (fe.crcOk === false ? ' STÄMMER INTE' : '') + (fe.md5 ? ', MD5 ' + esc(fe.md5) : '') + (fe.sha1 ? ', SHA-1 ' + esc(fe.sha1) : '') + (fe.sha256 ? ', SHA-256 ' + esc(fe.sha256) : '') + ')');
+            if (fe.reportRows && fe.reportRows.length) out += table(['I rapporten (rapportverktygets uppgifter och tolkning)', 'Värde'], fe.reportRows);
             // Telefonens egen tumnagel (iOS: PhotoData/Thumbnails/V2/…/5005.JPG) med egen hash, så att den inte tas för originalet.
             if (meta.thumbnail) {
-                out += p('<b>Telefonens egen tumnagel i zippen:</b> ' + esc(meta.thumbnail.path) + ' (' + esc(meta.thumbnail.size) + ' byte' + (meta.thumbnail.crc32 ? ', CRC32 ' + esc(meta.thumbnail.crc32) : '') +
+                out += p('<b>Telefonens egen tumnagel i ' + word + ':</b> ' + esc(meta.thumbnail.path) + ' (' + esc(meta.thumbnail.size) + ' byte' + (meta.thumbnail.crc32 ? ', CRC32 ' + esc(meta.thumbnail.crc32) : '') +
                     (meta.thumbnail.sha256 ? ', SHA-256 ' + esc(meta.thumbnail.sha256) : '') + ')');
             }
             // Bilden bara när undersökaren bett om det (meta.previewPng), förminskad.
@@ -166,7 +170,7 @@
 
         out += h(2, '3. Tidslinje');
         model.windows.forEach(function (w, i) {
-            out += p('<b>Översikt ' + esc(w.label) + ':</b> ' + esc(fmt(w.startMs) + ' till ' + fmt(w.endMs)));
+            out += p('<b>Översikt ' + esc(w.label) + (w.isT ? ' (T)' : '') + ':</b> ' + esc(fmt(w.startMs) + ' till ' + fmt(w.endMs)) + (w.isT || model.windows.length < 2 ? '' : '. Visar läget vid den här tiden. Bedömningen i avsnitt 2 gäller T.'));
             out += imageHtml(meta.timelinePngs && meta.timelinePngs[i], 'Tidslinje ' + w.label);
             if (w.closeup && meta.closeupPngs && meta.closeupPngs[i]) {
                 out += p('<b>Närbild:</b> ' + esc(fmt(w.closeup.startMs) + ' till ' + fmt(w.closeup.endMs)));
@@ -204,11 +208,11 @@
         if (meta.fileEntry) out += p('<b>Den bedömda filen:</b> ' + esc(meta.fileEntry.path));
         if (model.copies && model.copies.length) {
             var created = model.copies.some(function (c) { return c.created; });
-            out += table(['Sökväg i zippen', 'Plats', 'Storlek', 'Ändrad (filsystemet)'].concat(created ? ['Skapad (filsystemet)'] : []).concat(['CRC32', 'SHA-256']), model.copies.map(function (c) {
+            out += table(['Sökväg i ' + word, 'Plats', 'Storlek', 'Ändrad (filsystemet)'].concat(created ? ['Skapad (filsystemet)'] : []).concat(['CRC32', 'SHA-256']), model.copies.map(function (c) {
                 return [c.name, c.label, c.size + ' byte', c.mtime || ''].concat(created ? [c.created || ''] : []).concat([c.crc32 || '', c.shaOk === true ? 'samma som filen' : c.shaOk === false ? 'SKILJER SIG' : 'inte kontrollerad']);
             }));
         } else {
-            out += p(meta.copiesNote || 'Ingen annan post i zippen har samma storlek och CRC32.');
+            out += p(meta.copiesNote || 'Ingen annan post i ' + word + ' har samma storlek och CRC32.');
         }
 
         out += h(2, '6. Händelser');
@@ -217,7 +221,7 @@
         out += h(2, '7. Källor');
         (meta.sources || []).forEach(function (s) {
             out += h(3, s.label);
-            var rows = [['Sökväg i zippen', s.path], ['Storlek', s.size + ' byte'], ['Ändrad (filsystemet)', s.mtime], ['CRC32', s.crc32 + (s.crcOk === false ? ' STÄMMER INTE' : '')], ['SHA-256', s.sha256]];
+            var rows = [['Sökväg i ' + word, s.path], ['Storlek', s.size + ' byte'], ['Ändrad (filsystemet)', s.mtime], ['CRC32', s.crc32 + (s.crcOk === false ? ' STÄMMER INTE' : '')], ['SHA-256', s.sha256]];
             if (s.walPath) rows.push(['-wal', s.walPath], ['-wal CRC32', s.walCrc32], ['-wal SHA-256', s.walSha256]);
             rows.push(['WAL', s.walSummary]);
             if (s.cipher) rows.push(['Kryptering', s.cipher]);
@@ -297,9 +301,10 @@
     // hasharna får plats på sidan. rows: [{ name, status, note, summary (ProvenanceBatch.summarize),
     // examiner: { text, checked } }]. head: { extraction: { name }, deviceLabel, windowText, zoneText,
     // createdText, toolVersion, stateLabel }.
-    var BATCH_STATUS = { missing: 'Finns inte i zippen', ambiguous: 'Flera träffar, ingen vald', error: 'Kunde inte bedömas', stopped: 'Avbruten', waiting: 'Inte bedömd' };
+    var BATCH_STATUS = { ambiguous: 'Flera träffar, ingen vald', error: 'Kunde inte bedömas', stopped: 'Avbruten', waiting: 'Inte bedömd' };
 
     function batchTable(rows, head) {
+        var word = head && head.report ? 'rapporten' : 'zippen';
         head = head || {};
         var labels = head.stateLabel || {};
         var done = rows.filter(function (r) { return r.status === 'done' && r.summary; });
@@ -310,7 +315,7 @@
             (head.createdText ? ' · skapad ' + esc(head.createdText) : '') + (head.toolVersion ? ' · Forensics Toolbox ' + esc(head.toolVersion) : ''));
         out += table(['Fil', 'T', 'Typ', 'Faktorer', 'Programmets sammanvägning', 'Undersökarens bedömning'], rows.map(function (r) {
             var s = r.summary;
-            if (r.status !== 'done' || !s) return [{ html: '<b>' + esc(r.searched || r.name) + '</b>' }, '', BATCH_STATUS[r.status] || BATCH_STATUS.waiting, '', r.note || '', ''];
+            if (r.status !== 'done' || !s) return [{ html: '<b>' + esc(r.searched || r.name) + '</b>' }, '', (r.status === 'missing' ? 'Finns inte i ' + word : BATCH_STATUS[r.status]) || BATCH_STATUS.waiting, '', r.note || '', ''];
             var factors = s.factorIds.map(function (id) {
                 var f = s.factors[id];
                 var label = labels[f.state] || f.state;
@@ -331,9 +336,9 @@
         }));
         if (done.length) {
             out += p('<b>Filerna i extraktionen</b>');
-            out += table(['Fil', 'Sökväg i zippen, MD5 och SHA-256'], done.map(function (r) {
+            out += table(['Fil', 'Sökväg i ' + word + ', MD5 och SHA-256'], done.map(function (r) {
                 var s = r.summary;
-                return [s.filename, { html: esc(s.path || s.fileNote || 'Filen lästes inte ur zippen.') + (s.md5 ? '<br>MD5 ' + esc(s.md5) : '') + (s.sha256 ? '<br>SHA-256 ' + esc(s.sha256) : '') }];
+                return [s.filename, { html: esc(s.path || s.fileNote || 'Filen lästes inte ur ' + word + '.') + (s.md5 ? '<br>MD5 ' + esc(s.md5) : '') + (s.sha256 ? '<br>SHA-256 ' + esc(s.sha256) : '') }];
             }));
         }
         out += p(esc(ROLE_NOTE) + ' Varje fil har ett eget protokoll med källor, hashar och SQL; listan är en sammanställning' +

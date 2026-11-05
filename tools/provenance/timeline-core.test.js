@@ -436,6 +436,54 @@ test('positionen: bara i databasen, och en plats satt i Bilder väger inte', () 
     assert.match(pos.plain, /satt i efterhand/);
 });
 
+test('en fil med tiderna ur metadata.msgpack: tiderna har sina namn', () => {
+    const fileEntry = { name: 'x', size: 1, mtimeMs: T + 1000, createdMs: T, changedMs: T + 3000, accessedMs: T + 2000, timeField: 'metadata.msgpack' };
+    const times = core.build(input({ fileEntry })).factors[0].times;
+    const src = (id) => { const r = times.find((x) => x.id === id).source; return [r.db, r.table, r.column].join(' / '); };
+    assert.strictEqual(src('fs-created'), 'Zippen / metadata.msgpack / btime');
+    assert.strictEqual(src('fs-modified'), 'Zippen / metadata.msgpack / mtime');
+    assert.strictEqual(src('fs-changed'), 'Zippen / metadata.msgpack / ctime');
+    assert.strictEqual(src('fs-accessed'), 'Zippen / metadata.msgpack / atime');
+    assert.strictEqual(times.find((x) => x.id === 'fs-changed').ms, T + 3000);
+    assert.strictEqual(times.find((x) => x.id === 'fs-third'), undefined);
+});
+
+test('attributet customLocation på en bild med samma GPS i filen säger inget om platsen', () => {
+    const file = cameraFile({ latitude: 59.33255, longitude: 18.064 });
+    const position = (exif) => core.build(input({ fileEntry: { name: 'x/a.HEIC', size: 1, mtimeMs: T, customLocation: true }, file, exif })).factors.find((f) => f.id === 'position');
+    const taken = { read: true, takenMs: T, takenText: 'x', make: 'Apple', model: 'iPhone 13' };
+    // Vanlig bild: GPS i filen på samma plats som i biblioteket, som 7 av 8 bilder med attributet i labbet.
+    const same = position(Object.assign({}, taken, { position: { lat: 59.33255, lon: 18.064 } }));
+    assert.doesNotMatch(same.items.map((i) => i.text).join(' '), /satt i efterhand/);
+    assert.doesNotMatch(same.plain, /satt i efterhand/);
+    assert.notStrictEqual(same.state, 'contradiction');
+    // Annan GPS i filen: platsen har ändrats.
+    const moved = position(Object.assign({}, taken, { position: { lat: 12.6, lon: -8 } }));
+    assert.match(moved.items.map((i) => i.text).join(' '), /Platsen är satt i efterhand/);
+    // Ingen GPS i filen: platsen kan bara ha satts i efterhand, som IMG_0008 i labbet.
+    assert.match(position(taken).items.map((i) => i.text).join(' '), /Platsen är satt i efterhand/);
+    // Filen lästes inte: det går inte att säga.
+    const unread = position({ read: false });
+    assert.match(unread.items.map((i) => i.text).join(' '), /filen lästes inte, så det går inte att säga/);
+    assert.doesNotMatch(unread.items.map((i) => i.text).join(' '), /Platsen är satt i efterhand/);
+});
+
+test('okänd filtyp: att kameran inte var igång väger inte mot att filen kom till på telefonen', () => {
+    const none = { addedMs: null, modifiedMs: null, importedBy: null, importer: '' };
+    const m = core.build(input({ file: cameraFile(none), exif: { read: true }, fileSource: { db: 'zippen', table: 'x', column: 'ändringstid' },
+        appIntervals: [{ startMs: T - 20 * S, endMs: T + 12 * S, app: 'com.hammerandchisel.discord', stream: '/app/usage', source: KC }] }));
+    assert.strictEqual(m.type.type, 'unknown');
+    const cam = m.factors.find((f) => f.id === 'camera');
+    assert.strictEqual(cam.state, 'info');
+    assert.strictEqual(cam.verdict, 'Kameran inte registrerad');
+    assert.match(cam.items[0].text, /Filens typ är okänd, så det säger inte varifrån filen kommer/);
+    assert.doesNotMatch(m.summary, /inte förenligt/);
+    assert.ok(!m.factors.some((f) => f.state === 'contradiction'), JSON.stringify(m.factors.map((f) => [f.id, f.state])));
+    // En kamerabild prövas som förut.
+    const camera = core.build(input({ appIntervals: [{ startMs: T - 20 * S, endMs: T + 12 * S, app: 'com.hammerandchisel.discord', stream: '/app/usage', source: KC }] }));
+    assert.strictEqual(camera.factors.find((f) => f.id === 'camera').state, 'contradiction');
+});
+
 test('tänd skärm med låst telefon: aviseringar tänder skärmen', () => {
     const m = core.build(input({ lock: [{ startMs: T - 3 * M, endMs: T + 10 * M, locked: true, stream: '/device/isLocked', source: KC }] }));
     const f = m.factors.find((x) => x.id === 'screen');
@@ -649,4 +697,164 @@ test('skillnaden mot T i tabellen', () => {
     assert.strictEqual(core.gapText(9467, false), '+9 s');
     assert.strictEqual(core.gapText(-86360177, false), '−23 h 59 min');
     assert.strictEqual(core.gapText(439 * 86400000, false), '+439 dygn 0 h');
+});
+
+test('en fil ur en rapport: tiderna har sina namn, och ctime sägs saknas', () => {
+    const fileEntry = { name: 'x', size: 1, mtimeMs: T + 1000, createdMs: T, accessedMs: T + 2000, changedMs: null, timeField: 'report.xml' };
+    const times = core.build(input({ fileEntry, container: 'rapporten' })).factors[0].times;
+    const row = (id) => times.find((r) => r.id === id);
+    const src = (id) => [row(id).source.db, row(id).source.table, row(id).source.column].join(' / ');
+    assert.strictEqual(src('fs-created'), 'Rapporten / report.xml / CreationTime');
+    assert.strictEqual(src('fs-modified'), 'Rapporten / report.xml / ModifyTime');
+    assert.strictEqual(src('fs-accessed'), 'Rapporten / report.xml / AccessTime');
+    assert.strictEqual(row('fs-changed').ms, null);
+    assert.strictEqual(row('fs-changed').absent, 'Rapporten anger ingen sådan tid för filen.');
+    assert.strictEqual(row('fs-third'), undefined);
+    const withCtime = core.build(input({ fileEntry: Object.assign({}, fileEntry, { changedMs: T + 3000 }), container: 'rapporten' })).factors[0].times.find((r) => r.id === 'fs-changed');
+    assert.strictEqual(withCtime.ms, T + 3000);
+    assert.strictEqual(withCtime.source.column, 'ChangeTime');
+});
+
+test('T ur rapportens ModifyTime räknas som filsystemets tid, och filen utan post sägs saknas i rapporten', () => {
+    const fs = core.build(input({ container: 'rapporten', file: cameraFile({ addedMs: null, modifiedMs: null, importedBy: null, importer: '' }), exif: { read: true },
+        fileSource: { db: 'rapporten', table: 'x', column: 'ModifyTime' }, fileEntry: { name: 'x', size: 1, mtimeMs: T, timeField: 'report.xml' } }));
+    assert.ok(!fs.events.some((e) => e.kind === 'fs-mtime'), 'T visas inte en gång till');
+    const created = fs.events.find((e) => e.kind === 'file-created');
+    assert.match(created.text, /^Ändrad i filsystemet \(ModifyTime\)/);
+    const gone = core.build(input({ container: 'rapporten', fileEntry: null })).factors[0].times.find((r) => r.id === 'fs');
+    assert.strictEqual(gone.absent, 'Filen finns inte i rapporten.');
+    const zip = core.build(input({ fileEntry: null })).factors[0].times.find((r) => r.id === 'fs');
+    assert.strictEqual(zip.absent, 'Filen hittades inte i zippen.');
+});
+
+test('platsen som rapporten anger som justerad säger var uppgiften kommer ifrån', () => {
+    const pos = core.build(input({ container: 'rapporten', fileEntry: { name: 'x/a.JPG', size: 1, mtimeMs: T, customLocation: true, customLocationField: 'AdjustedLocation i rapporten' }, file: cameraFile({ latitude: 12.6, longitude: -8 }) })).factors.find((f) => f.id === 'position');
+    assert.match(pos.items.map((i) => i.text).join(' '), /\(AdjustedLocation i rapporten\)/);
+    assert.doesNotMatch(pos.items.map((i) => i.text).join(' '), /com\.apple\.assetsd/);
+});
+
+// ---------- Filens tidpunkter ----------
+
+const FAR = 400 * 86400 * S;
+const appAt = (ms) => ({ startMs: ms - 20 * S, endMs: ms + 12 * S, app: 'com.example.app', stream: '/app/usage', source: KC });
+const quiet = { appIntervals: [], screen: [], lock: [], locations: [], neighbours: [] };
+
+test('en fil vars tider ligger nära varandra har en tidpunkt, och den är T', () => {
+    const m = core.build(input());
+    assert.strictEqual(m.moments.length, 1);
+    assert.strictEqual(m.moments[0].isT, true);
+    assert.strictEqual(m.windows[0].isT, true);
+    assert.strictEqual(m.defaultMoment, 0);
+    assert.strictEqual(m.moments[0].label, 'när filen skapades');
+});
+
+test('tidslinjen börjar vid T, om inte telefonen saknar händelser där och har dem vid en annan tidpunkt', () => {
+    const file = cameraFile({ addedMs: T + FAR });
+    const moments = (over) => { const m = core.build(input(Object.assign({ file }, quiet, over))); return { list: m.moments, first: m.defaultMoment }; };
+    const both = moments({ appIntervals: [appAt(T), appAt(T + FAR)] });
+    assert.deepStrictEqual(both.list.map((x) => [x.id, x.isT, x.phoneEvents]), [['created', true, 1], ['added', false, 1]]);
+    assert.strictEqual(both.first, 0, 'händelser på båda: T');
+    const later = moments({ appIntervals: [appAt(T + FAR)] });
+    assert.deepStrictEqual(later.list.map((x) => x.phoneEvents), [0, 1]);
+    assert.strictEqual(later.first, 1, 'tomt vid T: den andra');
+    assert.strictEqual(moments({ appIntervals: [appAt(T)] }).first, 0);
+    assert.strictEqual(moments({}).first, 0, 'tomt överallt: T');
+    assert.strictEqual(later.list[1].label, 'när filen kom till telefonen');
+    assert.strictEqual(later.list[1].offsetMs, FAR);
+    assert.strictEqual(later.list[1].source.column, 'ZADDEDDATE');
+    assert.strictEqual(later.list[0].source.column, 'ZDATECREATED');
+});
+
+test('på Android står tidpunkten när filen kom till telefonen på date_added', () => {
+    const m = core.build(input(Object.assign({ platform: 'Android', file: cameraFile({ addedMs: T + FAR }), fileSource: { db: 'MediaStore / filer (external.db)', table: 'files', column: 'datetaken' } }, quiet)));
+    assert.deepStrictEqual(m.moments.map((x) => x.source.column), ['datetaken', 'date_added']);
+    assert.strictEqual(m.moments[1].source.table, 'files');
+});
+
+test('knappen räknar raderna i händelsetabellen, och bara positioner kallas registreringar', () => {
+    const file = cameraFile({ addedMs: T + FAR });
+    const m = core.build(input(Object.assign({ file }, quiet, { appIntervals: [appAt(T + FAR)] })));
+    const lines = m.narrative[1].lines.filter((l) => l.lane !== 'file').length;
+    assert.ok(lines > 0);
+    assert.strictEqual(m.moments[1].phoneLines, lines);
+    assert.strictEqual(core.momentEvents(m.moments[1]), lines + (lines === 1 ? ' händelse' : ' händelser') + ' på telefonen');
+    assert.strictEqual(core.momentEvents(m.moments[0]), 'inga registrerade händelser');
+    assert.strictEqual(core.momentEvents({ phoneLines: 1, phoneEvents: 9 }), '1 händelse på telefonen');
+    assert.strictEqual(core.momentEvents({ phoneLines: 0, phoneEvents: 1 }), '1 registrering på telefonen');
+    // En position vid T är något att visa: T står kvar som startval, och knappen säger inte "inga".
+    const pos = core.build(input(Object.assign({ file }, quiet, { locations: [{ ms: T + 5 * S, lat: 59.3, lon: 18.0, accuracy: 5, type: 1 }], appIntervals: [appAt(T + FAR)] })));
+    assert.deepStrictEqual([pos.moments[0].phoneLines, pos.moments[0].phoneEvents], [0, 1]);
+    assert.strictEqual(pos.defaultMoment, 0);
+    assert.strictEqual(core.momentEvents(pos.moments[0]), '1 registrering på telefonen');
+});
+
+test('filens egna rader och grannarna räknas inte som händelser på telefonen', () => {
+    const m = core.build(input(Object.assign({ file: cameraFile({ addedMs: T + FAR }) }, quiet, { neighbours: [{ pk: 9, filename: 'IMG_9.HEIC', createdMs: T + 2 * S, importedBy: 1 }] })));
+    assert.deepStrictEqual(m.moments.map((x) => x.phoneEvents), [0, 0]);
+});
+
+test('T heter det den är: tiden i filen, filsystemet eller biblioteket', () => {
+    const none = { addedMs: null, modifiedMs: null, importedBy: null, importer: '' };
+    const label = (fileSource) => core.build(input({ file: cameraFile(none), fileSource })).moments[0].label;
+    assert.strictEqual(label({ db: 'bildfilen', table: 'x', column: 'ExifIFD:DateTimeOriginal' }), 'enligt tiden i filen');
+    assert.strictEqual(label({ db: 'zippen', table: 'x', column: 'ändringstid' }), 'när filen ändrades i filsystemet');
+    assert.strictEqual(label({ db: 'rapporten', table: 'x', column: 'ModifyTime' }), 'när filen ändrades i filsystemet');
+    assert.strictEqual(core.build(input()).moments[0].label, 'när filen skapades');
+});
+
+test('filsystemets tid är en egen tidpunkt när den ligger långt från de andra', () => {
+    assert.strictEqual(core.fsMoment(null), null);
+    assert.strictEqual(core.fsMoment({ name: 'x' }), null);
+    const created = core.fsMoment({ createdMs: T + FAR, mtimeMs: T, timeField: 'metadata.msgpack' });
+    assert.deepStrictEqual([created.id, created.label, created.centerMs], ['filesystem', 'när filen skapades i filsystemet', T + FAR]);
+    assert.deepStrictEqual(created.source, { db: 'Zippen', table: 'metadata.msgpack', column: 'btime' });
+    const modified = core.fsMoment({ mtimeMs: T + FAR, timeField: 'report.xml' });
+    assert.strictEqual(modified.label, 'när filen ändrades i filsystemet');
+    assert.deepStrictEqual(modified.source, { db: 'Rapporten', table: 'report.xml', column: 'ModifyTime' });
+    assert.strictEqual(core.fsMoment({ createdMs: 1, timeField: 'UT-fältet' }).source.column, 'fjärde tiden');
+    assert.strictEqual(core.fsMoment({ createdMs: 1, timeField: 'NTFS-fältet' }).source.column, 'skapad');
+
+    // Långt bort: en egen tidslinje, med en markering och en rad för det den visar.
+    const fe = { name: 'x/a.JPG', size: 1, createdMs: T + FAR, mtimeMs: T + FAR, timeField: 'UT-fältet' };
+    const far = core.build(input(Object.assign({ file: cameraFile({ addedMs: null, extraWindows: [core.fsMoment(fe)] }), fileEntry: fe }, quiet, { appIntervals: [appAt(T + FAR)] })));
+    assert.deepStrictEqual(far.moments.map((x) => x.id), ['created', 'filesystem']);
+    assert.strictEqual(far.defaultMoment, 1);
+    const mark = far.events.find((e) => e.kind === 'fs-created');
+    assert.strictEqual(mark.ms, T + FAR);
+    assert.ok(far.narrative[1].lines.some((l) => /skapas i filsystemet/.test(l.text)), JSON.stringify(far.narrative[1].lines));
+    assert.strictEqual(far.moments[1].source.column, 'fjärde tiden');
+
+    // Nära T eller nära en annan tidpunkt: ingen egen tidslinje och ingen extra markering.
+    const nearFe = { name: 'x/a.JPG', size: 1, createdMs: T + 60 * S, mtimeMs: T + 60 * S, timeField: 'UT-fältet' };
+    const near = core.build(input({ file: cameraFile({ extraWindows: [core.fsMoment(nearFe)] }), fileEntry: nearFe }));
+    assert.deepStrictEqual(near.moments.map((x) => x.id), ['created']);
+    assert.ok(!near.events.some((e) => e.kind === 'fs-created'));
+    const sameAsAdded = { name: 'x/a.JPG', size: 1, createdMs: T + FAR + 60 * S, timeField: 'UT-fältet' };
+    assert.deepStrictEqual(core.build(input({ file: cameraFile({ addedMs: T + FAR, extraWindows: [core.fsMoment(sameAsAdded)] }), fileEntry: sameAsAdded })).moments.map((x) => x.id), ['created', 'added']);
+});
+
+test('händelser vid en annan tidpunkt räknas inte som registreringar i fönstret runt T', () => {
+    const file = cameraFile({ addedMs: T + FAR });
+    const camera = { startMs: T + FAR - 20 * S, endMs: T + FAR + 12 * S, app: 'com.apple.camera', stream: '/app/usage', source: KC };
+    const coverage = { '/app/usage': { rows: 3, firstMs: T + FAR - 3600 * S, lastMs: T + FAR + 3600 * S } };
+    const far = core.build(input(Object.assign({ file }, quiet, { appIntervals: [camera], coverage })));
+    const text = (m, id) => m.factors.find((f) => f.id === id).items.map((i) => i.text).join(' ');
+    assert.doesNotMatch(text(far, 'app'), /det finns registreringar i fönstret/);
+    assert.doesNotMatch(text(far, 'camera'), /var igång i fönstret/);
+    assert.match(text(far, 'app'), /utanför knowledgeC:s täckning/);
+    const beside = { startMs: T - 10 * M, endMs: T - 9 * M, app: 'com.apple.camera', stream: '/app/usage', source: KC };
+    const near = core.build(input(Object.assign({ file }, quiet, { appIntervals: [beside], coverage })));
+    assert.match(text(near, 'app'), /det finns registreringar i fönstret/);
+    assert.match(text(near, 'camera'), /Kameran var igång i fönstret, men inte vid själva tidpunkten/);
+});
+
+test('samma tidpunktsnamn upprepas inte i positionstexten', () => {
+    const file = cameraFile({ latitude: null, longitude: null, extraWindows: [
+        { id: 'whatsapp-1', label: 'när filen skickades i WhatsApp', centerMs: T + FAR },
+        { id: 'whatsapp-2', label: 'när filen skickades i WhatsApp', centerMs: T + 2 * FAR },
+    ] });
+    const locations = [{ ms: T + FAR, lat: 59.3, lon: 18.0, accuracy: 5, type: 1 }, { ms: T + 2 * FAR, lat: 59.3, lon: 18.0, accuracy: 5, type: 1 }];
+    const pos = core.build(input(Object.assign({ file }, quiet, { locations }))).factors.find((f) => f.id === 'position');
+    const text = pos.items.map((i) => i.text).join(' ');
+    assert.strictEqual((text.match(/när filen skickades i WhatsApp/g) || []).length, 1, text);
 });

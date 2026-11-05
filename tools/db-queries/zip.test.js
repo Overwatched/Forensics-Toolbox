@@ -141,7 +141,7 @@ test('crc32 ger standardvärdet för 123456789', () => {
 // Extraktionsdelen får bara läsa. Inga API:er som kan skriva till filer eller nå huvudprocessen.
 test('extraktionskoden använder inga skrivande API:er', () => {
     const forbidden = /createWritable|showOpenFilePicker|showSaveFilePicker|showDirectoryPicker|FileSystemHandle|forensicsMedia|ipcRenderer|require\(|\bfs\.|localStorage|indexedDB/;
-    const files = ['zip.js', 'locate.js', 'extraction.js', 'extraction-core.js', 'run.js', 'wal.js'].map((f) => path.join(__dirname, f));
+    const files = ['zip.js', 'ufdr.js', 'fs-times.js', 'locate.js', 'extraction.js', 'extraction-core.js', 'run.js', 'wal.js'].map((f) => path.join(__dirname, f));
     // Härkomst läser extraktionen med samma moduler. Alla dess filer, även nya, omfattas.
     const provenance = path.join(__dirname, '..', 'provenance');
     if (fs.existsSync(provenance)) {

@@ -1,8 +1,9 @@
 // Kontrollerna mot iOS-labbtelefonen: zippen och nyckelringen väljs tillsammans i raden högst upp,
 // Härkomst bedömer filerna och kopplingen till Signal, WhatsApp och Telegram jämförs med det som står
 // i facit/lab-ios-signal-whatsapp.json (förväntningar kontrollerade mellan källor) och
-// facit/lab-ios-tidsstamplar.json (en labbsession med loggad ordning). Körs bara när labbmappen finns.
-// Läser bara filerna.
+// facit/lab-ios-tidsstamplar.json (en labbsession med loggad ordning). Finns rapporter (UFDR) från samma
+// telefon i undermappar körs samma facit mot dem, utom ctime, som rapporter inte har. Körs bara när
+// labbmappen finns. Läser bara filerna.
 'use strict';
 
 const fs = require('node:fs');
@@ -27,6 +28,17 @@ function labFiles(dir) {
     return zip && keychain ? { zip, keychain } : null;
 }
 
+// Rapporter (UFDR) från samma telefon, i labbmappens undermappar: [{ name, path }].
+function labReports(dir) {
+    const out = [];
+    let subs;
+    try { subs = fs.readdirSync(dir, { withFileTypes: true }).filter((d) => d.isDirectory()); } catch (e) { return out; }
+    subs.forEach((d) => {
+        fs.readdirSync(path.join(dir, d.name)).filter((n) => /\.ufdr$/i.test(n)).forEach((n) => out.push({ name: d.name, path: path.join(dir, d.name, n) }));
+    });
+    return out;
+}
+
 async function assess(c, name) {
     // Bildens zon, oavsett vad röktestet valde före: facit har klockslagen i texterna i den zonen.
     await c.ev(PROV, `document.getElementById('zone').value = 'file', 1`);
@@ -47,7 +59,7 @@ async function assess(c, name) {
     })()`);
 }
 
-function check(f, d, facit) {
+function check(f, d, facit, report) {
     const tol = facit.toleranceMs;
     expect(!d.error, f.name + ': ' + d.error);
     if (f.T) expect(d.T != null && Math.abs(d.T - ms(f.T)) <= tol, 'T: ' + iso(d.T) + ', väntat ' + f.T);
@@ -84,6 +96,7 @@ function check(f, d, facit) {
     if (f.timeText) expect(new RegExp(f.timeText).test(d.timeText), 'Skapandetiden säger: ' + d.timeText);
     // Tabellen över filens tider, och sammanvägningen.
     Object.keys(f.times || {}).forEach((id) => {
+        if (report && id === 'fs-changed') return;
         const r = d.times.find((x) => x.id === id);
         expect(r && r.ms != null && Math.abs(r.ms - ms(f.times[id])) <= tol, 'Raden ' + id + ' i tabellen är ' + (r ? iso(r.ms) : 'borta') + ', väntat ' + f.times[id]);
     });
@@ -110,7 +123,7 @@ async function assessRow(c, name, zone) {
 
 // Varje rad i bildbiblioteket mot ett fristående facit: time-facit.py läser zippens fält, EXIF, QuickTime och
 // Photos.sqlite utan programmets kod och utan ExifTool, och här jämförs det med tabellen i Härkomst.
-function timeFacit(zip) {
+function timeFacit(zip, report) {
     return ['Filens tider i tabellen stämmer med ett fristående facit för varje rad i bildbiblioteket', async ({ c }) => {
         const out = path.join(os.tmpdir(), 'ft-tider-' + process.pid + '-' + Date.now());
         let truth;
@@ -139,10 +152,11 @@ function timeFacit(zip) {
             });
             if (f.source === 1 || f.source === 3) expect(new RegExp('ZDATECREATEDSOURCE ' + f.source).test(row('created').note), f.name + ': ' + row('created').note);
             if (f.fs) {
-                [['fs-modified', f.fs.m], ['fs-accessed', f.fs.a], ['fs-changed', f.fs.ctime], ['fs-created', f.fs.crtime]].forEach(([id, want]) => {
+                [['fs-modified', f.fs.m], ['fs-accessed', f.fs.a], ['fs-changed', report ? 0 : f.fs.ctime], ['fs-created', f.fs.crtime]].forEach(([id, want]) => {
                     if (!want) return;
                     near(f.name, id, (row(id) || {}).ms, want, 0);
                 });
+                if (report) expect(row('fs-changed') && row('fs-changed').absent, f.name + ': en rapport har ingen ctime, men tabellen har ' + JSON.stringify(row('fs-changed')));
             }
             // Tiden i filen på millisekunden. En tid utan zon i filen tolkas i bildens zon.
             if (f.fileTime != null) near(f.name, 'file-time', (row('file-time') || {}).ms, f.fileTime, 1);
@@ -169,29 +183,45 @@ function zoneChecks(names) {
     }];
 }
 
-function scenarios(dir, facit) {
+// report: rapporten som öppnas i stället för zippen. Nyckelringen väljs inte: den ska läsas ur rapporten.
+function scenarios(dir, facit, report) {
     const { zip, keychain } = labFiles(dir);
-    const zipName = path.basename(zip);
-    const stats = () => [zip, keychain].map((p) => { const s = fs.statSync(p); return [s.size, s.mtimeMs, s.ctimeMs].join('/'); }).join(' ');
+    const zipName = path.basename(report || zip);
+    const picked = report ? [report] : [zip, keychain];
+    const stats = () => picked.map((p) => { const s = fs.statSync(p); return [s.size, s.mtimeMs, s.ctimeMs].join('/'); }).join(' ');
     let before = null;
-    const open = ['Labbzippen och nyckelringen öppnas tillsammans i Härkomst', async ({ c }) => {
+    const open = [report ? 'Rapporten öppnas ensam i Härkomst' : 'Labbzippen och nyckelringen öppnas tillsammans i Härkomst', async ({ c }) => {
         before = stats();
         await c.nav('Härkomst');
-        await c.setFiles(null, '#cb-input', [zip, keychain]);
+        await c.setFiles(null, '#cb-input', picked);
         await c.ev(null, `document.getElementById('cb-input').dispatchEvent(new Event('change')), 1`);
         // Två labbmappar kan ha samma filnamn, så statusraden från den förra får inte räknas.
         await sleep(1000);
         await c.waitFor(PROV, `!ProvenanceApp.busy() && /databaser hittades/.test(document.getElementById('ex-status').textContent) && document.getElementById('ex-status').textContent.includes(${JSON.stringify(zipName)})`, 300000, 'labbzippen');
         const note = await c.waitFor(PROV, `/Nyckeln läses ur/.test(document.getElementById('signal-key-note').textContent) && document.getElementById('signal-key-note').textContent`, 20000, 'nyckelringen');
-        expect(note.includes(path.basename(keychain)), 'Nyckelns källa: ' + note);
-        return 'zippen och nyckelringen';
+        expect(note.includes(path.basename(keychain) + (report ? ' i rapporten' : '')), 'Nyckelns källa: ' + note);
+        return report ? 'rapporten, med nyckelringen i den' : 'zippen och nyckelringen';
     }];
-    const files = facit.files.map((f) => [f.name + ': ' + f.what, async ({ c }) => check(f, await assess(c, f.name), facit)]);
-    const untouched = ['Labbzippen och nyckelringen är orörda', async () => {
+    const files = facit.files.map((f) => [f.name + ': ' + f.what, async ({ c }) => check(f, await assess(c, f.name), facit, report)]);
+    const untouched = [report ? 'Rapporten är orörd' : 'Labbzippen och nyckelringen är orörda', async () => {
         expect(before && before === stats(), 'Storlek, mtime eller ctime har ändrats');
         return 'storlek, mtime och ctime';
     }];
-    return [open].concat(files, [timeFacit(zip), zoneChecks(facit.zoneChecks || [])], [untouched]);
+    return [open].concat(files, [timeFacit(zip, report), zoneChecks(facit.zoneChecks || [])], [untouched]);
 }
 
-module.exports = { scenarios, labFiles };
+// En zip där filernas tider ligger i metadata.msgpack, inte i zippens egna fält: tabellen i Härkomst mot samma
+// fristående facit. Inga loggade händelser finns för de här zipparna. Sökvägarna tas ur FT_LAB_NAMED_ZIPS.
+function namedTimesScenarios(zip) {
+    const open = ['Zippen öppnas i Härkomst', async ({ c }) => {
+        await c.nav('Härkomst');
+        await c.setFiles(null, '#cb-input', [zip]);
+        await c.ev(null, `document.getElementById('cb-input').dispatchEvent(new Event('change')), 1`);
+        await sleep(1000);
+        const text = await c.waitFor(PROV, `!ProvenanceApp.busy() && /filernas tider ur metadata\\.msgpack/.test(document.getElementById('ex-status').textContent) && document.getElementById('ex-status').textContent`, 300000, 'zippen');
+        return text.slice(0, 60);
+    }];
+    return [open, timeFacit(zip)];
+}
+
+module.exports = { scenarios, labFiles, labReports, namedTimesScenarios };
