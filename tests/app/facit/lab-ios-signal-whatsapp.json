@@ -195,5 +195,9 @@
       },
       "cameraText": "Telegram använde kameran .* enligt PowerLog \\(PLCameraAgent\\), vilket täcker tidpunkten"
     }
+  ],
+  "zoneChecks": [
+    "IMG_0001.PNG",
+    "IMG_0036.MP4"
   ]
 }

@@ -231,9 +231,26 @@ test('appversionerna står i protokollets huvud, och saknas raden när inga appa
     assert.doesNotMatch(report.protocol(m, META), /Appversioner/);
 });
 
-test('protokollet säger var filsystemets tider kommer ifrån, med fältet, och kallar inte ctime för skapad', () => {
-    const fileEntry = Object.assign({}, META.fileEntry, { created: '2025-09-24 12:31:09 UTC', changed: '2025-09-25 08:00:00 UTC', accessed: '2025-09-26 09:00:00 UTC', timeField: 'UT-fältet' });
-    const html = report.protocol(model(), Object.assign({}, META, { fileEntry }));
-    assert.match(html, /Filsystemets tider, sparade i zippen av extraktionsverktyget \(UT-fältet\):<\/b> skapad 2025-09-24 12:31:09 UTC, ändrad 2025-09-24 12:31:10 UTC, metadata ändrad \(ctime\) 2025-09-25 08:00:00 UTC, senast läst 2025-09-26 09:00:00 UTC\./);
+test('protokollet har filens tider som tabell, med källa, UTC och skillnaden mot T, och kallar inte ctime för skapad', () => {
+    const m = model();
+    const f = m.factors.find((x) => x.id === 'time');
+    f.times = [
+        { id: 'file-time', ms: f.times[0].ms, label: 'Tagen enligt EXIF', source: { db: 'Filen', column: 'ExifIFD:DateTimeOriginal' }, note: 'I filen: 2025-09-24 14:31:09 +02:00.', gap: '0 s' },
+        { id: 'created', ms: m.file.createdMs, label: 'Skapad enligt biblioteket', source: { db: 'Photos.sqlite', table: 'ZASSET', column: 'ZDATECREATED' }, note: '', isT: true, gap: 'T' },
+        { id: 'fs-changed', ms: m.file.createdMs + 86400000, label: 'Metadata ändrad (ctime)', source: { db: 'Zippen', table: 'UT-fältet', column: 'tredje tiden' }, note: 'Flyttas också när filens metadata ändras.', gap: '+1 dygn 0 h' },
+        { id: 'library', ms: null, label: 'Bildbiblioteket', source: null, note: '', absent: 'Filen har ingen rad där.' },
+    ];
+    const html = report.protocol(m, META);
+    const plain = report.plainText(html);
+    assert.match(plain, /Tid \(Europe\/Stockholm\)\tUTC\tVad\tKälla\tMot T/);
+    assert.match(plain, /Skapad enligt biblioteket \(T\)\tPhotos\.sqlite → ZASSET → ZDATECREATED\tT/);
+    assert.match(plain, /Metadata ändrad \(ctime\)\nFlyttas också när filens metadata ändras\.\tZippen → UT-fältet → tredje tiden\t\+1 dygn 0 h/);
+    assert.match(plain, /Filen har ingen rad där\.\t\tBildbiblioteket/);
     assert.doesNotMatch(html, /enligt zippen/);
+    assert.doesNotMatch(html, /Filsystemets tider, sparade i zippen/, 'tiderna står bara i tabellen');
+    assert.strictEqual(report.timeText(core.formatUtc, Date.UTC(2025, 7, 21, 9, 22, 39, 823)), '2025-08-21 09:22:39.823');
+    assert.strictEqual(report.timeText(core.formatUtc, Date.UTC(2025, 7, 21, 9, 22, 39)), '2025-08-21 09:22:39');
+    const alone = report.timesTable(m, META);
+    assert.match(alone, /<b>Filens tider<\/b>/);
+    assert.match(report.plainText(alone), /Skapad enligt biblioteket \(T\)/);
 });

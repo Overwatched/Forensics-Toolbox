@@ -170,6 +170,38 @@ const scenarios = [
         return 'T ' + new Date(m.T).toISOString() + ', fem faktorer förenliga';
     }],
 
+    ['Härkomst: tabellen över filens tider har källor, och valet av zon ändrar inte slutsatsen', async ({ c, fx }) => {
+        const read = () => c.ev(PROV, `(function(){
+            const f = ProvenanceApp.model().factors.find(x => x.id === 'time');
+            return { state: f.state, verdict: f.verdict, rows: f.times.map(r => [r.id, r.ms]), cells: [...document.querySelectorAll('.factor-times table.times tbody tr')].map(tr => tr.innerText.replace(/\\s+/g, ' ')),
+                t: document.querySelector('.factor-times tr.time-t') && document.querySelector('.factor-times tr.time-t').innerText, head: document.querySelector('.factor-times th').innerText, link: !!document.querySelector('.factor-times .to-queries'),
+                card: [...document.querySelectorAll('.file-facts dt')].map(d => d.textContent) };
+        })()`);
+        const before = await read();
+        expect(before.cells.length === before.rows.length && before.rows.length >= 5, 'Tabellen: ' + JSON.stringify(before.cells));
+        expect(before.rows.find((r) => r[0] === 'created')[1] === fx.T * 1000 || before.rows.find((r) => r[0] === 'created')[1] === fx.T, 'Skapad: ' + JSON.stringify(before.rows));
+        expect(/Skapad enligt biblioteket \(T\)/.test(before.t), 'Raden med T: ' + before.t);
+        expect(/^Tid \(/.test(before.head) && before.link, 'Rubriken eller länken: ' + before.head);
+        expect(!before.card.some((x) => /Tagen|Tidszon|Skapad|Ändrad/.test(x)), 'Kortet har tider: ' + before.card);
+        await c.ev(PROV, `(function(){ const s = document.getElementById('zone'); s.value = 'utc'; s.dispatchEvent(new Event('change', { bubbles: true })); return 1; })()`);
+        await sleep(500);
+        await waitResult(c, 'bedömningen i UTC');
+        const utc = await read();
+        expect(utc.state === before.state && utc.verdict === before.verdict, 'I UTC: ' + utc.verdict + ', annars ' + before.verdict);
+        expect(JSON.stringify(utc.rows) === JSON.stringify(before.rows), 'Tiderna flyttades med zonen');
+        expect(/^Tid \(UTC\)/.test(utc.head), 'Rubriken: ' + utc.head);
+        await c.ev(PROV, `(function(){ const s = document.getElementById('zone'); s.value = 'file'; s.dispatchEvent(new Event('change', { bubbles: true })); return 1; })()`);
+        await sleep(500);
+        await waitResult(c, 'bedömningen i bildens zon');
+        // Källan öppnar raden i Queries, som i händelselistan.
+        const id = await c.ev(PROV, `(function(){ const b = document.querySelector('.factor-times tr.time-t .to-queries'); if (!b) return ''; b.click(); return b.innerText; })()`);
+        expect(/ZDATECREATED/.test(id), 'Källan: ' + id);
+        const hit = await c.waitFor(QUER, `(function(){ const row = document.querySelector('#run-result tr.row-hit'); return row && row.innerText; })()`, 60000, 'den markerade raden i Queries');
+        expect(new RegExp(fx.imageName.replace('.', '\\.')).test(hit), 'Den markerade raden: ' + hit);
+        await c.nav('Härkomst');
+        return before.rows.length + ' rader, samma slutsats i UTC';
+    }],
+
     ['Härkomst: en fil från disk väljer raden i rätt mapp utan vallista', async ({ c, fx }) => {
         await c.setFiles(PROV, '#disk-input', [fx.files.image]);
         await c.ev(PROV, `document.getElementById('disk-input').dispatchEvent(new Event('change')), 1`);
@@ -425,6 +457,19 @@ const scenarios = [
         await c.nav('EXIF & karta');
         await c.ev('exif-viewer/index.html', `document.getElementById('fill-sample').click(), 1`);
         await c.waitFor('exif-viewer/index.html', `document.body.innerText.includes('IMG_4101.JPG')`, 30000, 'EXIF-testdatan');
+        // Tiderna i filen står för sig, med tagg och UTC, och filsystemets tider säger att de gäller filen på datorn.
+        await c.waitFor('exif-viewer/index.html', `[...document.querySelectorAll('table tbody tr')].some(tr => /IMG_4101\\.JPG/.test(tr.innerText) && /Tagen/.test(tr.innerText))`, 60000, 'EXIF-raden');
+        await c.ev('exif-viewer/index.html', `[...document.querySelectorAll('table tbody tr')].find(tr => /IMG_4101\\.JPG/.test(tr.innerText)).click(), 1`);
+        const detail = await c.waitFor('exif-viewer/index.html', `(function(){
+            const dts = [...document.querySelectorAll('#detail-summary dt')];
+            if (!dts.some(d => d.textContent === 'Tider inuti filen')) return null;
+            const taken = dts.find(d => d.textContent === 'Tagen enligt EXIF');
+            return { labels: dts.map(d => d.textContent), taken: taken && taken.nextElementSibling.textContent };
+        })()`, 10000, 'tiderna i EXIF-rutan');
+        expect(/ExifIFD:DateTimeOriginal|Composite:SubSecDateTimeOriginal/.test(detail.taken || ''), 'Tiden i filen: ' + JSON.stringify(detail));
+        expect(detail.labels.includes('Filsystemets tider för filen på den här datorn'), 'Filsystemets tider: ' + detail.labels);
+        expect(!detail.labels.includes('Skapad'), 'En rad heter bara Skapad: ' + detail.labels);
+        await c.ev('exif-viewer/index.html', `(function(){ const b = [...document.querySelectorAll('button')].find(x => x.textContent.trim() === 'Stäng' && x.offsetParent); if (b) b.click(); return 1; })()`);
         await c.nav('Positioner');
         await c.ev('positions/index.html', `document.getElementById('fill-sample').click(), 1`);
         await sleep(1500);

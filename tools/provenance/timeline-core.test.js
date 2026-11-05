@@ -108,8 +108,8 @@ test('skärmdump: kameran inte tillämplig, appen på skärmen är upplysningen'
 test('EXIF i filen skiljer sig från databasen: motsägelse i skapandetiden', () => {
     const m = core.build(input({ exif: { read: true, takenMs: T - 3 * 3600 * S, takenText: '2025-09-24 11:31:09 +02:00', make: 'Samsung', model: 'SM-G991B' } }));
     assert.strictEqual(states(m).time, 'contradiction');
-    assert.ok(m.factors[0].items.some((i) => /^Tiden i själva bildfilen \(EXIF\) är 2025-09-24 11:31:09 \+02:00: 3 h 0 min före Skapad\./.test(i.text)));
-    assert.ok(m.factors[0].items.some((i) => /^Kameramodellen i bildfilen \(Make\/Model Samsung SM-G991B\) är inte densamma/.test(i.text)));
+    assert.ok(m.factors[0].items.some((i) => /^Tiden i filen \(EXIF\) är 2025-09-24 11:31:09 \+02:00: 3 h 0 min före Skapad\./.test(i.text)));
+    assert.ok(m.factors[0].items.some((i) => /^Kameramodellen i filen \(Make\/Model Samsung SM-G991B\) är inte densamma/.test(i.text)));
 });
 
 test('mottagen bild: två fönster, och alternativet "mottagen" får stöd', () => {
@@ -118,7 +118,9 @@ test('mottagen bild: två fönster, och alternativet "mottagen" får stöd', () 
     assert.strictEqual(m.windows.length, 2);
     assert.strictEqual(m.windows[1].id, 'added');
     assert.ok(m.type.flags.includes('received-later'));
-    assert.strictEqual(states(m).time, 'contradiction');
+    // En sparad fil får bära en äldre tid: det säger inte emot att appen sparade den.
+    assert.strictEqual(states(m).time, 'support');
+    assert.strictEqual(m.factors[0].verdict, 'Tiderna passar en sparad fil');
     const received = m.alternatives.find((a) => a.id === 'received');
     assert.ok(received.for.some((t) => /2 dygn/.test(t)));
     assert.deepStrictEqual(m.narrative[1].lines.map((l) => l.text), ['net.whatsapp.WhatsApp öppnas', 'Bilden läggs till i Bilder', 'net.whatsapp.WhatsApp lämnas']);
@@ -250,18 +252,18 @@ test('Tillagd före Skapad sägs som före, inte efter', () => {
     const m = core.build(input({ file: cameraFile({ addedMs: T - 2 * 3600 * S, modifiedMs: T - 2 * 3600 * S }) }));
     const item = m.factors[0].items[0];
     assert.strictEqual(item.state, 'info');
-    assert.match(item.text, /^Skapad 12:31:09, tillagd i biblioteket 10:31:09: 2 h 0 min före\. Filen lades alltså till innan den skapades\./);
+    assert.match(item.text, /^Filen lades till i biblioteket 2 h 0 min före Skapad\. Filen lades alltså till innan den skapades\./);
     const close = core.build(input({ file: cameraFile({ addedMs: T - 20 * S }) }));
-    assert.match(close.factors[0].items[0].text, /^Skapad 12:31:09, tillagd i biblioteket 12:30:49: 20 s före Skapad \(inom en minut\)\.$/);
+    assert.match(close.factors[0].items[0].text, /^Filen lades till i biblioteket 20 s före Skapad \(inom en minut\)\.$/);
     const same = core.build(input({ file: cameraFile({ addedMs: T }) })).factors[0];
-    assert.match(same.items[0].text, /: samma sekund som Skapad \(inom en minut\)\.$/);
+    assert.match(same.items[0].text, /^Filen lades till i biblioteket samma sekund som Skapad \(inom en minut\)\.$/);
     const sec = Math.floor(T / 1000) * 1000;
     const tenths = core.build(input({ file: cameraFile({ createdMs: sec + 533, addedMs: sec + 870 }) }));
-    assert.match(tenths.factors[0].items[0].text, /: 0,3 s efter Skapad \(inom en minut\)\.$/);
+    assert.match(tenths.factors[0].items[0].text, /^Filen lades till i biblioteket 0,3 s efter Skapad \(inom en minut\)\.$/);
     // Hela sekunder i ena tiden (date_added på Android, zippens tider): inga påhittade tiondelar.
     const whole = core.build(input({ file: cameraFile({ createdMs: sec + 700, addedMs: sec + 1000 }), fileEntry: { name: 'x', size: 1, mtimeMs: sec + 1000 } }));
-    assert.match(whole.factors[0].items[0].text, /: samma sekund som Skapad \(inom en minut\)\.$/);
-    assert.ok(whole.factors[0].items.some((i) => /^Ändrad i filsystemet .*, samma sekund som Skapad\.$/.test(i.text)));
+    assert.match(whole.factors[0].items[0].text, /samma sekund som Skapad \(inom en minut\)\.$/);
+    assert.ok(whole.factors[0].items.some((i) => i.text === 'Filen ändrades i filsystemet samma sekund som Skapad.'));
 });
 
 test('ett hopslaget intervall med öppet slut är fortfarande öppet, och får ingen påhittad sluttid', () => {
@@ -287,30 +289,34 @@ test('en databas som inte gick att läsa sägs som oläst, inte som saknad', () 
 
 test('filsystemets skapandetid jämförs med Skapad, men motsäger inget', () => {
     const same = core.build(input({ fileEntry: { name: 'x', size: 1, mtimeMs: T + 1000, createdMs: T, timeField: 'NTFS-fältet' } }));
-    const item = same.factors[0].items.find((i) => /^Skapad i filsystemet/.test(i.text));
+    const item = same.factors[0].items.find((i) => /^Filen skapades i filsystemet/.test(i.text));
     assert.strictEqual(item.state, 'support');
-    assert.match(item.text, /^Skapad i filsystemet 12:31:09, samma sekund som Skapad\.$/);
-    assert.ok(same.factors[0].items.some((i) => /^Ändrad i filsystemet 12:31:10, 1 s efter Skapad\.$/.test(i.text)));
+    assert.strictEqual(item.text, 'Filen skapades i filsystemet samma sekund som Skapad.');
     const later = core.build(input({ fileEntry: { name: 'x', size: 1, mtimeMs: T, createdMs: T + 3 * 86400 * S, timeField: 'UT-fältet' } }));
-    const late = later.factors[0].items.find((i) => /^Skapad i filsystemet/.test(i.text));
+    const late = later.factors[0].items.find((i) => /^Filen skapades i filsystemet/.test(i.text));
     assert.strictEqual(late.state, 'info');
-    assert.match(late.text, /3 d|72 h/);
+    assert.match(late.text, /3 dygn 0 h efter Skapad/);
     assert.match(late.text, /kopieras, tas emot eller återställs/);
     assert.notStrictEqual(later.factors[0].state, 'contradiction');
+    // En kopia med källans ändringstid: ändringen ligger före skapandetiden.
+    assert.ok(later.factors[0].items.some((i) => /ändringstid ligger 3 dygn 0 h före skapandetiden i filsystemet/.test(i.text)));
 });
 
-test('ctime och den osäkra tredje UT-tiden redovisas, men säger inget om när filen kom till', () => {
+test('ctime och den osäkra tredje UT-tiden står i tabellen, utan slutsats', () => {
     const D = 86400 * S;
     const ctime = core.build(input({ fileEntry: { name: 'x', size: 1, mtimeMs: T, createdMs: T, changedMs: T + D, timeField: 'UT-fältet' } })).factors[0];
-    const c = ctime.items.find((i) => /ctime/.test(i.text));
-    assert.strictEqual(c.state, 'info');
-    assert.match(c.text, /^Metadata ändrad i filsystemet \(ctime\) .*1 dygn 0 h efter Skapad\./);
-    assert.ok(!ctime.items.some((i) => /kopieras, tas emot eller återställs/.test(i.text)));
+    const c = ctime.times.find((r) => r.id === 'fs-changed');
+    assert.strictEqual(c.label, 'Metadata ändrad (ctime)');
+    assert.match(c.note, /säger inte när filen kom till/);
+    assert.strictEqual(c.deltaMs, D);
+    assert.strictEqual(c.gap, '+1 dygn 0 h');
+    assert.deepStrictEqual(c.source, { db: 'Zippen', table: 'UT-fältet', column: 'tredje tiden' });
+    assert.ok(!ctime.items.some((i) => /ctime|kopieras, tas emot eller återställs/.test(i.text)));
     const third = core.build(input({ fileEntry: { name: 'x', size: 1, mtimeMs: T, thirdMs: T + D, timeField: 'UT-fältet' } })).factors[0];
-    const t = third.items.find((i) => /Tredje tiden/.test(i.text));
-    assert.strictEqual(t.state, 'info');
-    assert.match(t.text, /^Tredje tiden i zippen \(skapad eller ctime\) .*Vilken av dem det är syns inte i zippen\.$/);
-    assert.ok(!third.items.some((i) => /kopieras, tas emot eller återställs|^Skapad i filsystemet/.test(i.text)));
+    const t = third.times.find((r) => r.id === 'fs-third');
+    assert.strictEqual(t.label, 'Tredje tiden i zippen (skapad eller ctime)');
+    assert.match(t.note, /^Zippen säger inte vilken av dem det är\.$/);
+    assert.ok(!third.times.some((r) => r.id === 'fs-created'), 'den osäkra tiden heter inte skapad');
 });
 
 test('sammanfattningen säger inom en minut bara när Tillagd ligger nära Skapad', () => {
@@ -395,9 +401,12 @@ test('en mottagen fil som sparats: kameran frågas inte', () => {
 
 test('filsystemets skapandetid: HEIC skrivs färdig senare, och en kopia kan behålla källans tid', () => {
     const heic = core.build(input({ fileEntry: { name: 'x/IMG_1.HEIC', size: 1, mtimeMs: T + 30 * S, createdMs: T + 30 * S } }));
-    assert.match(heic.factors[0].items.find((i) => /^Skapad i filsystemet/.test(i.text)).text, /iOS skriver HEIC-filen färdigt/);
+    assert.match(heic.factors[0].items.find((i) => /^Filen skapades i filsystemet/.test(i.text)).text, /iOS skriver HEIC-filen färdigt efter att bilden tagits \(5–50 s i labbet/);
+    // Inom samma sekund finns inget att förklara.
+    const direct = core.build(input({ fileEntry: { name: 'x/IMG_3.HEIC', size: 1, mtimeMs: T + 100, createdMs: T + 100 } }));
+    assert.doesNotMatch(direct.factors[0].items.find((i) => /^Filen skapades i filsystemet/.test(i.text)).text, /iOS skriver/);
     const copy = core.build(input({ file: cameraFile({ addedMs: T + 400 * 86400 * S }), fileEntry: { name: 'x/IMG_2.HEIC', size: 1, mtimeMs: T, createdMs: T } }));
-    assert.match(copy.factors[0].items.find((i) => /^Skapad i filsystemet/.test(i.text)).text, /kan behålla källans tid/);
+    assert.match(copy.factors[0].items.find((i) => /^Filen skapades i filsystemet/.test(i.text)).text, /kan behålla källans tid/);
 });
 
 test('en annan dag än T i bildens fasta zon visar zonen', () => {
@@ -410,9 +419,10 @@ test('en annan dag än T i bildens fasta zon visar zonen', () => {
 
 test('Raderade, redigering och flaggorna i klartext', () => {
     const m = core.build(input({ file: cameraFile({ trashed: 1, trashedAtMs: T + M, adjustedAtMs: T + 2 * M, editor: 'com.apple.mobileslideshow' }) }));
-    const texts = m.factors[0].items.map((i) => i.text).join(' ');
-    assert.match(texts, /Flyttad till Raderade .*\(ZTRASHEDDATE\)/);
-    assert.match(texts, /Redigerad i bildbiblioteket .*\(ZADJUSTMENTTIMESTAMP\)/);
+    const row = (id) => m.factors[0].times.find((r) => r.id === id);
+    assert.deepStrictEqual([row('trashed').label, row('trashed').source.column, row('trashed').ms], ['Flyttad till Raderade', 'ZTRASHEDDATE', T + M]);
+    assert.deepStrictEqual([row('adjusted').label, row('adjusted').source.column, row('adjusted').ms], ['Redigerad i biblioteket', 'ZADJUSTMENTTIMESTAMP', T + 2 * M]);
+    assert.match(row('adjusted').note, /PhotoData\/Mutations/);
     assert.strictEqual(core.flagText(['trashed', 'edited']), 'i Raderade, redigerad');
 });
 
@@ -437,4 +447,206 @@ test('en kamerafil i en chattapps tmp', () => {
     const t = core.classify({ importer: 'net.whatsapp.WhatsApp', chatTemp: { app: 'net.whatsapp.WhatsApp', appName: 'WhatsApp', path: 'tmp/documents/Camera/a.jpg' } }, 'iOS');
     assert.deepStrictEqual([t.type, t.label, t.importer], ['saved', 'WhatsApps tillfälliga fil', 'net.whatsapp.WhatsApp']);
     assert.strictEqual(core.hypothesis(t, () => null), 'att filen skapades med WhatsApp på den här telefonen');
+});
+
+// ---------- Filens tider och vad de betyder ----------
+
+const timeFactor = (over) => core.build(input(over)).factors.find((f) => f.id === 'time');
+const AIRDROP = { importedBy: 13, importer: 'com.apple.sharingd' };
+const DUPLICATE = { importedBy: 8, importer: 'com.apple.mobileslideshow' };
+
+test('AirDrop och dubblett: en sen Tillagd är vad man väntar sig, och sammanvägningen säger inte emot det', () => {
+    const late = T + 410 * 86400 * S;
+    const air = core.build(input({ file: cameraFile(Object.assign({}, AIRDROP, { addedMs: late, modifiedMs: late })) }));
+    const f = air.factors[0];
+    assert.strictEqual(air.type.label, 'Mottagen med AirDrop');
+    assert.strictEqual(f.state, 'support');
+    assert.strictEqual(f.verdict, 'Tiderna passar en mottagen fil');
+    assert.match(f.meaning, /^Förenligt med att filen togs emot med AirDrop/);
+    assert.match(f.items[0].text, /^Filen lades till i biblioteket 410 dygn 0 h efter Skapad, som väntat: en fil som tas emot med AirDrop behåller avsändarens tid\.$/);
+    assert.match(f.plain, /som väntat för en fil som tas emot med AirDrop/);
+    assert.doesNotMatch(air.summary, /inte förenligt/);
+    assert.match(air.summary, /^Materialet är förenligt med att filen togs emot med AirDrop/);
+    const dup = core.build(input({ file: cameraFile(Object.assign({}, DUPLICATE, { addedMs: late, modifiedMs: late })) }));
+    assert.strictEqual(dup.factors[0].verdict, 'Tiderna passar en dubblett');
+    assert.doesNotMatch(dup.summary, /inte förenligt/);
+});
+
+test('kamerabild och skärmdump: en sen Tillagd säger fortfarande emot hypotesen', () => {
+    const late = T + 2 * 86400 * S;
+    const cam = core.build(input({ file: cameraFile({ addedMs: late, modifiedMs: late }) }));
+    assert.strictEqual(cam.factors[0].state, 'contradiction');
+    assert.match(cam.summary, /^Materialet är inte förenligt med att bilden togs/);
+    const shot = core.build(input({ file: cameraFile({ importedBy: 8, importer: 'com.apple.springboard', kindSubtype: 10, addedMs: late, modifiedMs: late }), exif: { read: true } }));
+    assert.strictEqual(shot.factors[0].state, 'contradiction');
+});
+
+test('en tid som ändrats i Bilder: tiderna går isär, men det väger inte mot hypotesen, och biblioteket visar vilken som är ändrad', () => {
+    const changed = T + 86360 * S;
+    const f = timeFactor({ file: cameraFile(Object.assign({}, AIRDROP, { createdMs: changed, addedMs: T + 5 * M, modifiedMs: T + 5 * M, createdSource: 1 })) });
+    assert.strictEqual(f.state, 'info');
+    assert.strictEqual(f.verdict, 'Tiderna går isär');
+    assert.match(f.meaning, /^Skillnaden väger inte mot att filen togs emot med AirDrop på den här telefonen, men den behöver förklaras\.$/);
+    assert.match(f.items.find((i) => /^Tiden i filen/.test(i.text)).text, /ZEXIFTIMESTAMPSTRING\) är kvar på filens tid, så Skapad ser ut att ha ändrats i efterhand/);
+    assert.match(f.plain, /^Tiderna går isär: tiden i filen ligger 23 h 59 min före Skapad, och Skapad ser ut att ha ändrats i efterhand\.$/);
+    assert.match(f.times.find((r) => r.id === 'created').note, /ZDATECREATEDSOURCE 1 säger att tiden kom ur filen, men den är inte längre densamma/);
+    const orig = f.times.find((r) => r.id === 'original');
+    assert.deepStrictEqual([orig.label, orig.source.column], ['Originaltid i biblioteket', 'ZEXIFTIMESTAMPSTRING']);
+    // Samma sak på en kamerabild.
+    assert.strictEqual(timeFactor({ file: cameraFile({ createdMs: changed, addedMs: T + 300, createdSource: 1 }) }).state, 'info');
+    // Står bibliotekets kopia inte kvar är förklaringen okänd: då säger tiden emot en kamerabild.
+    const other = timeFactor({ file: cameraFile({ createdMs: changed, addedMs: T + 300, createdSource: 1, exifTime: '2025:09:25 14:30:29' }) });
+    assert.strictEqual(other.state, 'contradiction');
+    assert.match(other.items.find((i) => i.state === 'contradiction').text, /kan bero på att filen har redigerats/);
+});
+
+test('samma källa räknas inte två gånger: Skapad hämtad ur filen eller filsystemet är ingen bekräftelse', () => {
+    const fromFile = timeFactor({ file: cameraFile({ createdSource: 1 }) });
+    const info = fromFile.items.find((i) => /ZDATECREATEDSOURCE 1/.test(i.text));
+    assert.strictEqual(info.state, 'info');
+    assert.match(info.text, /visar bara att tiden inte har ändrats i biblioteket/);
+    assert.ok(!fromFile.items.some((i) => /^Tiden i filen/.test(i.text) && i.state === 'support'));
+    assert.match(fromFile.plain, /Skapandetiden är hämtad ur tiden i filen\.$/);
+    assert.match(fromFile.times.find((r) => r.id === 'created').note, /^Hämtad ur tiden i filen \(ZDATECREATEDSOURCE 1\)\.$/);
+    // Bara den jämförelsen: då är det en upplysning och inget stöd.
+    const alone = timeFactor({ file: cameraFile({ createdSource: 1, addedMs: T + 10 * M }), fileEntry: null });
+    assert.strictEqual(alone.state, 'info');
+    // Inom en minut men mer än kopians marginal: tiden är ändrad.
+    assert.strictEqual(timeFactor({ file: cameraFile({ createdSource: 1, createdMs: T + 39 * S, addedMs: T + 39 * S, exifTime: '2025:09:24 14:31:09' }) }).verdict, 'Tiderna går isär');
+
+    const saved = { importedBy: 3, importer: 'org.whispersystems.signal', createdSource: 3, exifTime: null };
+    const fromFs = timeFactor({ file: cameraFile(Object.assign({ addedMs: T + 4 * S }, saved)), exif: { read: true }, fileEntry: { name: 'x/IMG_5.JPG', size: 1, mtimeMs: T, createdMs: T - 300, timeField: 'UT-fältet' } });
+    const fsItem = fromFs.items.find((i) => /ZDATECREATEDSOURCE 3/.test(i.text));
+    assert.strictEqual(fsItem.state, 'info');
+    assert.match(fsItem.text, /T säger alltså när filen skrevs till telefonen, inte när bilden togs/);
+    assert.strictEqual(fromFs.state, 'support', 'Tillagd inom en minut är en egen källa');
+    assert.match(fromFs.plain, /Filen har ingen egen tid, så det syns inte när bilden togs\.$/);
+    // En mottagen fil har avsändarens tid: T säger inte heller när filen kom hit.
+    const received = timeFactor({ file: cameraFile(Object.assign({}, AIRDROP, { createdSource: 3, addedMs: T + 40 * 86400 * S, exifTime: null })), exif: { read: true }, fileEntry: { name: 'x/IMG_6.AVIF', size: 1, mtimeMs: T, createdMs: T, timeField: 'UT-fältet' } });
+    assert.match(received.items.find((i) => /ZDATECREATEDSOURCE 3/.test(i.text)).text, /T säger varken när bilden togs eller när filen kom till telefonen/);
+    assert.strictEqual(received.verdict, 'Tiderna passar en mottagen fil');
+    // Skiljer filsystemet sig från en tid som ska vara hämtad ur det är tiden ändrad.
+    const moved = timeFactor({ file: cameraFile(Object.assign({ addedMs: T + 4 * S }, saved)), exif: { read: true }, fileEntry: { name: 'x/IMG_5.JPG', size: 1, mtimeMs: T - 9 * 3600 * S, createdMs: T - 9 * 3600 * S } });
+    assert.strictEqual(moved.verdict, 'Tiderna går isär');
+    assert.match(moved.plain, /så Skapad eller filen har ändrats i efterhand\.$/);
+});
+
+test('utan rad i biblioteket jämförs T inte med sig själv', () => {
+    const none = { addedMs: null, modifiedMs: null, importedBy: null, importer: '', cameraMake: null, cameraModel: null };
+    // T är tiden i filen: filsystemet är den enda andra källan.
+    const taken = { read: true, takenMs: T, takenText: '2025-09-24 14:31:09.622 +02:00', sourceTag: 'Composite:SubSecDateTimeOriginal' };
+    const fileSource = { db: 'bildfilen', table: 'a.jpg', column: 'Composite:SubSecDateTimeOriginal' };
+    const noFs = core.build(input({ file: cameraFile(none), exif: taken, fileSource, fileEntry: null }));
+    assert.strictEqual(noFs.factors[0].state, 'info');
+    assert.strictEqual(noFs.factors[0].verdict, 'Kan inte jämföras');
+    assert.match(noFs.factors[0].items[0].text, /^Filen har ingen rad i biblioteket, så T är tiden i filen \(Composite:SubSecDateTimeOriginal\)\.$/);
+    assert.match(noFs.factors[0].plain, /inga andra tider/);
+    assert.ok(!noFs.factors[0].items.some((i) => /^Tiden i filen/.test(i.text)), 'tiden jämförs inte med sig själv');
+    assert.ok(!noFs.events.some((e) => e.kind === 'exif'));
+    assert.strictEqual(noFs.events.find((e) => e.kind === 'file-created').text, 'Tiden i filen (Composite:SubSecDateTimeOriginal)');
+    const withFs = core.build(input({ file: cameraFile(none), exif: taken, fileSource, fileEntry: { name: 'x', size: 1, mtimeMs: T, createdMs: T + 400, timeField: 'UT-fältet' } }));
+    assert.strictEqual(withFs.factors[0].state, 'support');
+    assert.strictEqual(withFs.factors[0].items.find((i) => /^Filen skapades/.test(i.text)).text, 'Filen skapades i filsystemet samma sekund som tiden i filen.');
+    assert.match(withFs.factors[0].plain, /tiden inuti filen stämmer med filsystemets tid/);
+    assert.strictEqual(withFs.factors[0].times.find((r) => r.isT).id, 'file-time');
+    // T är ändringstiden: bara filsystemets egna tider finns, och de säger inget mer.
+    const fs = core.build(input({ file: cameraFile(none), exif: { read: true }, fileSource: { db: 'zippen', table: 'x', column: 'ändringstid' }, fileEntry: { name: 'x', size: 1, mtimeMs: T, createdMs: T, changedMs: T + 1000, timeField: 'UT-fältet' } }));
+    assert.strictEqual(fs.factors[0].state, 'info');
+    assert.strictEqual(fs.factors[0].verdict, 'Kan inte jämföras');
+    assert.match(fs.factors[0].plain, /bara filsystemets tider/);
+    assert.strictEqual(fs.factors[0].times.find((r) => r.isT).id, 'fs-modified');
+    assert.strictEqual(fs.events.find((e) => e.kind === 'file-created').text, 'Ändrad i filsystemet (ändringstid)');
+    assert.ok(!fs.events.some((e) => e.kind === 'fs-mtime'));
+    // Ingen faktor stöder att en okänd fil är en kamerabild.
+    assert.strictEqual(fs.type.type, 'unknown');
+    assert.doesNotMatch(fs.summary, /kamera/);
+    assert.match(fs.summary, /att filen kom till på den här telefonen/);
+});
+
+test('video: QuickTime har hela sekunder, så en liten skillnad mot Skapad är ingen ändring', () => {
+    const exif = { read: true, takenMs: T + 30 * S, takenText: '2025-09-24 12:31:39 UTC', sourceTag: 'QuickTime:CreateDate' };
+    const near = timeFactor({ file: cameraFile({ createdSource: 1 }), exif });
+    assert.strictEqual(near.state, 'support');
+    assert.ok(near.items.some((i) => /ZDATECREATEDSOURCE 1/.test(i.text)));
+    // Samma skillnad i EXIF är en ändring.
+    assert.strictEqual(timeFactor({ file: cameraFile({ createdSource: 1, exifTime: null }), exif: Object.assign({}, exif, { sourceTag: 'ExifIFD:DateTimeOriginal' }) }).state, 'contradiction');
+});
+
+test('en tid utan zon: en skillnad jämnt på timmen ser ut som en tidszon, inte som en ändring', () => {
+    const shot = { importedBy: 8, importer: 'com.apple.springboard', kindSubtype: 10 };
+    const exif = { read: true, takenMs: T + 2 * 3600 * S, takenText: '2025-09-24 14:31:09 (zon antagen: UTC)', sourceTag: 'ExifIFD:DateTimeOriginal', zoneAssumed: true };
+    const f = timeFactor({ file: cameraFile(shot), exif });
+    assert.strictEqual(f.state, 'support');
+    const item = f.items.find((i) => /^Tiden i filen/.test(i.text));
+    assert.strictEqual(item.state, 'info');
+    assert.match(item.text, /2 h 0 min efter Skapad, jämnt på kvarten\. Filen anger ingen tidszon/);
+    // Med en zon i filen är samma skillnad en riktig skillnad.
+    assert.strictEqual(timeFactor({ file: cameraFile(shot), exif: Object.assign({}, exif, { zoneAssumed: false }) }).state, 'contradiction');
+    // Inte jämnt på kvarten: inte en zon.
+    assert.strictEqual(timeFactor({ file: cameraFile(shot), exif: Object.assign({}, exif, { takenMs: T + 2 * 3600 * S + 7 * M }) }).state, 'contradiction');
+});
+
+test('tabellen: tidsordning, T markerad, källor och bara det som säger något', () => {
+    const file = cameraFile({ createdMs: T, addedMs: T + 337, modifiedMs: T + 5 * M, createdSource: 1, exifTime: '2025:09:24 14:31:09' });
+    const exif = {
+        read: true, takenMs: T, takenText: '2025-09-24 14:31:09.622 +02:00', sourceTag: 'Composite:SubSecDateTimeOriginal',
+        times: [
+            { label: 'Tagen enligt EXIF', text: '2025-09-24 14:31:09.622 +02:00', source: 'Composite:SubSecDateTimeOriginal', ms: T, primary: true },
+            { label: 'Digitaliserad enligt EXIF', text: '2025-09-24 14:31:09 +02:00', source: 'ExifIFD:CreateDate', ms: T - 622 },
+            { label: 'Ändrad enligt EXIF', text: '2025-09-24 16:00:00', source: 'IFD0:ModifyDate', ms: T + 3600 * S, assumed: true, zoneLabel: 'bildens zon' },
+        ],
+    };
+    const fe = { name: 'x/IMG_0042.HEIC', size: 1, mtimeMs: Math.floor(T / 1000) * 1000 + 9000, createdMs: Math.floor(T / 1000) * 1000 + 9000, changedMs: T + 86400 * S, accessedMs: T + 2 * 86400 * S, timeField: 'UT-fältet' };
+    const rows = timeFactor({ file, exif, fileEntry: fe }).times;
+    assert.deepStrictEqual(rows.map((r) => r.id), ['file-time', 'created', 'added', 'fs-created', 'fs-modified', 'modified', 'file-IFD0:ModifyDate', 'fs-changed', 'fs-accessed']);
+    assert.deepStrictEqual(rows.filter((r) => r.isT).map((r) => r.id), ['created']);
+    const by = Object.fromEntries(rows.map((r) => [r.id, r]));
+    assert.strictEqual(by.created.gap, 'T');
+    assert.strictEqual(by['file-time'].gap, '0 s');
+    assert.strictEqual(by.added.gap, '+0,3 s');
+    assert.strictEqual(by['fs-created'].gap, '+8 s', 'hela sekunder i filsystemet: inga tiondelar');
+    assert.strictEqual(by.modified.gap, '+5 min 0 s');
+    // Inom samma sekund ligger filen före biblioteket, och hela sekunder hamnar inte före tiondelar.
+    assert.deepStrictEqual(core.build(input({ file: cameraFile({ createdMs: 5000533, addedMs: 5000900 }), exif: { read: true, takenMs: 5000533, takenText: 'x', sourceTag: 'ExifIFD:DateTimeOriginal' }, fileEntry: { name: 'x', size: 1, mtimeMs: 5000000, createdMs: 5000000 } })).factors[0].times.slice(0, 5).map((r) => r.id), ['file-time', 'created', 'added', 'fs-created', 'fs-modified']);
+    assert.strictEqual(by.created.label, 'Skapad enligt biblioteket');
+    assert.deepStrictEqual(by.created.source, { db: 'Photos.sqlite', table: 'ZASSET', column: 'ZDATECREATED', queryId: 'role-file' });
+    assert.deepStrictEqual(by.added.source, { db: 'Photos.sqlite', table: 'ZASSET', column: 'ZADDEDDATE', queryId: 'role-file' });
+    assert.deepStrictEqual(by['file-time'].source, { db: 'Filen', column: 'Composite:SubSecDateTimeOriginal' });
+    assert.strictEqual(by['file-time'].note, 'I filen: 2025-09-24 14:31:09.622 +02:00.');
+    assert.match(by['file-IFD0:ModifyDate'].note, /Filen anger ingen tidszon, så tiden är tolkad i bildens zon\./);
+    assert.match(by.modified.note, /filer som ingen har rört/);
+    assert.deepStrictEqual(by['fs-accessed'].source, { db: 'Zippen', table: 'UT-fältet', column: 'andra tiden' });
+    assert.ok(!rows.some((r) => r.id === 'original'), 'originaltiden visas bara när den skiljer sig');
+});
+
+test('tabellen: det som saknas står kvar, och skärmdump, video, Android och DOS-tid får rätt ord', () => {
+    const noTime = timeFactor({ exif: { read: true }, fileEntry: null }).times;
+    assert.deepStrictEqual(noTime.filter((r) => r.absent).map((r) => [r.label, r.absent]), [['Tid i filen', 'Filen har ingen egen tid.'], ['Filsystemets tider', 'Filen hittades inte i zippen.']]);
+    const unread = timeFactor({ exif: { read: false }, fileMissingReason: 'filen är för stor', fileEntry: null }).times;
+    assert.strictEqual(unread.find((r) => r.id === 'file-time').absent, 'Filen lästes inte: filen är för stor.');
+    // QuickTime säger inte EXIF.
+    const video = timeFactor({ exif: { read: true, takenMs: T, takenText: '2025-09-24 12:31:09 UTC', sourceTag: 'QuickTime:CreateDate' } });
+    assert.strictEqual(video.times.find((r) => r.id === 'file-time').label, 'Skapad enligt QuickTime');
+    assert.ok(video.items.some((i) => /^Tiden i filen \(QuickTime\) är 2025-09-24 12:31:09 UTC: /.test(i.text)));
+    // Android.
+    const android = core.build(input({ platform: 'Android', file: cameraFile({ relativePath: 'DCIM/Camera/', addedMs: T + 2 * S, modifiedMs: T + 2 * S }), fileSource: { db: 'external.db', table: 'files', column: 'datetaken' } })).factors[0].times;
+    assert.strictEqual(android.find((r) => r.id === 'created').label, 'Tagen enligt MediaStore');
+    assert.deepStrictEqual([android.find((r) => r.id === 'added').label, android.find((r) => r.id === 'added').source.column], ['Lades till i galleriet', 'date_added']);
+    assert.deepStrictEqual([android.find((r) => r.id === 'modified').label, android.find((r) => r.id === 'modified').source.column], ['Ändrad i galleriet', 'date_modified']);
+    // Bara DOS-tid: ingen zon, så ingen tid att räkna med.
+    const dos = timeFactor({ fileEntry: { name: 'x', size: 1, mtimeMs: null, mtimeText: '2025-09-24 14:31:09 (zon okänd)' } }).times.find((r) => r.id === 'fs-modified');
+    assert.deepStrictEqual([dos.ms, dos.text, dos.source.column], [null, '2025-09-24 14:31:09 (zon okänd)', 'DOS-tid']);
+    // Utanför biblioteket.
+    const out = timeFactor({ file: cameraFile({ addedMs: null, modifiedMs: null, importedBy: null, importer: '' }), fileSource: { db: 'zippen', table: 'x', column: 'ändringstid' }, fileEntry: { name: 'x', size: 1, mtimeMs: T } }).times;
+    assert.strictEqual(out.find((r) => r.id === 'library').absent, 'Filen har ingen rad där.');
+});
+
+test('skillnaden mot T i tabellen', () => {
+    assert.strictEqual(core.gapText(0, false), '0 s');
+    assert.strictEqual(core.gapText(400, false), 'samma sekund');
+    assert.strictEqual(core.gapText(-125, true), '−0,1 s');
+    assert.strictEqual(core.gapText(2, true), '+0,002 s');
+    assert.strictEqual(core.gapText(9467, false), '+9 s');
+    assert.strictEqual(core.gapText(-86360177, false), '−23 h 59 min');
+    assert.strictEqual(core.gapText(439 * 86400000, false), '+439 dygn 0 h');
 });

@@ -574,13 +574,21 @@
         });
     }
 
-    // EXIF-tiden i filen -> UTC-millisekunder. Utan zon i taggen antas rapportens zon, med
+    // Tiderna inuti filen till tabellen. Tider utan zon tolkas i own (ProvenanceMedia.exifZone).
+    function fileTimeRows(tags, sum, own) {
+        return ExifCore.timeTags(tags).map(function (t) {
+            var at = t.ms !== null ? { ms: t.ms, assumed: false } : ProvenanceMedia.exifTakenMs(t, own);
+            return { label: t.label, text: t.text, source: t.source, ms: at.ms, assumed: at.assumed, zoneLabel: own.label, primary: !!sum.taken && t.source === sum.taken.source };
+        }).filter(function (t) { return t.ms !== null; });
+    }
+
+    // EXIF-tiden i filen -> UTC-millisekunder. Utan zon i taggen antas zonen här, med
     // förskjutningen vid just den tidpunkten (sommartid).
     function exifTakenMs(taken, zone) {
         return ProvenanceMedia.exifTakenMs(taken, { name: zone.name, offsetMinutes: zone.offsetMinutes });
     }
 
-    var EXIF_ROW_RE = /DateTimeOriginal|CreateDate|CreationDate|OffsetTime|:Make$|:Model$|Software|ModifyDate|GPS(Latitude|Longitude)$|ImageWidth$|ImageHeight$|FileType$|MIMEType$|UserComment|HostComputer|LensModel/;
+    var EXIF_ROW_RE = /DateTimeOriginal|CreateDate|CreationDate|OffsetTime|:Make$|:Model$|Software|ModifyDate|GPS(Latitude|Longitude|DateTime|DateStamp|TimeStamp)$|ImageWidth$|ImageHeight$|FileType$|MIMEType$|UserComment|HostComputer|LensModel/;
 
     function mediaSuffix(file, platform) {
         if (platform === 'Android') {
@@ -906,17 +914,19 @@
                 var read = await readMedia(media.entry);
                 // Tiderna efter läsningen: den lokala posten kan ha fler tider än innehållsförteckningen.
                 var times = ExtractionCore.entryTimes(media.entry);
-                meta.fileEntry = { path: media.entry.name, size: media.entry.size, mtime: times.modified, created: times.created, changed: times.changed, third: times.third, accessed: times.accessed, timeField: times.field, crc32: ExtractionCore.hex(media.entry.crc32), crcOk: read.crcOk, md5: read.md5 || '', sha256: read.sha256 || '' };
+                meta.fileEntry = { path: media.entry.name, size: media.entry.size, crc32: ExtractionCore.hex(media.entry.crc32), crcOk: read.crcOk, md5: read.md5 || '', sha256: read.sha256 || '' };
                 meta.mediaEntry = media.entry;
-                input.fileEntry = { name: media.entry.name, size: media.entry.size, mtimeMs: times.modifiedMs, createdMs: times.createdMs, changedMs: times.changedMs, thirdMs: times.thirdMs, timeField: times.field, customLocation: !!media.entry.customLocation };
+                input.fileEntry = { name: media.entry.name, size: media.entry.size, mtimeMs: times.modifiedMs, mtimeText: times.modifiedMs ? '' : times.modified, createdMs: times.createdMs, changedMs: times.changedMs, thirdMs: times.thirdMs, accessedMs: times.accessedMs, timeField: times.field, customLocation: !!media.entry.customLocation };
                 fileSha = read.sha256 || '';
                 if (read.bytes) {
                     progress('Läser EXIF ur bildfilen…');
                     var tags = await readTags(read.bytes, fileRow.filename);
                     var sum = ExifCore.summarize(tags, fileRow.filename);
-                    var taken = exifTakenMs(sum.taken, zone);
+                    var ownZone = ProvenanceMedia.exifZone(fileRow, zone);
+                    var taken = exifTakenMs(sum.taken, ownZone);
                     input.exif = {
-                        read: true, takenMs: taken.ms, takenText: sum.taken ? sum.taken.text + (taken.assumed ? ' (zon antagen: ' + zone.label + ')' : '') : '',
+                        read: true, takenMs: taken.ms, takenText: sum.taken ? sum.taken.text + (taken.assumed ? ' (zon antagen: ' + ownZone.label + ')' : '') : '',
+                        zoneAssumed: !!taken.assumed, zoneLabel: ownZone.label, times: fileTimeRows(tags, sum, ownZone),
                         position: sum.position && !sum.position.zero ? { lat: sum.position.lat, lon: sum.position.lon, accuracy: sum.position.accuracy, source: sum.position.source } : null,
                         sourceTag: sum.taken ? sum.taken.source : '', make: tags['IFD0:Make'] || tags['QuickTime:Make'] || '', model: tags['IFD0:Model'] || tags['QuickTime:Model'] || '',
                         software: sum.software ? sum.software.text : '', source: { db: 'bildfilen', table: media.entry.name.slice(media.entry.name.lastIndexOf('/') + 1), column: sum.taken ? sum.taken.source : 'EXIF' },
@@ -936,7 +946,7 @@
                         var pr = await ExtractionCore.readEntry(state.zip.read, media.paired);
                         var ptags = await readTags(pr.bytes, media.paired.name.slice(media.paired.name.lastIndexOf('/') + 1));
                         var psum = ExifCore.summarize(ptags, media.paired.name);
-                        var pt = exifTakenMs(psum.taken, zone);
+                        var pt = exifTakenMs(psum.taken, ProvenanceMedia.exifZone(fileRow, zone));
                         if (pt.ms) input.pairedVideo = { name: media.paired.name.slice(media.paired.name.lastIndexOf('/') + 1), takenMs: pt.ms, source: { db: 'bildfilen', table: media.paired.name.slice(media.paired.name.lastIndexOf('/') + 1), column: psum.taken.source } };
                     } catch (e) { input.warnings.push('Live Photo-videon kunde inte läsas: ' + e.message); }
                 }
@@ -2234,6 +2244,7 @@
                     var sum = ExifCore.summarize(tags, name);
                     var taken = exifTakenMs(sum.taken, zone0);
                     if (taken.ms) { fileRow.createdMs = taken.ms; tSource = { db: 'bildfilen', table: name, column: sum.taken.source }; }
+                    if (taken.ms && taken.assumed) runLog.timeNote = 'Filen har ingen registerrad, och tiden i filen anger ingen tidszon. T är tolkad i ' + zone0.label + ' och flyttas om en annan zon väljs.';
                 } catch (e) { /* ingen EXIF */ }
             }
             // Zippens ändringstid: Unix-tid när den finns, annars DOS-tid utan zon, tolkad som i sökningen på tid.
@@ -3564,6 +3575,21 @@
         return list.length ? list[list.length - 1] : null;
     }
 
+    // Filens tider: vad varje källa säger, i tidsordning och i rapportens zon, utan tolkning. En databaskälla
+    // öppnar raden i Queries. Bibliotekets originaltid är text och går inte att markera på tiden.
+    function timesHtml(rows, meta) {
+        return '<div class="times-wrap"><table class="times"><thead><tr><th>Tid (' + escapeHtml(meta.zoneLabel) + ')</th><th>Vad</th><th>Källa</th><th>Mot T</th></tr></thead><tbody>' +
+            rows.map(function (r) {
+                var known = r.ms !== null && r.ms !== undefined;
+                return '<tr' + (r.isT ? ' class="time-t"' : '') + '><td class="time-at"' + (known ? ' title="' + escapeHtml(ProvenanceReport.timeText(meta.formatUtc, r.ms)) + ' UTC"' : '') + '>' +
+                    (known ? escapeHtml(ProvenanceReport.timeText(meta.format, r.ms)) : '<span class="time-none">' + escapeHtml(r.text || r.absent || '') + '</span>') + '</td>' +
+                    '<td>' + escapeHtml(r.label) + (r.isT ? ' (T)' : '') + (r.note ? '<div class="time-note">' + escapeHtml(r.note) + '</div>' : '') + '</td>' +
+                    '<td class="path">' + (r.source ? sourceCell(r.source, r.id === 'original' || !known ? undefined : { ms: r.ms, text: r.label }) : '') + '</td>' +
+                    '<td class="time-gap">' + escapeHtml(r.gap || '') + '</td></tr>';
+            }).join('') + '</tbody></table></div>' +
+            '<div class="button-row times-actions"><button type="button" class="secondary copy-times" title="Tabellen med tid, UTC, vad, källa och skillnaden mot T">Kopiera tabellen för Word</button></div>';
+    }
+
     // Knappens uppgifter: körningen, och händelsen vars rad ska markeras i Queries.
     function queryAttrs(q, ms, eventId) {
         return ' data-q="' + state.meta.queries.indexOf(q) + '"' + (ms !== undefined ? ' data-ms="' + ms + '"' : '') + (eventId ? ' data-event="' + eventId + '"' : '');
@@ -3716,11 +3742,12 @@
         $('factors').innerHTML = m.factors.map(function (f) {
             var at = state.checked[f.id];
             var label = m.stateLabel[f.state] || f.state;
-            return '<div class="factor' + (at ? ' checked' : '') + '" data-factor="' + escapeHtml(f.id) + '"><h3>' + escapeHtml(f.title) +
+            return '<div class="factor' + (at ? ' checked' : '') + (f.times ? ' factor-times' : '') + '" data-factor="' + escapeHtml(f.id) + '"><h3>' + escapeHtml(f.title) +
                 '<span class="badge ' + escapeHtml(f.state) + '" title="' + escapeHtml(label) + '">' + escapeHtml(f.verdict || label) + '</span>' +
                 '<label class="chk" title="Bocka i när du själv har kontrollerat faktorn mot källan och SQL:en. Följer med i protokollet med klockslag."><input type="checkbox" data-factor="' + escapeHtml(f.id) + '"' + (at ? ' checked' : '') + '>Kontrollerad</label></h3>' +
                 (f.question ? '<p class="question">' + escapeHtml(f.question) + '</p>' : '') +
                 (f.meaning ? '<p class="meaning ' + escapeHtml(f.state) + '">' + escapeHtml(f.meaning) + '</p>' : '') +
+                (f.times ? timesHtml(f.times, meta) : '') +
                 '<ul>' + f.items.map(function (i) { return '<li>' + escapeHtml(i.text) + '</li>'; }).join('') + '</ul><div class="plain">' + escapeHtml(f.plain) + '</div></div>';
         }).join('');
         $('factors').querySelectorAll('input[data-factor]').forEach(function (cb) {
@@ -3978,6 +4005,7 @@
         var b = e.target.closest('button');
         if (!b || !state.model) return;
         if (b.classList.contains('to-queries')) { openInQueries(b); return; }
+        if (b.classList.contains('copy-times')) { copyTable(ProvenanceReport.timesTable(state.model, state.meta), 'Filens tider'); return; }
         if (b.classList.contains('copy-key')) {
             var i = Number(b.getAttribute('data-i'));
             var all = b.closest('.narrative').classList.contains('all');

@@ -34,19 +34,41 @@
     var TIME_SOURCES = [
         ['Composite:SubSecDateTimeOriginal', 'Tagen'],
         ['ExifIFD:DateTimeOriginal', 'Tagen'],
-        ['Keys:CreationDate', 'Skapad'],
-        ['XMP-photoshop:DateCreated', 'Skapad'],
+        ['Keys:CreationDate', 'Skapad enligt filen'],
+        ['XMP-photoshop:DateCreated', 'Skapad enligt filen'],
         ['XMP-exif:DateTimeOriginal', 'Tagen'],
         ['Composite:SubSecCreateDate', 'Digitaliserad'],
         ['ExifIFD:CreateDate', 'Digitaliserad'],
-        ['QuickTime:CreateDate', 'Skapad', 'UTC'],
-        ['Keys:CreationTime', 'Skapad'],
-        ['XMP-xmp:CreateDate', 'Skapad'],
-        ['PNG:CreationTime', 'Skapad'],
-        ['PDF:CreateDate', 'Skapad'],
-        ['Office:Created', 'Skapad'],
+        ['QuickTime:CreateDate', 'Skapad enligt filen', 'UTC'],
+        ['Keys:CreationTime', 'Skapad enligt filen'],
+        ['XMP-xmp:CreateDate', 'Skapad enligt filen'],
+        ['PNG:CreationTime', 'Skapad enligt filen'],
+        ['PDF:CreateDate', 'Skapad enligt filen'],
+        ['Office:Created', 'Skapad enligt filen'],
         ['RIFF:DateTimeOriginal', 'Tagen'],
-        ['IFD0:ModifyDate', 'Ändrad'],
+        ['IFD0:ModifyDate', 'Ändrad enligt filen'],
+    ];
+
+    // Alla tider inuti filen, i den ordning de visas. keys: samma tid ur flera taggar, den exaktaste först.
+    // zone: formatets zon. offset: taggen med tidens zon. QuickTime-tiderna är UTC enligt standarden.
+    var FILE_TIMES = [
+        { label: 'Tagen enligt EXIF', keys: ['Composite:SubSecDateTimeOriginal', 'ExifIFD:DateTimeOriginal'], offset: 'ExifIFD:OffsetTimeOriginal' },
+        { label: 'Skapad enligt QuickTime', keys: ['Keys:CreationDate'] },
+        { label: 'Skapad enligt QuickTime (UTC)', keys: ['QuickTime:CreateDate'], zone: 'UTC' },
+        { label: 'Ändrad enligt QuickTime (UTC)', keys: ['QuickTime:ModifyDate'], zone: 'UTC' },
+        { label: 'Skapad enligt XMP', keys: ['XMP-photoshop:DateCreated'] },
+        { label: 'Tagen enligt XMP', keys: ['XMP-exif:DateTimeOriginal'] },
+        { label: 'Digitaliserad enligt EXIF', keys: ['Composite:SubSecCreateDate', 'ExifIFD:CreateDate'], offset: 'ExifIFD:OffsetTimeDigitized' },
+        { label: 'Ändrad enligt EXIF', keys: ['Composite:SubSecModifyDate', 'IFD0:ModifyDate'], offset: 'ExifIFD:OffsetTime' },
+        { label: 'GPS-tid (UTC)', keys: ['Composite:GPSDateTime'], zone: 'UTC' },
+        { label: 'Skapad enligt QuickTime', keys: ['Keys:CreationTime'] },
+        { label: 'Skapad enligt XMP', keys: ['XMP-xmp:CreateDate'] },
+        { label: 'Skapad enligt PNG', keys: ['PNG:CreationTime'] },
+        { label: 'Skapad enligt PDF', keys: ['PDF:CreateDate'] },
+        { label: 'Ändrad enligt PDF', keys: ['PDF:ModifyDate'] },
+        { label: 'Skapad enligt Office', keys: ['Office:Created'] },
+        { label: 'Ändrad enligt Office', keys: ['Office:Modified'] },
+        { label: 'Tagen enligt RIFF', keys: ['RIFF:DateTimeOriginal'] },
     ];
 
     var MAKE_KEYS = ['IFD0:Make', 'Keys:Make', 'UserData:Make', 'XMP-tiff:Make', 'QuickTime:Make'];
@@ -142,6 +164,32 @@
             return { text: d.text, sort: d.sort, zone: d.zone, kind: src[1], source: src[0] };
         }
         return null;
+    }
+
+    // Tiden som UTC-millisekunder när zonen står vid tiden, annars null: utan zon går ögonblicket inte att veta.
+    function zoneMs(sort, zone) {
+        var m = /^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2}):(\d{2})(\.\d+)?$/.exec(sort || '');
+        if (!m) return null;
+        var z = zone === 'UTC' ? ['', '+', '00', '00'] : /^([+\-])(\d{2}):?(\d{2})$/.exec(zone || '');
+        if (!z) return null;
+        var wall = Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]), Number(m[4]), Number(m[5]), Number(m[6])) + (m[7] ? Math.round(Number(m[7]) * 1000) : 0);
+        return wall - (z[1] === '-' ? -1 : 1) * (Number(z[2]) * 60 + Number(z[3])) * 60000;
+    }
+
+    // Alla tider inuti filen: [{ label, text, sort, zone, source, ms, utc }]. ms och utc är null när filen inte
+    // anger någon zon. utc är också null när tiden redan står i UTC. Tiderna visas som de står i filen.
+    function timeTags(tags) {
+        var out = [];
+        FILE_TIMES.forEach(function (t) {
+            var hit = first(tags || {}, t.keys);
+            if (!hit) return;
+            var d = formatDate(hit.value, t.zone || (t.offset ? str(tags[t.offset]) : ''));
+            var ms = zoneMs(d.sort, d.zone);
+            var iso = ms === null ? '' : new Date(ms).toISOString();
+            var utc = ms === null || d.zone === 'UTC' ? null : iso.slice(0, 19).replace('T', ' ') + (ms % 1000 ? iso.slice(19, 23) : '') + ' UTC';
+            out.push({ label: t.label, text: d.text, sort: d.sort, zone: d.zone, source: hit.key, ms: ms, utc: utc });
+        });
+        return out;
     }
 
     // "59 deg 19' 45.48\" N" eller "59.3293" -> 59.3293
@@ -548,6 +596,7 @@
         groupTags: groupTags,
         parseCoord: parseCoord,
         formatDate: formatDate,
+        timeTags: timeTags,
         inTimeRange: inTimeRange,
         extensionMismatch: extensionMismatch,
         filenameApps: filenameApps,

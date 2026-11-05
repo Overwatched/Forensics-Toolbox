@@ -87,9 +87,8 @@
     }
 
     // Ett urval EXIF-fält för kortet, ur protokollets taggrader [[tagg, värde]]. Hela listan finns i EXIF-visaren.
+    // Tiderna står inte här: tabellen under Skapandetid har dem alla, med källa och i en och samma zon.
     var EXIF_PICKS = [
-        ['Tagen (EXIF)', /:(DateTimeOriginal|CreationDate|CreateDate)$/],
-        ['Tidszon (EXIF)', /:(OffsetTimeOriginal|OffsetTime)$/],
         ['Kamera', /:(Make)$/, /:(Model)$/],
         ['Objektiv', /:LensModel$/],
         ['Programvara', /:(Software|HostComputer)$/],
@@ -162,21 +161,8 @@
         return out;
     }
 
-    // Filsystemets tider som extraktionsverktyget sparade i zippen, de som finns.
-    // fileEntry: { mtime, created, changed, third, accessed }. Fältet de kommer ur står i protokollet.
-    function timeRows(fileEntry) {
-        return [
-            ['Skapad (filsystemet)', fileEntry.created],
-            ['Tredje tiden i zippen (skapad eller ctime)', fileEntry.third],
-            ['Ändrad (filsystemet)', fileEntry.mtime],
-            ['Metadata ändrad (ctime)', fileEntry.changed],
-            ['Senast läst (filsystemet)', fileEntry.accessed],
-        ].filter(function (r) { return r[1]; });
-    }
-
     // Kortets rader i grupper efter var uppgifterna kommer ifrån: [{ title, rows }], utan tomma grupper.
-    // fileEntry: { path, size, mtime, created, changed, third, accessed, crc32, crcOk, md5, sha256 }.
-    // opts.sizeText(byte) -> text.
+    // fileEntry: { path, size, crc32, crcOk, md5, sha256 }. opts.sizeText(byte) -> text.
     function cardGroups(fileEntry, exifRows, opts) {
         opts = opts || {};
         if (!fileEntry) return [];
@@ -192,8 +178,7 @@
         ]);
         return [
             { title: 'Filen i extraktionen', rows: rows },
-            { title: 'Filsystemets tider (sparade i zippen av extraktionsverktyget)', rows: timeRows(fileEntry) },
-            { title: 'EXIF (inuti bildfilen)', rows: exifSummary(exifRows) },
+            { title: 'Inuti filen (EXIF eller QuickTime)', rows: exifSummary(exifRows) },
         ].filter(function (g) { return g.rows.length; });
     }
 
@@ -279,6 +264,22 @@
         return { ms: toUtcMs(parts, zone || {}) + frac, assumed: true };
     }
 
+    // Zonen som en tid utan zon i filen tolkas i: bildens egen när biblioteket har den, annars rapportens.
+    // Vilken zon rapporten visar får inte ändra vad tiden betyder. ZTIMEZONEOFFSET är förskjutningen vid
+    // tagningen. Finns bara namnet räknas förskjutningen per tidpunkt.
+    // file: { zoneName, zoneOffset (sekunder) }. report: { name, offsetMinutes, label }.
+    function exifZone(file, report) {
+        report = report || {};
+        if (file && file.zoneOffset !== null && file.zoneOffset !== undefined) {
+            var minutes = Math.round(Number(file.zoneOffset) / 60);
+            var abs = Math.abs(minutes);
+            var offset = 'UTC' + (minutes < 0 ? '-' : '+') + pad2(Math.floor(abs / 60)) + ':' + pad2(abs % 60);
+            return { name: null, offsetMinutes: minutes, label: 'bildens zon (' + (file.zoneName || offset) + ')' };
+        }
+        if (file && file.zoneName && zoneOffsetAt(file.zoneName, 0) !== null) return { name: file.zoneName, offsetMinutes: 0, label: 'bildens zon (' + file.zoneName + ')' };
+        return { name: report.name, offsetMinutes: report.offsetMinutes, label: 'rapportens zon (' + report.label + ')' };
+    }
+
     // Träffarna närmast tidpunkten först, med deltaMs (negativt = före).
     function nearestFirst(rows, centerMs, key) {
         key = key || 'createdMs';
@@ -330,7 +331,7 @@
     var api = {
         decodeUserComment: decodeUserComment,
         kindOf: kindOf, mimeOf: mimeOf, baseName: baseName, thumbnailSuffix: thumbnailSuffix, suffixKeeper: suffixKeeper, pickBySuffix: pickBySuffix,
-        previewPlan: previewPlan, exifSummary: exifSummary, cardGroups: cardGroups, timeRows: timeRows, parseLocal: parseLocal, parseWhen: parseWhen, dateText: dateText, timeText: timeText, dayRange: dayRange, zoneOffsetAt: zoneOffsetAt, toUtcMs: toUtcMs, exifTakenMs: exifTakenMs,
+        previewPlan: previewPlan, exifSummary: exifSummary, cardGroups: cardGroups, parseLocal: parseLocal, parseWhen: parseWhen, dateText: dateText, timeText: timeText, dayRange: dayRange, zoneOffsetAt: zoneOffsetAt, toUtcMs: toUtcMs, exifTakenMs: exifTakenMs, exifZone: exifZone,
         nearestFirst: nearestFirst, deltaText: deltaText, mediaKeeper: mediaKeeper, entryMs: entryMs, dataUrl: dataUrl, THUMB_FILE: THUMB_FILE,
     };
     if (typeof module !== 'undefined' && module.exports) module.exports = api;

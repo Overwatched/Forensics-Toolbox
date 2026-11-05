@@ -62,25 +62,24 @@ test('kortets rader: namn, sökväg, storlek, hashar och ett urval EXIF', () => 
     assert.strictEqual(obj.Storlek, '2.3 MB (2437118 byte)');
     assert.strictEqual(obj.MD5, 'm'.repeat(32));
     assert.strictEqual(obj['SHA-256'], 's'.repeat(64));
-    assert.strictEqual(obj['Tagen (EXIF)'], '2024:06:01 14:31:30');
-    assert.strictEqual(obj['Tidszon (EXIF)'], '+02:00');
+    // Tiderna står i tabellen under Skapandetid, med källa och i en och samma zon, inte på kortet.
+    assert.ok(!rows.some((r) => /Tagen|Tidszon|Skapad|Ändrad|ctime/.test(r[0])));
     assert.strictEqual(obj.Kamera, 'Apple iPhone 15 Pro');
     assert.strictEqual(obj.Objektiv, 'iPhone 15 Pro back camera');
     assert.strictEqual(obj.Mått, '4032 × 3024');
     assert.strictEqual(obj.Filtyp, 'image/jpeg');
     assert.strictEqual(obj['Position (EXIF)'], '59 deg 19\' 57.18" N, 18 deg 3\' 50.40" E');
-    // Filen, filsystemets tider och EXIF står under var sin rubrik.
-    assert.deepStrictEqual(groups.map((g) => g.title), ['Filen i extraktionen', 'Filsystemets tider (sparade i zippen av extraktionsverktyget)', 'EXIF (inuti bildfilen)']);
+    // Filen och det som står inuti den har var sin rubrik.
+    assert.deepStrictEqual(groups.map((g) => g.title), ['Filen i extraktionen', 'Inuti filen (EXIF eller QuickTime)']);
     assert.deepStrictEqual(groups[0].rows.map((r) => r[0]), ['Filnamn', 'Sökväg i zippen', 'Storlek', 'CRC32', 'MD5', 'SHA-256']);
-    assert.deepStrictEqual(groups[1].rows.map((r) => r[0]), ['Ändrad (filsystemet)']);
-    assert.strictEqual(groups[2].rows[0][0], 'Tagen (EXIF)');
+    assert.strictEqual(groups[1].rows[0][0], 'Kamera');
     const bareGroups = media.cardGroups({ path: 'a/b.mp4', size: 10, mtime: '', crc32: '00000001', crcOk: false }, [], {});
     assert.deepStrictEqual(bareGroups.map((g) => g.title), ['Filen i extraktionen'], 'tomma grupper visas inte');
     const bare = flat(bareGroups);
     assert.strictEqual(Object.fromEntries(bare).CRC32, '00000001 (stämmer inte med zippen)');
     assert.strictEqual(Object.fromEntries(bare).MD5, 'inte beräknad');
     assert.deepStrictEqual(media.cardGroups(null, [], {}), []);
-    assert.deepStrictEqual(media.exifSummary([['QuickTime:CreateDate', '2024:06:01 12:38:16'], ['QuickTime:ImageWidth', '1080'], ['QuickTime:ImageHeight', '1920']]), [['Tagen (EXIF)', '2024:06:01 12:38:16'], ['Mått', '1080 × 1920']]);
+    assert.deepStrictEqual(media.exifSummary([['QuickTime:CreateDate', '2024:06:01 12:38:16'], ['QuickTime:ImageWidth', '1080'], ['QuickTime:ImageHeight', '1920'], ['File:FileType', 'MP4']]), [['Mått', '1080 × 1920'], ['Filtyp', 'MP4']]);
 });
 
 test('tidsökningen: klockslag i en zon blir UTC, även över sommartid och med fast förskjutning', () => {
@@ -172,6 +171,26 @@ test('UserComment: Snapchats user agent avkodas ur base64, andra kommentarer vis
     assert.deepStrictEqual(media.exifSummary([['QuickTime:Description', b64]])[0][1].slice(0, 19), 'Snapchat/14.30.0.54');
 });
 
+test('en tid utan zon tolkas i bildens zon, oavsett vilken zon rapporten visar', () => {
+    const utc = { name: 'UTC', offsetMinutes: 0, label: 'UTC' };
+    const taken = { sort: '2025-06-03 09:51:33', zone: '' };
+    const want = Date.UTC(2025, 5, 3, 7, 51, 33);
+    const own = media.exifZone({ zoneName: 'Europe/Stockholm', zoneOffset: 7200 }, utc);
+    assert.strictEqual(own.label, 'bildens zon (Europe/Stockholm)');
+    assert.deepStrictEqual(media.exifTakenMs(taken, own), { ms: want, assumed: true });
+    assert.strictEqual(media.exifTakenMs(taken, media.exifZone({ zoneName: 'GMT+0200', zoneOffset: 7200 }, utc)).ms, want);
+    assert.strictEqual(media.exifZone({ zoneName: null, zoneOffset: -25200 }, utc).label, 'bildens zon (UTC-07:00)');
+    // Bara zonens namn: förskjutningen vid tidpunkten, med sommartid.
+    const named = media.exifZone({ zoneName: 'Europe/Stockholm', zoneOffset: null }, utc);
+    assert.strictEqual(media.exifTakenMs(taken, named).ms, want);
+    // Biblioteket har ingen zon: rapportens, och det sägs.
+    const none = media.exifZone({ zoneName: null, zoneOffset: null }, utc);
+    assert.strictEqual(none.label, 'rapportens zon (UTC)');
+    assert.strictEqual(media.exifTakenMs(taken, none).ms, Date.UTC(2025, 5, 3, 9, 51, 33));
+    assert.strictEqual(media.exifZone({ zoneName: 'GMT+0200', zoneOffset: null }, utc).label, 'rapportens zon (UTC)', 'ett okänt zonnamn utan förskjutning går inte att räkna med');
+    assert.strictEqual(media.exifZone(null, utc).label, 'rapportens zon (UTC)');
+});
+
 test('EXIF-tid utan zon räknas om med förskjutningen vid tagningen, inte dagens', () => {
     const summer = { sort: '2026-07-01 12:00:00', zone: '' };
     const winter = { sort: '2026-01-15 12:00:00.250', zone: '' };
@@ -185,17 +204,3 @@ test('EXIF-tid utan zon räknas om med förskjutningen vid tagningen, inte dagen
     assert.deepStrictEqual(media.exifTakenMs(null, sthlm), { ms: null, assumed: false });
 });
 
-test('filkortet visar filsystemets alla tider, utan fältnamn', () => {
-    const rows = media.timeRows({ mtime: '2025-10-01 07:20:48 UTC', created: '2025-10-01 07:20:47 UTC', changed: '2025-10-01 08:00:00 UTC', accessed: '2025-10-02 09:00:00 UTC', timeField: 'UT-fältet' });
-    assert.deepStrictEqual(rows, [
-        ['Skapad (filsystemet)', '2025-10-01 07:20:47 UTC'],
-        ['Ändrad (filsystemet)', '2025-10-01 07:20:48 UTC'],
-        ['Metadata ändrad (ctime)', '2025-10-01 08:00:00 UTC'],
-        ['Senast läst (filsystemet)', '2025-10-02 09:00:00 UTC'],
-    ]);
-    // Tre UT-tider: den tredje heter inte Skapad.
-    const three = media.timeRows({ mtime: '2025-10-01 07:20:48 UTC', third: '2025-10-01 08:00:00 UTC' });
-    assert.deepStrictEqual(three.map((r) => r[0]), ['Tredje tiden i zippen (skapad eller ctime)', 'Ändrad (filsystemet)']);
-    // Bara DOS-tid: bara ändringen.
-    assert.deepStrictEqual(media.timeRows({ mtime: '2025-10-01 09:20:48 (zon okänd)', timeField: '' }), [['Ändrad (filsystemet)', '2025-10-01 09:20:48 (zon okänd)']]);
-});

@@ -238,6 +238,32 @@ i extraktionen med `-wal` pålagd, och bygger en händelselista i UTC.
   ger varje faktor dess fråga och svar i klartext (`FACTOR_WORDS`, `describeFactor()`: `question`, `verdict`,
   `meaning` mot `hypothesis()`), och har
   förklaringens ordförråd. Allt testas i Node.
+- Filens tider (`fileTimes()` i `timeline-core.js`, `timesHtml()` i `script.js`, `timesTableHtml()` i `report.js`): faktorn
+  Skapandetid har `times`, en rad per källa i tidsordning: tiden i filen, bibliotekets tider, andra register och filsystemets
+  tider, med källa (databas → tabell → kolumn, Filen → tagg eller Zippen → fält → vilken tid), skillnaden mot T och en rad för
+  det som saknas (`absent`). Tabellen är bara fakta. Tolkningen står i `items` under den. Filkortet har inga tider, så att
+  samma tid inte står i två format. Tider inuti filen kommer ur `ExifCore.timeTags()`: den viktigaste visas alltid, de andra
+  när de skiljer sig mer än 2 s. Alla står i Exif-vyn.
+- Vad Skapandetid säger (`factorTime()`):
+  - **Hypotesen avgör vad en skillnad betyder.** Tillagd långt efter Skapad säger bara emot `camera` och `screenshot`. En fil
+    som tas emot, en dubblett och en sparad fil får bära en äldre tid (`support`, egna ord i `verdictText`). En annan tid i
+    filen än i biblioteket säger bara emot `camera` och `screenshot`, och inte heller dem om bibliotekets kopia står kvar på
+    filens tid. Annars är det `info` med "Tiderna går isär" och `timesSplit`, som ger egen `meaning`.
+  - **Samma källa räknas inte två gånger.** `ZDATECREATEDSOURCE` (`createdSource`, iOS 15 och senare) säger var `ZDATECREATED`
+    kommer ifrån: 1 när filen har en egen tid, 3 när den inte har det, och då är Skapad filsystemets skapandetid. Apple
+    dokumenterar inte värdena. iLEAPP har samma tolkning, och den stämmer på alla 34 filer i labbextraktionerna: med 1 ligger
+    filens tid inom 0,15 s, med 3 filsystemets inom 0,93 s, utom på bilden vars datum ändrades. Jämförelser mot källan blir
+    `info`, och en skillnad över 2 s betyder att något har ändrats (QuickTime har en minuts marginal, eftersom en vanlig video
+    från kameran inte finns i labben). Bibliotekets kameramodell är också läst ur filen, så bara en skillnad nämns.
+  - **T jämförs inte med sig själv.** Utan rad i biblioteket är T tiden i filen eller filsystemets ändringstid
+    (`fileSource.db` är `bildfilen` eller `zippen`), och raden heter det i stället för Skapad. Finns inget annat att jämföra med
+    är svaret "Kan inte jämföras". En fil av okänd typ prövas mot att den kom till på telefonen, inte mot kameran.
+  - **Rapportens zon ändrar inget.** En tid utan zon i filen tolkas i bildens zon (`exifZone()` i `media-card.js`:
+    `ZTIMEZONEOFFSET`, annars `ZTIMEZONENAME`). Rapportens zon används bara när bilden saknar zon, och en skillnad jämnt på
+    kvarten är då `info` (`zoneLike()`).
+  - **`ZEXIFTIMESTAMPSTRING`** är klockslaget i bildens zon. Den stod kvar när datumet ändrades i Bilder och skilde sig bara på
+    den bilden av 55 rader. Det är sett på en bild, så texten säger "ser ut att". Raden visas bara när den skiljer sig. Namnet
+    till trots finns värdet också på filer utan EXIF.
 - `timeline-svg.js` ritar tidslinjen med en rad per jämförelse (Fil, App, Kamera, Skärm, Lås,
   Position, Snapchat): översikten över hela fönstret med närbildens ruta (`opts.zoom`) och
   närbilden runt T med händelserna utskrivna (`opts.labels`). `block()` ritar varje rad två gånger:
@@ -274,6 +300,14 @@ i extraktionen med `-wal` pålagd, och bygger en händelselista i UTC.
   dokumenterad av verktyget: av 628 903 poster är den tredje tiden tidigare än ändringen i 101 och senare i
   116 560, den fjärde tidigare i 42 056 och senare i 8. I bildbiblioteket följer den tredje tiden `ZADDEDDATE`
   (`IMG_0013.HEIC`: Tillagd 09:18:16, tredje 09:18:17, fjärde 15:33:09 dygnet innan, samma som Skapad).
+  Prövat 2026-11-05 på samma telefon före och efter labbsessionen, 628 390 gemensamma poster: den tredje tiden flyttades
+  ensam på 843 filer med samma innehåll. Den fjärde flyttades bara tillsammans med ändringstiden och den tredje (1 952 filer,
+  nya filer på samma sökväg). Ingen av dem gick bakåt. Alla sex loggade metadataändringar (favorit, nytt datum, dubblett,
+  beskärning, plats, Raderade) hamnade i den tredje tiden, fem inom 3 s och favoriten 25 s före loggraden.
+- På APFS följer skapandetiden med bakåt när ändringstiden sätts bakåt, medan ctime står kvar (provat på en Mac:
+  `touch -m -t` med ett gammalt datum). Därför är filsystemets skapandetid inget skydd: en fil som tas emot kan se ut att ha
+  skapats långt innan den fanns på telefonen, som AirDrop i labbet. Bara 8–9 av 630 000 poster har en skapandetid efter
+  ändringstiden. Det är bland annat bildväljarens kopior.
 - Extraktionen läses med `tools/db-queries/extraction-core.js`, som Queries också använder. Bara
   läsning: testet i `zip.test.js` grep:ar alla filer i `tools/provenance/` efter skrivande API:er.
   Härkomst läser zippens innehållsförteckning en gång per öppnad zip (`ZipRead.cacheDirectory`)
@@ -583,7 +617,7 @@ Mätt 2026-11-04 i Edge 156 på en Windows-maskin i CI, med en slinga på 30 mil
   `ZFILENAME`. `ZMODIFICATIONDATE` flyttas på filer som ingen rört.
 - **Filsystemets tider:** ctime flyttas när utökade attribut skrivs (favorit, Raderade, ny tid, plats); ändrings- och
   skapandetiden står still. Det är en iakttagelse, inte dokumenterat av extraktionsverktyget. HEIC-filen skrivs
-  färdig 9–50 s efter bilden. AirDrop och dubbletter behåller källans skapandetid.
+  färdig 5–50 s efter bilden. AirDrop och dubbletter behåller källans skapandetid.
 - **0x4b47** i zippen har filens utökade attribut. `com.apple.assetsd.customLocation` finns bara när en plats satts i
   Bilder (`entry.customLocation`).
 - **Signal på iOS:** `wasNotCreatedLocally` är skickat från en länkad enhet, `hasSyncedTranscript` från telefonen.
@@ -708,6 +742,9 @@ workern från `scripts/exiftool/worker-entry.mjs` med esbuild och lägger in
 `exif-vendor.test.js` kontrollerar wasm-filens SHA-256 och läser en riktig bild med
 workern. Byt version genom att ändra `PACKAGES` i skriptet och köra det igen.
 
+Detaljrutan visar alla tider i filen (`ExifCore.timeTags()`): som de står i filen, med taggen och samma tid i UTC, eller
+"ingen zon i filen". Filsystemets tider står för sig: ur zippen för en fil från Härkomst, annars för kopian på datorn.
+
 ### Kartor i EXIF & karta
 
 Kartan delas av EXIF & karta och Positioner. Koden ligger i `tools/_shared/map/`
@@ -810,6 +847,10 @@ i webbläsaren.
     Labbzippen ligger inte i repot: sökvägen tas ur `FT_LAB_ZIP`, annars
     `~/Documents/Exampleextractions/Lab-Android-Nord-2026-11-02.zip`. Zippens storlek, mtime och ctime
     kontrolleras efteråt. Bara tider och versioner står i facit, inga namn eller nycklar.
+  - **Filens tider mot ett fristående facit** (`lab-ios.js`, `time-facit.py`, kräver `python3`): skriptet läser zippens fält,
+    EXIF, QuickTime och Photos.sqlite utan programmets kod och utan ExifTool. Varje rad i bildbiblioteket bedöms, och tabellen
+    jämförs med facit: bibliotekets tider och tiden i filen på en millisekund, zippens tider exakt. Samma filer bedöms också i
+    UTC och datorns zon, och slutsatsen och tiderna ska vara desamma (`zoneChecks` i facit-filen).
   - `FT_SHOTS=<mapp>` sparar en skärmdump efter varje del. En ny del är en post i `scenarios`, en
     asynkron funktion som kastar ett fel när något inte stämmer.
 - "Fyll med testdata" i Härkomst kommer från `tools/provenance/sample-data.js`: samma promenad,
@@ -839,6 +880,11 @@ i webbläsaren.
   förklarar det inte (se Html-versionen). Inte provat: en äldre Edge, `AllowFileSelectionDialogs`, en spärr som också
   gäller `file://`, IE-läget (`SendIntranetToInternetExplorer` eller en webbplatslista) och att köra från en nätverksresurs.
 - Härkomst: Android är provkört mot en labbtelefon (Android 13, LineageOS), inte mot en kommersiell extraktion; `usagestats` i XML (version 3, Android 9 och äldre) läses inte, batterihistoriken läses inte, ingen positionslogg läses på Android, bildfiler över 200 MB läses inte för EXIF, och inklistringen i Word är provkörd bara via urklippsstatus, inte i Word självt
+- **Filens tider:** tolkningen av zippens tredje och fjärde tid är härledd ur labbdata, och Apple dokumenterar inte Photos.sqlite. Inte
+  provat: en vanlig video från Kamera-appen (labbarna har Live Photo-videor och två MP4 från appar), en bild från molnet
+  (`ZDATECREATEDSOURCE` 0), Android mot det fristående facit och zippar från andra extraktionsverktyg. T följer bibliotekets
+  tid också när den är ändrad, så kontrollerna av app och kamera körs då runt den ändrade tiden. Att tiderna stämmer visar att inget
+  har ändrats efter importen, inte att tiden är sann.
 - **Snapchat (beta):** typkoder och protobuf-tolkning är härledda ur en enda extraktion. Memories
   (`gallery.encrypteddb`) är SQLCipher och läses inte. Chattmedia är ofta krypterat på disk; nyckel och
   IV ligger i `message_content` men används inte. Flera Snapchat-konton i samma behållare: första

@@ -1,5 +1,5 @@
 {
-  "description": "Facit mot iOS-labbtelefonen med dokumenterad ordning (iOS 26.4.1, Signal 8.28, WhatsApp 26.43.75, Telegram 13.1.2, 2026-11-04, Europe/Stockholm). Undersökaren loggade varje steg med tid på en annan enhet, 63 rader. Loggens klocka låg inom 0,2 s från telefonens (kamerabilderna 10:08:07, 10:24:19 och 10:24:36). Den tidigare extraktionen av samma telefon (2026-11-03) är före-läget för filernas tider. Bilder visar originalnamnet: det som syns som IMG_0001 är IMG_0012.HEIC och IMG_0004 är IMG_0013.HEIC. Labbzippen (…_fs.zip) och nyckelringen (…_keychain.plist) ligger inte i repot och hittas i mappen; här står inga namn, nycklar eller enhets-id.",
+  "description": "Facit mot iOS-labbtelefonen med dokumenterad ordning (iOS 26.4.1, Signal 8.28, WhatsApp 26.43.75, Telegram 13.1.2, 2026-11-04, Europe/Stockholm). Undersökaren loggade varje steg med tid på en annan enhet, 63 rader. Loggens klocka låg inom 0,2 s från telefonens (kamerabilderna 10:08:07, 10:24:19 och 10:24:36). Den tidigare extraktionen av samma telefon (2026-11-03) är före-läget för filernas tider. Filens tider kontrolleras också mot ett fristående facit (time-facit.py) för varje rad i biblioteket. Bilder visar originalnamnet: det som syns som IMG_0001 är IMG_0012.HEIC och IMG_0004 är IMG_0013.HEIC. Labbzippen (…_fs.zip) och nyckelringen (…_keychain.plist) ligger inte i repot och hittas i mappen; här står inga namn, nycklar eller enhets-id.",
   "dir": "iPhone - tidsstämplar",
   "toleranceMs": 1000,
   "versions": [
@@ -13,39 +13,58 @@
       "what": "Favoritmarkerad (logg 10:22:40): ctime flyttas, ändrad och skapad i filsystemet står still",
       "T": "2026-11-03T12:15:56.533+01:00",
       "typeLabel": "Kamerabild",
-      "timeText": "Ändrad i filsystemet 12:16:06.*Skapad i filsystemet 12:16:06.*\\(ctime\\) 2026-11-04 10:22:15",
       "factors": {
         "camera": "support",
         "time": "support"
+      },
+      "times": {
+        "fs-created": "2026-11-03T12:16:06+01:00",
+        "fs-modified": "2026-11-03T12:16:06+01:00",
+        "fs-changed": "2026-11-04T10:22:15+01:00"
       }
     },
     {
       "name": "IMG_0005.JPG",
       "what": "Kontrollfil, inte rörd: ctime står kvar sedan 2025",
       "T": "2025-06-04T14:30:44.165+02:00",
-      "timeText": "\\(ctime\\) 14:30:48"
+      "times": {
+        "fs-changed": "2025-06-04T14:30:48+02:00"
+      },
+      "timeText": "ZDATECREATEDSOURCE 3.*inte när bilden togs"
     },
     {
       "name": "IMG_0012.HEIC",
       "what": "Datum och tid ändrade i Bilder (logg 10:23:25): Skapad flyttas ett dygn, EXIF står kvar, ctime är ändringen",
       "T": "2025-08-22T10:22:00+01:00",
-      "timeText": "Filen lades alltså till innan den skapades.*EXIF\\) är 2025-08-21 11:22:39.*\\(ctime\\) 2026-11-04 11:23:25 \\(GMT\\+0200\\)",
+      "timeText": "Filen lades alltså till innan den skapades.*ZEXIFTIMESTAMPSTRING.*så Skapad ser ut att ha ändrats",
       "factors": {
-        "time": "contradiction",
+        "time": "info",
         "camera": "na",
         "app": "na"
       },
-      "typeLabel": "Mottagen med AirDrop"
+      "typeLabel": "Mottagen med AirDrop",
+      "verdicts": {
+        "time": "Tiderna går isär"
+      },
+      "times": {
+        "file-time": "2025-08-21T11:22:39.823+02:00",
+        "original": "2025-08-21T11:22:39+02:00",
+        "fs-changed": "2026-11-04T10:23:25+01:00"
+      },
+      "summary": "^Det går inte att bedöma att filen togs emot med AirDrop"
     },
     {
       "name": "IMG_0042.HEIC",
       "what": "Ny bild med Live Photo (logg 10:24:19): HEIC-filen skrivs färdig 50 s senare",
       "T": "2026-11-04T10:24:19.984+01:00",
       "typeLabel": "Kamerabild",
-      "timeText": "Skapad i filsystemet 10:25:10",
       "factors": {
         "camera": "support",
-        "screen": "support"
+        "screen": "support",
+        "time": "support"
+      },
+      "times": {
+        "fs-created": "2026-11-04T10:25:10+01:00"
       }
     },
     {
@@ -53,10 +72,13 @@
       "what": "Ny bild utan Live Photo (logg 10:24:36): HEIC-filen skrivs färdig 30 s senare, så fördröjningen beror inte på Live Photo",
       "T": "2026-11-04T10:24:36.632+01:00",
       "typeLabel": "Kamerabild",
-      "timeText": "Skapad i filsystemet 10:25:07",
       "factors": {
         "camera": "support",
-        "screen": "support"
+        "screen": "support",
+        "time": "support"
+      },
+      "times": {
+        "fs-created": "2026-11-04T10:25:07+01:00"
       }
     },
     {
@@ -84,7 +106,6 @@
       "what": "Bild med kameraappen (logg 10:08:07), vald i Signal och skickad (logg 10:09:03), beskuren senare (logg 10:25:49)",
       "T": "2026-11-04T10:08:07.279+01:00",
       "typeLabel": "Kamerabild",
-      "timeText": "\\(ctime\\) 10:25:50.*Redigerad i bildbiblioteket 10:25:50 \\(ZADJUSTMENTTIMESTAMP\\)",
       "factors": {
         "camera": "support",
         "signal": "info"
@@ -101,7 +122,11 @@
       "cameraText": "Kameraappen använde kameran .* \\(PowerLog, PLCameraAgent\\)",
       "flags": [
         "edited"
-      ]
+      ],
+      "times": {
+        "fs-changed": "2026-11-04T10:25:50+01:00",
+        "adjusted": "2026-11-04T10:25:50.696+01:00"
+      }
     },
     {
       "name": "IMG_0039.JPG",
@@ -219,13 +244,18 @@
       "what": "Bild med WhatsApps kamera som inte skickades (logg 10:33:41): filen ligger kvar i tmp/documents/Camera/ och inget meddelande pekas ut",
       "factors": {
         "camera": "support",
-        "whatsapp": "info"
+        "whatsapp": "info",
+        "time": "support"
       },
       "verdicts": {
         "whatsapp": "Inget meddelande"
       },
       "cameraText": "WhatsApp använde kameran .* enligt PowerLog \\(PLCameraAgent\\)",
-      "typeLabel": "WhatsApps tillfälliga fil"
+      "typeLabel": "WhatsApps tillfälliga fil",
+      "times": {
+        "file-time": "2026-11-04T10:33:41.986+01:00",
+        "fs-created": "2026-11-04T10:33:42+01:00"
+      }
     },
     {
       "name": "IMG_0049.JPG",
@@ -257,14 +287,19 @@
       "what": "Bild med Telegrams kamera som inte skickades (logg 10:40:19): filen ligger kvar i tmp/ och inget meddelande pekas ut",
       "factors": {
         "camera": "support",
-        "telegram": "info"
+        "telegram": "info",
+        "time": "info"
       },
       "verdicts": {
-        "telegram": "Inget meddelande"
+        "telegram": "Inget meddelande",
+        "time": "Kan inte jämföras"
       },
       "cameraText": "Telegram använde kameran .* enligt PowerLog \\(PLCameraAgent\\)",
       "typeLabel": "Telegrams tillfälliga fil",
-      "cameraTitle": "Telegrams kamera"
+      "cameraTitle": "Telegrams kamera",
+      "times": {
+        "fs-modified": "2026-11-04T10:40:20+01:00"
+      }
     },
     {
       "name": "IMG_0045.JPG",
@@ -282,9 +317,14 @@
       "typeLabel": "Skapad i Bilder (till exempel en dubblett)",
       "factors": {
         "camera": "na",
-        "app": "na"
+        "app": "na",
+        "time": "support"
       },
-      "timeText": "kan behålla källans tid"
+      "timeText": "kan behålla källans tid",
+      "verdicts": {
+        "time": "Tiderna passar en dubblett"
+      },
+      "summary": "^Materialet är förenligt med att filen skapades i Bilder"
     },
     {
       "name": "IMG_0013.HEIC",
@@ -292,8 +332,13 @@
       "typeLabel": "Mottagen med AirDrop",
       "factors": {
         "camera": "na",
-        "app": "na"
-      }
+        "app": "na",
+        "time": "support"
+      },
+      "verdicts": {
+        "time": "Tiderna passar en mottagen fil"
+      },
+      "summary": "^Materialet är förenligt med att filen togs emot med AirDrop"
     },
     {
       "name": "IMG_0044.AVIF",
@@ -302,9 +347,14 @@
       "typeLabel": "Mottagen med AirDrop",
       "factors": {
         "camera": "na",
-        "app": "na"
+        "app": "na",
+        "time": "support"
       },
-      "timeText": "kan behålla källans tid"
+      "timeText": "kan behålla källans tid",
+      "verdicts": {
+        "time": "Tiderna passar en mottagen fil"
+      },
+      "summary": "^Materialet är förenligt med att filen togs emot med AirDrop"
     },
     {
       "name": "IMG_0008.JPG",
@@ -312,7 +362,9 @@
       "texts": {
         "position": "com\\.apple\\.assetsd\\.customLocation"
       },
-      "timeText": "\\(ctime\\) 2026-11-04 10:27:37"
+      "times": {
+        "fs-changed": "2026-11-04T10:27:37+01:00"
+      }
     },
     {
       "name": "IMG_0003.PNG",
@@ -321,7 +373,15 @@
       "flags": [
         "trashed"
       ],
-      "timeText": "Flyttad till Raderade 2026-11-04 10:30:46 \\(ZTRASHEDDATE\\)"
+      "times": {
+        "trashed": "2026-11-04T10:30:46+01:00"
+      }
     }
+  ],
+  "zoneChecks": [
+    "IMG_0001.PNG",
+    "IMG_0012.HEIC",
+    "IMG_0036.MP4",
+    "IMG_0033.HEIC"
   ]
 }

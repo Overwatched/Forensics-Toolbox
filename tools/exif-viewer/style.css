@@ -258,6 +258,7 @@ tr:hover .row-remove, .row-remove:focus { opacity: 1; }
 
 .summary dt { color: var(--text-muted); font-weight: 650; }
 .summary dd { word-break: break-word; }
+.summary dt.summary-group { grid-column: 1 / -1; margin-top: 6px; font-size: 11px; letter-spacing: 0.04em; text-transform: uppercase; }
 .summary .src { color: var(--text-muted); font-size: 11px; margin-left: 6px; }
 .summary .reason { color: var(--text-muted); font-size: 12px; }
 .inline-actions { display: inline-flex; gap: 6px; margin-left: 8px; vertical-align: middle; }

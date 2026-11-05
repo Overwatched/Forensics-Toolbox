@@ -251,21 +251,25 @@
         return Promise.race([Promise.all(jobs), new Promise(function (resolve) { setTimeout(resolve, 2000); })]);
     }
 
-    // Filens tider: ur zippen för en fil från Härkomst, annars ur filsystemet. [[rubrik, värde, källa]]
+    function utcText(ms) { return ms ? new Date(ms).toISOString().slice(0, 19).replace('T', ' ') + ' UTC' : ''; }
+
+    // Filsystemets tider: ur zippen för en fil från Härkomst (telefonens), annars för filen på den här
+    // datorn (kopians, inte telefonens). [[rubrik, värde, källa, samma tid i UTC]]
     function timeRows(row) {
         var z = row.zipTimes;
         if (z) {
             var src = 'zippen' + (z.field ? ', ' + z.field : '');
-            return [['Skapad', z.created, src], ['Tredje tiden i zippen (skapad eller ctime)', z.third, src], ['Ändrad', z.modified, src],
-                ['Ändrad metadata', z.changed, src + ' (ctime)'], ['Senast läst', z.accessed, src]].filter(function (r) { return r[1]; });
+            return [['Skapad i filsystemet', z.created, src], ['Tredje tiden i zippen (skapad eller ctime)', z.third, src], ['Ändrad i filsystemet', z.modified, src],
+                ['Metadata ändrad (ctime)', z.changed, src], ['Senast läst i filsystemet', z.accessed, src]].filter(function (r) { return r[1]; });
         }
+        var here = 'filen på den här datorn';
         var t = row.fsTimes;
-        if (!t) return [['Ändrad', row.modified, 'filsystemet']];
+        if (!t) return [['Ändrad i filsystemet', row.modified, here, utcText(row.file && row.file.lastModified)]];
         return [
-            ['Skapad', localTime(t.createdMs), 'filsystemet'],
-            ['Ändrad', localTime(t.modifiedMs), 'filsystemet'],
-            ['Senast läst', localTime(t.accessedMs), 'filsystemet, när filen valdes'],
-            ['Ändrad metadata', localTime(t.changedMs), 'filsystemet (ctime)'],
+            ['Skapad i filsystemet', localTime(t.createdMs), here, utcText(t.createdMs)],
+            ['Ändrad i filsystemet', localTime(t.modifiedMs), here, utcText(t.modifiedMs)],
+            ['Senast läst i filsystemet', localTime(t.accessedMs), here + ', när filen valdes', utcText(t.accessedMs)],
+            ['Metadata ändrad (ctime)', localTime(t.changedMs), here, utcText(t.changedMs)],
         ].filter(function (r) { return r[1]; });
     }
 
@@ -1016,16 +1020,28 @@
         dl.textContent = '';
         var s = row.summary;
         summaryRow(dl, 'Storlek', humanSize(row.size) + ' (' + row.size.toLocaleString('sv-SE') + ' byte)');
-        timeRows(row).forEach(function (t) { summaryRow(dl, t[0], t[1], t[2]); });
+        if (s) {
+            if (showUnknown && row.file && !row.tagsAll) summaryRow(dl, 'Taggar', 'Läser alla värden, även okända…');
+            var type = summaryRow(dl, 'Filtyp', [s.type, s.mime].filter(Boolean).join(' · '), 'File:FileType');
+            if (type && s.mismatch) type.append(make('div', 'reason bad', s.flags.filter(function (f) { return f.id === 'ext'; })[0].reason));
+            // Tiderna inuti filen som de står där, med samma tid i UTC, så att de går att jämföra med filsystemets.
+            dl.append(make('dt', 'summary-group', 'Tider inuti filen'));
+            var inFile = ExifCore.timeTags(row.tags);
+            if (!inFile.length) summaryRow(dl, 'Tid i filen', 'Filen har ingen egen tid.');
+            inFile.forEach(function (t) {
+                summaryRow(dl, t.label, t.text + (t.utc ? ' = ' + t.utc : t.ms === null ? ' (ingen zon i filen)' : ''), t.source);
+            });
+        }
+        var fsRows = timeRows(row);
+        if (fsRows.length) dl.append(make('dt', 'summary-group', row.zipTimes ? 'Filsystemets tider, sparade i zippen' : 'Filsystemets tider för filen på den här datorn'));
+        fsRows.forEach(function (t) { summaryRow(dl, t[0], t[1] + (t[3] ? ' = ' + t[3] : ''), t[2]); });
         if (!s) {
             summaryRow(dl, 'Status', row === busy ? 'Läser…' : 'Väntar på ExifTool');
             $('detail-groups').textContent = '';
             return;
         }
-        if (showUnknown && row.file && !row.tagsAll) summaryRow(dl, 'Taggar', 'Läser alla värden, även okända…');
-        var type = summaryRow(dl, 'Filtyp', [s.type, s.mime].filter(Boolean).join(' · '), 'File:FileType');
-        if (type && s.mismatch) type.append(make('div', 'reason bad', s.flags.filter(function (f) { return f.id === 'ext'; })[0].reason));
-        if (s.taken) summaryRow(dl, s.taken.kind, s.taken.text, s.taken.source);
+        var other = make('dt', 'summary-group', 'Övrigt');
+        dl.append(other);
         if (s.device) summaryRow(dl, 'Enhet', s.device.text, s.device.source);
         if (s.software) summaryRow(dl, 'Programvara', s.software.text, s.software.source);
         if (s.position) {
@@ -1060,6 +1076,7 @@
             box.append(make('div', 'reason', f.reason));
             summaryRow(dl, 'Flagga', box);
         });
+        if (dl.lastElementChild === other) other.remove();
         renderGroups();
     }
 
@@ -1128,7 +1145,7 @@
                 engine: engine.version,
                 exported: localTime(Date.now()),
                 files: exportRows().map(function (r) {
-                    return { path: r.path, size: r.size, modified: r.modified, times: timesOut(r), summary: r.summary, tags: r.tags };
+                    return { path: r.path, size: r.size, modified: r.modified, times: timesOut(r), timesInFile: ExifCore.timeTags(r.tags), summary: r.summary, tags: r.tags };
                 }),
             };
             download(JSON.stringify(data, null, 2), 'application/json;charset=utf-8', 'exif-' + stamp() + '.json');
@@ -1373,7 +1390,7 @@
     tagSearch.addEventListener('input', renderGroups);
     $('copy-json').addEventListener('click', function () {
         if (!selected) return;
-        copyText(JSON.stringify({ path: selected.path, size: selected.size, modified: selected.modified, times: timesOut(selected), tags: selected.tags }, null, 2));
+        copyText(JSON.stringify({ path: selected.path, size: selected.size, modified: selected.modified, times: timesOut(selected), timesInFile: ExifCore.timeTags(selected.tags), tags: selected.tags }, null, 2));
     });
 
     startEngine();

@@ -151,7 +151,7 @@
             <p class="shared">Filkortet i Härkomst visar sökväg, storlek, CRC32, MD5, SHA-256 och EXIF i korthet. HEIC och video visas via telefonens egen tumnagel, märkt och med egen hash.</p>
             <ul>
                 <li>EXIF: DateTimeOriginal, Make/Model/Software, GPS. Saknad kamera-EXIF talar för skärmdump eller sparad bild.</li>
-                <li>Skapandetiden i databasen mot EXIF-tiden och filsystemets ändringstid (raden Fil i tidslinjen), som extraktionsverktyget har sparat i zippen.</li>
+                <li>Tabellen under Skapandetid visar filens alla tider i tidsordning med källa: tiden i filen, bibliotekets tider och filsystemets tider, som extraktionsverktyget har sparat i zippen. Bibliotekets Skapad är ofta hämtad ur tiden i filen eller ur filsystemet, så att de stämmer visar inte att tiden är sann.</li>
                 <li><strong>Var finns filen?</strong> listar alla kopior i zippen via storlek och CRC32, bekräftade med SHA-256: bildbiblioteket, en apps lagring, en bilaga.</li>
             </ul>
             <p class="tools">

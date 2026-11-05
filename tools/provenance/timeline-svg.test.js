@@ -79,7 +79,7 @@ test('läget vid T per rad, med faktorns ord och klartext', () => {
     assert.deepStrictEqual(at2('camera'), { state: 'contradiction', l1: 'inte igång', l2: 'Inställningar i förgrunden' });
     assert.strictEqual(at2('screen').l1, 'släckt');
     assert.strictEqual(at2('location').l1, 'ingen position i fönstret');
-    assert.strictEqual(at2('file').l2, 'ingen EXIF-tid');
+    assert.strictEqual(at2('file').l2, 'ingen tid i filen');
     // Prickarna i T-kolumnen: fylld = på, vit med grå kant = av, ingen = ingen registrering.
     const mk = (mm, cx, id) => tl.tMarker(tl.rowsFor(mm).find((r) => r.id === id), cx);
     assert.deepStrictEqual(mk(m, ctx, 'camera'), { fill: tl.COLORS.camera });

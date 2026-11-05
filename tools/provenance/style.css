@@ -154,6 +154,20 @@ tr.chosen td { background: var(--accent-soft); }
 .factor ul { margin: 0 0 0 16px; font-size: 13px; line-height: 1.45; }
 .factor li { margin-bottom: 4px; }
 .factor .plain { margin-top: 8px; font-size: 13px; color: var(--text-muted); font-style: italic; }
+/* Skapandetid har tabellen över filens tider och får hela raden. */
+.factor-times { grid-column: 1 / -1; }
+.times-wrap { overflow-x: auto; margin: 0 0 6px; }
+.times { font-size: 13px; }
+.times td { padding: 5px 8px; }
+.times .time-at { white-space: nowrap; font-variant-numeric: tabular-nums; }
+.times .time-gap { white-space: nowrap; font-variant-numeric: tabular-nums; text-align: right; }
+.times th:last-child { text-align: right; }
+.times td.path { min-width: 180px; word-break: normal; overflow-wrap: anywhere; }
+.times .time-note { color: var(--text-muted); font-size: 12px; margin-top: 2px; }
+.times .time-none { color: var(--text-muted); white-space: normal; }
+.times tr.time-t td { background: var(--accent-soft); font-weight: 600; }
+.times tr.time-t .time-note { font-weight: 400; }
+.times-actions { margin: 0 0 8px; }
 /* Frågan faktorn prövar och vad svaret betyder för hypotesen i sammanvägningen. */
 .factor .question { margin: 0 0 4px; font-size: 13px; color: var(--text-muted); }
 .factor .meaning { margin: 0 0 8px; font-size: 13px; font-weight: 600; }

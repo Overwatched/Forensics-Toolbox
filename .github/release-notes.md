@@ -1,5 +1,19 @@
 Automatiskt byggd från commit `{{SHA}}`.
 
+## Nytt i 1.49
+
+Filens tider står öppet i en tabell, och slutsatserna om dem är rättade. Tiderna lästes rätt också förut, men programmet drog för mycket av dem.
+
+- **Tabell över filens tider:** rutan Skapandetid i Härkomst har en tabell med tiden i filen, bibliotekets tider och filsystemets tider. Varje rad har källa och skillnaden mot T, allt står i tidsordning och i samma zon, och det som saknas står kvar. En databaskälla öppnar raden i Queries. Tabellen finns också i protokollet och går att kopiera till Word. Filkortet visar inga tider längre, så att samma tid inte står i två format.
+- **AirDrop och dubbletter rättade:** en fil som loggats som mottagen med AirDrop fick "inte förenligt med att filen togs emot med AirDrop", eftersom den lades till långt efter att den skapades. Det är precis så en mottagen fil ser ut. Nu säger en sen tillagd-tid bara emot kamerabilder och skärmdumpar. Samma sak gällde dubbletter i Bilder och sparade filer med en äldre tid.
+- **Ändrat datum:** har datumet ändrats i Bilder står det "Tiderna går isär", och att det inte väger mot hypotesen om bibliotekets kopia av originaltiden står kvar. Det är sett på en bild i labbet.
+- **Filer utanför biblioteket:** T är då tiden i filen eller filens ändringstid, och den jämfördes med sig själv, så rutan blev alltid grön. Nu jämförs T bara med andra källor, och finns inga säger rutan "Kan inte jämföras". En kopia av en skärmdump kallas inte längre förenlig med kameran.
+- **Samma källa räknas inte två gånger:** bibliotekets Skapad är oftast hämtad ur filens egen tid, annars ur filsystemet (`ZDATECREATEDSOURCE`, iOS 15 och senare). Tabellen och texten säger vilket, och att de stämmer visar bara att tiden inte ändrats i biblioteket. Saknar filen egen tid står det att T inte säger när bilden togs.
+- **Tidszonen ändrar inte slutsatsen:** en skärmdump utan zon i filen fick "Tiderna går isär" när UTC valdes. Nu tolkas en tid utan zon i bildens egen zon. Saknas den, och skillnaden är jämnt på kvarten, sägs det att det ser ut som en zonskillnad.
+- **Video:** en MP4 kallas inte längre EXIF, och QuickTime-tiden står inte längre utan zon.
+- **Exif-vyn:** alla tider i filen visas med sin tagg och i UTC, och filsystemets tider står för sig. Två rader som båda hette Skapad heter nu olika saker. För en fil från disk står det att tiderna gäller kopian på datorn.
+- **Kontrollerat:** tabellen jämförs med ett fristående facit som läser zippen, EXIF, QuickTime och Photos.sqlite utan programmets kod och utan ExifTool. Det är ett nytt labbtest för varje rad i bildbiblioteket. Inte provat: en vanlig video från Kamera-appen, Android mot det nya facitet och zippar från andra extraktionsverktyg.
+
 ## Nytt i 1.48
 
 Från en källa i Härkomst till rätt rad i Queries, listor med filnamn eller hashsummor från disk, och en tydlig skillnad mellan exempel och resultat.

@@ -85,6 +85,13 @@
         return '';
     }
 
+    // Vad T är: raden i tabellen över filens tider. Utan rad i biblioteket är det inte Skapad.
+    function tLabel(model) {
+        var f = model.factors.find(function (x) { return x.id === 'time'; });
+        var row = f && f.times && f.times.find(function (r) { return r.isT; });
+        return row ? row.label : 'Skapad';
+    }
+
     // meta: { extraction: { name, size, lastModified }, deviceLabel, zoneLabel, zoneNote, toolVersion, createdText,
     //         format(ms), formatUtc(ms), fileRows: [[kolumn, värde]], exifRows: [[tagg, värde]], fileEntry: { path, size, mtime, crc32, sha256 } | null,
     //         sources: [{ label, path, size, mtime, crc32, sha256, walPath, walCrc32, walSha256, walSummary, cipher, derived, warnings: [] }],
@@ -99,7 +106,7 @@
             ['Extraktion', meta.extraction ? meta.extraction.name + ' (' + meta.extraction.size + ' byte, ändrad ' + meta.extraction.lastModified + ')' : 'filer valda för hand'],
             ['Enhet', meta.deviceLabel || model.platform],
             ['Tidszon i rapporten', meta.zoneLabel + (meta.zoneNote ? ' (' + meta.zoneNote + ')' : '')],
-            ['Tidpunkt T (Skapad)', model.file.createdMs ? fmt(model.file.createdMs) + ' · ' + fmtUtc(model.file.createdMs) : 'saknas'],
+            ['Tidpunkt T (' + tLabel(model) + ')', model.file.createdMs ? fmt(model.file.createdMs) + ' · ' + fmtUtc(model.file.createdMs) : 'saknas'],
             ['Fönster', model.windows.map(function (w) { return w.label + ': ' + fmt(w.startMs) + ' till ' + fmt(w.endMs); }).join('; ')],
             ['Program', 'Forensics Toolbox ' + (meta.toolVersion || '') + ', verktyget Härkomst'],
             ['Rapporten skapad', meta.createdText || ''],
@@ -117,8 +124,6 @@
         out += table(['Kolumn', 'Värde'], meta.fileRows || []);
         if (meta.fileEntry) {
             var fe = meta.fileEntry;
-            var feTimes = [['skapad', fe.created], ['tredje tiden i zippen (skapad eller ctime)', fe.third], ['ändrad', fe.mtime], ['metadata ändrad (ctime)', fe.changed], ['senast läst', fe.accessed]].filter(function (r) { return r[1]; });
-            if (feTimes.length) out += p('<b>Filsystemets tider, sparade i zippen av extraktionsverktyget' + (fe.timeField ? ' (' + esc(fe.timeField) + ')' : '') + ':</b> ' + feTimes.map(function (r) { return r[0] + ' ' + esc(r[1]); }).join(', ') + '.');
             out += p('<b>Bildfilen i zippen:</b> ' + esc(fe.path) + ' (' + esc(fe.size) + ' byte' +
                 ', CRC32 ' + esc(fe.crc32) + (fe.crcOk === false ? ' STÄMMER INTE' : '') + (fe.md5 ? ', MD5 ' + esc(fe.md5) : '') + (fe.sha1 ? ', SHA-1 ' + esc(fe.sha1) : '') + (fe.sha256 ? ', SHA-256 ' + esc(fe.sha256) : '') + ')');
             // Telefonens egen tumnagel (iOS: PhotoData/Thumbnails/V2/…/5005.JPG) med egen hash, så att den inte tas för originalet.
@@ -142,6 +147,7 @@
         model.factors.forEach(function (f) {
             out += h(3, f.title + ': ' + verdictText(model, f));
             if (f.question) out += p('<b>Frågan:</b> ' + esc(f.question) + ' <b>Svar:</b> ' + esc((f.verdict || model.stateLabel[f.state]) + '. ' + (f.meaning || '')));
+            if (f.times) out += timesTableHtml(f.times, meta);
             out += '<ul style="' + FONT + ' font-size: 10pt; margin: 2px 0 6px 18px;">' + f.items.map(function (i) {
                 return '<li>' + stateTag(model, i.state) + ' ' + esc(i.text) + '</li>';
             }).join('') + '</ul>';
@@ -241,6 +247,22 @@
         }));
     }
 
+    // Filens tider: vad varje källa säger, utan tolkning. Filsystemets tider är de som extraktionsverktyget
+    // sparade i zippen, och fältet de kommer ur står i källan. Raderna står i tidsordning.
+    function timesTableHtml(rows, meta) {
+        return table(['Tid (' + meta.zoneLabel + ')', 'UTC', 'Vad', 'Källa', 'Mot T'], rows.map(function (r) {
+            var what = r.isT ? { html: '<b>' + esc(r.label) + ' (T)</b>' + (r.note ? '<br>' + esc(r.note) : '') } : r.note ? { html: esc(r.label) + '<br>' + esc(r.note) } : r.label;
+            if (r.ms === null || r.ms === undefined) return [r.text || r.absent || '', '', what, sourceText(r.source), ''];
+            return [{ html: r.isT ? '<b>' + esc(timeText(meta.format, r.ms)) + '</b>' : esc(timeText(meta.format, r.ms)) }, timeText(meta.formatUtc, r.ms), what, sourceText(r.source), r.gap || ''];
+        }));
+    }
+
+    // Datum och klockslag i rapportens zon, med millisekunder när källan har dem.
+    function timeText(fmt, ms) {
+        var frac = ((ms % 1000) + 1000) % 1000;
+        return fmt(ms).slice(0, 19) + (frac ? '.' + ('00' + Math.round(frac)).slice(-3) : '');
+    }
+
     // Tabellerna i appen var för sig, att klistra in i en egen rapport: en rubrikrad som säger vad
     // tabellen gäller, och källan med databas → tabell → kolumn så att läsaren kan kontrollera varje rad.
     function caption(model, meta, what) {
@@ -258,6 +280,11 @@
             table(['Tid (' + meta.zoneLabel + ')', 'Händelse', 'Källa'], lines.map(function (l) {
                 return [meta.format(l.ms), l.bold ? { html: '<b>' + esc(l.text) + '</b>' } : l.text, sourceText(l.source)];
             })) + '</div>';
+    }
+
+    function timesTable(model, meta) {
+        var f = model.factors.find(function (x) { return x.id === 'time'; });
+        return '<div style="' + FONT + '">' + caption(model, meta, 'Filens tider') + timesTableHtml(f && f.times || [], meta) + '</div>';
     }
 
     function eventsTable(model, meta) {
@@ -397,7 +424,7 @@
             '<body style="max-width: 1000px; margin: 24px auto; padding: 0 16px; color: #1c1c1e; background: #fff;">' + bodyHtml + '</body></html>\n';
     }
 
-    var api = { protocol: protocol, explanation: explanation, keyEventsTable: keyEventsTable, eventsTable: eventsTable, batchTable: batchTable, sourceText: sourceText, plainText: plainText, standalone: standalone, esc: esc, plainCopies: plainCopies, BETA_NOTE: BETA_NOTE, ROLE_NOTE: ROLE_NOTE };
+    var api = { protocol: protocol, explanation: explanation, keyEventsTable: keyEventsTable, eventsTable: eventsTable, timesTable: timesTable, timeText: timeText, batchTable: batchTable, sourceText: sourceText, plainText: plainText, standalone: standalone, esc: esc, plainCopies: plainCopies, BETA_NOTE: BETA_NOTE, ROLE_NOTE: ROLE_NOTE };
     if (typeof module !== 'undefined' && module.exports) module.exports = api;
     else root.ProvenanceReport = api;
 })(typeof window !== 'undefined' ? window : this);

@@ -6,7 +6,10 @@
 'use strict';
 
 const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
+const { promisify } = require('node:util');
+const run = promisify(require('node:child_process').execFile);
 const { sleep } = require('./cdp');
 const { expect, PROV } = require('./smoke');
 
@@ -33,12 +36,13 @@ async function assess(c, name) {
     return c.ev(PROV, `(function(){
         const m = ProvenanceApp.model();
         if (!m || m.file.filename !== ${JSON.stringify(name)}) return { error: document.getElementById('run-status').innerText };
-        const f = Object.fromEntries(m.factors.map(x => [x.id, { state: x.state, verdict: x.verdictText || '' }]));
+        const f = Object.fromEntries(m.factors.map(x => [x.id, { state: x.state, verdict: x.verdict || '' }]));
         const cam = m.factors.find(x => x.id === 'camera');
         const time = m.factors.find(x => x.id === 'time');
         return { T: m.file.createdMs, type: m.type.label, factors: f, titles: Object.fromEntries(m.factors.map(x => [x.id, x.title])), versions: ProvenanceApp.meta().appVersionsText || '',
             cameraText: cam ? cam.items.map(i => i.text).join(' ') : '', timeText: time ? time.items.map(i => i.text).join(' ') : '',
-            texts: Object.fromEntries(m.factors.map(x => [x.id, x.items.map(i => i.text).join(' ')])), flags: m.type.flags,
+            texts: Object.fromEntries(m.factors.map(x => [x.id, x.items.map(i => i.text).join(' ')])), flags: m.type.flags, summary: m.summary,
+            times: time ? time.times.map(r => ({ id: r.id, ms: r.ms, isT: r.isT })) : [],
             events: m.events.filter(e => /^(sig|wa|tg)-/.test(e.kind)).map(e => ({ kind: e.kind, isFile: !!e.isFile, near: !!e.near, messageId: e.messageId, ms: e.ms, own: !!e.own, viewOnce: !!e.viewOnce, linked: !!e.linked, text: e.text })) };
     })()`);
 }
@@ -78,9 +82,91 @@ function check(f, d, facit) {
     (f.events || []).forEach((re) => expect(d.events.some((e) => new RegExp(re).test(e.kind + ' ' + e.text)), 'Ingen händelse matchar ' + re + ': ' + d.events.map((e) => e.kind + ' ' + e.text).join(' | ')));
     (f.flags || []).forEach((x) => expect(d.flags.includes(x), 'Flaggorna: ' + d.flags));
     if (f.timeText) expect(new RegExp(f.timeText).test(d.timeText), 'Skapandetiden säger: ' + d.timeText);
+    // Tabellen över filens tider, och sammanvägningen.
+    Object.keys(f.times || {}).forEach((id) => {
+        const r = d.times.find((x) => x.id === id);
+        expect(r && r.ms != null && Math.abs(r.ms - ms(f.times[id])) <= tol, 'Raden ' + id + ' i tabellen är ' + (r ? iso(r.ms) : 'borta') + ', väntat ' + f.times[id]);
+    });
+    if (f.summary) expect(new RegExp(f.summary).test(d.summary), 'Sammanvägningen säger: ' + d.summary);
     if (f.typeLabel) expect(d.type === f.typeLabel, 'Typen är ' + d.type);
     (facit.versions || []).forEach((v) => expect(d.versions.includes(v), 'Appversionen ' + v + ' saknas i protokollet: ' + d.versions));
     return 'T ' + (d.T ? iso(d.T).slice(11, 23) + 'Z' : '–');
+}
+
+// Bedömer raden med exakt det filnamnet, också när fler rader har samma originalnamn.
+async function assessRow(c, name, zone) {
+    // Som när användaren väljer zonen: utan händelsen väljer Härkomst bildens zon igen.
+    await c.ev(PROV, `(function(){ const s = document.getElementById('zone'); if (s.value !== ${JSON.stringify(zone || 'file')}) { s.value = ${JSON.stringify(zone || 'file')}; s.dispatchEvent(new Event('change', { bubbles: true })); } return 1; })()`);
+    await sleep(200);
+    await c.waitFor(PROV, `!ProvenanceApp.busy()`, 300000, 'zonbytet');
+    await c.ev(PROV, `document.getElementById('filename').value = ${JSON.stringify(name)}, document.getElementById('run').click(), 1`);
+    await sleep(300);
+    await c.waitFor(PROV, `!ProvenanceApp.busy() && (!document.getElementById('result').classList.contains('display-none') || !document.getElementById('hits').classList.contains('display-none'))`, 300000, name);
+    await c.ev(PROV, `(function(){ const h = document.getElementById('hits'); if (h.classList.contains('display-none')) return; const r = [...h.querySelectorAll('tr.pick')].find(x => x.children[1] && x.children[1].textContent === ${JSON.stringify(name)}); if (r) r.click(); })()`);
+    await sleep(300);
+    await c.waitFor(PROV, `!ProvenanceApp.busy() && ProvenanceApp.model() && ProvenanceApp.model().file.filename === ${JSON.stringify(name)}`, 300000, name);
+    return c.ev(PROV, `(function(){ const f = ProvenanceApp.model().factors.find(x => x.id === 'time'); return { zone: ProvenanceApp.meta().zoneLabel, state: f.state, verdict: f.verdict, summary: ProvenanceApp.model().summary, rows: f.times.map(r => ({ id: r.id, ms: r.ms, isT: r.isT, note: r.note, absent: r.absent })) }; })()`);
+}
+
+// Varje rad i bildbiblioteket mot ett fristående facit: time-facit.py läser zippens fält, EXIF, QuickTime och
+// Photos.sqlite utan programmets kod och utan ExifTool, och här jämförs det med tabellen i Härkomst.
+function timeFacit(zip) {
+    return ['Filens tider i tabellen stämmer med ett fristående facit för varje rad i bildbiblioteket', async ({ c }) => {
+        const out = path.join(os.tmpdir(), 'ft-tider-' + process.pid + '-' + Date.now());
+        let truth;
+        try {
+            await run('python3', ['-I', path.join(__dirname, 'time-facit.py'), zip, out], { maxBuffer: 1 << 26 });
+            truth = JSON.parse(fs.readFileSync(path.join(out, 'facit.json'), 'utf8'));
+        } catch (err) {
+            if (err && err.code === 'ENOENT') return 'python3 saknas, hoppar över';
+            throw err;
+        } finally {
+            fs.rmSync(out, { recursive: true, force: true });
+        }
+        let values = 0;
+        const near = (name, id, got, want, tol) => {
+            values++;
+            expect(got != null && Math.abs(got - want) <= tol, name + ', ' + id + ': programmet ' + iso(got) + ', facit ' + iso(want));
+        };
+        for (const f of truth.rows) {
+            const d = await assessRow(c, f.name);
+            const row = (id) => d.rows.find((r) => r.id === id);
+            const T = d.rows.filter((r) => r.isT);
+            expect(T.length === 1 && T[0].id === 'created', f.name + ': raden med T är ' + JSON.stringify(T.map((r) => r.id)));
+            ['created', 'added', 'modified', 'trashed', 'adjusted'].forEach((id) => {
+                if (f.library[id] == null) return;
+                near(f.name, id, (row(id) || {}).ms, f.library[id], 1);
+            });
+            if (f.source === 1 || f.source === 3) expect(new RegExp('ZDATECREATEDSOURCE ' + f.source).test(row('created').note), f.name + ': ' + row('created').note);
+            if (f.fs) {
+                [['fs-modified', f.fs.m], ['fs-accessed', f.fs.a], ['fs-changed', f.fs.ctime], ['fs-created', f.fs.crtime]].forEach(([id, want]) => {
+                    if (!want) return;
+                    near(f.name, id, (row(id) || {}).ms, want, 0);
+                });
+            }
+            // Tiden i filen på millisekunden. En tid utan zon i filen tolkas i bildens zon.
+            if (f.fileTime != null) near(f.name, 'file-time', (row('file-time') || {}).ms, f.fileTime, 1);
+            else expect(row('file-time') && row('file-time').absent, f.name + ': programmet har en tid i filen, men inte facit: ' + JSON.stringify(row('file-time')));
+        }
+        return truth.rows.length + ' rader, ' + values + ' tider';
+    }];
+}
+
+// Vilken zon rapporten skrivs i får inte ändra slutsatsen eller tiderna.
+function zoneChecks(names) {
+    return ['Valet av tidszon ändrar varken slutsatsen om tiderna eller vad de betyder', async ({ c }) => {
+        for (const name of names) {
+            const base = await assessRow(c, name);
+            for (const zone of ['utc', 'local']) {
+                const d = await assessRow(c, name, zone);
+                if (zone === 'utc') expect(d.zone === 'UTC', name + ': rapportens zon är ' + d.zone + ', väntat UTC');
+                expect(d.state === base.state && d.verdict === base.verdict, name + ' i ' + zone + ': ' + d.verdict + ', annars ' + base.verdict);
+                expect(JSON.stringify(d.rows.map((r) => [r.id, r.ms])) === JSON.stringify(base.rows.map((r) => [r.id, r.ms])), name + ' i ' + zone + ': tiderna flyttades');
+            }
+        }
+        await assessRow(c, names[0]);
+        return names.length + ' filer i tre zoner';
+    }];
 }
 
 function scenarios(dir, facit) {
@@ -105,7 +191,7 @@ function scenarios(dir, facit) {
         expect(before && before === stats(), 'Storlek, mtime eller ctime har ändrats');
         return 'storlek, mtime och ctime';
     }];
-    return [open].concat(files, [untouched]);
+    return [open].concat(files, [timeFacit(zip), zoneChecks(facit.zoneChecks || [])], [untouched]);
 }
 
 module.exports = { scenarios, labFiles };

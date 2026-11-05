@@ -228,11 +228,13 @@
                 var added = ev.find(function (e) { return e.kind === 'file-added'; });
                 var cap = ev.find(function (e) { return e.kind === 'file-captured'; });
                 if (cap) parts.push('tagen ' + dur(cap.ms - T) + (cap.ms < T ? ' före (Memories)' : ' efter (Memories)'));
-                if (ex) parts.push(Math.abs(ex.ms - T) <= 2000 ? 'EXIF stämmer' : 'EXIF ' + dur(ex.ms - T) + (ex.ms < T ? ' före' : ' efter'));
-                else parts.push('ingen EXIF-tid');
+                var tSrc = created && created.source && created.source.db;
+                var word = ex && ex.source && /^(QuickTime|Keys|Track\d*|UserData|ItemList):/.test(ex.source.column || '') ? 'QuickTime' : 'EXIF';
+                if (ex) parts.push(Math.abs(ex.ms - T) <= 2000 ? word + ' stämmer' : word + ' ' + dur(ex.ms - T) + (ex.ms < T ? ' före' : ' efter'));
+                else if (tSrc !== 'bildfilen') parts.push('ingen tid i filen');
                 if (added) parts.push(Math.abs(added.ms - T) <= 2000 ? 'tillagd direkt' : 'tillagd ' + dur(added.ms - T) + ' efter');
                 if (fsm) parts.push(Math.abs(fsm.ms - T) <= 2000 ? 'filsystemet stämmer' : 'filsystemet ' + dur(fsm.ms - T) + (fsm.ms < T ? ' före' : ' efter'));
-                var verb = model.type && model.type.type === 'snapchat' ? 'Registrerad' : 'Skapad';
+                var verb = tSrc === 'bildfilen' ? 'Tiden i filen' : tSrc === 'zippen' ? 'Ändringstid' : model.type && model.type.type === 'snapchat' ? 'Registrerad' : 'Skapad';
                 return { state: st, l1: verb + (created && created.source && created.source.db ? ' · ' + created.source.db : ''), l2: parts.join(' · ') };
             }
             case 'app':

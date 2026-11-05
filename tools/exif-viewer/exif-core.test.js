@@ -70,6 +70,31 @@ test('QuickTime-tid märks som UTC och GPS läses ur UserData', () => {
     assert.ok(Math.abs(s.position.lat - 59.3293) < 0.001);
 });
 
+test('alla tider i filen visas med sin tagg, och i UTC när zonen står vid tiden', () => {
+    const heic = core.timeTags({
+        'Composite:SubSecDateTimeOriginal': '2025:08:21 11:22:39.823+02:00', 'ExifIFD:DateTimeOriginal': '2025:08:21 11:22:39', 'ExifIFD:OffsetTimeOriginal': '+02:00',
+        'ExifIFD:CreateDate': '2025:08:21 11:22:40', 'ExifIFD:OffsetTimeDigitized': '+02:00', 'IFD0:ModifyDate': '2025:08:22 09:00:00', 'Composite:GPSDateTime': '2025:08:21 09:22:30Z',
+    });
+    assert.deepStrictEqual(heic.map((t) => [t.label, t.text, t.source, t.utc]), [
+        ['Tagen enligt EXIF', '2025-08-21 11:22:39.823 +02:00', 'Composite:SubSecDateTimeOriginal', '2025-08-21 09:22:39.823 UTC'],
+        ['Digitaliserad enligt EXIF', '2025-08-21 11:22:40 +02:00', 'ExifIFD:CreateDate', '2025-08-21 09:22:40 UTC'],
+        ['Ändrad enligt EXIF', '2025-08-22 09:00:00', 'IFD0:ModifyDate', null],
+        ['GPS-tid (UTC)', '2025-08-21 09:22:30 UTC', 'Composite:GPSDateTime', null],
+    ]);
+    assert.strictEqual(heic[0].ms, Date.UTC(2025, 7, 21, 9, 22, 39, 823));
+    // Utan zon går ögonblicket inte att veta.
+    assert.strictEqual(heic[2].ms, null);
+    assert.strictEqual(heic[3].ms, Date.UTC(2025, 7, 21, 9, 22, 30));
+    const mp4 = core.timeTags({ 'QuickTime:CreateDate': '2026:11:03 11:19:46', 'QuickTime:ModifyDate': '2026:11:03 11:19:48', 'Keys:CreationDate': '2026:11:03 12:19:45+0100' });
+    assert.deepStrictEqual(mp4.map((t) => [t.label, t.text, t.utc]), [
+        ['Skapad enligt QuickTime', '2026-11-03 12:19:45 +0100', '2026-11-03 11:19:45 UTC'],
+        ['Skapad enligt QuickTime (UTC)', '2026-11-03 11:19:46 UTC', null],
+        ['Ändrad enligt QuickTime (UTC)', '2026-11-03 11:19:48 UTC', null],
+    ]);
+    assert.deepStrictEqual(core.timeTags({ 'QuickTime:CreateDate': '0000:00:00 00:00:00' }), [], 'nolldatum är ingen tid');
+    assert.deepStrictEqual(core.timeTags({}), []);
+});
+
 test('nolldatum hoppas över', () => {
     const s = core.summarize({ 'QuickTime:CreateDate': '0000:00:00 00:00:00', 'Keys:CreationTime': '2024:06:01 12:34:56Z' }, 'v.mp4');
     assert.strictEqual(s.taken.source, 'Keys:CreationTime');
