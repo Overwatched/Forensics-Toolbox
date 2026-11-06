@@ -300,23 +300,33 @@
 
     // Wellbeing/UsageEvents: 1 RESUMED, 2 PAUSED, 23 STOPPED, 15/16 skärm, 17/18 låsskärm.
     // events: [{ ms, type, app }]. Returnerar { apps, screen, lock } i samma form som iOS-raderna.
+    // När en app byter aktivitet kommer PAUSED för den gamla, RESUMED för den nya och först en stund senare STOPPED för den
+    // gamla. En STOPPED efter en PAUSED hör alltså till en aktivitet som redan är lämnad och säger inget om appen, som kan
+    // ligga kvar i förgrunden. Bara en STOPPED utan PAUSED före sig avslutar. Labbet: Signal 15:02:06–15:02:43 försvann annars.
     function intervalsFromEvents(events, rangeEndMs, source) {
         var open = {};
+        var paused = {};
         var apps = [];
         var screen = [];
         var lock = [];
         var screenOn = null;
         var lockState = null;
         var sorted = events.slice().sort(function (a, b) { return a.ms - b.ms; });
+        var closeApp = function (e) {
+            if (open[e.app] == null) return;
+            apps.push({ startMs: open[e.app], endMs: e.ms, app: e.app, stream: 'wellbeing', source: source });
+            delete open[e.app];
+        };
         sorted.forEach(function (e) {
             var t = Number(e.type);
             if (t === 1) {
                 if (open[e.app] == null) open[e.app] = e.ms;
-            } else if (t === 2 || t === 23) {
-                if (open[e.app] != null) {
-                    apps.push({ startMs: open[e.app], endMs: e.ms, app: e.app, stream: 'wellbeing', source: source });
-                    delete open[e.app];
-                }
+            } else if (t === 2) {
+                closeApp(e);
+                paused[e.app] = (paused[e.app] || 0) + 1;
+            } else if (t === 23) {
+                if (paused[e.app]) paused[e.app]--;
+                else closeApp(e);
             } else if (t === 15 || t === 16) {
                 if (screenOn) { screenOn.endMs = e.ms; screen.push(screenOn); screenOn = null; }
                 screenOn = { startMs: e.ms, endMs: null, on: t === 15, stream: 'wellbeing', source: source };
@@ -452,7 +462,7 @@
         // sekund långt. Tätt följande kameraoperationer från samma app (kameran öppnas igen inom två
         // sekunder, t.ex. vid byte mellan fram- och bakkamera) slås ihop till ett intervall.
         var camUse = mergeIntervals((input.cameraUse || []).map(function (iv) {
-            return { startMs: iv.startMs, endMs: iv.endMs != null ? iv.endMs : iv.startMs + 1000, app: iv.app, stream: iv.stream || 'appops', source: iv.source, openEnded: iv.openEnded || iv.endMs == null };
+            return { startMs: iv.startMs, endMs: iv.endMs != null ? iv.endMs : iv.startMs + 1000, app: iv.app, byUid: !!iv.byUid, stream: iv.stream || 'appops', source: iv.source, openEnded: iv.openEnded || iv.endMs == null };
         }));
         camUse.forEach(function (iv) {
             var name = iv.app ? appName(iv.app, names) : 'Kameran';
@@ -460,8 +470,8 @@
             // Samma kameraanvändning ur flera källor står på var sin rad i tabellen, men är en händelse i förklaringen.
             var told = camUse.some(function (o) { return o !== iv && CAM_RANK(o.stream) < CAM_RANK(iv.stream) && o.startMs <= iv.endMs && iv.startMs <= o.endMs; });
             var how = iv.stream === BATTERY ? 'batterihistoriken, +camera' : iv.stream === SSRM ? 'SSRM, camera running' : pl ? 'PowerLog, PLCameraAgent' : 'appops op 26';
-            add({ ms: iv.startMs, endMs: iv.endMs, kind: 'app', lane: 'camera', app: iv.app, stream: iv.stream, openEnded: !!iv.openEnded, cameraOp: true, merged: iv.merged || null,
-                text: (iv.stream === BATTERY ? 'Kameran på' + (iv.app ? ', ' + name + ' i förgrunden' : '') : name + ' använder kameran') + ' (' + how + (iv.merged ? ', ' + iv.merged + (pl ? ' sessioner' : ' operationer') + ' i följd' : '') + (iv.openEnded ? ', slutet inte registrerat' : '') + ')',
+            add({ ms: iv.startMs, endMs: iv.endMs, kind: 'app', lane: 'camera', app: iv.app, byUid: iv.byUid, stream: iv.stream, openEnded: !!iv.openEnded, cameraOp: true, merged: iv.merged || null,
+                text: (iv.stream === BATTERY && !iv.byUid ? 'Kameran på' + (iv.app ? ', ' + name + ' i förgrunden' : '') : name + ' använder kameran') + ' (' + how + (iv.merged ? ', ' + iv.merged + (pl ? ' sessioner' : ' operationer') + ' i följd' : '') + (iv.openEnded ? ', slutet inte registrerat' : '') + ')',
                 plain: told ? null : iv.app ? name + ' startar kameran' : 'Kameran startas', plainEnd: told ? null : iv.app ? name + ' stänger kameran' : 'Kameran stängs', source: iv.source });
         });
         // Rader vars tid är osäker: de står i händelsetabellen, men räknas inte i bedömningen och ritas inte i tidslinjen.
@@ -533,12 +543,32 @@
     }
 
     // Var en kameraanvändning kommer ifrån: Androids appops (op 26) eller PowerLog på iOS, och på Samsung SSRM
-    // och batterihistoriken. Batterihistoriken säger bara att kameran var på; appen är den som var i förgrunden då.
+    // och batterihistoriken. Batterihistorikens nyare rader säger vilken uid som använder kameran. De äldre säger bara
+    // att kameran var på, och då är appen den som var i förgrunden.
     function camSource(e) {
         if (e && e.stream === 'PowerLog') return 'PowerLog (PLCameraAgent)';
         if (e && e.stream === SSRM) return 'SSRM (camera running)';
-        if (e && e.stream === BATTERY) return 'batterihistoriken (+camera, med appen i förgrunden)';
+        if (e && e.stream === BATTERY) return e.byUid ? 'batterihistoriken (+camera, med appens uid)' : 'batterihistoriken (+camera, med appen i förgrunden)';
         return 'appops (op 26)';
+    }
+
+    // Appens egen kamera enligt loggarna: igång vid tiden, eller stängd strax före. Ett led per källa: flera oberoende loggar
+    // är det undersökaren vill se. PowerLogs tider får en mindre marginal än appops, så att en session som börjar strax efter
+    // tiden inte räknas som igång då. -> { state, events, items, plain } eller null.
+    function ownCamera(ops, app, creator, tCam, whenText, usedPlain) {
+        var tolOf = function (e) { return e.stream === 'PowerLog' ? POWERLOG_TOL_MS : TOLERANCE_MS; };
+        var at = ops.filter(function (e) { return e.app === app && covers(e, tCam, tolOf(e)); });
+        if (at.length) {
+            var seen = {};
+            return { state: 'support', events: at, plain: usedPlain,
+                items: at.filter(function (e) { var first = !seen[e.stream]; seen[e.stream] = true; return first; })
+                    .map(function (e) { return { state: 'support', text: creator + ' använde kameran ' + formatUtc(e.ms) + ' till ' + formatUtc(e.endMs) + ' enligt ' + camSource(e) + ', vilket täcker ' + whenText + '.' }; }) };
+        }
+        var before = ops.filter(function (e) { return e.app === app && e.endMs <= tCam + tolOf(e) && tCam - e.endMs <= 2 * MINUTE && !covers(e, tCam, tolOf(e)); });
+        if (!before.length) return null;
+        var last = before[before.length - 1];
+        return { state: 'info', events: [last], items: [{ state: 'info', text: creator + ' använde kameran ' + formatUtc(last.ms) + ' till ' + formatUtc(last.endMs) + ' enligt ' + camSource(last) + ', ' + duration(tCam - last.endMs) + ' före ' + whenText + '. Appen sparar filen när användaren väljer det, så kameran kan ha stängts innan.' }],
+            plain: creator + ' använde kameran ' + duration(tCam - last.endMs) + ' innan filen sparades.' };
     }
 
     // Batterihistorikens rader som inte räknas vid T, för att tiden är osäker. what: 'app', 'camera' eller 'screen'.
@@ -1122,21 +1152,8 @@
         var atCam = appsAt(events, tCam, 'camera');
         var ops = events.filter(function (e) { return e.kind === 'app' && e.cameraOp; });
         var whenText = file.capturedMs ? 'tagningstiden enligt Memories (' + formatUtc(file.capturedMs) + ')' : 'tidpunkten';
-        // Appens egen kamera enligt appops (Android) eller PowerLog (iOS): igång vid T, eller stängd strax före.
-        // PowerLogs tider får en mindre marginal än appops, så att en session som börjar strax efter T
-        // inte räknas som igång vid T.
-        var tolOf = function (e) { return e.stream === 'PowerLog' ? POWERLOG_TOL_MS : TOLERANCE_MS; };
         var importerCamera = function (app, creator) {
-            var at = ops.filter(function (e) { return e.app === app && covers(e, tCam, tolOf(e)); });
-            if (at.length) return { state: 'support', events: at, text: creator + ' använde kameran ' + formatUtc(at[0].ms) + ' till ' + formatUtc(at[0].endMs) + ' enligt ' + camSource(at[0]) + ', vilket täcker ' + whenText + '.',
-                plain: creator + ' använde kameran när ' + (file.memory && file.memory.video ? 'videon spelades in' : 'bilden togs') + '.' };
-            var before = ops.filter(function (e) { return e.app === app && e.endMs <= tCam + tolOf(e) && tCam - e.endMs <= 2 * MINUTE && !covers(e, tCam, tolOf(e)); });
-            if (before.length) {
-                var last = before[before.length - 1];
-                return { state: 'info', events: [last], text: creator + ' använde kameran ' + formatUtc(last.ms) + ' till ' + formatUtc(last.endMs) + ' enligt ' + camSource(last) + ', ' + duration(tCam - last.endMs) + ' före ' + whenText + '. Appen sparar filen när användaren väljer det, så kameran kan ha stängts innan.',
-                    plain: creator + ' använde kameran ' + duration(tCam - last.endMs) + ' innan filen sparades.' };
-            }
-            return null;
+            return ownCamera(ops, app, creator, tCam, whenText, creator + ' använde kameran när ' + (file.memory && file.memory.video ? 'videon spelades in' : 'bilden togs') + '.');
         };
         var tgCam = type.type === 'saved' && type.importer === TELEGRAM && input.telegram && input.telegram.link ? input.telegram.link.camera : null;
         if (tgCam) return factorTelegramCamera(tgCam, importerCamera(TELEGRAM, 'Telegram'));
@@ -1144,7 +1161,7 @@
             var creator = appName(type.importer, names);
             // Appops (Android) och PowerLog (iOS) registrerar kameran per app, även en tredjepartsapps egen kamera.
             var own = importerCamera(type.importer, creator);
-            if (own) return { id: 'camera', title: 'Kamera igång', state: own.state, items: [{ state: own.state, text: own.text }].concat(batteryItems(own.events)), plain: own.plain };
+            if (own) return { id: 'camera', title: 'Kamera igång', state: own.state, items: own.items.concat(batteryItems(own.events)), plain: own.plain };
             var namedOps = ops.filter(function (e) { return !!e.app; });
             if (namedOps.length) {
                 var f0 = Object.assign({}, appFactor, { id: 'camera', title: 'Skaparappen igång' });
@@ -1193,7 +1210,7 @@
     // used: Telegrams kameraanvändning enligt PowerLog ({ state, text }) eller null.
     function factorTelegramCamera(c, used) {
         var what = c.video ? 'videon' : 'bilden';
-        var items = used ? [{ state: used.state, text: used.text }] : [];
+        var items = used ? used.items.slice() : [];
         if (c.same) {
             items.push({ state: 'support', text: 'Originalnamnet ' + c.name + ' är namnet Telegrams kamera ger ' + (c.video ? 'en video' : 'en bild') + ', och samma fil (SHA-256) ligger kvar i Telegrams behållare (' + c.path + ').' });
             return { id: 'camera', title: 'Telegrams kamera', state: 'support', items: items,
@@ -1207,12 +1224,20 @@
             plain: 'Namnet tyder på att ' + what + ' kom från Telegrams kamera.' };
     }
 
-    // Kameran för en fil i Snapchats cache: Snapchat använder sin egen kamera, så svaret kommer ur
-    // cache_controller (typ 34 = inspelning) och arroyo (vem som skickade), inte ur knowledgeC.
+    // Kameran för en fil i Snapchats cache: Snapchat använder sin egen kamera, så svaret kommer först ur
+    // cache_controller (typ 34 = inspelning) och arroyo (vem som skickade), inte ur knowledgeC. Säger registret inget
+    // återstår loggarna över kameran per app. De visar att kameran var på, inte att den här filen togs med den, och
+    // Snapchat startar kameran när appen öppnas. Därför eget svar i stället för "Snapchats kamera".
     function factorSnapchatCamera(input, type, events) {
         var T = input.file.createdMs;
         var sc = input.file.snapchatCache || {};
         var title = 'Snapchats kamera';
+        var byLogs = function (prefix) {
+            var ops = events.filter(function (e) { return e.kind === 'app' && e.cameraOp; });
+            var used = ownCamera(ops, input.platform === 'Android' ? SNAPCHAT_ANDROID : SNAPCHAT, 'Snapchat', input.file.capturedMs || T, 'tidpunkten', 'Snapchat använde kameran vid den här tiden. Det visar att kameran var på, inte att just den här filen togs med den.');
+            return used && { id: 'camera', title: title, state: used.state, verdictText: used.state === 'support' ? 'Kameran var på' : 'Kameran på strax före', viaLog: true,
+                items: (prefix ? [{ state: 'info', text: prefix }] : []).concat(used.items, batteryItems(used.events)), plain: used.plain };
+        };
         if (type.origin === 'recorded') {
             return { id: 'camera', title: title, state: 'support', items: [{ state: 'support', text: 'Registrerad som inspelning med Snapchats kamera (MEDIA_CONTEXT_TYPE 34' + (sc.recordingCopy ? ', och samma bytes finns i recorded_videos' : '') + ').' }],
                 plain: 'Videon spelades in med Snapchats kamera på den här telefonen.' };
@@ -1228,10 +1253,11 @@
                 return { id: 'camera', title: title, state: 'support', items: [{ state: 'support', text: 'En inspelning med Snapchats kamera registrerades ' + duration(T - last.ms) + ' före filen (MEDIA_CONTEXT_TYPE 34, nyckel ' + String(last.cacheKey).slice(0, 12) + '…).' }],
                     plain: 'Snapchats kamera spelade in strax innan filen skickades.' };
             }
-            return { id: 'camera', title: title, state: 'missing', items: [{ state: 'missing', text: 'Filen skickades från den här telefonen' + (type.recipient ? ' till @' + type.recipient : '') + ', men ingen inspelning med Snapchats kamera är registrerad strax före. En stillbild med Snapchats kamera ger inte alltid en inspelningspost, och filen kan också ha valts ur bildbiblioteket.' }],
+            var sentNote = 'Filen skickades från den här telefonen' + (type.recipient ? ' till @' + type.recipient : '') + ', men ingen inspelning med Snapchats kamera är registrerad strax före. En stillbild med Snapchats kamera ger inte alltid en inspelningspost, och filen kan också ha valts ur bildbiblioteket.';
+            return byLogs(sentNote) || { id: 'camera', title: title, state: 'missing', items: [{ state: 'missing', text: sentNote }],
                 plain: 'Det syns inte om filen togs med Snapchats kamera eller valdes ur bildbiblioteket innan den skickades.' };
         }
-        return { id: 'camera', title: title, state: 'missing', items: [{ state: 'missing', text: 'Snapchats register säger inte om kameran användes för den här filen' + (sc.context != null ? ' (typ ' + sc.context + ')' : '') + '.' }],
+        return byLogs(null) || { id: 'camera', title: title, state: 'missing', items: [{ state: 'missing', text: 'Snapchats register säger inte om kameran användes för den här filen' + (sc.context != null ? ' (typ ' + sc.context + ')' : '') + '.' }],
             plain: 'Det går inte att se om Snapchats kamera användes.' };
     }
 
@@ -1535,7 +1561,7 @@
         }
         var posF = factors.find(function (f) { return f.id === 'position'; });
         // För Snapchat-media är kamerafaktorn Snapchats egen registrering, inte kameraappen i loggen.
-        var camText = cam && cam.state === 'support' ? (type.type === 'snapchat' ? 'Snapchats kamera användes för filen enligt Snapchats register.' : 'Kameran var igång vid tidpunkten.') : null;
+        var camText = cam && cam.state === 'support' ? (type.type === 'snapchat' && !cam.viaLog ? 'Snapchats kamera användes för filen enligt Snapchats register.' : 'Kameran var igång vid tidpunkten.') : null;
         var copyAreas = {};
         (input.copies || []).forEach(function (c) { copyAreas[c.area] = c; });
         var mem = type.memory;

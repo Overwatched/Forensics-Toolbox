@@ -1453,7 +1453,7 @@
             run.queries.push({ id: 'batterystats-history', db: 'batterihistoriken', title: 'Härkomst: batterihistoriken (text, ingen SQL)',
                 sql: '-- ' + picked.length + ' av ' + sam.battery.length + ' textfiler ur ' + Z() + ' under log/batterystats/. Filen täcker tiden från förra filens namn till sitt eget. Raderna har lokal tid utan zon; zonen är filnamnets tid mot filens ändringstid i UTC.\n-- ' +
                     picked.map(function (b) { return b.entry.name + ' (' + b.entry.size + ' byte, CRC32 ' + ExtractionCore.hex(b.entry.crc32) + ')'; }).join('\n-- ') +
-                    '\n-- App: +top=<uid>:"<paket>" till -top eller -screen. Skärm: +screen/-screen. Kamera: +camera/-camera, utan app; appen är den som var i förgrunden.' +
+                    '\n-- App: +top=<uid>:"<paket>" till -top eller -screen. Skärm: +screen/-screen. Kamera: +camera/-camera. Har raden +state=<uid>:"camera" är appen den som har den uid:n enligt raderna med top=, annars den som var i förgrunden.' +
                     '\n-- Tiden räknas fram från senaste raden med TIME:. Ett steg i klockan vid den raden gör raderna intill osäkra: sådana rader räknas inte i bedömningen.' +
                     (clockSteps.length ? '\n-- Avsnitt med osäker klocka i de lästa filerna:\n-- ' + clockSteps.slice(0, 40).join('\n-- ') + (clockSteps.length > 40 ? '\n-- … och ' + (clockSteps.length - 40) + ' till.' : '') : '') +
                     (got.batteryRows.length ? '\n-- Råraderna i fönstret:\n-- ' + samsungRows(got.batteryRows, picked).join('\n-- ') : '\n-- Inga rader om app, skärm eller kamera i fönstret.') });

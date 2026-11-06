@@ -1,0 +1,33 @@
+{
+  "description": "Loggad session på en Samsung (SM-A336B, Android 16) 2026-11-06. Undersökaren antecknade tiderna på minuten (logged). Sekunderna kommer ur telefonen och är kontrollerade mellan SSRM, batterihistoriken, appops och usagestats. Telefonen låg låst i 28 dagar före labbet och över sommartidens slut. Signals nyckel finns inte i extraktionen, så meddelandena läses inte.",
+  "zip": "EXTRACTION_FFS.zip",
+  "toleranceMs": 3000,
+  "logged": [
+    { "at": "14:59", "what": "kamera" },
+    { "at": "15:00", "what": "Signal uppdateras" },
+    { "at": "15:01", "what": "öppnar appen" },
+    { "at": "15:02", "what": "skickar en bild i Signal, tagen med Signals kamera" },
+    { "at": "15:03", "what": "skickar en bild i Signal, bifogad ur kamerarullen" },
+    { "at": "15:07", "what": "tar en bild med Snapchat och lägger den i min story" }
+  ],
+  "cameraSessions": [
+    { "app": "com.sec.android.app.camera", "note": "kameran öppnas och stängs utan att någon bild tas (inte antecknat, ingen fil i DCIM)", "ssrm": ["2026-11-06T14:58:47+01:00", "2026-11-06T14:58:51+01:00"], "battery": ["2026-11-06T14:58:46.646+01:00", "2026-11-06T14:58:51.608+01:00"] },
+    { "app": "com.sec.android.app.camera", "note": "bilden 20261106_145905.jpg", "ssrm": ["2026-11-06T14:59:00+01:00", "2026-11-06T14:59:08+01:00"], "battery": ["2026-11-06T14:58:59.854+01:00", "2026-11-06T14:59:09.648+01:00"] },
+    { "app": "org.thoughtcrime.securesms", "note": "Signals QR-läsare (UsernameQrScannerActivity)", "ssrm": ["2026-11-06T15:01:48+01:00", "2026-11-06T15:01:51+01:00"], "battery": ["2026-11-06T15:01:48.472+01:00", "2026-11-06T15:01:52.925+01:00"] },
+    { "app": "org.thoughtcrime.securesms", "note": "Signals kamera, bilden som skickas", "ssrm": ["2026-11-06T15:01:57+01:00", "2026-11-06T15:02:05+01:00"], "battery": ["2026-11-06T15:01:57.346+01:00", "2026-11-06T15:02:07.174+01:00"] },
+    { "app": "com.snapchat.android", "note": "Snapchats kamera, startar medan frågan om behörighet ligger överst", "ssrm": ["2026-11-06T15:06:15+01:00", "2026-11-06T15:07:11+01:00"], "battery": ["2026-11-06T15:06:14.942+01:00", "2026-11-06T15:07:11.682+01:00"] },
+    { "app": "com.snapchat.android", "ssrm": ["2026-11-06T15:07:14+01:00", "2026-11-06T15:07:16+01:00"], "battery": ["2026-11-06T15:07:13.793+01:00", "2026-11-06T15:07:16.842+01:00"] }
+  ],
+  "foreground": [
+    { "app": "org.thoughtcrime.securesms", "from": "2026-11-06T15:01:09.108+01:00", "to": "2026-11-06T15:02:43.250+01:00", "note": "nio aktiviteter i följd i usagestats, samma tid i SSRM och batterihistoriken" },
+    { "app": "org.thoughtcrime.securesms", "from": "2026-11-06T15:02:44.895+01:00", "to": "2026-11-06T15:03:32.178+01:00" },
+    { "app": "com.android.vending", "from": "2026-11-06T14:59:42.335+01:00", "to": "2026-11-06T15:01:02.954+01:00" },
+    { "app": "com.snapchat.android", "from": "2026-11-06T15:06:15.933+01:00", "to": "2026-11-06T15:07:15.777+01:00" }
+  ],
+  "files": {
+    "camera": { "name": "20261106_145905.jpg", "T": "2026-11-06T14:59:06.016+01:00" },
+    "signalCamera": { "name": "part3413830337896181889.mms", "T": "2026-11-06T15:02:05+01:00", "note": "Signals krypterade bilaga: T är filens ändringstid" },
+    "signalAttached": { "name": "part1501464198839346640.mms", "T": "2026-11-06T15:03:03+01:00", "note": "Signals krypterade bilaga: T är filens ändringstid" },
+    "snapchat": { "name": "4B5817F5011B937377BAE43EF9764989.posted_story_snap.1", "T": "2026-11-06T15:07:01.019+01:00", "capturedInMemories": "2026-11-06T15:07:01.218+01:00" }
+  }
+}

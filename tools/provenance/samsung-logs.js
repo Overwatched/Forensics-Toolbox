@@ -16,6 +16,7 @@
     var LARGE_STEP_MS = 3600000;    // telefonen vaknar oftare än så: ett större steg framåt i klockan är inget uppehåll i raderna
     var RAW_MAX = 220;
     var MERGE_GAP_MS = 2000;        // samma marginal som Härkomsts övriga hopslagning av täta händelser
+    var RTC_NEAR_MS = MINUTE;       // [RTC] skrivs någon sekund efter en start
 
     function isSsrmPath(name) { return SSRM_RE.test(String(name || '')); }
     function isBatteryPath(name) { return BATTERY_RE.test(String(name || '')); }
@@ -123,7 +124,12 @@
             if (r.localMs > span.endLocal) span.endLocal = r.localMs;
             if (r.tag === 'RTC') {
                 var off = rtcOffset(r);
-                if (off) out.offsets.push(off);
+                if (off) {
+                    out.offsets.push(off);
+                    // Raderna från starten till den första [RTC] har samma zon som den, inte zonen före starten. Skärmen tänds på
+                    // de raderna, och med en zonändring medan telefonen var låst blev hela skärmraden annars osäker (labbet, 28 dagar).
+                    if (r.localMs > span.startLocal && r.localMs - span.startLocal <= RTC_NEAR_MS) out.offsets.push({ localMs: span.startLocal, offsetMinutes: off.offsetMinutes });
+                }
             } else if (r.tag === 'PKG') {
                 if (app) close(app, out.apps, r);
                 var pkg = own(r.rest.trim());
@@ -186,9 +192,18 @@
     var BATTERY_DATE = /^\s*(\d\d)-(\d\d) (\d\d):(\d\d):(\d\d)\.(\d{3}) (.*)$/;
     var ANCHOR_RE = /^(RESET:)?TIME: (\d{4})-(\d\d)-(\d\d)-(\d\d)-(\d\d)-(\d\d)(?:-(\d{3}))?/;
 
+    // Uid står på två sätt i filen: 10330 och u0a330.
+    function uidNumber(text) {
+        var m = /^u(\d+)a(\d+)$/.exec(text);
+        return m ? Number(m[1]) * 100000 + 10000 + Number(m[2]) : Number(text);
+    }
+
     // Raderna skrivs ut med en av två former. Äldre filer har tiden sedan historikens början (+1h37m42s570ms),
     // nyare har datum utan år (05-22 12:24:57.537). I båda räknas tiden fram från senaste ankaret (TIME: med full tid),
     // så en rad är aldrig säkrare än ankaret före den. Allt som läses är app, skärm, kamera, ankare och omstarter.
+    // Kameran: nyare rader säger vem som använder den (+camera +state=10330:"camera"), och raderna +top vilket paket
+    // uid:n är. Utan den uppgiften är appen den som låg i förgrunden, och det kan vara en annan: i labbet startade Snapchat
+    // kameran medan frågan om behörighet låg överst.
     function parseBattery(text, name) {
         var str = String(text);
         var out = { name: name, format: null, rows: 0, firstLocal: null, lastLocal: null, apps: [], screen: [], camera: [], segments: [] };
@@ -200,6 +215,7 @@
         var scr = { on: null, since: null };
         var curTop = null;
         var names = Object.create(null);
+        var uids = Object.create(null);
         var openApp = null;
         var cam = null;
         function ref(line, raw) { return { file: name, line: line, raw: cutRaw(raw), seg: out.segments.length - 1 }; }
@@ -301,28 +317,40 @@
                 }
                 if (!on) closeApp(here);
             }
-            var topRe = /(?:^| )([+-]?)top=[^:\s]+:"([^"]*)"/g;
+            var topRe = /(?:^| )([+-]?)top=([^:\s]+):"([^"]*)"/g;
             var t;
             while ((t = topRe.exec(rest))) {
+                var topName = names[t[3]] || (names[t[3]] = own(t[3]));
+                var topUid = uidNumber(t[2]);
+                // Uid 1000 delas av flera systemappar. Då säger uid:n inte vilken.
+                uids[topUid] = uids[topUid] === undefined || uids[topUid] === topName ? topName : null;
                 if (t[1] === '-') {
-                    if (openApp && openApp.app === t[2]) closeApp(here);
-                    if (curTop === t[2]) curTop = null;
+                    if (openApp && openApp.app === topName) closeApp(here);
+                    if (curTop === topName) curTop = null;
                 } else {
-                    curTop = names[t[2]] || (names[t[2]] = own(t[2]));
+                    curTop = topName;
                     if (openApp && openApp.app !== curTop) closeApp(here);
                     if (!openApp && scr.on !== false) openApp = { startLocal: rowLocal, app: curTop, from: here.ref };
                 }
             }
             var ca = /(?:^| )([+-])camera(?= |$)/.exec(flags);
-            if (ca && ca[1] === '+') {
-                if (!cam) cam = { startLocal: rowLocal, app: curTop, from: here.ref };
-            } else if (ca) {
-                if (cam) { pushInterval(out.camera, cam, here); cam = null; }
+            if (ca) {
+                var st = /(?:^| )[+-]state=([^:\s]+):"camera"/.exec(rest);
+                var camUid = st ? uidNumber(st[1]) : null;
+                if (ca[1] === '+') {
+                    if (!cam) cam = { startLocal: rowLocal, app: curTop, uid: camUid, from: here.ref };
+                } else if (cam) { pushInterval(out.camera, cam, here); cam = null; }
                 // Kameran var på redan när avsnittet började: en ny fil börjar mitt i en användning.
-                else if (seg) pushInterval(out.camera, { startLocal: seg.startLocal, app: curTop, from: { file: name, line: seg.line, raw: seg.raw, seg: out.segments.length - 1 } }, here);
+                else if (seg) pushInterval(out.camera, { startLocal: seg.startLocal, app: curTop, uid: camUid, from: { file: name, line: seg.line, raw: seg.raw, seg: out.segments.length - 1 } }, here);
             }
         }
         if (last) closeAll(last, true);
+        // Paketet kan stå senare i filen än kameraraden. Hittas det inte är appen okänd: den i förgrunden är inte säkert samma.
+        out.camera.forEach(function (c) {
+            if (c.uid == null) return;
+            c.app = uids[c.uid] || null;
+            c.byUid = !!c.app;
+        });
         out.segments.forEach(function (s) { s.clockMs = segmentClock(s, out.format === 'offset'); });
         [out.apps, out.screen, out.camera].forEach(function (list) {
             list.forEach(function (iv) { iv.clockMs = intervalClock(out.segments, iv); });
@@ -461,6 +489,7 @@
             var clockMs = iv.clockMs || 0;
             var row = { startMs: startMs, endMs: endMs, stream: stream, openEnded: !!iv.openEnded };
             if (what === 'app' || what === 'camera') row.app = iv.app || null;
+            if (what === 'camera' && iv.byUid) row.byUid = true;
             if (what === 'screen') row.on = iv.on;
             row.source = stream === 'SSRM' ? sourceOf('SSRM', 'ssrm-heating', iv) : sourceOf('batterihistoriken', 'batterystats-history', iv);
             if (zoneMs > 0 || clockMs > CLOCK_LIMIT_MS) {

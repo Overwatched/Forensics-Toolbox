@@ -110,7 +110,7 @@ test('SSRM: en ny uppstart utan avstängning, och raden om förra uppstarten', (
 
 test('SSRM: zonen ur [RTC], också när raden skrivs över en sekundgräns', () => {
     const p = logs.parseSsrm([{ name: 'a.log', text: SSRM_B + '\n' + rtc('2026-05-23 11:30:00', '2026-05-23 10:30:00') }]);
-    assert.deepStrictEqual(p.offsets.map((o) => o.offsetMinutes), [120, 60]);
+    assert.deepStrictEqual(p.offsets.map((o) => o.offsetMinutes), [120, 120, 60], 'avsnittets start, sekunden före sin [RTC], räknas med');
     assert.deepStrictEqual(logs.zoneAt(p.offsets, L(2026, 5, 23, 11, 0, 1)), { offsetMinutes: 120, unsureMs: 0 });
     // Zonen bytte mellan raderna: vilken sida en tid hör till går inte att säga.
     assert.deepStrictEqual(logs.zoneAt(p.offsets, L(2026, 5, 23, 11, 20, 0)), { offsetMinutes: 60, unsureMs: 3600000 });
@@ -120,6 +120,37 @@ test('SSRM: zonen ur [RTC], också när raden skrivs över en sekundgräns', () 
     const one = [{ localMs: L(2026, 6, 1, 0, 0, 0), offsetMinutes: 120 }];
     assert.strictEqual(logs.zoneAt(one, L(2026, 5, 25, 0, 0, 0)).unsureMs, 0);
     assert.strictEqual(logs.zoneAt(one, L(2026, 4, 1, 0, 0, 0)).unsureMs, 3600000);
+});
+
+// Labbet: telefonen låg låst i 28 dagar över sommartidens slut, så SSRM hoppade från +2 till +1 utan rader emellan. Raderna
+// efter starten kommer sekunden före [RTC], och skärmen tänds på just de raderna.
+const SSRM_ZONE = [
+    rtc('2026-10-09 08:22:00', '2026-10-09 06:22:00'),
+    lcd('2026-10-09 08:22:21', 'OFF'),
+    '2026-10-09 08:34:06 [VER] A000 SHUTDOWN',
+    '',
+    '===== ABOVE LOGS ARE FROM LAST BOOTING =====',
+    '',
+    '2026-11-06 14:56:51 [VER] A000 START',
+    '2026-11-06 14:56:51 [SET] [] [LCD] ON  [sleep_count = 6, sleep_time_sec = 39]',
+    rtc('2026-11-06 14:56:52', '2026-11-06 13:56:56'),
+    '2026-11-06 14:57:32 [PKG] org.example.chat',
+    '2026-11-06 15:28:10 [VER] A000 SHUTDOWN',
+].join('\n');
+
+test('SSRM: raderna från starten till första [RTC] har den zonen, inte zonen före ett långt hål', () => {
+    const p = logs.parseSsrm([{ name: 'a.log', text: SSRM_ZONE }]);
+    assert.deepStrictEqual(logs.zoneAt(p.offsets, L(2026, 11, 6, 14, 56, 51)), { offsetMinutes: 60, unsureMs: 0 });
+    const got = logs.collect({ windows: [{ startMs: L(2026, 11, 6, 13, 0, 0), endMs: L(2026, 11, 6, 15, 0, 0) }], ssrm: p });
+    assert.deepStrictEqual(got.screen.map((x) => [x.on, x.startMs, x.endMs]), [[true, L(2026, 11, 6, 13, 56, 51), L(2026, 11, 6, 14, 28, 10)]]);
+    assert.deepStrictEqual(got.unsure, []);
+    // Före avstängningen går det inte att säga: zonen kan ha bytts när som helst efter den sista [RTC].
+    assert.strictEqual(logs.zoneAt(p.offsets, L(2026, 10, 9, 8, 22, 21)).unsureMs, 3600000);
+    // Långt från starten säger [RTC] inget om starten.
+    const far = logs.parseSsrm([{ name: 'a.log', text: SSRM_ZONE.replace(rtc('2026-11-06 14:56:52', '2026-11-06 13:56:56'), rtc('2026-11-06 14:57:52', '2026-11-06 13:57:56')) }]);
+    assert.strictEqual(logs.zoneAt(far.offsets, L(2026, 11, 6, 14, 56, 51)).unsureMs, 3600000);
+    const near = logs.parseSsrm([{ name: 'a.log', text: SSRM_ZONE.replace(rtc('2026-11-06 14:56:52', '2026-11-06 13:56:56'), rtc('2026-11-06 14:57:51', '2026-11-06 13:57:55')) }]);
+    assert.strictEqual(logs.zoneAt(near.offsets, L(2026, 11, 6, 14, 56, 51)).unsureMs, 0, 'exakt en minut räknas');
 });
 
 // Den nyare formen: datum utan år och en hexkolumn.
@@ -165,6 +196,41 @@ test('batterihistoriken, nyare formen: appen slutar när skärmen släcks och ko
     assert.deepStrictEqual(p.camera.map((c) => [c.app, c.startLocal, c.endLocal, c.from.line]), [['org.example.chat', L(2026, 5, 22, 10, 1, 30, 500), L(2026, 5, 22, 10, 1, 33, 500), 7]],
         'kamerans app är den i förgrunden, inte pkgactive, och raderna efter historiken läses inte');
     assert.ok(p.camera[0].from.raw.startsWith('05-22 10:01:30.500 078 c4900011 +camera'));
+});
+
+test('batterihistoriken: +state säger vem som använder kameran, också när en annan app ligger överst', () => {
+    const p = logs.parseBattery([
+        '  11-06 15:06:00.000 RESET:TIME: 2026-11-06-15-06-00-000',
+        '  11-06 15:06:01.000 097 c4110019 +screen',
+        '  11-06 15:06:10.000 097 c4110019 +top=u0a50:"com.example.dialog"',
+        // Paketet står först längre ner i filen.
+        '  11-06 15:06:14.942 097 c4110019 +camera +state=10330:"camera"',
+        '  11-06 15:06:19.554 097 c4110019 -camera -state=10330:"camera"',
+        '  11-06 15:06:20.000 097 c4110019 -top=u0a50:"com.example.dialog"',
+        '  11-06 15:06:20.100 097 c4110019 +top=u0a330:"org.example.snap"',
+        // En uid som inte står någonstans: appen är okänd, inte den som råkar ligga överst.
+        '  11-06 15:06:30.000 097 c4110019 +camera +state=10999:"camera" procstate: u0a46: cached',
+        '  11-06 15:06:31.000 097 c4110019 -camera -state=10999:"camera"',
+        // Uid 1000 delas av flera systemappar.
+        '  11-06 15:06:40.000 097 c4110019 -top=u0a330:"org.example.snap"',
+        '  11-06 15:06:40.100 097 c4110019 +top=1000:"com.example.settings"',
+        '  11-06 15:06:41.000 097 c4110019 -top=1000:"com.example.settings"',
+        '  11-06 15:06:41.100 097 c4110019 +top=1000:"com.example.setup"',
+        '  11-06 15:06:42.000 097 c4110019 +camera +state=1000:"camera"',
+        '  11-06 15:06:43.000 097 c4110019 -camera -state=1000:"camera"',
+        // Utan +state: den i förgrunden, som förut.
+        '  11-06 15:06:50.000 097 c4110019 +camera',
+        '  11-06 15:06:51.000 097 c4110019 -camera',
+        // En annan state på samma rad säger inget om kameran.
+        '  11-06 15:06:52.000 097 c4110019 +camera +state=10330:"audio"',
+        '  11-06 15:06:53.000 097 c4110019 -camera -state=10330:"audio"',
+    ].join('\n'), 'newbatterystats261106152106');
+    assert.deepStrictEqual(p.camera.map((c) => [c.app, !!c.byUid]), [['org.example.snap', true], [null, false], [null, false], ['com.example.setup', false], ['com.example.setup', false]]);
+    const got = logs.collect({ windows: [{ startMs: L(2026, 11, 6, 13, 0, 0), endMs: L(2026, 11, 6, 15, 0, 0) }], battery: [p], zones: { newbatterystats261106152106: { offsetMinutes: 60, unsureMs: 0, oldest: false, nameMs: L(2026, 11, 6, 15, 21, 6) } } });
+    assert.deepStrictEqual(got.camera.map((c) => [c.app, !!c.byUid]).slice(0, 2), [['org.example.snap', true], [null, false]]);
+    // En ny fil börjar mitt i en användning: uid:n står på slutraden.
+    const cut = logs.parseBattery(['  11-06 15:06:00.000 RESET:TIME: 2026-11-06-15-06-00-000', '  11-06 15:06:01.000 097 c4110019 +top=u0a330:"org.example.snap"', '  11-06 15:06:02.000 097 c4110019 -camera -state=u0a330:"camera"'].join('\n'), 'newbatterystats261106152106');
+    assert.deepStrictEqual(cut.camera.map((c) => [c.app, c.byUid]), [['org.example.snap', true]]);
 });
 
 // Den äldre formen: tiden sedan historikens början, och ett ankare med hela tiden.

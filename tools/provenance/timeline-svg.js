@@ -125,7 +125,12 @@
     function fileLabel(e, model) {
         var m;
         switch (e.kind) {
-            case 'file-created': return (model.file && model.file.filename ? cut(model.file.filename, 22) + ' ' : '') + (model.type && model.type.type === 'snapchat' ? 'registreras' : 'skapas');
+            case 'file-created': {
+                // Utan rad i biblioteket är T filens egen tid eller ändringstid, och det säger inte att filen skapades då.
+                var from = e.source && e.source.db;
+                var verb = from === 'zippen' || from === 'rapporten' ? 'ändras i filsystemet' : from === 'bildfilen' ? 'tiden i filen' : model.type && model.type.type === 'snapchat' ? 'registreras' : 'skapas';
+                return (model.file && model.file.filename ? cut(model.file.filename, 22) + ' ' : '') + verb;
+            }
             case 'file-added': return 'Tillagd i biblioteket';
             case 'file-modified': return 'Ändrad';
             case 'exif': return 'EXIF i filen';
@@ -434,6 +439,17 @@
         }
         var sinceText = function (e, word) { return labels ? (e.ms < w.startMs ? word + ' sedan ' + fmtTime(fmt, e.ms) : word + ' ' + fmtTime(fmt, e.ms) + (e.endMs < w.endMs ? ' → ' + fmtTime(fmt, e.endMs) : '')) : word; };
 
+        // Samma läge ur flera källor ger band ovanpå varandra. Texten står en gång, på det längsta, där den får plats.
+        function labelElsewhere(list, i, same) {
+            var e = list[i];
+            var len = e.endMs - e.ms;
+            return list.some(function (o, j) {
+                if (j === i || !same(o) || o.ms >= e.endMs || e.ms >= o.endMs) return false;
+                var oLen = o.endMs - o.ms;
+                return oLen > len || (oLen === len && j < i);
+            });
+        }
+
         // En rad med radens mitt i mid. Ger { svg, lanes }.
         function renderRow(r, mid) {
             var place = placer();
@@ -454,12 +470,13 @@
                 return text(flip ? px - 10 : px + 10, laneY(k, mid, overBand), raw, { size: 10.5, raw: true, anchor: flip ? 'end' : null });
             }
             if (r.id === 'app') {
-                events.filter(foreground).forEach(function (e) {
+                var fgBands = events.filter(foreground);
+                fgBands.forEach(function (e, i) {
                     var x1 = cx(e.ms), x2 = cx(e.endMs), name = appName(e.app) || e.app || '';
                     var fill = appColor(e);
                     out += band(x1, x2, mid, fill, name + ' ' + fmt(e.ms) + ' – ' + fmt(e.endMs));
                     var long = name + ' ' + fmtTime(fmt, e.ms) + ' → ' + fmtTime(fmt, e.endMs);
-                    texts += bandText(x1, x2, mid, labels ? [long, name] : [name], fill === COLORS.snapchat ? COLORS.text : '#ffffff');
+                    if (!labelElsewhere(fgBands, i, function (o) { return o.app === e.app; })) texts += bandText(x1, x2, mid, labels ? [long, name] : [name], fill === COLORS.snapchat ? COLORS.text : '#ffffff');
                 });
             } else if (r.id === 'camera') {
                 // Grått där en annan app var i förgrunden, grönt där kameran var igång, prick för Snapchats inspelning.
@@ -489,12 +506,13 @@
                     if (labels && important(e)) texts += focus ? label(px, 'Snapchats kamera', fmtTime(fmt, e.ms), false) : label(px, what, fmtTime(fmt, e.ms), !!e.isFile);
                 });
             } else if (r.id === 'screen' || r.id === 'lock') {
-                events.filter(function (e) { return e.kind === r.id && e.endMs != null; }).forEach(function (e) {
+                var stateBands = events.filter(function (e) { return e.kind === r.id && e.endMs != null; });
+                stateBands.forEach(function (e, i) {
                     var on = r.id === 'screen' ? !!e.on : !e.locked;
                     var word = r.id === 'screen' ? (on ? 'tänd' : 'släckt') : (on ? 'olåst' : 'låst');
                     var x1 = cx(e.ms), x2 = cx(e.endMs);
                     out += band(x1, x2, mid, on ? COLORS.phone : COLORS.off, word + ' ' + fmt(e.ms) + ' – ' + fmt(e.endMs), on ? null : COLORS.offStroke);
-                    texts += bandText(x1, x2, mid, [sinceText(e, word), word], on ? '#ffffff' : COLORS.text);
+                    if (!labelElsewhere(stateBands, i, function (o) { return (r.id === 'screen' ? !!o.on : !o.locked) === on; })) texts += bandText(x1, x2, mid, [sinceText(e, word), word], on ? '#ffffff' : COLORS.text);
                 });
             } else if (r.id === 'location') {
                 var ps = ctx.positions.filter(function (p) { return p.kind === 'phone'; });

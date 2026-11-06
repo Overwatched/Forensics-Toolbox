@@ -123,6 +123,10 @@ test('närbilden skriver ut händelserna med klockslag och slår ihop filens tid
 test('korta texter per händelsetyp', () => {
     const m = model();
     assert.strictEqual(tl.fileLabel({ kind: 'file-created' }, m), 'IMG_0042.HEIC skapas');
+    assert.strictEqual(tl.fileLabel({ kind: 'file-created', source: { db: 'zippen' } }, m), 'IMG_0042.HEIC ändras i filsystemet');
+    assert.strictEqual(tl.fileLabel({ kind: 'file-created', source: { db: 'rapporten' } }, m), 'IMG_0042.HEIC ändras i filsystemet');
+    assert.strictEqual(tl.fileLabel({ kind: 'file-created', source: { db: 'bildfilen' } }, m), 'IMG_0042.HEIC tiden i filen');
+    assert.strictEqual(tl.fileLabel({ kind: 'file-created', source: { db: 'Photos.sqlite' } }, m), 'IMG_0042.HEIC skapas');
     assert.strictEqual(tl.fileLabel({ kind: 'neighbour', text: 'Granne: IMG_0043.HEIC (com.apple.camera)' }, m), 'IMG_0043.HEIC');
     assert.strictEqual(tl.fileLabel({ kind: 'exif' }, m), 'EXIF i filen');
     assert.strictEqual(tl.snapLabel({ kind: 'snap-message', own: false, plain: 'En snap eller bild skickas till den här telefonen i Snapchat från @erik.lind' }), 'Snap från @erik.lind');
@@ -351,8 +355,46 @@ test('kameraband ur flera källor ovanpå varandra: texten står en gång', () =
             { startMs: T - 8 * M, endMs: T + 8 * M, app: 'com.example.camera', stream: 'SSRM', source: src },
         ],
     });
-    const out = tl.svg(m, m.windows[0], { format: fmt, appName: names, labels: true });
+    const out = tl.svg(m, { format: fmt, appName: names });
     const texts = (out.match(/<text[^>]*>[^<]*<\/text>/g) || []).map((t) => t.replace(/<[^>]+>/g, ''));
     assert.strictEqual(texts.filter((t) => t === 'används').length, 1, texts.join(' | '));
     assert.ok(!texts.some((t) => /^igång sedan/.test(t)), texts.join(' | '));
+    const labelled = (tl.svg(m, { format: fmt, appName: names, labels: true }).match(/<text[^>]*>[^<]*<\/text>/g) || []).map((t) => t.replace(/<[^>]+>/g, ''));
+    assert.strictEqual(labelled.filter((t) => t === 'används').length, 1, labelled.join(' | '));
+});
+
+test('skärm, lås och app ur flera källor ovanpå varandra: texten står en gång, på det längsta bandet', () => {
+    const src = { db: 'x' };
+    const M = 60 * S;
+    const base = { platform: 'Android', cameraApps: ['com.example.camera'], locations: [], neighbours: [], samsung: { battery: true }, lock: [], appIntervals: [], cameraUse: [] };
+    const svgOf = (over) => tl.svg(model(Object.assign({}, base, over)), { format: fmt, appName: names, labels: true });
+    // Klippytan runt bandets text: { x, w } per text som börjar med ordet. Kolumnen Vid T har ingen sådan.
+    const labelsOf = (out, word) => [...out.matchAll(new RegExp('<clipPath id="[^"]+"><rect x="([\\d.]+)" y="[\\d.-]+" width="([\\d.]+)"[^>]*/></clipPath><g clip-path="[^"]+"><text[^>]*>' + word.replace(/\./g, '\\.'), 'g'))].map((m) => ({ x: Number(m[1]), w: Number(m[2]) }));
+    const on = (from, to, stream) => ({ startMs: T + from * M, endMs: T + to * M, on: true, stream, source: src });
+    const out = svgOf({
+        screen: [{ startMs: T - 9 * M, endMs: T - 3 * M, on: false, stream: 'batterihistoriken', source: src }, on(-3, 6, 'batterihistoriken'), on(-2, 2, 'usagestats'), on(-2.5, 7, 'SSRM')],
+        lock: [{ startMs: T - 3 * M, endMs: T + 4 * M, locked: false, stream: 'usagestats', source: src }, { startMs: T - 2 * M, endMs: T + 3 * M, locked: false, stream: 'annan', source: src }],
+        appIntervals: [
+            { startMs: T - 6 * M, endMs: T + 6 * M, app: 'org.example.chat', stream: 'usagestats', source: src },
+            { startMs: T - 14 * M, endMs: T - 5 * M, app: 'org.example.chat', stream: 'SSRM', source: src },
+            { startMs: T - 8 * M, endMs: T - 3 * M, app: 'com.example.other', stream: 'SSRM', source: src },
+        ],
+    });
+    const tand = labelsOf(out, 'tänd'), slackt = labelsOf(out, 'släckt');
+    assert.strictEqual(tand.length, 1, 'en text för den tända skärmen');
+    // SSRM är längst, 9,5 minuter mot den släckta tidens sex. Den släckta tidens text står kvar: den säger något annat.
+    assert.strictEqual(slackt.length, 1);
+    assert.ok(Math.abs(tand[0].w / slackt[0].w - 9.5 / 6) < 0.02, JSON.stringify([tand, slackt]));
+    assert.strictEqual(labelsOf(out, 'olåst').length, 1);
+    // Samma app två gånger ger en text, en annan app sin egen.
+    assert.strictEqual(labelsOf(out, 'org.example.chat').length, 1, 'samma app');
+    assert.strictEqual(labelsOf(out, 'com.example.other').length, 1, 'en annan app');
+    // Två lika långa: den första, så att bilden inte ändras av ordningen i listan.
+    const first = labelsOf(svgOf({ screen: [on(-3, 3, 'a')] }), 'tänd');
+    const two = labelsOf(svgOf({ screen: [on(-3, 3, 'a'), on(-2, 4, 'b')] }), 'tänd');
+    assert.deepStrictEqual(two, first);
+    // Band som inte möts har var sin text.
+    assert.strictEqual(labelsOf(svgOf({ screen: [on(-6, -2, 'a'), on(2, 6, 'a')] }), 'tänd').length, 2);
+    // Band som bara rör vid varandra möts inte.
+    assert.strictEqual(labelsOf(svgOf({ screen: [on(-6, 0, 'a'), on(0, 6, 'a')] }), 'tänd').length, 2);
 });

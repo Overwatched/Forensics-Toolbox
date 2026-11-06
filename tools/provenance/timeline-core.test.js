@@ -157,6 +157,32 @@ test('Android: Wellbeing-händelser blir intervall, och en kamerabild under DCIM
     assert.deepStrictEqual(m.narrative[0].lines.map((l) => l.text), ['Skärmen tänds', 'Telefonen låses upp', 'Pixel-kameran öppnas', 'Bilden PXL_20250924_123109.jpg tas med kameran', 'Pixel-kameran lämnas', 'WhatsApp öppnas', 'WhatsApp lämnas', 'Skärmen släcks']);
 });
 
+test('Android: en app som byter aktivitet ligger kvar i förgrunden, trots att den gamla aktiviteten stoppas efter den nya', () => {
+    // Labbet: PAUSED för den gamla aktiviteten, RESUMED för den nya och en stund senare STOPPED för den gamla.
+    const iv = core.intervalsFromEvents([
+        { ms: 0, type: 1, app: 'org.example.chat', cls: 'Main' },
+        { ms: 10 * S, type: 2, app: 'org.example.chat', cls: 'Main' },
+        { ms: 10 * S + 15, type: 1, app: 'org.example.chat', cls: 'Send' },
+        { ms: 10 * S + 600, type: 23, app: 'org.example.chat', cls: 'Main' },
+        { ms: 40 * S, type: 2, app: 'org.example.chat', cls: 'Send' },
+        { ms: 40 * S + 20, type: 1, app: 'com.example.launcher', cls: 'Home' },
+        { ms: 40 * S + 500, type: 23, app: 'org.example.chat', cls: 'Send' },
+    ], 60 * S, {});
+    assert.deepStrictEqual(core.mergeIntervals(iv.apps).map((a) => [a.app, a.startMs, a.endMs]), [['org.example.chat', 0, 40 * S], ['com.example.launcher', 40 * S + 20, 60 * S]]);
+    // Flera aktiviteter kan stoppas efter varandra. En STOPPED utan PAUSED före sig avslutar fortfarande.
+    const two = core.intervalsFromEvents([
+        { ms: 0, type: 1, app: 'a' }, { ms: 1000, type: 2, app: 'a' }, { ms: 1010, type: 1, app: 'a' }, { ms: 2000, type: 2, app: 'a' }, { ms: 2010, type: 1, app: 'a' },
+        { ms: 2500, type: 23, app: 'a' }, { ms: 2600, type: 23, app: 'a' }, { ms: 9000, type: 23, app: 'a' },
+    ], 60 * S, {});
+    assert.deepStrictEqual(core.mergeIntervals(two.apps).map((a) => [a.startMs, a.endMs, !!a.openEnded]), [[0, 9000, false]]);
+    // En PAUSED som kom före fönstret: dess STOPPED rör inte appen som öppnas sedan.
+    const late = core.intervalsFromEvents([{ ms: 0, type: 2, app: 'a' }, { ms: 10, type: 1, app: 'a' }, { ms: 500, type: 23, app: 'a' }], 1000, {});
+    assert.deepStrictEqual(late.apps.map((a) => [a.startMs, a.endMs, !!a.openEnded]), [[10, 1000, true]]);
+    // En annan app räknas för sig.
+    const other = core.intervalsFromEvents([{ ms: 0, type: 2, app: 'b' }, { ms: 10, type: 1, app: 'a' }, { ms: 500, type: 23, app: 'a' }], 1000, {});
+    assert.deepStrictEqual(other.apps.map((a) => [a.app, a.endMs]), [['a', 500]]);
+});
+
 test('Android utan skärmhändelser: skärmen saknas, inte motsägelse', () => {
     const file = { pk: 7, filename: 'PXL_1.jpg', relativePath: 'DCIM/Camera/', importer: 'com.google.android.GoogleCamera', createdMs: T, addedMs: T };
     const m = core.build({ platform: 'Android', file, appNames: () => null, cameraApps: ['com.google.android.GoogleCamera'],
@@ -979,6 +1005,65 @@ test('Samsung: kameran utan känd app, och en app som använde kameran enligt SS
     // En rad utan app säger inget om vilken app det var.
     const unknown = core.build(samsungInput({ file: saved, appIntervals: [], screen: [], cameraUse: [{ startMs: T - 8 * S, endMs: T + 2 * S, app: null, stream: 'batterihistoriken', source: BATTERY_SRC }] }));
     assert.ok(!/Ingen kameraanvändning av Chatten/.test(textOf(unknown.factors.find((x) => x.id === 'camera'))));
+});
+
+test('Samsung: batterihistoriken med appens uid säger vem som använde kameran, inte vem som låg i förgrunden', () => {
+    const file = { pk: 9, filename: '20261106_145905.jpg', relativePath: 'DCIM/Camera/', importer: 'com.sec.android.app.camera', createdMs: T, addedMs: T };
+    const m = core.build(samsungInput({ file, cameraUse: [{ startMs: T - 8 * S, endMs: T + 2 * S, app: 'com.sec.android.app.camera', byUid: true, stream: 'batterihistoriken', source: BATTERY_SRC }] }));
+    const cam = m.events.find((e) => e.cameraOp && e.stream === 'batterihistoriken');
+    assert.strictEqual(cam.text, 'Samsung Kamera använder kameran (batterihistoriken, +camera)');
+    assert.ok(/Kameraappen använde kameran .* \(batterihistoriken, \+camera, med appens uid\)/.test(textOf(m.factors.find((x) => x.id === 'camera'))), textOf(m.factors.find((x) => x.id === 'camera')));
+});
+
+test('Snapchat: säger registret inget svarar loggarna över kameran, med ett eget svar', () => {
+    const file = { pk: 9, filename: '4B5817F5.posted_story_snap.1', snapchatCache: { path: 'x', key: 'k', external: {} }, createdMs: T, addedMs: T };
+    const cameraFactor = (m) => m.factors.find((x) => x.id === 'camera');
+    const snapUse = (over) => Object.assign({ startMs: T - 40 * S, endMs: T + 10 * S, app: 'com.snapchat.android', stream: 'SSRM', source: SSRM_SRC }, over);
+    const none = core.build(samsungInput({ file, cameraUse: [], screen: [], appIntervals: [] }));
+    assert.strictEqual(cameraFactor(none).state, 'missing');
+    assert.ok(/Snapchats register säger inte/.test(textOf(cameraFactor(none))));
+    // Tre loggar: en rad per logg, och batterihistorikens klocka sägs.
+    const three = core.build(samsungInput({ file, screen: [], appIntervals: [], cameraUse: [snapUse(), snapUse({ stream: 'batterihistoriken', byUid: true, source: BATTERY_SRC }), snapUse({ stream: undefined, source: { db: 'appops', table: 'd' } })] }));
+    const f = cameraFactor(three);
+    assert.strictEqual(f.state, 'support');
+    assert.strictEqual(f.title, 'Snapchats kamera');
+    assert.ok(/enligt SSRM \(camera running\), vilket täcker tidpunkten/.test(textOf(f)), textOf(f));
+    assert.ok(/enligt batterihistoriken \(\+camera, med appens uid\)/.test(textOf(f)), textOf(f));
+    assert.ok(/enligt appops \(op 26\)/.test(textOf(f)), textOf(f));
+    assert.ok(/räknas fram från närmaste TIME-rad/.test(textOf(f)), textOf(f));
+    assert.ok(/inte att just den här filen togs med den/.test(f.plain), f.plain);
+    const desc = three.factors.map((x) => x).find((x) => x.id === 'camera');
+    assert.strictEqual(desc.verdictText, 'Kameran var på', 'loggen visar att kameran var på, inte att filen togs med den');
+    const synced = three.alternatives.find((a) => a.id === 'synced');
+    assert.ok(!synced.against.some((t) => /enligt Snapchats register/.test(t)), 'det är inte Snapchats register som säger det: ' + JSON.stringify(synced));
+    assert.ok(synced.against.includes('Kameran var igång vid tidpunkten.'), JSON.stringify(synced));
+    // Två rader ur samma logg kring T: loggen nämns en gång.
+    const twice = core.build(samsungInput({ file, screen: [], appIntervals: [], cameraUse: [snapUse({ startMs: T - 60 * S, endMs: T - 3 * S }), snapUse({ startMs: T, endMs: T + 3 * S })] }));
+    assert.strictEqual(textOf(cameraFactor(twice)).match(/enligt SSRM/g).length, 1, textOf(cameraFactor(twice)));
+    // Stängd strax före: en upplysning.
+    const before = core.build(samsungInput({ file, screen: [], appIntervals: [], cameraUse: [snapUse({ startMs: T - 60 * S, endMs: T - 30 * S })] }));
+    assert.strictEqual(cameraFactor(before).state, 'info');
+    assert.strictEqual(cameraFactor(before).verdictText, 'Kameran på strax före');
+    // En annan app räknas inte.
+    const other = core.build(samsungInput({ file, screen: [], appIntervals: [], cameraUse: [snapUse({ app: 'org.example.chat' })] }));
+    assert.strictEqual(cameraFactor(other).state, 'missing');
+    // Skickad utan inspelning: anteckningen står kvar, och kameran kommer efter den.
+    const sentFile = Object.assign({}, file, { snapchatCache: { path: 'x', key: 'k', external: { kind: 'sent', recipient: 'testkonto' }, context: 1 } });
+    const sent = core.build(samsungInput({ file: sentFile, screen: [], appIntervals: [], cameraUse: [snapUse()] }));
+    assert.strictEqual(sent.type.origin, 'sent');
+    assert.strictEqual(cameraFactor(sent).state, 'support');
+    assert.ok(/^Filen skickades från den här telefonen till @testkonto/.test(cameraFactor(sent).items[0].text), cameraFactor(sent).items[0].text);
+    assert.strictEqual(cameraFactor(sent).items[0].state, 'info');
+    const sentNone = core.build(samsungInput({ file: sentFile, screen: [], appIntervals: [], cameraUse: [] }));
+    assert.strictEqual(cameraFactor(sentNone).state, 'missing');
+    // Registret går först: en inspelning är en inspelning, oavsett loggarna.
+    const recFile = Object.assign({}, file, { snapchatCache: { path: 'x', key: 'k', external: { kind: 'recording' }, context: 34, known: true, label: 'inspelning' } });
+    const rec = core.build(samsungInput({ file: recFile, screen: [], appIntervals: [], cameraUse: [snapUse()] }));
+    assert.ok(/Registrerad som inspelning/.test(textOf(cameraFactor(rec))));
+    assert.ok(!cameraFactor(rec).viaLog);
+    // Fel app på iOS: PowerLogs Snapchat, inte Androids.
+    const ios = core.build(samsungInput({ platform: 'iOS', file, screen: [], appIntervals: [], cameraUse: [snapUse({ app: 'com.toyopagroup.picaboo', stream: 'PowerLog', source: { db: 'x', table: 'y' } })] }));
+    assert.strictEqual(cameraFactor(ios).state, 'support');
 });
 
 test('Samsung: Snapchat-raden namnger loggen som raden kommer ur', () => {
