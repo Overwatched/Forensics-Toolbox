@@ -78,9 +78,18 @@
         return null;
     }
 
-    // Bilagor vars original eller lagrade fil har filens SHA-256.
-    function match(sha256Hex, attachments) {
+    // Den bedömda filen är Signals egen krypterade fil för bilagor: dess namn i app_parts/. Summan kan då aldrig stämma
+    // med bilagans, som gäller innehållet före krypteringen, men raden i databasen pekar ut filen med data_file.
+    function ownPart(path) {
+        var m = /org\.thoughtcrime\.securesms\/app_parts\/([^/]+)$/.exec(String(path || ''));
+        return m ? m[1] : null;
+    }
+
+    // Bilagor vars original eller lagrade fil har filens SHA-256, eller vars krypterade fil är den bedömda filen.
+    function match(sha256Hex, attachments, filePath) {
         var want = String(sha256Hex || '').toLowerCase();
+        var part = ownPart(filePath);
+        if (part) return (attachments || []).filter(function (a) { return a.dataFile && String(a.dataFile).split('/').pop() === part; }).map(function (a) { return { row: a, on: 'file', transformed: false }; });
         if (!/^[0-9a-f]{64}$/.test(want)) return [];
         var out = [];
         (attachments || []).forEach(function (a) {
@@ -182,7 +191,7 @@
         var byMessage = {};
         attachments.forEach(function (a) { (byMessage[a.messageId] = byMessage[a.messageId] || []).push(a); });
 
-        var matches = match(ctx.sha256, attachments);
+        var matches = match(ctx.sha256, attachments, ctx.filePath);
         var matchedMessages = {};
         matches.forEach(function (x) { matchedMessages[x.row.messageId] = true; });
         var log = parseLog(ctx.log);
@@ -355,6 +364,8 @@
             nameMatch: nameMatch ? { attachmentId: nameMatch.attachment.id, messageId: nameMatch.attachment.messageId } : null,
             attachments: attachments.length,
             logRows: (ctx.log || []).length,
+            ownFile: ownPart(ctx.filePath) ? 'app_parts/' : null,
+            ownFileListed: !!ownPart(ctx.filePath) && matches.length > 0,
         };
         return { events: events, notes: notes, link: link };
     }
@@ -395,6 +406,13 @@
         return Number(row.isGroup) ? who + ' i gruppen ' + conv : who;
     }
 
+    function isOwnFileIos(path) { return /\/attachment_files\/[^/]/.test(String(path || '')); }
+
+    // Raderna som pekar på filen i attachment_files/, med eller utan meddelande.
+    function ownRowsIos(path, attachments) {
+        return (attachments || []).filter(function (a) { return a.dataFile && String(path).slice(-('/attachment_files/' + a.dataFile).length) === '/attachment_files/' + a.dataFile; });
+    }
+
     // Bilagor som hör till filen: samma SHA-256 som den lagrade bilagan (sha256ContentHash), eller
     // samma namn som när filen lades till i Signal (sourceFilename). Signal kodar om bilder, så en
     // bild ur bildbiblioteket har inte bilagans summa; namnet kan finnas kvar.
@@ -402,6 +420,10 @@
         var want = String(ctx.sha256 || '').toLowerCase();
         var names = [ctx.fileName, ctx.originalFilename].filter(Boolean).map(function (n) { return String(n).toLowerCase(); });
         var out = [];
+        // Signals egen krypterade fil för bilagan: summan kan inte stämma, men raden pekar ut filen.
+        if (isOwnFileIos(ctx.filePath)) {
+            return ownRowsIos(ctx.filePath, attachments).filter(isMessageAttachment).map(function (a) { return { row: a, on: 'file' }; });
+        }
         (attachments || []).forEach(function (a) {
             if (!isMessageAttachment(a)) return;
             var bySha = /^[0-9a-f]{64}$/.test(want) && String(a.sha256 || '').toLowerCase() === want;
@@ -527,6 +549,8 @@
             nameMatch: nameMatch ? { attachmentId: nameMatch.attachment.id, messageId: nameMatch.attachment.messageId } : null,
             attachments: attachments.filter(isMessageAttachment).length,
             logRows: 0,
+            ownFile: isOwnFileIos(ctx.filePath) ? 'attachment_files/' : null,
+            ownFileListed: isOwnFileIos(ctx.filePath) && ownRowsIos(ctx.filePath, attachments).length > 0,
         };
         return { events: events, notes: notes, link: link };
     }

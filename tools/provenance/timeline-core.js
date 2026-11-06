@@ -476,10 +476,11 @@
 
     // ---------- Bedömning ----------
 
-    function coverageReason(key, coverage, missingDbs, ms, dbLabel) {
+    function coverageReason(key, input, ms, dbLabel) {
+        var missingDbs = input.missingDbs;
         if (missingDbs && missingDbs[key] === 'unread') return dbLabel + ' kunde inte läsas (felet står bland varningarna).';
-        if (missingDbs && missingDbs[key]) return dbLabel + ' finns inte i extraktionen.';
-        var c = coverage && coverage[key];
+        if (missingDbs && missingDbs[key]) return dbLabel + ' finns inte i ' + (input.container === 'rapporten' ? 'rapporten' : 'extraktionen') + '.';
+        var c = input.coverage && input.coverage[key];
         if (c && c.rows === 0) return dbLabel + ' har inga rader i strömmen.';
         if (c && c.firstMs != null && c.lastMs != null && (ms < c.firstMs || ms > c.lastMs)) {
             return 'Tidpunkten ligger utanför ' + dbLabel + ':s täckning (' + formatUtc(c.firstMs) + ' till ' + formatUtc(c.lastMs) + ').';
@@ -490,7 +491,7 @@
     // Skälet till att en registrering saknas vid T: knowledgeC:s (eller Androids loggs) täckning och, på
     // iOS, PowerLogs täckning och glapp.
     function reasonAt(input, key, ms, label) {
-        var r = coverageReason(key, input.coverage, input.missingDbs, ms, label);
+        var r = coverageReason(key, input, ms, label);
         if (input.platform === 'Android') return r;
         var c = input.coverage && input.coverage.PowerLog;
         if (!c) return r + (input.missingDbs && input.missingDbs.PowerLog === 'unread' ? ' PowerLog kunde inte läsas.' : '');
@@ -558,7 +559,7 @@
         });
         if (!inFile.length) {
             if (ex && ex.read) absent('file-time', 'Tid i filen', 'Filen har ingen egen tid.');
-            else absent('file-time', 'Tid i filen', 'Filen lästes inte' + (input.fileMissingReason ? ': ' + input.fileMissingReason : '') + '.');
+            else absent('file-time', 'Tid i filen', ex && ex.notParsed ? input.fileMissingReason + '.' : 'Filen lästes inte' + (input.fileMissingReason ? ': ' + input.fileMissingReason : '') + '.');
         }
 
         // Bildbiblioteket eller galleriet, och en annan källa för T.
@@ -728,7 +729,7 @@
         } else if (ex && ex.read && !ex.takenMs) {
             if (type.type === 'screenshot') items.push({ state: 'info', text: 'Filen har ingen egen tid, vilket är normalt för en skärmdump.' });
         } else if (!tInFile) {
-            items.push({ state: 'info', text: 'Själva filen lästes inte' + (input.fileMissingReason ? ': ' + input.fileMissingReason : '') + '.' });
+            items.push({ state: 'info', text: ex && ex.notParsed ? input.fileMissingReason + '.' : 'Själva filen lästes inte' + (input.fileMissingReason ? ': ' + input.fileMissingReason : '') + '.' });
         }
         if (ex && (ex.make || ex.model) && (file.cameraMake || file.cameraModel)) {
             var fileDev = lower((ex.make || '') + ' ' + (ex.model || '')).replace(/\s+/g, ' ').trim();
@@ -979,7 +980,7 @@
             if (own.length) items.push({ state: 'support', text: 'Snapchat skrev själv i sitt register vid tidpunkten (' + own[0].source.db + ' → ' + own[0].source.table + '), vilket förutsätter att appen kördes.' });
             if (kcSnap.length) items.push({ state: 'support', text: 'Snapchat var igång vid tidpunkten enligt ' + kcLabel + ' (' + kcSnap[0].stream + ').' });
             else if (running.length) items.push({ state: 'info', text: kcLabel + ' registrerar ' + runningNames.join(', ') + ' vid tidpunkten, inte Snapchat. Snapchat kan ha skrivit i registret i bakgrunden, till exempel vid en notis.' });
-            else items.push({ state: 'info', text: coverageReason(streamKey, input.coverage, input.missingDbs, T, kcLabel) });
+            else items.push({ state: 'info', text: coverageReason(streamKey, input, T, kcLabel) });
             state = kcSnap.length ? 'support' : own.length ? (running.length ? 'info' : 'support') : 'missing';
             plain = state === 'support' ? 'Snapchat var igång när filen registrerades.'
                 : state === 'info' ? 'Snapchat registrerade filen, men telefonens egen logg visar en annan app just då.'
@@ -1198,14 +1199,15 @@
         var recv = ms.filter(function (m) { return m.direction === 'in'; });
         var sent = ms.filter(function (m) { return m.direction === 'out'; });
         var items = [];
+        var ownFile = 'Filen är bilagans krypterade fil hos Signal.';
         recv.forEach(function (m) {
-            items.push({ state: 'info', text: 'Mottagen från ' + m.who + ' ' + at(m.receivedMs) + ' (meddelande ' + m.messageId + (m.sentMs ? ', avsändarens klocka ' + at(m.sentMs) : '') + ')' + (m.viewOnce ? ', engångsvisning' : '') + (m.openedMs ? ', öppnad ' + at(m.openedMs) + ' (expireStartedAt)' : '') + '. Samma SHA-256 som bilagan.' });
+            items.push({ state: 'info', text: 'Mottagen från ' + m.who + ' ' + at(m.receivedMs) + ' (meddelande ' + m.messageId + (m.sentMs ? ', avsändarens klocka ' + at(m.sentMs) : '') + ')' + (m.viewOnce ? ', engångsvisning' : '') + (m.openedMs ? ', öppnad ' + at(m.openedMs) + ' (expireStartedAt)' : '') + '. ' + (m.on === 'file' ? ownFile : 'Samma SHA-256 som bilagan.') });
         });
         sent.forEach(function (m) {
             items.push({ state: 'info', text: 'Skickad till ' + m.who + ' ' + at(m.sentMs) + ' (meddelande ' + m.messageId + ')' + (m.deleted ? ', raderad för alla senare' : '') + (m.linked ? ', skickad från en länkad enhet (wasNotCreatedLocally)' : '') + '. ' +
                 (m.on === 'start' ? 'Filen är originalet; Signal skickade en omkodad kopia' + (m.width ? ' (' + m.width + '×' + m.height + ')' : '') + '.'
                     : m.on === 'name' ? 'Bilagan lades till med filens namn (' + m.fileName + '); Signal skickade en omkodad kopia' + (m.width ? ' (' + m.width + '×' + m.height + ')' : '') + '. Namnet binder svagare än en summa.'
-                        : 'Samma SHA-256 som bilagan.') });
+                        : m.on === 'file' ? ownFile : 'Samma SHA-256 som bilagan.') });
         });
         picks.forEach(function (p) {
             var tail = p.messageId == null && p.sentLater ? ', skickad ' + at(p.sentLater.ms) + ' (meddelande ' + p.sentLater.messageId + (p.deletedLater ? ', raderat ' + (p.deletedLater.forAll ? 'för alla ' : '') + at(p.deletedLater.ms) : '') + ')' : '';
@@ -1236,9 +1238,22 @@
             return { id: 'signal', title: title, state: 'contradiction', items: items, verdictText: 'Togs emot i Signal',
                 plain: 'Filen är samma bild som togs emot i Signal från ' + recv[0].who + ', inte en bild från telefonens ' + (type.type === 'screenshot' ? 'skärm' : 'kamera') + '.' };
         }
+        // Filen är krypterad och ligger i Signals egen mapp, så att summan inte stämmer säger inget. En rad utan
+        // meddelande kan vara en berättelse, som på iOS har en egen tabell.
+        if (link.ownFile && !recv.length && !sent.length && !picks.length) {
+            var ownFolder = 'Filen ligger krypterad i Signals mapp ' + link.ownFile + ', så dess SHA-256 går inte att jämföra med bilagornas. ';
+            return link.ownFileListed
+                ? { id: 'signal', title: title, state: 'info', items: [{ state: 'info', text: ownFolder + 'Databasen pekar på filen, men den hör inte till något meddelande. Det kan vara en berättelse.' }],
+                    verdictText: 'Bilaga utan meddelande', plain: 'Filen är Signals egen fil för en bilaga som inte hör till något meddelande. Det kan vara en berättelse.' }
+                : { id: 'signal', title: title, state: 'info', items: [{ state: 'info', text: ownFolder + 'Ingen av Signals bilagor pekar på filen.' }],
+                    verdictText: 'Ingen bilaga pekar på filen', plain: 'Filen ligger i Signals egen mapp, men ingen bilaga i databasen pekar på den.' };
+        }
         if (found) {
             var lead = sent[0] || null;
             var after = lead && T ? (lead.sentMs >= T ? duration(lead.sentMs - T) + ' efter T' : at(lead.sentMs)) : '';
+            if (!lead && recv.length) {
+                return { id: 'signal', title: title, state: 'info', items: items, verdictText: 'Mottagen i Signal', plain: 'Filen togs emot i Signal från ' + recv[0].who + ' ' + at(recv[0].receivedMs) + '.' };
+            }
             return { id: 'signal', title: title, state: 'info', items: items, verdictText: 'Skickad i Signal',
                 plain: lead ? 'Filen skickades i Signal till ' + lead.who + ', ' + after + '. ' + (picks.length ? 'Den valdes ur galleriet, så Signal skapade den inte.' : 'Det säger inget om hur den skapades.')
                     : 'Filen valdes i Signal enligt Signals logg, men meddelandet finns inte kvar.' };

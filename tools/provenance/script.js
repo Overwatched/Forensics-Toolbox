@@ -201,15 +201,11 @@
         var logLine = '';
         // Nycklar till krypterade databaser (Signal), bara om någon sådan databas finns i zippen.
         state.zip.secrets = [];
+        state.zip.keySearch = null;
         if (opened.found.some(function (f) { var s = sourceByKey(f.key); return !!(s && s.cipher); })) {
             try {
-                var sEntries = await ExtractionCore.find(read, file.size, AppSecrets.isSecretsPath);
-                if (sEntries.length) state.zip.secrets.push(AppSecrets.fromSecretsFile((await ExtractionCore.readEntry(read, sEntries[0])).bytes, sEntries[0].name));
-                // Nyckelringen ligger i rapporten, när den lästes in i rapportverktyget.
-                if (report) for (var k = 0; k < report.keychains.length; k++) {
-                    var ke = report.keychains[k];
-                    state.zip.secrets.push(AppSecrets.fromKeyFile((await ExtractionCore.readEntry(read, ke)).bytes, ExtractionCore.baseName(ke.name) + ' i rapporten'));
-                }
+                state.zip.keySearch = await ExtractionCore.findKeys(read, file.size, { report: report, file: file });
+                state.zip.secrets = state.zip.keySearch.secrets;
             } catch (e) { console.warn('Nyckelfilen kunde inte läsas', e); }
         }
         renderSignalKey();
@@ -760,7 +756,7 @@
     }
 
     // Kortet: bilden (eller varför den saknas), knappen Dölj/Visa, raderna med sökväg, storlek,
-    // CRC32, MD5, SHA-256 och ett urval EXIF, och rutan för att ta med bilden i exporterna.
+    // CRC32, MD5, SHA-256, filens tider och ett urval EXIF, och rutan för att ta med bilden i exporterna.
     var MONO_ROWS = { 'Sökväg i zippen': 1, 'Sökväg i rapporten': 1, 'Post i rapporten': 1, CRC32: 1, MD5: 1, 'SHA-1': 1, 'SHA-256': 1, 'Telefonens tumnagel': 1, 'Sökt på MD5': 1, 'Sökt på SHA-1': 1, 'Sökt på SHA-256': 1 };
     function renderFileCard() {
         var meta = state.meta, pv = state.preview;
@@ -768,6 +764,9 @@
         var groups = ProvenanceMedia.cardGroups(meta.fileEntry, meta.exifRows, { sizeText: ExtractionCore.sizeText, word: Z() });
         if (!groups.length) groups = [{ title: '', rows: [] }];
         var rows = groups[0].rows;
+        var timeFactor = state.model && (state.model.factors || []).find(function (f) { return f.id === 'time'; });
+        var times = ProvenanceMedia.timesGroup(timeFactor && timeFactor.times, function (ms) { return ProvenanceReport.timeText(meta.format, ms); }, meta.zoneLabel);
+        if (times) groups.splice(1, 0, times);
         if (meta.thumbnail) rows.push(['Telefonens tumnagel', meta.thumbnail.path + ' · ' + ExtractionCore.sizeText(meta.thumbnail.size) + ' · SHA-256 ' + meta.thumbnail.sha256]);
         var fb = meta.foundBy;
         if (fb) rows.unshift(['Sökt på ' + fb.label, fb.value + (fb.same === true ? ' (samma som filens)' : fb.same === false ? ' (SKILJER SIG från filens ' + fb.own + ')' : ' (filens summa kunde inte kontrolleras)')]);
@@ -790,8 +789,8 @@
         $('file-card').innerHTML = '<div class="file-card"><div class="file-media">' + mediaHtml +
             (canShow ? '<div class="button-row"><button type="button" class="secondary" id="toggle-media">' + (state.showMedia ? 'Dölj bilden' : 'Visa bilden') + '</button></div>' : '') + '</div>' +
             '<div class="file-facts">' + groups.map(function (g) {
-                return (g.title ? '<div class="file-facts-title">' + escapeHtml(g.title) + '</div>' : '') +
-                    '<dl>' + g.rows.map(function (r) { return '<dt>' + escapeHtml(r[0]) + '</dt><dd' + (MONO_ROWS[r[0]] ? ' class="mono"' : '') + '>' + escapeHtml(r[1]) + '</dd>'; }).join('') + '</dl>';
+                return (g.title ? '<div class="file-facts-title">' + escapeHtml(g.title) + (g.note ? ' <span class="file-facts-note">' + escapeHtml(g.note) + '</span>' : '') + '</div>' : '') +
+                    '<dl' + (g.times ? ' class="file-times"' : '') + '>' + g.rows.map(function (r) { return '<dt>' + escapeHtml(r[0]) + '</dt><dd' + (MONO_ROWS[r[0]] ? ' class="mono"' : '') + '>' + escapeHtml(r[1]) + '</dd>'; }).join('') + '</dl>';
             }).join('') + '</div></div>' +
             '<label class="chk-line"><input type="checkbox" id="include-picture"' + (state.includePicture ? ' checked' : '') + (canShow ? '' : ' disabled') + '> Ta med bilden i protokollet och förklaringen (förminskad). Sökväg, hashar och EXIF följer alltid med.</label>';
     }
@@ -943,9 +942,19 @@
                 var fsAt = run.mediaEntry ? ProvenanceCore.fsMoment(fsWhen) : null;
                 if (fsAt) fileRow.extraWindows = (fileRow.extraWindows || []).filter(function (w) { return w.id !== 'filesystem'; }).concat([fsAt]);
                 fileSha = read.sha256 || '';
+                var tags = null;
                 if (read.bytes) {
                     progress('Läser EXIF ur bildfilen…');
-                    var tags = await readTags(read.bytes, fileRow.filename);
+                    // Filen är läst och summorna räknade, också när ExifTool inte kan tolka den. ExifTool ger då bara ett
+                    // allmänt fel, som för en krypterad fil eller en okänd filtyp.
+                    try { tags = await readTags(read.bytes, fileRow.filename); }
+                    catch (e) {
+                        input.exif = { read: false, notParsed: true };
+                        input.fileMissingReason = 'Filen lästes, men ExifTool kunde inte tolka innehållet' + (/^Unknown error$/.test(e.message) ? ' (okänd filtyp eller krypterad fil)' : ': ' + e.message);
+                        meta.fileMissingReason = input.fileMissingReason + '.';
+                    }
+                }
+                if (tags) {
                     var sum = ExifCore.summarize(tags, fileRow.filename);
                     var ownZone = ProvenanceMedia.exifZone(fileRow, zone);
                     var taken = exifTakenMs(sum.taken, ownZone);
@@ -956,8 +965,10 @@
                         sourceTag: sum.taken ? sum.taken.source : '', make: tags['IFD0:Make'] || tags['QuickTime:Make'] || '', model: tags['IFD0:Model'] || tags['QuickTime:Model'] || '',
                         software: sum.software ? sum.software.text : '', source: { db: 'bildfilen', table: media.entry.name.slice(media.entry.name.lastIndexOf('/') + 1), column: sum.taken ? sum.taken.source : 'EXIF' },
                     };
-                    Object.keys(tags).sort().forEach(function (k) { if (EXIF_ROW_RE.test(k)) meta.exifRows.push([k, String(tags[k])]); });
-                } else {
+                    // cleanTags tar bort System:-taggarna: de gäller filen som ExifTool läste i minnet, så deras tid är körningens.
+                    var kept = ExifCore.cleanTags(tags);
+                    Object.keys(kept).sort().forEach(function (k) { if (EXIF_ROW_RE.test(k)) meta.exifRows.push([k, String(kept[k])]); });
+                } else if (!read.bytes) {
                     input.exif = { read: false };
                     input.fileMissingReason = read.reason;
                     meta.fileMissingReason = read.reason;
@@ -1515,22 +1526,30 @@
 
     function signalIos() { return !!(state.zip && state.zip.platform === 'iOS' && hitFor(SIGNAL_IOS_KEYS.main)); }
 
-    // Nyckeln till Signals databaser: inklistrad går före extraktionens nyckelfil.
-    // Nyckeln ur det som finns, i ordning: inklistrad, extraktionens nyckelfil (secrets.json) och
-    // nyckelfiler som valts (nyckelringen bredvid zippen på iOS). Profilen följer plattformen.
+    // Nyckelfiler som undersökaren valt gäller extraktionen de valdes för, inte nästa telefon.
+    function chosenKeys() {
+        var open = state.zip ? state.zip.file : null;
+        return (state.keyFiles || []).filter(function (k) { return !k.forFile || !open || sameZipFile(k.forFile, open); });
+    }
+
+    // Nyckeln ur det som finns, i ordning: inklistrad, nyckelfiler som undersökaren valt och det programmet hittade
+    // själv. Det undersökaren valt går alltid före. Profilen följer plattformen.
     function signalCipher() {
         var profile = signalIos() ? 'signal-ios' : 'signal';
-        var keys = AppSecrets.keysForProfile([state.signalManual].concat((state.zip && state.zip.secrets) || [], state.keyFiles || []), profile);
+        var keys = AppSecrets.keysForProfile([state.signalManual].concat(chosenKeys(), (state.zip && state.zip.secrets) || []), profile);
         return { profile: profile, passphrase: keys ? keys.dbKey : null, source: keys ? keys.source : null, hint: AppSecrets.keyHint(profile) };
     }
 
     // Nyckelfiler som valts i Härkomst eller kommit från navet (raden högst upp eller Queries). Varje
-    // fil tolkas efter innehållet; en fil som inte är en nyckelfil sägs under nyckelrutan.
-    async function useKeyFiles(files, share) {
+    // fil tolkas efter innehållet; en fil som inte är en nyckelfil sägs under nyckelrutan. forFile: extraktionen de hör till.
+    async function useKeyFiles(files, share, forFile) {
         var parsed = [];
         for (var i = 0; i < (files || []).length; i++) {
-            try { parsed.push(AppSecrets.fromKeyFile(new Uint8Array(await files[i].arrayBuffer()), files[i].name)); }
-            catch (e) { parsed.push({ source: files[i].name, apps: {}, error: 'Filen kunde inte läsas: ' + e.message }); }
+            var one;
+            try { one = await ExtractionCore.readKeyFile(new Uint8Array(await files[i].arrayBuffer()), files[i].name); }
+            catch (e) { one = { source: files[i].name, apps: {}, error: 'Filen kunde inte läsas: ' + e.message }; }
+            one.forFile = forFile || null;
+            parsed.push(one);
         }
         state.keyFiles = parsed;
         dropCipherDbs();
@@ -1554,14 +1573,14 @@
         if (!has) return;
         var c = signalCipher();
         $('signal-key').placeholder = ios ? "96 hextecken, gärna som x'…'" : '64 hextecken, eller Signal-posten ur secrets.json';
-        var bad = (state.keyFiles || []).filter(function (k) { return k.error; }).map(function (k) { return k.source + ': ' + k.error; });
+        // Det som inte gick att läsa sägs alltid om filen är vald, och om det programmet hittade själv när nyckeln saknas.
+        var bad = chosenKeys().concat(c.passphrase ? [] : (state.zip && state.zip.secrets) || []).filter(function (k) { return k.error; }).map(function (k) { return k.source + ': ' + k.error; });
         var what = ios ? 'Signals databas är krypterad.' : 'Signals databaser är krypterade.';
         $('signal-key-note').textContent = (c.passphrase && c.source === 'inklistrad'
             ? what + ' Den inklistrade nyckeln används från nästa bedömning och sparas inte.'
             : c.passphrase
             ? what + ' Nyckeln läses ur ' + c.source + '.'
-            : ios ? what + ' Nyckeln ligger i nyckelringen' + (state.zip && state.zip.report ? ' (…_keychain.plist), som inte finns i rapporten' : ' bredvid zippen (…_keychain.plist)') + '. Välj den med Nyckelfil…, eller klistra in nyckeln. Den sparas inte.'
-                : what + ' Extraktionen saknar nyckel. Klistra in den (64 hextecken) för att läsa Signal. Den sparas inte.') + (bad.length ? ' ' + bad.join(' ') : '');
+            : what + ' ' + AppSecrets.missingKeyText({ profile: c.profile, word: Z(), search: state.zip && state.zip.keySearch })) + (bad.length ? ' ' + bad.join(' ') : '');
     }
 
     // Meddelandena och loggen i fönstret, och bilagorna (alla) mot filens SHA-256. Ligger meddelandet
@@ -1569,7 +1588,7 @@
     async function addSignal(input, meta, windowMs, run, sha256, zone) {
         var cipher = signalCipher();
         if (!cipher.passphrase) {
-            input.signal = { error: 'Signals databas är krypterad och nyckeln saknas. Klistra in den under 1. Extraktion.' };
+            input.signal = { error: 'Signals databas är krypterad och nyckeln saknas. Välj ' + cipher.hint + ' med Nyckelfil… under 1. Extraktion, eller klistra in nyckeln.' };
             return;
         }
         progress('Läser Signals databaser (beta)…');
@@ -1597,7 +1616,7 @@
             } catch (e) { input.warnings.push('Signals logg (signal-logs.db) kunde inte läsas: ' + e.message); }
         }
         var base = {
-            sha256: sha256, mediaId: fileRow.pk != null && fileRow.pk !== '' ? Number(fileRow.pk) : null, fileName: fileRow.filename, fileAddedMs: fileRow.addedMs,
+            sha256: sha256, filePath: meta.fileEntry ? meta.fileEntry.path : '', mediaId: fileRow.pk != null && fileRow.pk !== '' ? Number(fileRow.pk) : null, fileName: fileRow.filename, fileAddedMs: fileRow.addedMs,
             savedBySignal: fileRow.importer === ProvenanceSignal.APP, attachments: attachments, recipients: recipients, log: logRows, wall: wall, centerMs: fileRow.createdMs,
             sources: { main: { db: 'signal.db', table: 'message', queryId: mainSrc.roles.messages.id }, attachmentsQueryId: mainSrc.roles.attachments.id, log: { db: 'signal-logs.db', table: 'log', queryId: logSrc && logSrc.roles.log ? logSrc.roles.log.id : 'role-log' } },
         };
@@ -1631,7 +1650,7 @@
     async function addSignalIos(input, meta, windowMs, run, sha256, zone) {
         var cipher = signalCipher();
         if (!cipher.passphrase) {
-            input.signal = { error: 'Signals databas är krypterad och nyckeln saknas. Välj nyckelringen (…_keychain.plist' + (state.zip && state.zip.report ? '' : ' bredvid zippen') + ') med Nyckelfil… under 1. Extraktion, eller klistra in nyckeln.' };
+            input.signal = { error: 'Signals databas är krypterad och nyckeln saknas. Välj ' + cipher.hint + ' med Nyckelfil… under 1. Extraktion, eller klistra in nyckeln.' };
             return;
         }
         progress('Läser Signals databas (beta)…');
@@ -1644,7 +1663,7 @@
         var recipients = {};
         runRole(db, src.roles.recipients, {}, [], run).rows.forEach(function (r) { recipients[String(r.id)] = { name: r.name, phone: r.phone }; });
         var base = {
-            sha256: sha256, fileName: fileRow.filename, originalFilename: fileRow.originalFilename || null,
+            sha256: sha256, filePath: meta.fileEntry ? meta.fileEntry.path : '', fileName: fileRow.filename, originalFilename: fileRow.originalFilename || null,
             savedBySignal: fileRow.importer === ProvenanceSignal.APP_IOS, attachments: attachments, recipients: recipients, wall: wall, centerMs: fileRow.createdMs,
             sources: { main: { db: 'signal.sqlite', table: 'model_TSInteraction', queryId: src.roles.messages.id }, stories: src.roles.stories ? src.roles.stories.id : null },
         };
@@ -4017,7 +4036,7 @@
     $('signal-keyfile').addEventListener('change', function () {
         var files = Array.from($('signal-keyfile').files || []);
         $('signal-keyfile').value = '';
-        if (files.length) useKeyFiles(files, true).catch(function (err) { console.warn('Nyckelfilen kunde inte läsas', err); });
+        if (files.length) useKeyFiles(files, true, state.zip ? state.zip.file : null).catch(function (err) { console.warn('Nyckelfilen kunde inte läsas', err); });
     });
     $('fill-sample').addEventListener('click', function () {
         fillSample('camera').catch(function (err) { setStatus('ex-status', escapeHtml(err && err.message ? err.message : String(err)), 'err'); });
@@ -4124,7 +4143,7 @@
         if (!data || (data.source !== 'forensics-toolbox' && data.source !== 'verktygslada')) return;
         if (data.type === 'provenance-file' && typeof data.file === 'string') $('filename').value = data.file;
         if (data.type === 'extraction') followExtraction({ file: data.file || null, seq: Number(data.seq) || 0, from: data.from || '', force: !!data.force });
-        if (data.type === 'extraction-keys') useKeyFiles(Array.isArray(data.files) ? data.files : [], false).catch(function (err) { console.warn('Nyckelfilerna kunde inte läsas', err); });
+        if (data.type === 'extraction-keys') useKeyFiles(Array.isArray(data.files) ? data.files : [], false, data.file).catch(function (err) { console.warn('Nyckelfilerna kunde inte läsas', err); });
         if (data.type === 'deliver-file') handOver(data.to).catch(function (err) { console.warn(err); });
         if (data.type === 'provenance-files') receiveFiles(data.files);
         if (data.type === 'provenance-names' && Array.isArray(data.names)) receiveNames(data.names.map(String), data.zipName || '');

@@ -21,6 +21,7 @@ const vm = require('node:vm');
 const ROOT = path.join(__dirname, '..', '..');
 const { buildZip } = require(path.join(ROOT, 'tools', 'db-queries', 'fixtures', 'zip-builder.js'));
 const { buildUfdr } = require(path.join(ROOT, 'tools', 'db-queries', 'fixtures', 'ufdr-builder.js'));
+const { encryptedKeychain } = require(path.join(ROOT, 'tools', 'db-queries', 'fixtures', 'keychain-builder.js'));
 const schemas = require(path.join(ROOT, 'tools', 'db-queries', 'fixtures', 'photos-schema.json'));
 const chatSchemas = require(path.join(ROOT, 'tools', 'db-queries', 'fixtures', 'chat-schemas.json'));
 const TG = require(path.join(ROOT, 'tools', 'db-queries', 'fixtures', 'postbox-encode.js'));
@@ -261,16 +262,19 @@ function brokenWal() {
 // Samma filer som rapporten Physical Analyzer skulle skriva om extraktionen, utan det som valts bort
 // (IMG_0002.JPG). Samma innehåll ligger en gång och listas under RelatedNodes, en tom fil har ingen post,
 // och nyckelringen och en dekrypterad kopia finns med, men är inga filer på telefonen.
-function reportRows(entries, keychain) {
+// ufed: en rapport ur en zip med extra/. Telefonens filer ligger under /root/ och har ctime, nyckelringen ligger högst upp.
+function reportRows(entries, keychain, ufed) {
     const first = new Map();
     const rows = [];
+    const fsName = ufed ? 'EXTRACTION_FFS.zip' : undefined;
     entries.forEach((e) => {
         if (/IMG_0002\.JPG$/.test(e.name)) return;
         const data = Buffer.from(e.data);
         const secs = e.mtime || (e.ut && e.ut.m);
         const m = secs ? secs * 1000 : undefined;
         const row = {
-            path: '/' + e.name.replace(/^filesystem1\//, ''), data, c: m === undefined ? undefined : m - 1000, m, a: m === undefined ? undefined : m + 1000,
+            path: (ufed ? '/root/' : '/') + e.name.replace(/^filesystem1\//, ''), data, c: m === undefined ? undefined : m - 1000, m, a: m === undefined ? undefined : m + 1000,
+            x: ufed && m !== undefined ? m + 2000 : undefined, fs: fsName,
             tag: /\.(jpg|heic|png)$/i.test(e.name) ? 'Image' : /sqlite|\.db|db_sqlite|PLSQL/.test(e.name) ? 'Database' : 'Configuration',
             origin: /IMG_0001\.JPG$/.test(e.name) ? 'Device Captured' : undefined, originReason: /IMG_0001\.JPG$/.test(e.name) ? 'Native Camera App' : undefined,
         };
@@ -281,8 +285,8 @@ function reportRows(entries, keychain) {
         first.set(key, row);
         rows.push(row);
     });
-    rows.push({ path: '/Imported Test Keychain/Testrapport_keychain.plist', data: keychain, tag: 'Configuration', fs: 'Keychain' });
-    rows.push({ path: '/private/var/mobile/Containers/Shared/' + GROUP_SIGNAL + 'grdb/signal.sqlite/signal.sqlite.decrypted', data: 'dekrypterad kopia', tag: 'Database', embedded: true });
+    rows.push(ufed ? { path: '/backup_keychain_v2.plist', data: keychain, tag: 'Configuration', fs: fsName } : { path: '/Imported Test Keychain/Testrapport_keychain.plist', data: keychain, tag: 'Configuration', fs: 'Keychain' });
+    rows.push({ path: (ufed ? '/root' : '') + '/private/var/mobile/Containers/Shared/' + GROUP_SIGNAL + 'grdb/signal.sqlite/signal.sqlite.decrypted', data: 'dekrypterad kopia', tag: 'Database', embedded: true, fs: fsName });
     return rows;
 }
 
@@ -316,6 +320,8 @@ async function build() {
         { name: P + 'Media/DCIM/100APPLE/IMG_0006.JPG', data: signalSaved, mtime: T2 + 201 },
         { name: P + 'Containers/Shared/' + GROUP_SIGNAL + 'grdb/signal.sqlite', data: signalDb(SQL, sha(signalSaved)), deflate: true },
         { name: P + 'Containers/Shared/' + GROUP_SIGNAL + 'grdb/signal.sqlite-wal', data: '' },
+        // Bilagans krypterade fil. Inte en fil ExifTool känner igen.
+        { name: P + 'Containers/Shared/' + GROUP_SIGNAL + 'attachment_files/AB/ABCDEF', data: crypto.randomBytes(4096), mtime: T2 },
         { name: P + 'Containers/Shared/' + GROUP_WA + 'ChatStorage.sqlite', data: Buffer.from(whatsappDb(SQL, sha(waReceived))), deflate: true },
         { name: P + 'Containers/Shared/' + GROUP_WA + 'ChatStorage.sqlite-wal', data: '' },
         { name: P + 'Containers/Shared/' + GROUP_WA + 'Message/Media/1@lid/c/d/mottagen.jpg', data: waReceived, mtime: T2 + 71 },
@@ -336,22 +342,49 @@ async function build() {
         { name: 'filesystem1/private/var/containers/Shared/SystemGroup/' + GUID_PL + 'Library/BatteryLife/CurrentPowerlog.PLSQL-wal', data: '' },
     ];
     const zip = buildZip(entries);
+    // Mappar för var nyckeln kan ligga. Zippen överst har ingen nyckelfil bredvid sig, så att det som väljs prövas.
+    ['nycklar', 'ufed', 'ufed-rapport', 'bredvid', 'flera', 'ingen'].forEach((d) => fs.mkdirSync(path.join(dir, d)));
+    const DEVICE = '00008030-0000000000000001';
     const files = {
         dir,
         zip: path.join(dir, 'Testextraktion-iOS17.zip'),
         ufdr: path.join(dir, 'Testrapport_Report.ufdr'),
         image: path.join(dir, 'IMG_0001.JPG'),
         knowledge: path.join(dir, 'knowledgeC.db'),
-        keychain: path.join(dir, 'Testextraktion-iOS17_keychain.plist'),
+        keychain: path.join(dir, 'nycklar', 'Testextraktion-iOS17_keychain.plist'),
+        // Som en extraktion med nyckelringen krypterad under extra/ i zippen.
+        ufed: path.join(dir, 'ufed', 'EXTRACTION_FFS.zip'),
+        // Rapporten ur en sådan extraktion.
+        ufedReport: path.join(dir, 'ufed-rapport', 'Rapport-ur-zip-med-extra_Report.ufdr'),
+        // Nyckelringen bredvid zippen, med samma id i namnet, och en annan telefons bredvid den.
+        beside: path.join(dir, 'bredvid', DEVICE + '_fs.zip'),
+        besideKey: DEVICE + '_keychain.plist',
+        // Två nyckelfiler som inget knyter till zippen.
+        many: path.join(dir, 'flera', 'Flera-telefoner.zip'),
+        // Ingen nyckel någonstans.
+        noKey: path.join(dir, 'ingen', 'Ingen-nyckel.zip'),
         powerlogArchive: path.join(dir, 'powerlog_2024-06-06_ABCDEF12.PLSQL.gz'),
     };
     fs.writeFileSync(files.zip, zip);
     fs.writeFileSync(files.ufdr, buildUfdr(reportRows(entries, keychainPlist())).buf);
     fs.writeFileSync(files.keychain, keychainPlist());
+    const sealed = encryptedKeychain([
+        { svce: XSS, acct: 'x', value: Buffer.from('AAEC') },
+        { svce: 'GRDBKeyChainService', acct: 'GRDBDatabaseCipherKeySpec', agrp: 'U68MSDN6DR.org.whispersystems.signal', value: SIGNAL_KEY },
+    ]);
+    fs.writeFileSync(files.ufed, buildZip(entries.concat([{ name: 'extra/KeychainDump/backup_keychain_v2.plist', deflate: true, data: sealed }])));
+    fs.writeFileSync(files.ufedReport, buildUfdr(reportRows(entries, sealed, true)).buf);
+    fs.writeFileSync(files.beside, zip);
+    fs.writeFileSync(path.join(dir, 'bredvid', files.besideKey), keychainPlist());
+    fs.writeFileSync(path.join(dir, 'bredvid', '00008030-0000000000000002_keychain.plist'), 'en annan telefons nyckelring, ska inte läsas');
+    fs.writeFileSync(files.many, zip);
+    fs.writeFileSync(files.noKey, zip);
+    fs.writeFileSync(path.join(dir, 'flera', 'a_keychain.plist'), keychainPlist());
+    fs.writeFileSync(path.join(dir, 'flera', 'b_keychain.plist'), keychainPlist());
     fs.writeFileSync(files.image, jpeg);
     fs.writeFileSync(files.knowledge, knowledge);
     fs.writeFileSync(files.powerlogArchive, require('node:zlib').gzipSync(powerlog(SQL)));
     return { files, T: T * 1000, imageName: 'IMG_0001.JPG', T2: T2 * 1000, waMedia: 'mottagen.jpg', T3: T3 * 1000, tgMedia: TG_MEDIA };
 }
 
-module.exports = { build, T: T * 1000 };
+module.exports = { build, loadSql, T: T * 1000 };

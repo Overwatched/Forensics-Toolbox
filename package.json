@@ -1,7 +1,7 @@
 {
   "name": "forensics-toolbox",
   "productName": "Forensics Toolbox",
-  "version": "1.50.0",
+  "version": "1.51.0",
   "description": "Lokal verktygslåda för IT-forensik. Encoding, hash, tidskonvertering, CyberChef m.m. Körs helt offline.",
   "author": "Overwatched",
   "license": "UNLICENSED",
@@ -87,7 +87,8 @@
       ],
       "category": "public.app-category.utilities",
       "icon": "build/icon.png",
-      "identity": null,
+      "identity": "-",
+      "hardenedRuntime": false,
       "artifactName": "ForensicsToolbox-${version}-${arch}.${ext}"
     },
     "win": {

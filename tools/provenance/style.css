@@ -253,6 +253,8 @@ pre.sql { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 12px; w
 .file-facts dt { color: var(--text-muted); white-space: nowrap; }
 .file-facts dd { word-break: break-all; margin: 0; }
 .file-facts dd.mono { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 12px; }
+.file-facts-note { font-weight: 400; color: var(--text-muted); }
+.file-facts .file-times dd { word-break: normal; }
 .chk-line { display: flex; gap: 8px; align-items: center; margin-top: 12px; font-size: 13px; color: var(--text-muted); cursor: pointer; }
 .chk-line input { width: 14px; height: 14px; margin: 0; accent-color: var(--accent); }
 @media (max-width: 760px) { .file-card { grid-template-columns: 1fr; } }

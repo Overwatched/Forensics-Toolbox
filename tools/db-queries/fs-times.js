@@ -83,18 +83,19 @@
         return true;
     }
 
-    // Nanosekunder som ett heltal till millisekunder, exakt: 2^32 = 4294 * 10^6 + 967296. Noll och mindre är ingen tid.
+    // Nanosekunder som ett heltal till närmaste millisekund, exakt: 2^32 = 4294 * 10^6 + 967296. Noll och mindre är
+    // ingen tid. Att bara kapa ger en skillnad på 1 ms mot bildbiblioteket och rapporter, där tiden också är avrundad.
     function nsToMs(b, at) {
         var c = b[at];
-        if (c <= 0x7f) return c ? Math.floor(c / 1e6) : null;
+        if (c <= 0x7f) return c ? 0 : null;
         if (c === 0xcc) return null;
         if (c === 0xcd) return null;
-        if (c === 0xce) return Math.floor(u32(b, at + 1) / 1e6);
+        if (c === 0xce) return Math.round(u32(b, at + 1) / 1e6);
         if (c === 0xcf || c === 0xd3) {
             var hi = u32(b, at + 1), lo = u32(b, at + 5);
             if (c === 0xd3 && hi >= 0x80000000) return null;
             if (!hi && !lo) return null;
-            return hi * 4294 + Math.floor((hi * 967296 + lo) / 1e6);
+            return hi * 4294 + Math.floor((hi * 967296 + lo + 500000) / 1e6);
         }
         return null;
     }

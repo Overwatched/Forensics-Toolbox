@@ -653,8 +653,8 @@ function buildDatabases(photos, android, appUsage, routined, snapchat, snapchatA
         });
     });
 
-    // Signal (beta): databaserna är krypterade med SQLCipher. Nyckeln läses ur extraktionen
-    // (extra/Secrets/secrets.json på Android, nyckelringen bredvid zippen på iOS) eller klistras in.
+    // Signal (beta): databaserna är krypterade med SQLCipher. Programmet letar efter nyckeln under extra/ i
+    // zippen och bredvid zippen (ExtractionCore.findKeys). Annars väljs filen eller klistras nyckeln in.
     // WhatsApp (beta) på iOS är okrypterad. Telegram (beta) på iOS lagrar i ett eget format, som
     // avkodas i minnet när databasen öppnas (postbox.js, derive).
     [[signalAndroid, 'Android', 'signal'], [signalIos, 'iOS', 'signal'], [whatsappIos, 'iOS', 'whatsapp'], [telegramIos, 'iOS', 'telegram']].forEach(([cat, os, category]) => {
@@ -753,7 +753,7 @@ const CATEGORIES = {
         beta: true,
         intro: {
             Android: 'Signals egna databaser under data/data/org.thoughtcrime.securesms: meddelanden, bilagor med SHA-256, kontakter och Signals logg. Krypterade med SQLCipher; nyckeln läses ur extraktionen eller klistras in.',
-            iOS: 'Signals databas i appgruppen: meddelanden, bilagor med SHA-256, samtal och kontakter. Krypterad med SQLCipher; nyckeln läses ur nyckelringen (…_keychain.plist bredvid zippen) eller klistras in.',
+            iOS: 'Signals databas i appgruppen: meddelanden, bilagor med SHA-256, samtal och kontakter. Krypterad med SQLCipher. Programmet letar efter nyckelringen under extra/ i zippen och bredvid zippen. Annars väljs den med Nyckelfil…, eller så klistras nyckeln in.',
         },
     },
     whatsapp: {
@@ -1153,9 +1153,9 @@ window.addEventListener('message', function (event) {
         }).catch(function (err) { console.warn('Extraktionen kunde inte öppnas', err); });
         return;
     }
-    // Nyckelfiler som följer extraktionen (nyckelringen bredvid zippen på iOS).
+    // Nyckelfiler som valts och följer extraktionen.
     if (data.type === 'extraction-keys' && Array.isArray(data.files) && window.QueriesExtraction) {
-        ready.then(() => window.QueriesExtraction.useKeyFiles(data.files, false))
+        ready.then(() => window.QueriesExtraction.useKeyFiles(data.files, false, data.file))
             .catch((err) => console.warn('Nyckelfilerna kunde inte läsas', err));
         return;
     }

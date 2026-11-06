@@ -94,7 +94,7 @@ def named_times(z, entries):
     if 'metadata1/metadata.msgpack' not in entries:
         return None
     meta, _ = msgpack(z.read('metadata1/metadata.msgpack'))
-    ms = lambda v: v // 1000000 if v and v > 0 else 0
+    ms = lambda v: (v + 500000) // 1000000 if v and v > 0 else 0
     return {k: {'m': ms(r['mtime']), 'a': ms(r['atime']), 'ctime': ms(r['ctime']), 'crtime': ms(r['btime'])} for k, r in meta.items()}
 
 

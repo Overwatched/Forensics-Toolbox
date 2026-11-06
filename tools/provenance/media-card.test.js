@@ -231,3 +231,27 @@ test('kortet säger rapporten när källan är en rapport, med en egen grupp fö
     assert.strictEqual(Object.fromEntries(groups[0].rows).CRC32, '00000001 (stämmer inte med rapporten)');
     assert.match(media.previewPlan({ name: 'a.heic', hasBytes: true, word: 'rapporten' }).note, /ingen hittades i rapporten/);
 });
+
+test('kortet har filens tider: samma rader som tabellen, T märkt, och det som saknas står kvar', () => {
+    const iso = (ms) => new Date(ms).toISOString().slice(0, 19).replace('T', ' ');
+    const g = media.timesGroup([
+        { id: 'file-time', ms: 1000, label: 'Tagen enligt EXIF' },
+        { id: 'file-GPS', ms: 500, label: 'GPS-tid (UTC)' },
+        { id: 'created', ms: 2000, label: 'Skapad enligt biblioteket', isT: true },
+        { id: 'fs-modified', ms: null, label: 'Ändrad i filsystemet', text: '2024-06-01 12:00:00' },
+        { id: 'fs-accessed', ms: 0, label: 'Senast läst i filsystemet' },
+        { id: 'added', ms: null, label: 'Lades till i biblioteket', absent: 'Tiden saknas.' },
+    ], iso, 'Europe/Stockholm');
+    assert.strictEqual(g.title, 'Filens tider (Europe/Stockholm)');
+    assert.match(g.note, /tabellen under 4/);
+    assert.deepStrictEqual(g.rows, [
+        ['Tagen enligt EXIF', '1970-01-01 00:00:01'],
+        ['GPS-tid', '1970-01-01 00:00:00'],
+        ['Skapad enligt biblioteket (T)', '1970-01-01 00:00:02'],
+        ['Ändrad i filsystemet', '2024-06-01 12:00:00'],
+        ['Senast läst i filsystemet', '1970-01-01 00:00:00'],
+        ['Lades till i biblioteket', 'Tiden saknas.'],
+    ]);
+    assert.strictEqual(media.timesGroup([], iso, 'UTC'), null);
+    assert.strictEqual(media.timesGroup(null, iso, 'UTC'), null);
+});

@@ -67,6 +67,9 @@ test('inget knowledgeC alls: saknas, och förklaringen säger att tystnad inte �
     assert.match(m.factors[1].items[0].text, /finns inte i extraktionen/);
     assert.match(m.factors[1].plain, /Det betyder inte att ingen app var öppen/);
     assert.match(m.summary, /förenligt .* men 2 faktorer går inte att bedöma/);
+    // En rapport är ett urval, så det är rapporten det inte finns i.
+    const report = core.build(input({ container: 'rapporten', appIntervals: [], screen: [], lock: [], coverage: {}, missingDbs: { '/app/usage': true, '/display/isBacklit': true } }));
+    assert.match(report.factors[1].items[0].text, /finns inte i rapporten\.$/);
 });
 
 test('fönstret utanför strömmens täckning: saknas med täckningen utskriven', () => {
@@ -672,6 +675,12 @@ test('tabellen: det som saknas står kvar, och skärmdump, video, Android och DO
     assert.deepStrictEqual(noTime.filter((r) => r.absent).map((r) => [r.label, r.absent]), [['Tid i filen', 'Filen har ingen egen tid.'], ['Filsystemets tider', 'Filen hittades inte i zippen.']]);
     const unread = timeFactor({ exif: { read: false }, fileMissingReason: 'filen är för stor', fileEntry: null }).times;
     assert.strictEqual(unread.find((r) => r.id === 'file-time').absent, 'Filen lästes inte: filen är för stor.');
+    // Filen lästes och summorna räknades, men ExifTool kunde inte tolka den. Det är inte samma sak.
+    const reason = 'Filen lästes, men ExifTool kunde inte tolka innehållet (okänd filtyp eller krypterad fil)';
+    const notParsed = timeFactor({ exif: { read: false, notParsed: true }, fileMissingReason: reason });
+    assert.strictEqual(notParsed.times.find((r) => r.id === 'file-time').absent, reason + '.');
+    assert.ok(notParsed.items.some((i) => i.text === reason + '.'), JSON.stringify(notParsed.items));
+    assert.ok(!notParsed.items.some((i) => /lästes inte/.test(i.text)), JSON.stringify(notParsed.items));
     // QuickTime säger inte EXIF.
     const video = timeFactor({ exif: { read: true, takenMs: T, takenText: '2025-09-24 12:31:09 UTC', sourceTag: 'QuickTime:CreateDate' } });
     assert.strictEqual(video.times.find((r) => r.id === 'file-time').label, 'Skapad enligt QuickTime');

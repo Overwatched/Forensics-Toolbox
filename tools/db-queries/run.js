@@ -185,10 +185,10 @@
         $('run-key-other').classList.toggle('display-none', !need || !zipKey || show);
         keyInput.placeholder = ios ? "96 hextecken, gärna som x'…'" : '64 hextecken, eller Signal-posten ur secrets.json';
         var bad = window.QueriesExtraction && window.QueriesExtraction.keyFileErrors ? window.QueriesExtraction.keyFileErrors() : [];
+        var looked = files.zip && window.QueriesExtraction && window.QueriesExtraction.keySearch ? window.QueriesExtraction.keySearch() : null;
         keyNote.textContent = (zipKey ? 'Går före nyckeln ur ' + c.source + '. Sparas inte.'
-            : ios ? 'Nyckeln ligger i nyckelringen bredvid zippen (…_keychain.plist). Välj den med Nyckelfil…, eller klistra in den här. Den sparas inte.'
-                : files.zip ? 'Extraktionen har ingen nyckel (extra/Secrets/secrets.json). Klistra in den här. Den sparas inte.'
-                    : 'Klistra in den här, eller välj en nyckelfil. Den sparas inte.') + (bad.length ? ' ' + bad.join(' ') : '');
+            : looked ? AppSecrets.missingKeyText({ profile: c.profile, word: looked.word, search: looked.search })
+                : 'Klistra in den här, eller välj en nyckelfil. Den sparas inte.') + (bad.length ? ' ' + bad.join(' ') : '');
     }
 
     $('run-keyfile-pick').addEventListener('click', function () { $('run-keyfile').click(); });
@@ -219,7 +219,7 @@
         var encrypted = dbRead.bytes.length >= 16 && SqlCipher.isEncrypted(dbRead.bytes, cipher.profile);
         if (encrypted) {
             if (!cipher.passphrase) {
-                var err = new Error(src.db.name + ' är krypterad (SQLCipher). ' + (cipher.profile === 'signal-ios' ? 'Välj nyckelringen (…_keychain.plist bredvid zippen) med Nyckelfil…, eller klistra in nyckeln i rutan Nyckel under Källa.' : 'Klistra in nyckeln i rutan Nyckel under Källa.'));
+                var err = new Error(src.db.name + ' är krypterad (SQLCipher). ' + 'Välj ' + AppSecrets.keyHint(cipher.profile) + ' med Nyckelfil…, eller klistra in nyckeln i rutan Nyckel under Källa.');
                 err.code = 'ENCRYPTED';
                 throw err;
             }

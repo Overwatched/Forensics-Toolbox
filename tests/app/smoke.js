@@ -175,14 +175,18 @@ const scenarios = [
             const f = ProvenanceApp.model().factors.find(x => x.id === 'time');
             return { state: f.state, verdict: f.verdict, rows: f.times.map(r => [r.id, r.ms]), cells: [...document.querySelectorAll('.factor-times table.times tbody tr')].map(tr => tr.innerText.replace(/\\s+/g, ' ')),
                 t: document.querySelector('.factor-times tr.time-t') && document.querySelector('.factor-times tr.time-t').innerText, head: document.querySelector('.factor-times th').innerText, link: !!document.querySelector('.factor-times .to-queries'),
-                card: [...document.querySelectorAll('.file-facts dt')].map(d => d.textContent) };
+                card: [...document.querySelectorAll('.file-times dt')].map((d, i) => d.textContent + ' ' + document.querySelectorAll('.file-times dd')[i].textContent), cardTitle: [...document.querySelectorAll('.file-facts-title')].map(d => d.textContent).join(' | ') };
         })()`);
         const before = await read();
         expect(before.cells.length === before.rows.length && before.rows.length >= 5, 'Tabellen: ' + JSON.stringify(before.cells));
         expect(before.rows.find((r) => r[0] === 'created')[1] === fx.T * 1000 || before.rows.find((r) => r[0] === 'created')[1] === fx.T, 'Skapad: ' + JSON.stringify(before.rows));
         expect(/Skapad enligt biblioteket \(T\)/.test(before.t), 'Raden med T: ' + before.t);
         expect(/^Tid \(/.test(before.head) && before.link, 'Rubriken eller länken: ' + before.head);
-        expect(!before.card.some((x) => /Tagen|Tidszon|Skapad|Ändrad/.test(x)), 'Kortet har tider: ' + before.card);
+        // Punkt 3 har samma tider som tabellen, så att det syns att filen har tider.
+        expect(before.card.length === before.rows.length, 'Tiderna på kortet: ' + before.card.length + ', i tabellen ' + before.rows.length);
+        expect(before.card.some((x) => /^Skapad enligt biblioteket \(T\) \d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}/.test(x)), 'T på kortet: ' + before.card);
+        expect(before.cells.every((cell, i) => cell.includes(before.card[i].replace(/^.*? (\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}.*)$/, '$1'))), 'Kortet och tabellen skiljer sig: ' + JSON.stringify([before.card, before.cells]));
+        expect(/Filens tider \(/.test(before.cardTitle), 'Rubriken på kortet: ' + before.cardTitle);
         await c.ev(PROV, `(function(){ const s = document.getElementById('zone'); s.value = 'utc'; s.dispatchEvent(new Event('change', { bubbles: true })); return 1; })()`);
         await sleep(500);
         await waitResult(c, 'bedömningen i UTC');
@@ -190,6 +194,8 @@ const scenarios = [
         expect(utc.state === before.state && utc.verdict === before.verdict, 'I UTC: ' + utc.verdict + ', annars ' + before.verdict);
         expect(JSON.stringify(utc.rows) === JSON.stringify(before.rows), 'Tiderna flyttades med zonen');
         expect(/^Tid \(UTC\)/.test(utc.head), 'Rubriken: ' + utc.head);
+        expect(/Filens tider \(UTC\)/.test(utc.cardTitle), 'Kortet följer inte zonen: ' + utc.cardTitle);
+        expect(utc.cells.every((cell, i) => cell.includes(utc.card[i].replace(/^.*? (\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}.*)$/, '$1'))), 'Kortet och tabellen skiljer sig i UTC: ' + JSON.stringify([utc.card, utc.cells]));
         await c.ev(PROV, `(function(){ const s = document.getElementById('zone'); s.value = 'file'; s.dispatchEvent(new Event('change', { bubbles: true })); return 1; })()`);
         await sleep(500);
         await waitResult(c, 'bedömningen i bildens zon');
@@ -312,7 +318,7 @@ const scenarios = [
         return 'rad 1, ' + st.path.split('/').slice(-2).join('/');
     }],
 
-    ['Härkomst: Signal och WhatsApp på iOS, med nyckelringen bredvid zippen', async ({ c, fx }) => {
+    ['Härkomst: Signal och WhatsApp på iOS, med nyckelringen vald i raden högst upp', async ({ c, fx }) => {
         // Nyckelringen väljs ensam i raden högst upp och följer extraktionen som redan är öppen.
         await c.setFiles(null, '#cb-input', [fx.files.keychain]);
         await c.ev(null, `document.getElementById('cb-input').dispatchEvent(new Event('change')), 1`);
@@ -669,6 +675,89 @@ const scenarios = [
         const note = await c.waitFor(PROV, `/Nyckeln läses ur/.test(document.getElementById('signal-key-note').textContent) && document.getElementById('signal-key-note').textContent`, 10000, 'nyckelringen i Härkomst');
         expect(/Testextraktion-iOS17_keychain\.plist/.test(note), 'Nyckeln: ' + note);
         return 'nyckeln läses i Härkomst';
+    }],
+
+    ['Nyckeln hittas själv: krypterad under extra/, bredvid zippen, och annars sägs var programmet letade', async ({ c, fx }) => {
+        await c.nav('Härkomst');
+        const desktop = await c.ev(null, `!!window.forensicsMedia`);
+        const pick = async (files) => {
+            await c.setFiles(null, '#cb-input', files);
+            await c.ev(null, `document.getElementById('cb-input').dispatchEvent(new Event('change')), 1`);
+        };
+        const noteAfter = async (file) => {
+            const name = path.basename(file);
+            await c.waitFor(PROV, `!window.ProvenanceApp.busy() && document.getElementById('ex-status').textContent.includes(${JSON.stringify(name)}) && !document.getElementById('signal-key-row').classList.contains('display-none') && !!document.getElementById('signal-key-note').textContent`, 60000, name + ' i Härkomst');
+            return c.ev(PROV, `document.getElementById('signal-key-note').textContent`);
+        };
+        // Under extra/ i zippen, med posterna krypterade: dekrypteras i sidan, och Signal går att läsa med nyckeln.
+        await pick([fx.files.ufed]);
+        const inZip = await noteAfter(fx.files.ufed);
+        expect(/Nyckeln läses ur extra\/KeychainDump\/backup_keychain_v2\.plist i zippen\./.test(inZip), 'Under extra/: ' + inZip);
+        const sig = await assessNamed(c, 'IMG_0006.JPG');
+        expect(sig.f.signal && sig.f.signal.state === 'support' && /Mottagen i Signal/.test(sig.f.signal.verdict), 'Signal: ' + JSON.stringify(sig.f.signal));
+        // Protokollets EXIF-tabell har bara det som står i filen: ExifTools System:-taggar gäller körningen.
+        const tags = await c.ev(PROV, `ProvenanceApp.meta().exifRows.map(r => r[0])`);
+        expect(tags.length && !tags.some((t) => /^System:/.test(t)), 'EXIF-raderna: ' + tags);
+        // Bilagans krypterade fil: läst, men inget ExifTool kan tolka, och kopplad till meddelandet med sin plats.
+        const part = await assessNamed(c, 'ABCDEF');
+        expect(part.f.signal && part.f.signal.verdict === 'Mottagen i Signal', 'Signal: ' + JSON.stringify(part.f.signal));
+        const partFile = await c.ev(PROV, `(function(){ const m = ProvenanceApp.model(), t = m.factors.find(x => x.id === 'time'); return { row: t.times.find(r => r.id === 'file-time').absent, sha: ProvenanceApp.meta().fileEntry.sha256, signal: m.factors.find(x => x.id === 'signal').items.map(i => i.text).join(' ') }; })()`);
+        expect(/Filen är bilagans krypterade fil hos Signal\./.test(partFile.signal), 'Signal: ' + partFile.signal);
+        expect(/^Filen lästes, men ExifTool kunde inte tolka innehållet/.test(partFile.row) && /^[0-9a-f]{64}$/.test(partFile.sha), 'Filen: ' + JSON.stringify(partFile));
+        // Rapporten ur samma sorts zip: telefonens filer under /root/, nyckelringen högst upp och ctime i rapporten.
+        await pick([fx.files.ufedReport]);
+        const inReport = await noteAfter(fx.files.ufedReport);
+        expect(/Nyckeln läses ur backup_keychain_v2\.plist i rapporten\./.test(inReport), 'I rapporten: ' + inReport);
+        const rep = await assessNamed(c, 'IMG_0006.JPG');
+        expect(rep.f.signal && rep.f.signal.state === 'support' && /Mottagen i Signal/.test(rep.f.signal.verdict), 'Signal ur rapporten: ' + JSON.stringify(rep.f.signal));
+        const repTimes = await c.ev(PROV, `(function(){ const r = ProvenanceApp.model().factors.find(x => x.id === 'time').times.find(x => x.id === 'fs-changed'); return { ms: r.ms, source: r.source ? [r.source.db, r.source.table, r.source.column].join(' / ') : '', path: ProvenanceApp.meta().fileEntry.path, list: document.getElementById('ex-list').innerText }; })()`);
+        expect(repTimes.ms && repTimes.source === 'Rapporten / report.xml / ChangeTime', 'ctime ur rapporten: ' + JSON.stringify(repTimes));
+        expect(/^\/root\/private\/var\/mobile\//.test(repTimes.path), 'Sökvägen: ' + repTimes.path);
+        expect(!/backup_keychain_v2/.test(repTimes.list) && !/ctime/.test(repTimes.list), 'Listan: ' + repTimes.list);
+        // Det undersökaren väljer går före det programmet hittade.
+        await pick([fx.files.keychain]);
+        await c.waitFor(PROV, `/Nyckeln läses ur Testextraktion-iOS17_keychain\\.plist/.test(document.getElementById('signal-key-note').textContent)`, 20000, 'den valda nyckelfilen');
+        // Bredvid zippen. Den valda filen hörde till den förra extraktionen och följer inte med.
+        await pick([fx.files.beside]);
+        const near = await noteAfter(fx.files.beside);
+        if (desktop) {
+            expect(near.includes('Nyckeln läses ur ' + fx.files.besideKey + ' bredvid zippen.'), 'Bredvid: ' + near);
+            const again = await assessNamed(c, 'IMG_0006.JPG');
+            expect(again.f.signal && again.f.signal.state === 'support', 'Signal med nyckeln bredvid: ' + JSON.stringify(again.f.signal));
+        } else {
+            expect(/Ingen nyckel hittades under extra\/ i zippen\. En webbläsare får inte se mappen där zippen ligger\. Välj nyckelringen/.test(near), 'I webbläsaren: ' + near);
+        }
+        // Två filer som inget knyter till zippen: ingen väljs, och båda nämns.
+        await pick([fx.files.many]);
+        const many = await noteAfter(fx.files.many);
+        expect(!/Nyckeln läses ur/.test(many), 'Ingen ska väljas: ' + many);
+        if (desktop) expect(/Bredvid zippen ligger a_keychain\.plist, b_keychain\.plist, men inget visar att de hör till den\. Välj nyckelringen/.test(many), 'Flera: ' + many);
+        // Reserven: filen väljs, eller nyckeln klistras in.
+        await c.setFiles(PROV, '#signal-keyfile', [fx.files.keychain]);
+        await c.ev(PROV, `document.getElementById('signal-keyfile').dispatchEvent(new Event('change')), 1`);
+        await c.waitFor(PROV, `/Nyckeln läses ur Testextraktion-iOS17_keychain\\.plist/.test(document.getElementById('signal-key-note').textContent)`, 20000, 'Nyckelfil…');
+        const pasted = await c.ev(PROV, `(function(){ const i = document.getElementById('signal-key'); i.value = "x'" + 'ab'.repeat(48) + "'"; i.dispatchEvent(new Event('input', { bubbles: true })); const t = document.getElementById('signal-key-note').textContent; i.value = ''; i.dispatchEvent(new Event('input', { bubbles: true })); return t; })()`);
+        expect(/inklistrade nyckeln/.test(pasted), 'Inklistrad: ' + pasted);
+        // Queries letar på samma sätt, och säger samma sak.
+        await c.nav('Queries');
+        await pick([fx.files.ufed]);
+        await c.waitFor(QUER, `/databaser hittades/.test(document.getElementById('ex-status').textContent) && document.getElementById('bar-zip').textContent === 'EXTRACTION_FFS.zip'`, 60000, 'zippen i Queries');
+        await c.ev(QUER, `(function(){ const b = document.querySelector('.side-db[data-family="signal-ios-main"]'); if (b.getAttribute('aria-expanded') !== 'true') b.click(); return 1; })()`);
+        await c.ev(QUER, `document.querySelector('.side-q[data-db="signal-ios-main"][data-q="messages"]').click(), 1`);
+        await sleep(300);
+        const day = new Date(fx.T2).toISOString().slice(0, 10);
+        await c.ev(QUER, `(function(){ const s = document.querySelector('[data-param="timeStart"]'), e = document.querySelector('[data-param="timeEnd"]'); s.value = '${day} 00:00'; e.value = '${day} 23:59'; s.dispatchEvent(new Event('input', { bubbles: true })); e.dispatchEvent(new Event('input', { bubbles: true })); return 1; })()`);
+        await c.ev(QUER, `document.getElementById('run-button').click(), 1`);
+        await c.waitFor(QUER, `/rad(er)? på/.test(document.getElementById('run-status').textContent) || /run-warn/.test(document.getElementById('run-status').innerHTML)`, 30000, 'körningen i Queries');
+        const rows = await c.ev(QUER, `document.querySelectorAll('#run-result tbody tr').length`);
+        expect(rows === 1, 'Signal i Queries med nyckeln under extra/: ' + rows + ' rader');
+        await pick([fx.files.noKey]);
+        await c.waitFor(QUER, `document.getElementById('bar-zip').textContent === 'Ingen-nyckel.zip'`, 60000, 'nästa zip i Queries');
+        const q = await c.waitFor(QUER, `(function(){ const n = document.getElementById('run-key-note'); return n && /Ingen nyckel hittades/.test(n.textContent) && n.textContent; })()`, 20000, 'beskedet i Queries');
+        expect(desktop ? /under extra\/ i zippen eller bredvid den\./.test(q) : /under extra\/ i zippen\. En webbläsare/.test(q), 'Queries: ' + q);
+        await c.nav('Härkomst');
+        await noInjectedScript(c);
+        return desktop ? 'under extra/, bredvid zippen, flera, och reserven' : 'under extra/ och reserven, i webbläsaren utan mappen';
     }],
 ];
 

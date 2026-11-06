@@ -15,5 +15,7 @@ if (location.protocol === 'file:') {
         revoke: function (filePath) { return ipcRenderer.invoke('media-revoke', filePath); },
         // Filsystemets tider (skapad, ändrad, senast läst, ändrad metadata) utan att filen läses.
         times: function (filePath) { return ipcRenderer.invoke('media-times', filePath); },
+        // Nyckelfilerna bredvid en vald extraktion. Andra filer i mappen läses inte.
+        keysBeside: function (filePath) { return ipcRenderer.invoke('keys-beside', filePath); },
     });
 }

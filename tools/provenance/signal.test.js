@@ -154,6 +154,42 @@ test('faktorn Signal: läget följer filens typ', () => {
     assert.strictEqual(core.factorSignal({ format: wall, file: {}, signal: { error: 'krypterad utan nyckel' } }, camera).state, 'missing');
 });
 
+test('Signals egen krypterade fil kopplas med data_file, eftersom summan aldrig kan stämma', () => {
+    const input = (link) => ({ format: (ms) => wall(ms).slice(0, 19), file: { pk: 1, addedMs: at(0), createdMs: at(0) }, signal: { link } });
+    const other = { type: 'other' };
+    const dir = '/data/data/org.thoughtcrime.securesms/app_parts/';
+    const build = (filePath) => sig.build({ sha256: hex('krypterat innehåll'), filePath, attachments: ATTACHMENTS, messages: MESSAGES, recipients: RECIPIENTS, log: [], wall });
+    // Mottagen: bilaga 6 och 15 pekar på samma fil, och meddelandena märks som filens.
+    const recv = build(dir + 'part1043.mms');
+    assert.deepStrictEqual(recv.link.matches.map((m) => [m.attachmentId, m.messageId, m.on, m.direction]), [[6, 12, 'file', 'in'], [15, 19, 'file', 'out']]);
+    assert.ok(recv.events.some((e) => e.kind === 'sig-message' && e.messageId === 12 && e.isFile), 'meddelandet är märkt som filens');
+    const onlyRecv = sig.build({ sha256: hex('x'), filePath: dir + 'part1043.mms', attachments: ATTACHMENTS.slice(1, 2), messages: MESSAGES, recipients: RECIPIENTS, log: [], wall });
+    const f = core.factorSignal(input(onlyRecv.link), other);
+    assert.deepStrictEqual([f.state, f.verdictText], ['info', 'Mottagen i Signal']);
+    assert.match(f.plain, /^Filen togs emot i Signal från Kim /);
+    assert.match(f.items[0].text, /\. Filen är bilagans krypterade fil hos Signal\.$/);
+    // Skickad.
+    const sent = core.factorSignal(input(build(dir + 'part2114.mms').link), other);
+    assert.deepStrictEqual([sent.state, sent.verdictText], ['info', 'Skickad i Signal']);
+    assert.match(sent.items[0].text, /\. Filen är bilagans krypterade fil hos Signal\.$/);
+    // I Signals mapp, men ingen rad pekar på filen: att summan inte stämmer säger inget.
+    const orphan = core.factorSignal(input(build(dir + 'part9999.mms').link), other);
+    assert.deepStrictEqual([orphan.state, orphan.verdictText], ['info', 'Ingen bilaga pekar på filen']);
+    assert.match(orphan.items[0].text, /^Filen ligger krypterad i Signals mapp app_parts\/, så dess SHA-256 går inte att jämföra med bilagornas\. Ingen av Signals bilagor pekar på filen\.$/);
+    // Raden finns, men utan meddelande.
+    const loose = sig.build({ sha256: hex('x'), filePath: dir + 'part77.mms', attachments: [{ id: 9, messageId: null, type: null, dataFile: 'part77.mms' }], messages: [], recipients: RECIPIENTS, log: [], wall });
+    const noMessage = core.factorSignal(input(loose.link), other);
+    assert.deepStrictEqual([noMessage.state, noMessage.verdictText], ['info', 'Bilaga utan meddelande']);
+    assert.match(noMessage.items[0].text, /Databasen pekar på filen, men den hör inte till något meddelande\./);
+    // Samma namn i en annan app (Molly, en fork av Signal) är inte Signals fil.
+    const molly = sig.build({ sha256: hex('ingen'), filePath: '/data/data/im.molly.app/app_parts/part1043.mms', attachments: ATTACHMENTS, messages: [], recipients: RECIPIENTS, log: [], wall });
+    assert.deepStrictEqual(molly.link.matches, []);
+    assert.strictEqual(molly.link.ownFile, null);
+    assert.strictEqual(core.factorSignal(input(molly.link), other).verdictText, 'Inte i Signal');
+    // En kopia utanför mappen jämförs på summan, som förut.
+    assert.deepStrictEqual(sig.build({ sha256: hex('mottagen'), filePath: '/data/media/0/DCIM/part1043.mms', attachments: ATTACHMENTS, messages: [], recipients: RECIPIENTS, log: [], wall }).link.matches.map((m) => m.on), ['both', 'both']);
+});
+
 test('hashsökningen: SHA-256 mot databasens summor, MD5 efter dekryptering, och meningen om bilagan', async () => {
     const hashing = require('../hash-calculator/hashing');
     const hs = require('./hash-search');
@@ -243,6 +279,26 @@ test('Signal på iOS: sparad ur Signal med samma summa, namnets tid, och ingen k
     assert.deepStrictEqual([fc.state, fc.verdictText], ['info', 'Ingen koppling']);
     assert.match(fc.plain, /Signal kodar om bilder, så en bild som skickats ur bildbiblioteket känns inte igen på det sättet\./);
     assert.match(fc.items[0].text, /Signals 3 bilagor\. Signal kodar om bilder/);
+});
+
+test('Signal på iOS: Signals egen krypterade fil kopplas med sin plats, eftersom summan aldrig kan stämma', () => {
+    const dir = '/private/var/mobile/Containers/Shared/AppGroup/ABC/attachment_files/';
+    const a = IOS_ATT.find((x) => x.dataFile && x.messageId != null && Number(x.ownerType) === 0);
+    const out = sig.buildIos({ sha256: hex('krypterat innehåll'), filePath: dir + a.dataFile, fileName: 'filnamn', attachments: IOS_ATT, messages: [], wall: iwall });
+    assert.deepStrictEqual(out.link.matches.map((m) => [m.attachmentId, m.on]), [[a.id, 'file']]);
+    assert.strictEqual(out.link.ownFile, 'attachment_files/');
+    const fmt = (ms) => core.formatWithOffset(ms, 60);
+    const f = core.factorSignal({ file: { createdMs: iat(100) }, format: fmt, signal: { link: out.link } }, { type: 'other' });
+    assert.ok(f.items.some((i) => /Filen är bilagans krypterade fil hos Signal\./.test(i.text)), JSON.stringify(f.items));
+    const orphan = sig.buildIos({ sha256: hex('krypterat innehåll'), filePath: dir + 'FF/okand', fileName: 'okand', attachments: IOS_ATT, messages: [], wall: iwall });
+    assert.deepStrictEqual(orphan.link.matches, []);
+    assert.strictEqual(core.factorSignal({ file: { createdMs: iat(100) }, format: fmt, signal: { link: orphan.link } }, { type: 'other' }).verdictText, 'Ingen bilaga pekar på filen');
+    // En berättelse: raden finns i Attachment, men utan meddelande (MessageAttachmentReference saknas).
+    const story = sig.buildIos({ sha256: hex('krypterat innehåll'), filePath: dir + 'B0/berattelse', fileName: 'berattelse', attachments: IOS_ATT.concat([{ id: 99, dataFile: 'B0/berattelse', messageId: null, ownerType: null }]), messages: [], wall: iwall });
+    assert.deepStrictEqual(story.link.matches, []);
+    const fs = core.factorSignal({ file: { createdMs: iat(100) }, format: fmt, signal: { link: story.link } }, { type: 'other' });
+    assert.deepStrictEqual([fs.state, fs.verdictText], ['info', 'Bilaga utan meddelande']);
+    assert.match(fs.plain, /Det kan vara en berättelse\./);
 });
 
 test('Signal på iOS: länkad enhet, när meddelandet öppnades, engångsvisning och berättelser', () => {

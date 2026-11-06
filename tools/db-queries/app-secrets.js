@@ -6,9 +6,11 @@
 //   En egen nyckelfil med JSON-filen android_keystore,
 //     { paket: [{ description, key_name, encrypted_data, decrypted_data }] }. Formatet för Signal
 //     är inte kontrollerat (ingen sådan fil med Signal har setts), så tolkningen är försiktig.
-// Signal på iOS lägger databasnyckeln i nyckelringen. Extraktionsverktyget sparar nyckelringen som
-// en plist bredvid zippen (…_keychain.plist), som undersökaren väljer tillsammans med zippen.
-// Undersökaren kan också klistra in nyckeln. Ingen DOM. Testas i Node.
+// Signal på iOS lägger databasnyckeln i nyckelringen. Extraktionsverktyg sparar den på två sätt:
+//   En plist bredvid zippen (…_keychain.plist), med posterna öppna i listorna genp, inet, keys och cert.
+//   extra/KeychainDump/backup_keychain_v2.plist i zippen, med varje post krypterad (keychainEntries).
+// Programmet letar själv (ExtractionCore.findKeys). Undersökaren kan också välja filen eller klistra in
+// nyckeln. Ingen DOM. Testas i Node.
 (function (root) {
     'use strict';
 
@@ -24,6 +26,33 @@
     function isKeyFileName(name) {
         var n = String(name || '').split('/').pop();
         return /keychain[^/]*\.plist$/i.test(n) || /^secrets\.json$/i.test(n) || /keystore/i.test(n);
+    }
+
+    // En nyckelfil under extra/ i zippen. Mappen ska ligga högst upp, eller i en enda mapp som zippen packat
+    // allt i: längre ned och under filesystem1/ ligger telefonens egna filer, som inte ska tas för nycklar.
+    function isExtraKeyPath(name) {
+        if (isSecretsPath(name)) return true;
+        var m = /^(?!filesystem\d*\/)(?:[^/]+\/)?extra\/(?:.+\/)?([^/]+)$/.exec(String(name || ''));
+        return !!m && isKeyFileName(m[1]);
+    }
+
+    // Telefonens id i ett filnamn: det som står före första understrecket, när det ser ut som ett id
+    // (minst 8 tecken, bokstäver, siffror och bindestreck, minst en siffra). null när namnet inte har något.
+    function deviceIdOf(name) {
+        var m = /^([0-9A-Za-z-]{8,})_/.exec(String(name || ''));
+        return m && /\d/.test(m[1]) ? m[1].toLowerCase() : null;
+    }
+
+    // Vilka av filerna i zippens mapp som är dess nyckelfiler. Samma id i namnet avgör. Annars duger en enda
+    // nyckelfil utan ett annat telefon-id. Flera, eller en annan telefons, väljs aldrig på chans: mappen kan
+    // ha flera telefoners extraktioner. -> { use: [namn], other: [nyckelfiler som inte valdes] }.
+    function besideKeyFiles(zipName, names) {
+        var id = deviceIdOf(zipName);
+        var keys = (names || []).filter(function (n) { return n !== zipName && isKeyFileName(n); });
+        var same = id ? keys.filter(function (n) { return deviceIdOf(n) === id; }) : [];
+        if (same.length) return { use: same, other: [] };
+        var free = keys.filter(function (n) { return !id || !deviceIdOf(n); });
+        return free.length === 1 ? { use: free, other: [] } : { use: [], other: keys };
     }
 
     function text(bytes) {
@@ -217,10 +246,21 @@
         return String(v);
     }
 
-    // Nyckelringen från en iOS-extraktion: { genp: [...], inet: [...], keys: [...], cert: [...] }, en
-    // post per objekt med agrp (åtkomstgrupp), svce (tjänst), acct (konto, ibland som data) och v_Data
-    // (värdet). Signals databasnyckel: svce GRDBKeyChainService, acct GRDBDatabaseCipherKeySpec,
+    // Signals post i nyckelringen: svce GRDBKeyChainService, acct GRDBDatabaseCipherKeySpec, och värdet på
     // 48 byte (AES-nyckeln och saltet). Kontrollerat mot Signal på iOS 26.4.1 (labbtelefon, 2026-11-03).
+    function isSignalItem(it) {
+        return fieldText(it.svce) === 'GRDBKeyChainService' && fieldText(it.acct) === 'GRDBDatabaseCipherKeySpec';
+    }
+
+    function addSignalKey(out, value, group) {
+        if (!(value instanceof Uint8Array) || value.length !== 48) return;
+        var a = appEntry(out, SIGNAL_IOS);
+        a.dbKey = toHex(value);
+        a.notes.push('GRDBKeyChainService / GRDBDatabaseCipherKeySpec' + (group ? ' (' + fieldText(group) + ')' : ''));
+    }
+
+    // Nyckelringen från en iOS-extraktion: { genp: [...], inet: [...], keys: [...], cert: [...] }, en
+    // post per objekt med agrp (åtkomstgrupp), svce (tjänst), acct (konto, ibland som data) och v_Data (värdet).
     function fromKeychainPlist(bytes, source, parseBinary) {
         var out = empty(source || 'nyckelringen');
         out.kind = 'keychain';
@@ -229,14 +269,58 @@
         if (!p || typeof p !== 'object' || !Array.isArray(p.genp)) { out.error = 'Filen är en plist men ingen nyckelring (listan genp saknas).'; return out; }
         out.items = ['genp', 'inet', 'keys', 'cert'].reduce(function (n, k) { return n + (Array.isArray(p[k]) ? p[k].length : 0); }, 0);
         p.genp.forEach(function (it) {
-            if (!it || typeof it !== 'object') return;
-            if (fieldText(it.svce) !== 'GRDBKeyChainService' || fieldText(it.acct) !== 'GRDBDatabaseCipherKeySpec') return;
-            var v = it.v_Data;
-            if (!(v instanceof Uint8Array) || v.length !== 48) return;
-            var a = appEntry(out, SIGNAL_IOS);
-            a.dbKey = toHex(v);
-            a.notes.push('GRDBKeyChainService / GRDBDatabaseCipherKeySpec' + (it.agrp ? ' (' + fieldText(it.agrp) + ')' : ''));
+            if (it && typeof it === 'object' && isSignalItem(it)) addSignalKey(out, it.v_Data, it.agrp);
         });
+        return out;
+    }
+
+    // Innehållet ur en NSKeyedArchiver-plist med AES-GCM-delarna (_SFAuthenticatedCiphertext), dekrypterat och
+    // kontrollerat. Stämmer inte kontrollsumman kastas ett fel.
+    async function openSealed(keyBytes, sealed, parseBinary) {
+        var a = plistOf(sealed, parseBinary);
+        var o = a.$objects;
+        var r = o[a.$top.root.value];
+        var data = o[r.SFCiphertext.value], tag = o[r.SFAuthenticationCode.value];
+        var joined = new Uint8Array(data.length + tag.length);
+        joined.set(data);
+        joined.set(tag, data.length);
+        var key = await crypto.subtle.importKey('raw', keyBytes, 'AES-GCM', false, ['decrypt']);
+        return new Uint8Array(await crypto.subtle.decrypt({ name: 'AES-GCM', iv: o[r.SFInitializationVector.value], tagLength: tag.length * 8 }, key, joined));
+    }
+
+    // Nyckelringen med krypterade poster (iOS keychain, version 8): { keychainEntries: [{ table, classKeyIdx,
+    // metadata: { wrappedKey, ciphertext, tamperCheck }, data: { unwrappedKey, ciphertext, tamperCheck } }],
+    // classKeyIdxToUnwrappedMetadataClassKey: { idx: nyckel } }. Extraktionsverktyget har låst upp klassnycklarna
+    // och postens nyckel. Klassnyckeln öppnar postens metadatanyckel, som öppnar metadatan (DER: svce, acct, agrp),
+    // och postens nyckel öppnar värdet (DER: v_Data). TamperCheck ska vara samma i posten som i det dekrypterade.
+    // Bara värdet i Signals post dekrypteras. Kontrollerat mot två iOS-extraktioner utan Signal: alla 1 496
+    // poster öppnas, och fälten heter som i plisten bredvid zippen.
+    async function fromKeychainEntries(p, source, parseBinary) {
+        var out = empty(source || 'nyckelringen');
+        out.kind = 'keychain';
+        out.items = p.keychainEntries.length;
+        var kc = root.KC || (typeof globalThis !== 'undefined' ? globalThis.KC : null);
+        var der = kc && kc.asn1;
+        if (!der) { out.error = 'Nyckelringens poster är krypterade, och tolken för dem saknas (asn1.js).'; return out; }
+        if (typeof crypto === 'undefined' || !crypto.subtle) { out.error = 'Nyckelringens poster är krypterade, och webbläsaren har inte det krypto som behövs (WebCrypto) här.'; return out; }
+        var classKeys = p.classKeyIdxToUnwrappedMetadataClassKey || {};
+        var tried = 0, failed = 0;
+        for (var i = 0; i < p.keychainEntries.length; i++) {
+            var e = p.keychainEntries[i];
+            if (!e || e.table !== 'genp') continue;
+            tried++;
+            try {
+                var itemKey = await openSealed(classKeys[String(e.classKeyIdx)], e.metadata.wrappedKey, parseBinary);
+                var attrs = der.parseRecord(await openSealed(itemKey, e.metadata.ciphertext, parseBinary));
+                if (attrs.TamperCheck !== e.metadata.tamperCheck) { failed++; continue; }
+                if (!isSignalItem(attrs)) continue;
+                var secret = der.parseRecord(await openSealed(e.data.unwrappedKey, e.data.ciphertext, parseBinary));
+                if (secret.TamperCheck !== e.data.tamperCheck) { failed++; continue; }
+                addSignalKey(out, secret.v_Data, attrs.agrp);
+            } catch (err) { failed++; }
+        }
+        out.failed = failed;
+        if (failed && !out.apps[SIGNAL_IOS]) out.error = failed + ' av ' + tried + ' poster i nyckelringen gick inte att dekryptera, så Signals nyckel kan finnas bland dem.';
         return out;
     }
 
@@ -258,6 +342,16 @@
         var out = empty(name || 'nyckelfil');
         out.error = 'Filen är ingen nyckelfil som programmet känner igen (nyckelringen som plist, secrets.json eller android_keystore).';
         return out;
+    }
+
+    // Samma sak, och också nyckelringen med krypterade poster. Dekrypteringen är asynkron.
+    async function readKeyBytes(bytes, name, parseBinary) {
+        bytes = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
+        var p = null;
+        if (looksLikeKeychain(bytes)) {
+            try { p = plistOf(bytes, parseBinary); } catch (e) { p = null; }
+        }
+        return p && Array.isArray(p.keychainEntries) ? fromKeychainEntries(p, name, parseBinary) : fromKeyFile(bytes, name, parseBinary);
     }
 
     // Det undersökaren klistrar in: databasnyckeln som 64 hextecken (Android) eller 96 (iOS, nyckel
@@ -315,15 +409,35 @@
         return signalKeys(found, profile === 'signal-ios' ? SIGNAL_IOS : SIGNAL);
     }
 
+    // Finns Signals databasnyckel, för Android eller iOS, i det som hittats?
+    function hasSignalKey(found) {
+        var has = function (app) { var k = signalKeys(found, app); return !!(k && k.dbKey); };
+        return has(SIGNAL) || has(SIGNAL_IOS);
+    }
+
     // Var nyckeln saknas, för felet när den inte hittas.
     function keyHint(profile) {
-        return profile === 'signal-ios' ? 'nyckelringen (…_keychain.plist bredvid zippen)' : 'nyckelfilen (extra/Secrets/secrets.json)';
+        return profile === 'signal-ios' ? 'nyckelringen (…_keychain.plist)' : 'nyckelfilen (…_android_keystore.zip eller secrets.json)';
+    }
+
+    // Vad undersökaren får veta när nyckeln inte hittades: var programmet letade och vad som återstår.
+    // opts: { profile, word (zippen eller rapporten), search: { lookedBeside, other } ur ExtractionCore.findKeys }.
+    function missingKeyText(opts) {
+        var word = opts.word || 'zippen';
+        var search = opts.search || {};
+        var other = search.other || [];
+        var inside = word === 'rapporten' ? 'i rapporten' : 'under extra/ i zippen';
+        var looked = 'Ingen nyckel hittades ' + inside + (search.lookedBeside && !other.length ? ' eller bredvid den.' : '.');
+        if (other.length) looked += ' Bredvid ' + word + ' ligger ' + other.join(', ') + ', men inget visar att de hör till den.';
+        if (!search.lookedBeside) looked += ' En webbläsare får inte se mappen där ' + word + ' ligger.';
+        return looked + ' Välj ' + keyHint(opts.profile) + ' med Nyckelfil…, eller klistra in nyckeln. Den sparas inte.';
     }
 
     var api = {
-        SIGNAL: SIGNAL, SIGNAL_IOS: SIGNAL_IOS, isSecretsPath: isSecretsPath, isKeyFileName: isKeyFileName,
-        fromSecretsFile: fromSecretsFile, fromKeystoreFile: fromKeystoreFile, fromKeychainPlist: fromKeychainPlist, fromKeyFile: fromKeyFile,
-        parseXmlPlist: parseXmlPlist, parseManual: parseManual, signalKeys: signalKeys, keysForProfile: keysForProfile, keyHint: keyHint,
+        SIGNAL: SIGNAL, SIGNAL_IOS: SIGNAL_IOS, isSecretsPath: isSecretsPath, isKeyFileName: isKeyFileName, isExtraKeyPath: isExtraKeyPath,
+        besideKeyFiles: besideKeyFiles, deviceIdOf: deviceIdOf,
+        fromSecretsFile: fromSecretsFile, fromKeystoreFile: fromKeystoreFile, fromKeychainPlist: fromKeychainPlist, fromKeyFile: fromKeyFile, readKeyBytes: readKeyBytes,
+        parseXmlPlist: parseXmlPlist, parseManual: parseManual, signalKeys: signalKeys, keysForProfile: keysForProfile, hasSignalKey: hasSignalKey, keyHint: keyHint, missingKeyText: missingKeyText,
     };
     if (typeof module !== 'undefined' && module.exports) module.exports = api;
     else root.AppSecrets = api;

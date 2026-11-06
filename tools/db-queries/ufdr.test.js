@@ -193,6 +193,24 @@ test('det som utvunnits ur andra filer och nyckelringen är inga filer på telef
     assert.match(Ufdr.limitText(report), /3 filer som rapportverktyget utvunnit/);
 });
 
+test('nyckelfilerna högst upp i rapporten är inga filer på telefonen, men telefonens egna står kvar', async () => {
+    // Så står de i en rapport ur en zip med extra/: samma fs som telefonens filer, utanför telefonens filsystem.
+    const fs = 'EXTRACTION_FFS.zip';
+    const phone = ['/root/private/var/Keychains/keychain-ota-backup.plist', '/system/app/KeyChain/KeyChain.apk', '/data/data/x/files/Secrets/secrets.json', '/init.environ.rc'];
+    const rows = [
+        { path: '/backup_keychain_v2.plist', data: 'nyckelringen', tag: 'Configuration', fs, m: DOS_ZERO },
+        { path: '/Secrets/secrets.json', data: '[]', tag: 'Uncategorized', fs, m: T },
+        { path: '/Secrets/gen_mem.dat', data: 'verktygets', tag: 'Uncategorized', fs, m: T },
+    ].concat(phone.map((path, i) => ({ path, data: 'telefonens ' + i, tag: 'Configuration', fs, c: T, m: T, a: T })));
+    const { by, read, report } = await opened(rows);
+    assert.deepStrictEqual(report.keychains.map((k) => k.name), ['/backup_keychain_v2.plist', '/Secrets/secrets.json']);
+    assert.strictEqual(Buffer.from((await zip.extract(read, report.keychains[0])).bytes).toString(), 'nyckelringen');
+    ['/backup_keychain_v2.plist', '/Secrets/secrets.json', '/Secrets/gen_mem.dat'].forEach((p) => assert.ok(!by[p], p + ' är ingen fil på telefonen'));
+    phone.forEach((p) => assert.ok(by[p], p + ' är en fil på telefonen'));
+    assert.strictEqual(report.counts.files, phone.length);
+    assert.strictEqual(report.counts.derived, 1);
+});
+
 test('metadata hoppas över, också med text som ser ut som taggar, och decodedData läses inte', async () => {
     const { by, report } = await opened();
     assert.ok(!by['/ska/inte/lasas']);
@@ -345,6 +363,20 @@ test('rapportens egen benämning med verktygets namn visas inte', () => {
     const report = { paVersion: '1', createdText: '', device: 'Cellebrite UFED Reports', sources: [], counts: { files: 1, related: 0 } };
     assert.doesNotMatch(Ufdr.summaryText(report), /cellebrite|ufed|Extraktion:/i);
     assert.match(Ufdr.summaryText(Object.assign({}, report, { device: 'Apple iOS Full File system' })), /Extraktion: Apple iOS Full File system\./);
+});
+
+test('modellen står efter en allmän benämning, men inte en intern kod', () => {
+    const report = { paVersion: '1', createdText: '', device: 'Google Android Generic', sources: [], counts: { files: 1, related: 0 } };
+    const text = (selectedDevice) => Ufdr.summaryText(Object.assign({}, report, { selectedDevice }));
+    assert.match(text('SM-A336B'), /Extraktion: Google Android Generic \(SM-A336B\)\./);
+    assert.match(text('APPLE_IOS_FULL_FILE_SYSTEM'), /Extraktion: Google Android Generic\./);
+    assert.match(text(''), /Extraktion: Google Android Generic\./);
+    assert.doesNotMatch(text('UFED 10'), /ufed/i);
+});
+
+test('samma källfil nämns en gång, också när nyckelfilerna kom ur den', () => {
+    const report = { paVersion: '1', createdText: '', device: '', counts: { files: 1, related: 0 }, sources: [{ path: 'EXTRACTION_FFS.zip', verify: 'Verified' }, { path: 'EXTRACTION_FFS.zip', verify: 'Verified' }, { path: 'annan.plist', verify: '' }] };
+    assert.match(Ufdr.summaryText(report), /Källfiler enligt rapporten: EXTRACTION_FFS\.zip \(Verified\), annan\.plist\./);
 });
 
 test('summorna i report.xml fyller cachen för hashsökning', async () => {

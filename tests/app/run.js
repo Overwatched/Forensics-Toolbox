@@ -7,6 +7,7 @@
 // kontrollerna mot iOS-labbtelefonen (lab-ios.js). Labbzipparna ligger inte i repot; sökvägarna
 // tas ur FT_LAB_ZIP, FT_LAB_IOS_DIR och FT_LAB_IOS_LOG_DIR, annars ~/Documents/Exampleextractions/. Zippar med
 // metadata.msgpack kontrolleras mot det fristående facit om sökvägarna står i FT_LAB_NAMED_ZIPS (åtskilda med kolon).
+// Rapporter ur en sådan zip kontrolleras om de står i FT_LAB_UFED_REPORTS, med zippen efter = om den finns.
 //
 //   npm run test:app                röktestet, och labbtesterna om labbzipparna finns
 //   npm run test:app -- --smoke     bara röktestet
@@ -62,7 +63,8 @@ async function main() {
     const labIos = labIosDir(iosFacit, 'FT_LAB_IOS_DIR');
     const labIosLog = labIosDir(logFacit, 'FT_LAB_IOS_LOG_DIR');
     const namedZips = (process.env.FT_LAB_NAMED_ZIPS || '').split(path.delimiter).filter((p) => p && fs.existsSync(p));
-    if (onlyFacit && !lab && !labIos && !labIosLog && !namedZips.length) {
+    const ufedReports = (process.env.FT_LAB_UFED_REPORTS || '').split(path.delimiter).map((p) => p.split('=')).filter(([r]) => r && fs.existsSync(r));
+    if (onlyFacit && !lab && !labIos && !labIosLog && !namedZips.length && !ufedReports.length) {
         console.error('Labbzipparna finns inte. Ange sökvägarna i FT_LAB_ZIP, FT_LAB_IOS_DIR och FT_LAB_IOS_LOG_DIR.');
         process.exit(1);
     }
@@ -85,6 +87,7 @@ async function main() {
         if (!onlySmoke && labIosLog) require('./lab-ios').labReports(labIosLog).forEach((r) => groups.push(['Samma facit mot rapporten i ' + r.name, require('./lab-ios').scenarios(labIosLog, logFacit, r.path)]));
         if (!onlySmoke && !labIosLog) console.log('iOS-labbtelefonen, loggad session: mappen finns inte, hoppar över (FT_LAB_IOS_LOG_DIR).\n');
         if (!onlySmoke) namedZips.forEach((z, i) => groups.push(['Tiderna ur metadata.msgpack, zipp ' + (i + 1), require('./lab-ios').namedTimesScenarios(z)]));
+        if (!onlySmoke) ufedReports.forEach(([r, z], i) => groups.push(['Rapport ur en zip med extra/, nummer ' + (i + 1), require('./lab-ios').ufedReportScenarios(r, z)]));
         for (const [group, list] of groups) {
             console.log(group);
             for (const [name, fn] of list) {

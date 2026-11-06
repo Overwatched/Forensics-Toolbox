@@ -1,5 +1,24 @@
 Automatiskt byggd från commit `{{SHA}}`.
 
+## Nytt i 1.51
+
+Programmet hittar nyckeln till Signal själv, filens tider står också på filkortet, och rapporter ur extraktioner med mappen `extra/` går att läsa med nyckeln. Signal på Android är kontrollerat mot en riktig rapport, och två fel i protokollet och Signal-faktorn är rättade.
+
+- **Filens tider under 3. Filen:** kortet har en grupp med samma tider som tabellen under 4, i samma zon och med T utmärkt. Det som saknas står kvar, till exempel "Filen har ingen egen tid", så att det inte ser ut som att filen saknar tidsstämplar. Källorna står i tabellen under 4.
+- **Nyckeln hittas själv:** programmet letar under `extra/` i zippen, i rapporten och, i skrivbordsappen, bredvid zippen. Bredvid zippen avgör samma enhets-id i namnet, annars duger en enda nyckelfil utan en annan telefons id. Flera möjliga filer väljs aldrig, utan nämns. En webbläsare får inte se mappen bredvid zippen, och då sägs det. Beskedet säger alltid var nyckeln lästes eller var programmet letade.
+- **Reserven:** **Nyckelfil…** och en inklistrad nyckel går alltid före det programmet hittat. En vald nyckelfil gäller bara extraktionen den valdes för och följer inte längre med till nästa telefon. `…_android_keystore.zip` går att välja som nyckelfil och tas inte längre för själva extraktionen om den väljs tillsammans med zippen.
+- **Krypterad nyckelring:** nyckelringen under `extra/KeychainDump/` har varje post krypterad, och den avvisades förut. Nu dekrypteras den i minnet, och bara värdet i Signals post läses. Provat på två riktiga iPhone-extraktioner med 1 496 poster, där varje kontrollsumma stämmer. Ingen av telefonerna har Signal, så Signals post i den formen är bara provad med testdata och den riktiga nyckeln från en annan extraktion, inpackad på samma sätt.
+- **Rapporter ur en zip med `extra/`:** nyckelfilerna ligger högst upp i sådana rapporter, så programmet hittade dem inte och sa att nyckeln saknades. Nu läses de, och de står inte längre bland telefonens filer. De här rapporterna har också ctime på iPhone, och den visas i tabellen.
+- **Provat på två rapporter:** iPhone-rapporten ger samma resultat som zippen den kom ur: samma rader i alla 38 queries, och samma T, tider och svar på 89 filer. ctime och de andra tre tiderna stämmer på alla 287 919 filer. Zippen till Android-rapporten finns inte att jämföra med, men 34 queries och 14 filer gick igenom utan fel.
+- **Signal på Android:** kontrollerat mot en riktig rapport från en Samsung. Alla sidor öppnas med nyckeln ur rapporten, alla 59 tabeller har samma innehåll som rapportverktygets egen dekrypterade kopia, 47 av 47 meddelanden har samma tider och 7 av 7 bilagor har rätt summa efter dekryptering.
+- **Rättat i protokollet:** tabellen EXIF-tagg i filen har sedan 1.26 haft raden `System:FileModifyDate`. Tiden där är när programmet läste filen, inte en tid ur filen. Raden är borta. Läs den inte som filens tid i äldre protokoll.
+- **Rättat i Signal-faktorn:** en fil med samma summa som en mottagen bilaga kunde sedan 1.37 få svaret "Skickad i Signal". Det gällde filer som varken var kamerabilder, skärmdumpar eller sparade av Signal. Nu står det "Mottagen i Signal".
+- **Signals krypterade filer:** `app_parts/part….mms` och `attachment_files/…` gav "Unknown error" och, på Android, "Inte i Signal". Summan kan aldrig stämma för dem, så nu kopplas de till sitt meddelande med raden i databasen. En rad utan meddelande sägs, eftersom det kan vara en berättelse.
+- **Filer som ExifTool inte kan tolka:** filen läses och hashas, och texten säger att innehållet inte gick att tolka, inte att filen inte kunde läsas.
+- **Tider ur `metadata.msgpack`:** nanosekunderna avrundas nu till millisekund i stället för att kapas. Det gav falska skillnader på 1 ms mot bildbiblioteket och rapporter.
+- **Mindre:** det står "finns inte i rapporten" när källan är en rapport, samma källfil nämns en gång, och modellen står efter rapportens benämning, till exempel "Google Android Generic (SM-A336B)".
+- **macOS:** bygget signeras nu ad hoc. Signaturen var ogiltig förut, och det är troligen därför macOS sa att appen var skadad. Apple har inte granskat appen, så macOS varnar ändå vid första start. Hur du öppnar den står under macOS längst ned. Det är inte provat på en Mac med Gatekeeper påslagen.
+
 ## Nytt i 1.50
 
 Rapporter i UFDR-format går att läsa, Härkomst kan visa tidslinjen vid flera av filens tidpunkter, och tiderna läses rätt ur extraktioner som har filen `metadata.msgpack`.
@@ -443,6 +462,6 @@ Offlinekartan från 1.7 finns kvar: världen i översikt, Sverige på gatunivå.
 - **ForensicsToolbox-*.AppImage** — körbar AppImage (x64)
 
 ## macOS
-- **ForensicsToolbox-*.dmg** / **.zip** — osignerat bygge. Gatekeeper kan varna; högerklicka och välj Öppna.
+- **ForensicsToolbox-*.dmg** / **.zip** — signerat ad hoc, inte granskat av Apple. macOS varnar vid första start. Försök öppna appen, och välj sedan **Öppna ändå** under Systeminställningar > Integritet och säkerhet.
 
 Kartdata © OpenStreetMap-bidragsgivare (ODbL), via Protomaps.

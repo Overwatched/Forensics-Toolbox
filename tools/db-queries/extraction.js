@@ -222,18 +222,28 @@
     // Nyckelfiler som valts i Queries eller kommit från navet: [{ source, apps, error }].
     var keyFiles = [];
 
+    // Nyckelfiler som undersökaren valt gäller extraktionen de valdes för, inte nästa telefon.
+    function chosenKeys() {
+        return keyFiles.filter(function (k) { return !k.forFile || !current || sameFile(k.forFile, current.file); });
+    }
+
+    // Det undersökaren valt går före det programmet hittade själv.
     function cipherFor(db) {
         if (!db || !db.cipher) return null;
-        var keys = AppSecrets.keysForProfile(((current && current.secrets) || []).concat(keyFiles), db.cipher);
+        var keys = AppSecrets.keysForProfile(chosenKeys().concat((current && current.secrets) || []), db.cipher);
         return { profile: db.cipher, passphrase: keys ? keys.dbKey : null, source: keys ? keys.source : null, hint: AppSecrets.keyHint(db.cipher) };
     }
 
-    // Nya nyckelfiler: tolkas efter innehållet, och databasen som visas får nyckeln direkt.
-    async function useKeyFiles(list, share) {
+    // Nya nyckelfiler: tolkas efter innehållet, och databasen som visas får nyckeln direkt. forFile: extraktionen de
+    // hör till. Utan den gäller de den som är öppen.
+    async function useKeyFiles(list, share, forFile) {
         var parsed = [];
         for (var i = 0; i < (list || []).length; i++) {
-            try { parsed.push(AppSecrets.fromKeyFile(new Uint8Array(await list[i].arrayBuffer()), list[i].name)); }
-            catch (e) { parsed.push({ source: list[i].name, apps: {}, error: 'Filen kunde inte läsas: ' + e.message }); }
+            var one;
+            try { one = await ExtractionCore.readKeyFile(new Uint8Array(await list[i].arrayBuffer()), list[i].name); }
+            catch (e) { one = { source: list[i].name, apps: {}, error: 'Filen kunde inte läsas: ' + e.message }; }
+            one.forFile = forFile || (current ? current.file : null);
+            parsed.push(one);
         }
         keyFiles = parsed;
         var db = window.QueriesApp.currentDb ? window.QueriesApp.currentDb() : null;
@@ -242,8 +252,16 @@
         return parsed;
     }
 
+    // Det som inte gick att läsa sägs alltid om filen är vald, och om det programmet hittade själv när nyckeln saknas.
     function keyFileErrors() {
-        return keyFiles.filter(function (k) { return k.error; }).map(function (k) { return k.source + ': ' + k.error; });
+        var db = window.QueriesApp.currentDb ? window.QueriesApp.currentDb() : null;
+        var c = cipherFor(db);
+        return chosenKeys().concat(c && c.passphrase ? [] : (current && current.secrets) || []).filter(function (k) { return k.error; }).map(function (k) { return k.source + ': ' + k.error; });
+    }
+
+    // Var programmet letade efter nyckeln, för beskedet när den saknas. null utan öppen extraktion.
+    function keySearch() {
+        return current ? { word: current.report ? 'rapporten' : 'zippen', search: current.keySearch } : null;
     }
 
     // dbId: en annan databas i samma familj än den iOS-versionen pekar ut (Photos.sqlite).
@@ -361,21 +379,14 @@
         });
         var secs = opened.seconds.toFixed(1).replace('.', ',');
         // Nycklar till krypterade databaser (Signal), bara om någon sådan databas finns i zippen.
-        var secrets = [];
+        var search = null;
         var cipherKeys = targets().filter(function (x) { return x.dbs.some(function (d) { return d.cipher; }); }).map(function (x) { return x.key; });
         if (opened.found.some(function (f) { return cipherKeys.indexOf(f.key) >= 0; })) {
-            try {
-                var sEntries = await ExtractionCore.find(read, file.size, AppSecrets.isSecretsPath);
-                if (sEntries.length) secrets.push(AppSecrets.fromSecretsFile((await ExtractionCore.readEntry(read, sEntries[0])).bytes, sEntries[0].name));
-                // Nyckelringen ligger i rapporten, när den lästes in i rapportverktyget.
-                if (source.report) for (var k = 0; k < source.report.keychains.length; k++) {
-                    var ke = source.report.keychains[k];
-                    secrets.push(AppSecrets.fromKeyFile((await ExtractionCore.readEntry(read, ke)).bytes, ExtractionCore.baseName(ke.name) + ' i rapporten'));
-                }
-            } catch (e) { console.warn('Nyckelfilen kunde inte läsas', e); }
+            try { search = await ExtractionCore.findKeys(read, file.size, { report: source.report, file: file }); }
+            catch (e) { console.warn('Nyckelfilen kunde inte läsas', e); }
         }
         current = {
-            file: file, read: read, report: source.report, scan: opened.scan, found: opened.found, version: opened.version, chosen: -1, secrets: secrets,
+            file: file, read: read, report: source.report, scan: opened.scan, found: opened.found, version: opened.version, chosen: -1, secrets: search ? search.secrets : [], keySearch: search,
             statusText: (from ? 'Samma extraktion som i ' + from + '. ' : '') +
                 opened.found.length + (opened.found.length === 1 ? ' databas hittades' : ' databaser hittades') +
                 ' på ' + secs + ' s.' + (opened.found.length ? ' Välj en här eller i listan till vänster.' : ''),
@@ -571,6 +582,7 @@
         openPicked: openPicked,
         useKeyFiles: useKeyFiles,
         keyFileErrors: keyFileErrors,
+        keySearch: keySearch,
         cipherFor: cipherFor,
         snapshot: function () { return { ex: current, chosen: current ? current.chosen : -1, loose: loose }; },
         restore: function (s) {

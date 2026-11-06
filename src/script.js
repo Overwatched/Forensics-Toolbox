@@ -119,15 +119,16 @@ function initToolNav() {
         if (extraction.keys.length) sendKeys(frame);
     }
 
-    // Nyckelfiler som hör till extraktionen (nyckelringen bredvid zippen på iOS, secrets.json,
-    // android_keystore). Verktygen tolkar dem själva; filerna läses bara.
+    // Nyckelfiler som undersökaren valt till extraktionen (nyckelringen, secrets.json, android_keystore).
+    // Det verktygen hittar själva går inte hit. Verktygen tolkar filerna; de läses bara.
     function sendKeys(frame) {
         postToFrame(frame, { source: 'forensics-toolbox', type: 'extraction-keys', files: extraction.keys, file: extraction.file });
     }
 
     function isKeyFile(f) {
         const n = f && typeof f.name === 'string' ? f.name : '';
-        return /\.plist$/i.test(n) || /^secrets\.json$/i.test(n) || /keystore[^/]*\.json$/i.test(n);
+        // Bara det nyckelfilen heter: en extraktion får gärna ha ordet keystore i sitt namn.
+        return /\.plist$/i.test(n) || /^secrets\.json$/i.test(n) || /keystore[^/]*\.json$/i.test(n) || /(^|[_-])android_keystore(\.zip)?$/i.test(n);
     }
 
     // Nya nyckelfiler till alla laddade verktyg utom det som valde dem.
@@ -171,9 +172,9 @@ function initToolNav() {
         // I Queries tar knappen emot både en extraktion och en databas, och Queries känner igen vilket.
         const queries = kind === 'queries';
         byId('cb-open').textContent = queries ? 'Öppna extraktion eller databas…' : f ? 'Byt…' : 'Öppna extraktion (zip eller UFDR)…';
-        byId('cb-open').title = queries ? 'En zip eller en rapport (UFDR) öppnas som extraktion i alla verktyg. En databas, med sin -wal, öppnas i Queries. Nyckelringen (…_keychain.plist) kan väljas tillsammans med zippen.'
-            : 'En zip eller en rapport (UFDR). Nyckelringen (…_keychain.plist bredvid zippen) kan väljas tillsammans med zippen.';
-        // Nyckelringen (…_keychain.plist bredvid zippen) kan väljas tillsammans med zippen.
+        const keysNote = window.forensicsMedia ? 'Nyckelfiler hittas själv under extra/ i zippen och bredvid zippen. Annars kan de väljas tillsammans med zippen.'
+            : 'Nyckelfiler hittas själv under extra/ i zippen. Ligger de bredvid zippen väljs de tillsammans med den, eftersom en webbläsare inte får se mappen.';
+        byId('cb-open').title = (queries ? 'En zip eller en rapport (UFDR) öppnas som extraktion i alla verktyg. En databas, med sin -wal, öppnas i Queries. ' : 'En zip eller en rapport (UFDR). ') + keysNote;
         byId('cb-input').multiple = true;
         if (queries) byId('cb-input').removeAttribute('accept');
         else byId('cb-input').setAttribute('accept', '.zip,application/zip,.ufdr,.plist,.json');
@@ -336,6 +337,18 @@ function initToolNav() {
             pendingKeys = null;
             return;
         }
+        // Ett verktyg frågar efter nyckelfiler bredvid extraktionen. Verktygens extraktionskod når aldrig huvudprocessen,
+        // så frågan besvaras här: med filerna i skrivbordsappen och med null i en webbläsare, som inte får se mappen.
+        if (data.type === 'keys-beside') {
+            const frame = frameOf(event.source);
+            if (!frame) return;
+            const media = window.forensicsMedia;
+            const at = media && media.keysBeside && data.file ? media.pathFor(data.file) : '';
+            (at ? media.keysBeside(at) : Promise.resolve(null)).catch(() => null).then((found) => {
+                postToFrame(frame, { source: 'forensics-toolbox', type: 'keys-beside-result', id: data.id, found: found });
+            });
+            return;
+        }
         // En nyckelfil som valdes i ett verktyg följer extraktionen till de andra.
         if (data.type === 'extraction-keys' && Array.isArray(data.files)) {
             setKeys(data.files.filter((f) => f && typeof f.name === 'string'), frameOf(event.source));
@@ -401,7 +414,7 @@ function initToolNav() {
             input.value = '';
             if (!picked.length) return;
             pendingKeys = null;
-            // Nyckelfiler som valdes tillsammans med zippen (nyckelringen bredvid den på iOS) följer extraktionen.
+            // Nyckelfiler som valdes tillsammans med zippen följer extraktionen.
             const keys = picked.filter(isKeyFile);
             const files = picked.filter((f) => keys.indexOf(f) < 0);
             if (!files.length) { setKeys(keys, null); return; }

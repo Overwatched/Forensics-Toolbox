@@ -1,4 +1,4 @@
-// Kontrollerna mot iOS-labbtelefonen: zippen och nyckelringen väljs tillsammans i raden högst upp,
+// Kontrollerna mot iOS-labbtelefonen: zippen väljs ensam i raden högst upp, nyckelringen hittas bredvid den,
 // Härkomst bedömer filerna och kopplingen till Signal, WhatsApp och Telegram jämförs med det som står
 // i facit/lab-ios-signal-whatsapp.json (förväntningar kontrollerade mellan källor) och
 // facit/lab-ios-tidsstamplar.json (en labbsession med loggad ordning). Finns rapporter (UFDR) från samma
@@ -123,7 +123,11 @@ async function assessRow(c, name, zone) {
 
 // Varje rad i bildbiblioteket mot ett fristående facit: time-facit.py läser zippens fält, EXIF, QuickTime och
 // Photos.sqlite utan programmets kod och utan ExifTool, och här jämförs det med tabellen i Härkomst.
+// report: rapporten är öppen i stället för zippen. 'ctime': rapporten har ctime och avrundar till ms med en tiondels
+// mikrosekund emellan (…499 950 ns blir uppåt), så där räcker inte en exakt jämförelse.
 function timeFacit(zip, report) {
+    const noCtime = report && report !== 'ctime';
+    const fsTol = report === 'ctime' ? 1 : 0;
     return ['Filens tider i tabellen stämmer med ett fristående facit för varje rad i bildbiblioteket', async ({ c }) => {
         const out = path.join(os.tmpdir(), 'ft-tider-' + process.pid + '-' + Date.now());
         let truth;
@@ -152,11 +156,11 @@ function timeFacit(zip, report) {
             });
             if (f.source === 1 || f.source === 3) expect(new RegExp('ZDATECREATEDSOURCE ' + f.source).test(row('created').note), f.name + ': ' + row('created').note);
             if (f.fs) {
-                [['fs-modified', f.fs.m], ['fs-accessed', f.fs.a], ['fs-changed', report ? 0 : f.fs.ctime], ['fs-created', f.fs.crtime]].forEach(([id, want]) => {
+                [['fs-modified', f.fs.m], ['fs-accessed', f.fs.a], ['fs-changed', noCtime ? 0 : f.fs.ctime], ['fs-created', f.fs.crtime]].forEach(([id, want]) => {
                     if (!want) return;
-                    near(f.name, id, (row(id) || {}).ms, want, 0);
+                    near(f.name, id, (row(id) || {}).ms, want, fsTol);
                 });
-                if (report) expect(row('fs-changed') && row('fs-changed').absent, f.name + ': en rapport har ingen ctime, men tabellen har ' + JSON.stringify(row('fs-changed')));
+                if (noCtime) expect(row('fs-changed') && row('fs-changed').absent, f.name + ': en rapport har ingen ctime, men tabellen har ' + JSON.stringify(row('fs-changed')));
             }
             // Tiden i filen på millisekunden. En tid utan zon i filen tolkas i bildens zon.
             if (f.fileTime != null) near(f.name, 'file-time', (row('file-time') || {}).ms, f.fileTime, 1);
@@ -187,10 +191,10 @@ function zoneChecks(names) {
 function scenarios(dir, facit, report) {
     const { zip, keychain } = labFiles(dir);
     const zipName = path.basename(report || zip);
-    const picked = report ? [report] : [zip, keychain];
-    const stats = () => picked.map((p) => { const s = fs.statSync(p); return [s.size, s.mtimeMs, s.ctimeMs].join('/'); }).join(' ');
+    const picked = report ? [report] : [zip];
+    const stats = () => (report ? [report] : [zip, keychain]).map((p) => { const s = fs.statSync(p); return [s.size, s.mtimeMs, s.ctimeMs].join('/'); }).join(' ');
     let before = null;
-    const open = [report ? 'Rapporten öppnas ensam i Härkomst' : 'Labbzippen och nyckelringen öppnas tillsammans i Härkomst', async ({ c }) => {
+    const open = [report ? 'Rapporten öppnas ensam i Härkomst' : 'Labbzippen öppnas ensam i Härkomst, och nyckelringen hittas bredvid den', async ({ c }) => {
         before = stats();
         await c.nav('Härkomst');
         await c.setFiles(null, '#cb-input', picked);
@@ -199,8 +203,8 @@ function scenarios(dir, facit, report) {
         await sleep(1000);
         await c.waitFor(PROV, `!ProvenanceApp.busy() && /databaser hittades/.test(document.getElementById('ex-status').textContent) && document.getElementById('ex-status').textContent.includes(${JSON.stringify(zipName)})`, 300000, 'labbzippen');
         const note = await c.waitFor(PROV, `/Nyckeln läses ur/.test(document.getElementById('signal-key-note').textContent) && document.getElementById('signal-key-note').textContent`, 20000, 'nyckelringen');
-        expect(note.includes(path.basename(keychain) + (report ? ' i rapporten' : '')), 'Nyckelns källa: ' + note);
-        return report ? 'rapporten, med nyckelringen i den' : 'zippen och nyckelringen';
+        expect(note.includes(path.basename(keychain) + (report ? ' i rapporten' : ' bredvid zippen')), 'Nyckelns källa: ' + note);
+        return report ? 'rapporten, med nyckelringen i den' : 'zippen, med nyckelringen bredvid den';
     }];
     const files = facit.files.map((f) => [f.name + ': ' + f.what, async ({ c }) => check(f, await assess(c, f.name), facit, report)]);
     const untouched = [report ? 'Rapporten är orörd' : 'Labbzippen och nyckelringen är orörda', async () => {
@@ -221,7 +225,148 @@ function namedTimesScenarios(zip) {
         const text = await c.waitFor(PROV, `!ProvenanceApp.busy() && /filernas tider ur metadata\\.msgpack/.test(document.getElementById('ex-status').textContent) && document.getElementById('ex-status').textContent`, 300000, 'zippen');
         return text.slice(0, 60);
     }];
-    return [open, timeFacit(zip)];
+    // Telefonerna har inte Signal, så appen behöver inte nyckelringen här. Den ska ändå gå att läsa: alla poster öppnas och
+    // kontrollsummorna stämmer, med samma kod som i appen. Inga värden lämnar testet.
+    const keys = ['Nyckelringen under extra/ öppnas, med krypterade poster', async () => {
+        const ROOT = path.join(__dirname, '..', '..');
+        require(path.join(ROOT, 'tools', 'ios-keychain', 'lib', 'bplist.js'));
+        require(path.join(ROOT, 'tools', 'ios-keychain', 'lib', 'asn1.js'));
+        const core = require(path.join(ROOT, 'tools', 'db-queries', 'extraction-core.js'));
+        core.use({ ZipRead: require(path.join(ROOT, 'tools', 'db-queries', 'zip.js')), AppSecrets: require(path.join(ROOT, 'tools', 'db-queries', 'app-secrets.js')) });
+        const fh = await fs.promises.open(zip, 'r');
+        try {
+            const read = async (offset, length) => {
+                const b = Buffer.alloc(length);
+                const { bytesRead } = await fh.read(b, 0, length, offset);
+                return new Uint8Array(b.subarray(0, bytesRead));
+            };
+            const out = await core.findKeys(read, (await fh.stat()).size, {});
+            const k = out.secrets.find((s) => /backup_keychain_v2\.plist/.test(s.source));
+            expect(k, 'Nyckelringen hittades inte under extra/: ' + out.secrets.map((s) => s.source));
+            expect(!k.error && k.failed === 0 && k.items > 100, 'Nyckelringen: ' + JSON.stringify({ error: k.error, failed: k.failed, items: k.items }));
+            return k.items + ' poster, inga fel';
+        } finally {
+            await fh.close();
+        }
+    }];
+    return [open, timeFacit(zip), keys];
 }
 
-module.exports = { scenarios, labFiles, labReports, namedTimesScenarios };
+// En rapport ur en zip med extra/ (FT_LAB_UFED_REPORTS, med zippen efter = om den finns). Nyckelfilerna ligger högst upp i
+// rapporten, utanför telefonens filsystem. Finns Signal jämförs programmets dekryptering med rapportverktygets kopia, rad
+// för rad utan -wal. Finns zippen jämförs tiderna med samma fristående facit, också ctime. Inga värden lämnar testet.
+function ufedReportScenarios(report, zip) {
+    const ROOT = path.join(__dirname, '..', '..');
+    const name = path.basename(report);
+    const lib = (p) => require(path.join(ROOT, 'tools', p));
+    const nodeSource = async () => {
+        lib('ios-keychain/lib/bplist.js');
+        lib('ios-keychain/lib/asn1.js');
+        const ZipRead = lib('db-queries/zip.js');
+        const UfdrRead = lib('db-queries/ufdr.js');
+        const AppSecrets = lib('db-queries/app-secrets.js');
+        const core = lib('db-queries/extraction-core.js');
+        UfdrRead.use({ ZipRead });
+        core.use({ ZipRead, AppSecrets, UfdrRead });
+        const fh = await fs.promises.open(report, 'r');
+        const size = (await fh.stat()).size;
+        const read = async (offset, length) => {
+            const b = Buffer.allocUnsafeSlow(length);
+            const { bytesRead } = await fh.read(b, 0, length, offset);
+            return new Uint8Array(b.buffer, b.byteOffset, bytesRead);
+        };
+        const opened = await UfdrRead.open(read, size, {});
+        const found = await core.findKeys(opened.read, size, { report: opened.report });
+        return { ZipRead, AppSecrets, fh, size, read, opened, found };
+    };
+    let before = null;
+    let signalPart = null;
+    const stats = () => { const s = fs.statSync(report); return [s.size, s.mtimeMs, s.ctimeMs].join('/'); };
+    const open = ['Rapporten öppnas ensam i Härkomst', async ({ c }) => {
+        before = stats();
+        await c.nav('Härkomst');
+        await c.setFiles(null, '#cb-input', [report]);
+        await c.ev(null, `document.getElementById('cb-input').dispatchEvent(new Event('change')), 1`);
+        await sleep(1000);
+        await c.waitFor(PROV, `!ProvenanceApp.busy() && /databaser hittades/.test(document.getElementById('ex-status').textContent) && document.getElementById('ex-status').textContent.includes(${JSON.stringify(name)})`, 300000, name);
+        // Raden är dold när rapporten inte har Signal, och texten kan då vara kvar från förra källan.
+        const note = await c.ev(PROV, `document.getElementById('signal-key-row').classList.contains('display-none') ? '' : document.getElementById('signal-key-note').textContent`);
+        return note || 'ingen Signal-databas';
+    }];
+    const keys = ['Nyckelfilen ligger högst upp i rapporten, är ingen fil på telefonen och går att läsa', async () => {
+        const s = await nodeSource();
+        try {
+            expect(s.opened.report.keychains.length >= 1, 'Ingen nyckelfil i rapporten');
+            s.found.secrets.forEach((k) => expect(!k.error && !k.failed, k.source + ': ' + JSON.stringify({ error: k.error, failed: k.failed })));
+            const phone = (await s.ZipRead.scan(s.opened.read, s.size, (n) => /^\/[^/]*keychain[^/]*\.plist$|^\/Secrets\//.test(n))).entries;
+            expect(!phone.length, 'Bland telefonens filer: ' + phone.map((e) => e.name));
+            return s.found.secrets.map((k) => k.source + (k.items ? ', ' + k.items + ' poster' : '')).join('; ');
+        } finally { await s.fh.close(); }
+    }];
+    const signal = ['Signal, dekrypterad av programmet, har samma rader som rapportverktygets kopia', async () => {
+        const SqlCipher = lib('db-queries/sqlcipher.js');
+        const SqliteWal = lib('db-queries/wal.js');
+        if (SqlCipher.use) SqlCipher.use({ ToolboxHashing: lib('hash-calculator/hashing.js') });
+        const s = await nodeSource();
+        try {
+            const WHICH = [{ re: /org\.thoughtcrime\.securesms\/databases\/signal\.db$/, profile: 'signal', copy: 'files/Database/signal.db.decrypted' }, { re: /grdb\/signal\.sqlite$/, profile: 'signal-ios', copy: 'files/Database/signal.sqlite.decrypted' }];
+            let w = null, db = null;
+            for (const x of WHICH) {
+                const hit = (await s.ZipRead.scan(s.opened.read, s.size, (n) => x.re.test(n))).entries[0];
+                if (hit) { w = x; db = hit; break; }
+            }
+            if (!db) return 'ingen Signal-databas i rapporten';
+            const key = s.AppSecrets.keysForProfile(s.found.secrets, w.profile);
+            expect(key && key.dbKey, 'Ingen nyckel till Signal i rapporten');
+            const own = await SqlCipher.openAsync((await s.ZipRead.extract(s.opened.read, db)).bytes, new Uint8Array(0), key.dbKey, w.profile, SqliteWal, {});
+            expect(own.stats.cipher.badHmac === 0, 'HMAC stämde inte för ' + own.stats.cipher.badHmac + ' sidor');
+            const cache = await s.ZipRead.cacheDirectory(s.read, s.size, null, null);
+            const member = (await s.ZipRead.scan(cache.read, s.size, (n) => n === w.copy)).entries[0];
+            if (!member) return own.stats.cipher.pages + ' sidor, HMAC stämmer, ingen kopia att jämföra med';
+            const copy = (await s.ZipRead.extract(cache.read, member)).bytes;
+            const SQL = await require('./fixtures').loadSql();
+            const crypto = require('node:crypto');
+            const tables = (bytes) => {
+                const d = new SQL.Database(bytes);
+                const out = {};
+                d.exec("select name from sqlite_master where type='table' and name not like 'sqlite_%' order by name")[0].values.forEach(([n]) => {
+                    try {
+                        const r = d.exec('select * from "' + n + '"');
+                        const rows = r[0] ? r[0].values : [];
+                        out[n] = rows.length + ':' + crypto.createHash('sha256').update(JSON.stringify(rows, (k, v) => (v instanceof Uint8Array ? Buffer.from(v).toString('hex') : v))).digest('hex');
+                    } catch (e) { out[n] = 'går inte att läsa: ' + e.message; }
+                });
+                d.close();
+                return out;
+            };
+            const a = tables(own.bytes), b = tables(copy);
+            const differ = Object.keys(Object.assign({}, a, b)).filter((n) => a[n] !== b[n]);
+            expect(!differ.length, 'Tabeller som skiljer: ' + differ.join(', '));
+            // Bilagans krypterade fil, till nästa kontroll. Bara namnet.
+            if (w.profile === 'signal') {
+                const d = new SQL.Database(own.bytes);
+                const part = d.exec('select data_file from attachment where data_file is not null and message_id > 0 limit 1');
+                d.close();
+                signalPart = part.length ? path.basename(String(part[0].values[0][0])) : null;
+            }
+            return Object.keys(a).length + ' tabeller, ' + own.stats.cipher.pages + ' sidor';
+        } finally { await s.fh.close(); }
+    }];
+    // Summan kan aldrig stämma, så det är raden i databasen som pekar ut filen. ExifTool kan inte tolka den, men den är läst.
+    const part = ['Signals krypterade fil kopplas till sitt meddelande', async ({ c }) => {
+        if (!signalPart) return 'ingen sådan fil i rapporten';
+        const d = await assessRow(c, signalPart);
+        const f = await c.ev(PROV, `(function(){ const m = ProvenanceApp.model(), s = m.factors.find(x => x.id === 'signal'); return { verdict: s.verdictText, items: s.items.map(i => i.text).join(' '), own: m.events.filter(e => e.kind === 'sig-message' && e.isFile).length, sha: ProvenanceApp.meta().fileEntry.sha256 }; })()`);
+        expect(/^(Mottagen|Skickad) i Signal$/.test(f.verdict) && /Filen är bilagans krypterade fil hos Signal\./.test(f.items), 'Signal: ' + JSON.stringify(f));
+        expect(/^[0-9a-f]{64}$/.test(f.sha), 'Filen lästes inte');
+        expect(/^Filen lästes, men ExifTool kunde inte tolka innehållet/.test(d.rows.find((r) => r.id === 'file-time').absent), 'Tiden i filen: ' + JSON.stringify(d.rows.find((r) => r.id === 'file-time')));
+        return f.verdict;
+    }];
+    const untouched = ['Rapporten är orörd', async () => {
+        expect(before && before === stats(), 'Storlek, mtime eller ctime har ändrats');
+        return 'storlek, mtime och ctime';
+    }];
+    return [open, keys, signal, part].concat(zip ? [timeFacit(zip, 'ctime')] : [], [untouched]);
+}
+
+module.exports = { scenarios, labFiles, labReports, namedTimesScenarios, ufedReportScenarios };

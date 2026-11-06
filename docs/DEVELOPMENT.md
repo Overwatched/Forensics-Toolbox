@@ -69,6 +69,11 @@ Artifacts (efter finalize / CI):
 Portabel Windows är en zip i stället för en självuppackande `.exe`: med kartorna är appen
 runt 1,5 GB, och en portabel `.exe` packar upp allt till en tempmapp vid varje start.
 
+**macOS** signeras ad hoc (`mac.identity: "-"`, `hardenedRuntime: false`), utan certifikat från Apple. Med `identity: null` behölls
+Electrons signatur, som blir ogiltig när appens filer läggs till: `codesign --verify` misslyckas, och macOS säger att en nedladdad app är skadad.
+Kontrollera ett bygge med `codesign --verify --deep --strict`, också efter att zippen packats upp med `ditto -x -k` och i den monterade DMG-filen.
+Hur Gatekeeper svarar går bara att se på en Mac där `spctl --status` säger `assessments enabled`, med en fil hämtad i en webbläsare.
+
 CI skapar releasen som utkast, låter varje byggjobb ladda upp sina filer direkt (alla
 filer får inte plats på ett enda jobbs disk) och publicerar när alla jobb är klara.
 Releasetexten kommer från `.github/release-notes.md`.
@@ -241,8 +246,9 @@ i extraktionen med `-wal` pålagd, och bygger en händelselista i UTC.
 - Filens tider (`fileTimes()` i `timeline-core.js`, `timesHtml()` i `script.js`, `timesTableHtml()` i `report.js`): faktorn
   Skapandetid har `times`, en rad per källa i tidsordning: tiden i filen, bibliotekets tider, andra register och filsystemets
   tider, med källa (databas → tabell → kolumn, Filen → tagg eller Zippen → fält → vilken tid), skillnaden mot T och en rad för
-  det som saknas (`absent`). Tabellen är bara fakta. Tolkningen står i `items` under den. Filkortet har inga tider, så att
-  samma tid inte står i två format. Tider inuti filen kommer ur `ExifCore.timeTags()`: den viktigaste visas alltid, de andra
+  det som saknas (`absent`). Tabellen är bara fakta. Tolkningen står i `items` under den. Filkortet har samma rader
+  (`ProvenanceMedia.timesGroup`) i samma format och zon, utan källa och skillnad mot T, så att det syns direkt att filen har tider
+  och inte kan läsas som att de saknas. Tider inuti filen kommer ur `ExifCore.timeTags()`: den viktigaste visas alltid, de andra
   när de skiljer sig mer än 2 s. Alla står i Exif-vyn.
 - Vad Skapandetid säger (`factorTime()`):
   - **Hypotesen avgör vad en skillnad betyder.** Tillagd långt efter Skapad säger bara emot `camera` och `screenshot`. En fil
@@ -307,7 +313,7 @@ i extraktionen med `-wal` pålagd, och bygger en händelselista i UTC.
   Posten får `mtime`, `atime`, `crtime` (skapad), `ctime`, `utThird` (Unix-sekunder) och `timeField`;
   `ExtractionCore.entryTimes()` ger dem som text. Utan något av fälten finns bara DOS-tiden (lokal tid, zon okänd).
 - Zippar med metadata (`tools/db-queries/fs-times.js`): har zippen `metadataN/metadata.msgpack` bredvid `filesystemN/` kommer tiderna därifrån, med riktiga namn och
-  på millisekunden (`timeField` `metadata.msgpack`). Zippens egna fält säger inget i de zipparna: UT-fältet har flaggorna 7 och tre lika värden, alla lika med `atime`, och
+  på millisekunden, avrundade från nanosekunder (`timeField` `metadata.msgpack`). Zippens egna fält säger inget i de zipparna: UT-fältet har flaggorna 7 och tre lika värden, alla lika med `atime`, och
   DOS-tiden är samma tid i lokal tid. Prövat på två iPhone-extraktioner, 329 181 och 315 296 filer: alla finns i kartan, och alla fyra tider stämmer med en
   oberoende läsning i Python. `ctime >= mtime >= btime` gäller på 99,99–100 %, och `-wal` med innehåll har `mtime` senare än `atime` på omkring 90 %. En post under
   `filesystemN/` utan rad i kartan får inga tider. Går filen inte att läsa säger Härkomst det. En zip med samma fält men utan metadata går inte att känna igen, och då gäller nästa punkt.
@@ -459,7 +465,7 @@ Plan och provkörning: [PLAN-harkomst.md](PLAN-harkomst.md).
   (`pref_database_encrypted_secret`), krypterad med Keystore-nyckeln `SignalSecret`, och går inte att ta fram
   ur filerna. Extraktionsverktyg kan låsa upp den på telefonen och spara den: som
   `extra/Secrets/secrets.json` i zippen (`script_output` → `"sqlite db key"` och
-  `"signal attachment key"` → `modernKey`), eller i en egen nyckelfil med JSON-filen `android_keystore`
+  `"signal attachment key"` → `modernKey`, sett på en labbtelefon och i en rapport), eller i en egen nyckelfil med JSON-filen `android_keystore`
   (formatet för Signal inte kontrollerat). Undersökaren kan också klistra in nyckeln. Leverantörer nämns
   inte i programmet; filerna beskrivs efter sökväg och format.
 - `tools/db-queries/sqlcipher.js` (`SqlCipher`): AES-256 (CBC för sidorna, CTR för bilagorna), HMAC och
@@ -516,13 +522,42 @@ Plan och provkörning: [PLAN-harkomst.md](PLAN-harkomst.md).
   2 varv)), sidstorlek 4096 och reserv 80. `SqlCipher.isEncrypted(bytes, profil)` känner igen en sådan fil
   (reserven i byte 20 och att sidan efter huvudet inte är ett b-träd), och `DbIdentify.kindOf` gör samma
   sak för en fil från disk. Kontrollerat mot en labbtelefon (iOS 26.4.1, Signal 8.28): alla 695 sidor.
-- **Nyckelringen** (`…_keychain.plist` bredvid zippen) är en plist (binär eller XML) med `genp`, `inet`,
-  `keys` och `cert`. `AppSecrets.fromKeychainPlist` / `fromKeyFile` läser Signals nyckel; `parseXmlPlist`
-  tolkar XML-varianten. Undersökaren väljer nyckelringen tillsammans med zippen i raden högst upp, eller
-  med **Nyckelfil…** i Queries och Härkomst. Navet håller nyckelfilerna med extraktionen
-  (`extraction.keys`) och skickar dem till verktygen med `extraction-keys`; ett verktyg som valt en
-  nyckelfil skickar den till navet på samma sätt. `AppSecrets.keysForProfile` väljer nyckeln efter profilen
-  (64 hextecken för Android, 96 för iOS).
+- **Nyckelringen** finns i två former, och formatet avgörs av innehållet (`AppSecrets.readKeyBytes`):
+  - `…_keychain.plist` bredvid zippen är en plist (binär eller XML) med posterna öppna i `genp`, `inet`,
+    `keys` och `cert` (`fromKeychainPlist`, `parseXmlPlist`).
+  - `extra/KeychainDump/backup_keychain_v2.plist` i en UFED-zip är en XML-plist med varje post krypterad
+    (iOS keychain version 8, `fromKeychainEntries`): `keychainEntries` (`table`, `classKeyIdx`,
+    `metadata { wrappedKey, ciphertext, tamperCheck }`, `data { unwrappedKey, ciphertext, tamperCheck }`) och
+    `classKeyIdxToUnwrappedMetadataClassKey`. `wrappedKey` och `ciphertext` är NSKeyedArchiver-plistar
+    (`_SFAuthenticatedCiphertext`: `SFCiphertext`, `SFAuthenticationCode`, `SFInitializationVector`) med AES-256-GCM
+    och IV på 32 byte. Klassnyckeln öppnar `wrappedKey`, som ger metadatanyckeln, som öppnar metadatan.
+    `unwrappedKey` öppnar värdet. Innehållet är DER (`KC.asn1.parseRecord`), `TamperCheck` ska vara samma som i posten, och
+    fälten heter som i den öppna plisten. Bara värdet i Signals post dekrypteras. Kontrollerat mot två riktiga filer
+    (789 och 707 poster, alla med metadata och värde): varje GCM-kontroll och `TamperCheck` stämmer. Ingen av telefonerna
+    har Signal. Den riktiga nyckeln ur en öppen plist, inpackad i den här formen med testernas byggare, öppnar den riktiga
+    databasen (695 sidor, inga HMAC-fel), men att extraktionsverktyget skriver Signals post på samma sätt som de andra är inte sett.
+- **Var nyckeln letas** (`ExtractionCore.findKeys`, bara när extraktionen har en krypterad databas): nyckelfiler
+  under `extra/` högst upp i zippen (`isExtraKeyPath`; längre ned ligger telefonens egna filer), nyckelfilerna i en
+  rapport (`report.keychains`, se Rapporter) och, om inget av det hade Signals nyckel, filer bredvid zippen. Mappen läses bara i skrivbordsappen, eftersom
+  en webbläsare inte får se den, och nås via navet: extraktionskoden når aldrig huvudprocessen (testet
+  i `zip.test.js`), så verktyget skickar `keys-beside` och navet frågar `forensicsMedia.keysBeside`
+  (`electron/key-files.js`). Bara vanliga filer vars namn ser ut som nyckelfiler öppnas, och bara för läsning.
+  `AppSecrets.besideKeyFiles` väljer: samma enhets-id i namnet avgör, annars duger en enda fil utan ett annat
+  telefon-id. Flera eller en annan telefons väljs aldrig, utan nämns i beskedet (`missingKeyText`), eftersom en mapp
+  kan ha flera telefoners extraktioner. En fel nyckel kan ändå inte ge fel data: HMAC på sida 1 stoppar den.
+- **Reserven:** undersökaren väljer filen tillsammans med zippen i raden högst upp, eller med **Nyckelfil…** i Queries
+  och Härkomst, eller klistrar in nyckeln. Ordningen är inklistrad, vald fil och sedan det programmet hittade. En vald
+  fil gäller extraktionen den valdes för (`forFile`), så att den inte följer med till nästa telefon. En zip som nyckelfil
+  (`…_android_keystore.zip`, med JSON-filen `android_keystore`) packas upp i minnet (`ExtractionCore.readKeyFile`).
+  Navet håller valda nyckelfiler med extraktionen (`extraction.keys`) och skickar dem till verktygen med
+  `extraction-keys`; ett verktyg som valt en nyckelfil skickar den till navet på samma sätt. Det som hittas
+  av sig självt går inte via navet: varje verktyg letar när det öppnar extraktionen. `AppSecrets.keysForProfile` väljer
+  nyckeln efter profilen (64 hextecken för Android, 96 för iOS).
+- **Signals egna krypterade filer** (`app_parts/part….mms` på Android, `attachment_files/XX/…` på iOS): summan kan aldrig stämma med
+  bilagans, som gäller innehållet före krypteringen, och ExifTool kan inte tolka dem. Bedöms en sådan fil pekar raden i databasen
+  ut den i stället (`data_file`, `localRelativeFilePath`, `on: 'file'`), och meddelandet märks som filens. En rad utan meddelande sägs,
+  eftersom det kan vara en berättelse (5 av 11 filer på labbtelefonen, i `StoryMessageAttachmentReference`). Kontrollerat i rapporten från
+  Android och på iOS-labbtelefonen. Samma namn i en annan app, till exempel Molly, är inte Signals fil.
 - `queries/ios/signal/catalog.json`: meddelanden, bilagor (SHA-256 i hex, `sourceFilename`), en bilaga efter
   SHA-256, samtal (`CallRecord`), konversationer och kontakter. `recordType` 21 skickat, 19 mottaget, 20 samtal
   (Signals `SDSRecordType`, kontrollerat mot data). Rollerna: `attachments`, `messages`,
@@ -605,16 +640,16 @@ jämförda fil för fil med zippen (630 910 poster, 352 747 filer), utan program
 - **Tom fil:** raden pekar på en post som inte finns, och MD5 och SHA256 är `N/A`. Posten får `noData` och läses som tom.
 - **Tiderna:** `ModifyTime` är zippens första tid, `AccessTime` den andra och `CreationTime` den fjärde, utan undantag. Det
   bekräftar tolkningen av UT-fältet som annars bara är härledd. **ctime finns inte i de här rapporterna:** `ChangeTime` är tom i alla
-  rader, både i `report.xml` och i `Nodes`, och tabellen i Härkomst säger det. T och slutsatserna påverkas inte. En UFED-extraktion har
-  ctime, så en rapport ur en sådan kan ha den. Därför läses `ChangeTime` i `accessInfo` och `CoreFileSystemFileSystemNodeChangeTime` i
-  `MetaData`, om de finns (skrivsättet i `MetaData` är kontrollerat på de andra tiderna, 842 969 värden). Provat bara med byggda testfiler.
+  rader, både i `report.xml` och i `Nodes`, och tabellen i Härkomst säger det. T och slutsatserna påverkas inte. I en rapport ur en zip med
+  `metadata.msgpack` finns den, se nedan. `ChangeTime` läses i `accessInfo` och `CoreFileSystemFileSystemNodeChangeTime` i
+  `MetaData` (skrivsättet i `MetaData` är kontrollerat på de andra tiderna, 842 969 värden, och själva fältet bara med byggda testfiler).
 - **1980 är ingen tid.** En fil utan tider i zippen (491 filer) får `ModifyTime` 1980-01-01 00:00:00 och inga andra tider, och det
   görs till ingen tid. En äkta 1980 (1 fil) har de andra tiderna kvar och står kvar. En tid utan zon i texten räknas inte.
 - **Rader utan fil på telefonen:** `embedded="true"` (`….car_embedded_1.jpg`, `signal.sqlite.decrypted`) eller en fil i sökvägen
   (`…/foo.zip/bild.jpg`). De visas inte, eftersom sökvägen inte finns på telefonen. Finns föräldrafilen inte i rapporten går det inte
   att se: 180 sådana rader räknas som filer. 65 rader har styrtecken i namnet som rapporten skrivit om och stämmer därför inte med zippen.
 - **Nyckelringen** har `fs="Keychain"` och sökvägen `/Imported GrayKey Keychain/…_keychain.plist`. Den läses automatiskt, och Signal
-  låses upp utan att något väljs. Hur den ser ut i en rapport från en UFED-extraktion är inte provat.
+  låses upp utan att något väljs. Saknas nyckeln i rapporten letas bredvid rapporten, som bredvid en zip.
 - **Urvalet:** vilka filer som saknas står ingenstans. Saknas `Uncategorized` sägs det, men också med den saknas filer: under
   `/private/var/mobile/` 1 594 på 52 MB, bland annat `-shm`, kartresurser och 20 databaser på 4 096 byte, och utan den 17 023 på 2,3 GB. Ingen `-wal`
   med innehåll saknas i någon av rapporterna, och alla 14 databaser som katalogerna känner igen finns i båda. Varför filerna saknas är okänt.
@@ -630,9 +665,38 @@ jämförda fil för fil med zippen (630 910 poster, 352 747 filer), utan program
 Härkomst är jämförd i appen: alla 34 rader i bildbiblioteket och tre filer utanför gav samma T, samma sammanvägning och samma svar i
 alla faktorer mot zippen, utom positionen på grund av `customLocation` ovan. Alla 74 körbara queries gav samma rader. Signals databas, dekrypterad av
 programmet, har samma rader i alla 92 tabeller som Physical Analyzers `signal.sqlite.decrypted`; sidorna skiljer sig bara i reservytan och i två byte i
-huvudet (18 och 19, WAL-läget). Inte provat: en UFED-extraktion som källa till rapporten, Android, en rapport med HEIC som JPEG, en skyddad rapport (känns igen på att
+huvudet (18 och 19, WAL-läget). Inte provat: en rapport med HEIC som JPEG, en skyddad rapport (känns igen på att
 den inte är en zip, med ett besked), rader med `deleted="Deleted"`, flera filsystem med samma sökvägar, en rapport över cirka 320 000 rader, och äldre generationer annat än
 med byggda testfiler och ett handgjort exempel (`FlorianRudolf/autopsy-udfr`, `reportVersion` 5.3.1.0, deflate, utan SHA-256).
+
+#### Rapporter ur en zip med `extra/` (UFED)
+
+Två rapporter till, skapade 2026-11-06 med samma version av Physical Analyzer, ur `EXTRACTION_FFS.zip` från en iPhone (iOS 18.7.7) och en
+Samsung (SM-A336B, Android 16). iPhone-rapporten är jämförd fil för fil med zippen, utan programmets kod. Zippen från Android finns inte här.
+
+| | iPhone | Android |
+|---|---|---|
+| `<file>` och `RelatedNodes` (= `NodeCount`) | 293 961 | 50 423 |
+| Filer från telefonen | 288 109 | 38 615 |
+| Utvunna ur andra filer, visas inte | 5 851 | 11 807 |
+| `ChangeTime` ifylld | 287 971 | 0 |
+| `report.xml` | 1,1 GB | 185 MB |
+| SHA-256 i `report.xml` stämmer med posten, omräknat med Python | alla 254 928 | alla 42 243 |
+
+- **Sökvägen:** `fs` är zippens namn på alla rader, också nyckelfilerna. På iPhone är `/root/…` zippens `filesystem1/…`, och på Android ligger filerna direkt
+  (`/data/…`). `locate.js` jämför bakifrån, så inget behövde ändras.
+- **Nyckelfilerna** flyttas högst upp, utanför telefonens filsystem, och har inget `fs="Keychain"`: `extra/KeychainDump/backup_keychain_v2.plist` blir
+  `/backup_keychain_v2.plist` (samma byte, kontrollerat mot zippen) och `extra/Secrets/secrets.json` blir `/Secrets/secrets.json`. Rapportens `<image key="Keychain">` och `<image key="KeyStore">`
+  nämner dem, med samma zip som källa. `classify` känner igen dem på platsen (`KEY_ROW`), och telefonens egna (`/root/private/var/Keychains/…`) står kvar som filer. `/Secrets/gen_mem.dat` är inte heller en fil på telefonen och visas inte.
+- **Tiderna på iPhone:** alla fyra (`ModifyTime`, `AccessTime`, `CreationTime`, `ChangeTime`) stämmer med `metadata.msgpack` på alla 287 919 rader som finns där. **`ChangeTime` är filens ctime.** Rapporten
+  avrundar till millisekund, över tiondels mikrosekunder, så 41 av cirka 1,15 miljoner värden skiljer 1 ms från en vanlig avrundning. 190 rader finns inte i `metadata.msgpack`, eftersom namnet har styrtecken som rapporten skrivit om.
+- **Tiderna på Android:** ingen ctime, och `CreationTime` bara på 4 272 rader. 3 094 av dem ligger under `/apex/…` med `CreationTime` 1970-01-01 00:00:01 och `ModifyTime` 1980-01-01. De visas som de står. Regeln att 1980 är ingen tid gäller bara när inga andra tider finns.
+- **`deleted="Unknown"`** (11 och 393 rader) finns bara på det som utvunnits ur andra filer, som inte visas.
+- **Signal på Android:** `secrets.json` i rapporten låser upp `signal.db` och `signal-logs.db`: alla 834 + 972 och 1 522 + 666 sidor med `-wal`, inga HMAC-fel. Rapportverktygets kopia har samma rader i alla 59 tabeller,
+  utan och med `-wal` (12 038 och 12 032 rader). Kopians `signal.db.decrypted-wal` går inte att lägga på som den är: kontrollsummorna gäller de krypterade sidorna och sida 1 är inte rätt dekrypterad, så ramarna lades på för hand, utom sida 1. Alla andra 835 sidor är lika utom reservytan.
+- **Jämförelsen i appen:** iPhone-rapporten och zippen ger samma rader i alla 38 körbara queries, och på alla 89 filer samma T, samma tidpunkter, samma sammanvägning, samma svar i alla faktorer och samma tider i tabellen, också ctime. Skillnaderna är
+  sökvägens prefix, källans namn och att rapporten säger att en fil kan ha valts bort. På Android kördes 34 queries och 14 filer utan fel, men utan en zip att jämföra med.
+- **Läses inte:** Molly (`im.molly.app`, en fork av Signal, med egen `signal.db` utan nyckel i `secrets.json`) och Samsungs Wellbeing (`com.samsung.android.forest/databases/dwbCommon.db`). Rapportverktyget tolkar det senare.
 
 ### Databaser över 1,5 GB
 
@@ -931,8 +995,12 @@ i webbläsaren.
     Labbzippen ligger inte i repot: sökvägen tas ur `FT_LAB_ZIP`, annars
     `~/Documents/Exampleextractions/Lab-Android-Nord-2026-11-02.zip`. Zippens storlek, mtime och ctime
     kontrolleras efteråt. Bara tider och versioner står i facit, inga namn eller nycklar.
+  - **Nyckeln bredvid zippen** (`lab-ios.js`): labbzippen öppnas ensam, så att alla kontroller av Signal bygger på att
+    nyckelringen hittades. I zippar från `FT_LAB_NAMED_ZIPS` öppnas nyckelringen under `extra/` med samma kod: alla poster, inga fel.
   - **Rapporter** (`lab-ios.js`): finns en `.ufdr` i en undermapp till labbmappen körs samma facit och samma fristående facit mot den, utom
     ctime, och nyckelringen ska läsas ur rapporten. Röktestet har en byggd rapport (`fixtures/ufdr-builder.js`), också i html-versionen.
+  - **Rapporter ur en zip med `extra/`** (`ufedReportScenarios`, `FT_LAB_UFED_REPORTS`, med zippen efter `=` om den finns): rapporten öppnas ensam, nyckelfilen ska finnas i den och gå att läsa, och den ska inte stå bland telefonens filer.
+    Signal, dekrypterad av programmet, jämförs med rapportverktygets kopia tabell för tabell. Med zippen jämförs tiderna med det fristående facit, också ctime, inom 1 ms.
   - **Filens tider mot ett fristående facit** (`lab-ios.js`, `time-facit.py`, kräver `python3`): skriptet läser zippens fält eller
     `metadata.msgpack`, EXIF, QuickTime och Photos.sqlite utan programmets kod och utan ExifTool. Zippar med `metadata.msgpack` anges i `FT_LAB_NAMED_ZIPS`. Varje rad i bildbiblioteket bedöms, och tabellen
     jämförs med facit: bibliotekets tider och tiden i filen på en millisekund, zippens tider exakt. Samma filer bedöms också i
@@ -966,7 +1034,7 @@ i webbläsaren.
   förklarar det inte (se Html-versionen). Inte provat: en äldre Edge, `AllowFileSelectionDialogs`, en spärr som också
   gäller `file://`, IE-läget (`SendIntranetToInternetExplorer` eller en webbplatslista) och att köra från en nätverksresurs.
 - Härkomst: Android är provkört mot en labbtelefon (Android 13, LineageOS), inte mot en kommersiell extraktion; `usagestats` i XML (version 3, Android 9 och äldre) läses inte, batterihistoriken läses inte, ingen positionslogg läses på Android, bildfiler över 200 MB läses inte för EXIF, och inklistringen i Word är provkörd bara via urklippsstatus, inte i Word självt
-- **Rapporter (UFDR):** formatet är inte dokumenterat, och läsningen är provad mot två rapporter från en version av Physical Analyzer. Se Rapporter (UFDR). Programmets texter och protokoll nämner inte verktygets namn, utan säger rapportverktyget.
+- **Rapporter (UFDR):** formatet är inte dokumenterat, och läsningen är provad mot fyra rapporter från en version av Physical Analyzer. Se Rapporter (UFDR). Programmets texter och protokoll nämner inte verktygets namn, utan säger rapportverktyget.
 - **Filens tider:** tolkningen av zippens tredje tid är härledd ur labbdata, och Apple dokumenterar inte Photos.sqlite. Inte
   provat: en vanlig video från Kamera-appen (labbarna har Live Photo-videor och två MP4 från appar), en bild från molnet
   (`ZDATECREATEDSOURCE` 0), Android mot det fristående facit och zippar från andra verktyg än de som provats. T följer bibliotekets
@@ -978,8 +1046,8 @@ i webbläsaren.
   träffen används. Android-Snapchat är kontrollerat mot en labbtelefon (Snapchat 14.30): typ 34
   (inspelning) sågs inte där, typ 5 utan attribution är bland annat media som laddas upp före ett skickat
   meddelande, och `memories.db` är okrypterat.
-- **Signal (beta):** bara Android, kontrollerat mot Signal 8.10 och 8.33. Utan nyckel (ingen
-  `secrets.json` och ingen inklistrad) läses Signal inte. En separat nyckelfil (`android_keystore`) läses
-  inte automatiskt (formatet för Signal är inte sett). Signals logg sparas bara några dagar. En bild som redigerats i
+- **Signal (beta):** Android, kontrollerat mot Signal 8.10 och 8.33 och en rapport från en Samsung, och iOS, kontrollerat mot Signal 8.28. Utan nyckel (ingen
+  `secrets.json`, ingen nyckelfil och ingen inklistrad) läses Signal inte. En separat nyckelfil
+  (`…_android_keystore.zip`) hittas bredvid zippen i skrivbordsappen, men formatet för Signal är inte sett: labbtelefonens fil har
+  fem andra appar. Signals logg sparas bara några dagar. En bild som redigerats i
   Signal har den redigerade versionens summa som `data_hash_start`, så originalet kan inte kopplas.
-  Signal på iOS (K12345-26 har `grdb/signal.sqlite`, nyckeln i nyckelringen) läses inte.

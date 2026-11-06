@@ -5,7 +5,7 @@
 (function (root) {
     'use strict';
 
-    // ZipRead, ZipLocate, UfdrRead, FsTimes och SqliteWal är globala i webbläsaren. I Node skickas de in med use().
+    // ZipRead, ZipLocate, UfdrRead, FsTimes, SqliteWal och AppSecrets är globala i webbläsaren. I Node skickas de in med use().
     var deps = {};
     function dep(name) {
         if (deps[name]) return deps[name];
@@ -160,6 +160,79 @@
         return scan.entries;
     }
 
+    // En nyckelfil, efter innehållet. Är den en zip (…_android_keystore.zip) packas den upp i minnet och nyckelfilen i
+    // den tolkas. Hur nyckeln känns igen står i AppSecrets.
+    async function readKeyFile(bytes, name) {
+        var Secrets = dep('AppSecrets');
+        bytes = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
+        if (!(bytes[0] === 0x50 && bytes[1] === 0x4b && bytes[2] === 3 && bytes[3] === 4)) return Secrets.readKeyBytes(bytes, name);
+        var read = async function (offset, length) { return bytes.subarray(offset, offset + length); };
+        var inside = await find(read, bytes.length, Secrets.isKeyFileName);
+        if (!inside.length) return { source: name, apps: {}, error: 'Zippen innehåller ingen nyckelfil.' };
+        return Secrets.readKeyBytes((await readEntry(read, inside[0])).bytes, name);
+    }
+
+    // Nyckelfiler bredvid en vald fil. Extraktionskoden når aldrig huvudprocessen, så frågan går till huvudfönstret,
+    // som svarar med filerna i skrivbordsappen och null i en webbläsare. Utan huvudfönster, eller utan svar, null.
+    var HUB_WAIT_MS = 30000;
+    function besideFromHub(file) {
+        var host = root.parent;
+        if (!file || !host || host === root || !root.addEventListener) return null;
+        return function () {
+            return new Promise(function (resolve) {
+                var id = 'keys-' + Date.now() + '-' + Math.random();
+                var timer = setTimeout(function () { done(null); }, HUB_WAIT_MS);
+                function done(found) {
+                    clearTimeout(timer);
+                    root.removeEventListener('message', onReply);
+                    resolve(found);
+                }
+                function onReply(event) {
+                    var d = event.data;
+                    if (event.source === host && d && d.source === 'forensics-toolbox' && d.type === 'keys-beside-result' && d.id === id) done(d.found || null);
+                }
+                root.addEventListener('message', onReply);
+                host.postMessage({ source: 'forensics-toolbox', type: 'keys-beside', id: id, file: file }, '*');
+            });
+        };
+    }
+
+    // En nyckelring är några MB. Större än så är inte en nyckelfil, oavsett vad den heter, och den läses inte in.
+    var MAX_KEY_FILE = 64 * 1024 * 1024;
+
+    // Nycklarna som hör till extraktionen, utan att undersökaren gör något: nyckelfiler under extra/ i zippen,
+    // nyckelfilerna i en rapport och, när inget av det hade Signals nyckel, nyckelfiler bredvid zippen. En fil som
+    // inte går att läsa stoppar inte de andra, och felet följer med. opts: { report, file, beside } (beside byts ut i testerna).
+    // -> { secrets, lookedBeside, other }. other: nyckelfiler bredvid zippen som inte kan knytas till den.
+    async function findKeys(read, size, opts) {
+        opts = opts || {};
+        var Secrets = dep('AppSecrets');
+        var out = { secrets: [], lookedBeside: false, other: [] };
+        async function add(load, source) {
+            try { out.secrets.push(await readKeyFile(await load(), source)); }
+            catch (err) { out.secrets.push({ source: source, apps: {}, error: 'Filen kunde inte läsas: ' + (err && err.message ? err.message : err) }); }
+        }
+        function ofEntry(entry) { return function () { return readEntry(read, entry).then(function (r) { return r.bytes; }); }; }
+        var inside = await find(read, size, Secrets.isExtraKeyPath);
+        for (var i = 0; i < inside.length; i++) {
+            if (inside[i].size > MAX_KEY_FILE) out.secrets.push({ source: inside[i].name + ' i zippen', apps: {}, error: 'Filen är för stor för att vara en nyckelfil (' + sizeText(inside[i].size) + ').' });
+            else await add(ofEntry(inside[i]), inside[i].name + ' i zippen');
+        }
+        var kept = opts.report ? opts.report.keychains : [];
+        for (var k = 0; k < kept.length; k++) await add(ofEntry(kept[k]), baseName(kept[k].name) + ' i rapporten');
+        var beside = opts.beside || besideFromHub(opts.file);
+        if (!beside || Secrets.hasSignalKey(out.secrets)) return out;
+        var near = null;
+        try { near = await beside(); } catch (err) { console.warn('Mappen bredvid extraktionen kunde inte läsas', err); }
+        if (!near) return out;
+        out.lookedBeside = true;
+        out.other = near.other || [];
+        var word = opts.report ? 'rapporten' : 'zippen';
+        var files = near.files || [];
+        for (var f = 0; f < files.length; f++) await add((function (b) { return function () { return b; }; })(files[f].bytes), files[f].name + ' bredvid ' + word);
+        return out;
+    }
+
     // crypto.subtle nekar mer än 2 GB. Större filer räknas i JavaScript, bit för bit, utan att sidan
     // står still. opts.subtleMax kan bytas ut i testerna.
     var SUBTLE_MAX = 2000000000;
@@ -257,7 +330,7 @@
 
     var api = {
         use: function (d) { Object.keys(d).forEach(function (k) { deps[k] = d[k]; }); },
-        targets: targets, dbForVersion: dbForVersion, open: open, openSource: openSource, find: find, sourceWord: sourceWord, reportHashOk: reportHashOk,
+        targets: targets, dbForVersion: dbForVersion, open: open, openSource: openSource, find: find, findKeys: findKeys, readKeyFile: readKeyFile, sourceWord: sourceWord, reportHashOk: reportHashOk,
         readEntry: readEntry, zipSource: zipSource, loadDatabase: loadDatabase, walSummary: walSummary, entryTimes: entryTimes,
         sha256: sha256, noCopy: noCopy, entryTime: entryTime, hex: hex, sizeText: sizeText, baseName: baseName,
     };

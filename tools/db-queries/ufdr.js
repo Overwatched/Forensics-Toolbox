@@ -9,11 +9,11 @@
 // - Innehållet är samma byte. En fil med samma innehåll på flera ställen ligger en gång och listas under
 //   RelatedNodes med egna sökvägar och tider.
 // - Tom fil: raden pekar på en post som inte finns, och summorna är N/A.
-// - ModifyTime är filens ändringstid, AccessTime dess åtkomsttid och CreationTime dess skapandetid. ctime
-//   är tom i de rapporter som provats, men läses om den finns (ChangeTime). En fil utan tider får ModifyTime
-//   1980-01-01 (zippens nolla) och inga andra tider.
+// - ModifyTime är filens ändringstid, AccessTime dess åtkomsttid och CreationTime dess skapandetid. ChangeTime är
+//   filens ctime: den finns när zippen rapporten kom ur har den (metadata.msgpack), annars är den tom. En fil utan
+//   tider får ModifyTime 1980-01-01 (zippens nolla) och inga andra tider.
 // - Rader utan fil på telefonen: filer som Physical Analyzer utvunnit ur andra filer (embedded="true"
-//   eller med en fil i sökvägen, som .../signal.sqlite/signal.sqlite.decrypted) och nyckelringen.
+//   eller med en fil i sökvägen, som .../signal.sqlite/signal.sqlite.decrypted) och nyckelfilerna.
 // - Rapporten är ett urval. Vad som saknas står ingenstans.
 // Testas i Node.
 (function (root) {
@@ -35,6 +35,11 @@
     var NO_TIME_MS = 315532800000;
     // ctime står, om den finns, i avsnittet som annars hoppas över. Namnet står först i taggen.
     var CHANGE_ITEM = '<item name="CoreFileSystemFileSystemNodeChangeTime"';
+    // Nyckelfilerna. Ur en zip med nyckelringen bredvid har den fs="Keychain". Ur en zip med extra/ flyttar rapporten
+    // filerna högst upp, utanför telefonens filsystem: extra/KeychainDump/backup_keychain_v2.plist blir
+    // /backup_keychain_v2.plist och extra/Secrets/secrets.json blir /Secrets/secrets.json.
+    var KEY_ROW = /^\/(?:[^/]*keychain[^/]*\.plist|Secrets\/secrets\.json)$/i;
+    var TOOL_ROW = /^\/Secrets\//;
     var FILE_ITEMS = { 'Local Path': 'local', SHA256: 'sha256', MD5: 'md5', Tags: 'tags', MediaOrigin: 'origin', MediaOriginReasoning: 'originReason', ServiceIdentifier: 'service', AdjustedTimestamp: 'adjustedTime', AdjustedLocation: 'adjustedLocation' };
 
     var utf8 = new TextDecoder('utf-8');
@@ -277,14 +282,14 @@
         return info;
     }
 
-    // Rader som inte är filer på telefonen: nyckelringen och det som utvunnits ur andra filer. En fil
-    // kan inte ligga i en fil, så en fil i sökvägen räcker som bevis.
+    // Rader som inte är filer på telefonen: nyckelfilerna, det extraktionsverktyget lagt till och det som utvunnits
+    // ur andra filer. En fil kan inte ligga i en fil, så en fil i sökvägen räcker som bevis.
     function classify(rows) {
         var paths = new Set();
         rows.forEach(function (r) { paths.add(r.path); });
         rows.forEach(function (r) {
-            if (r.fs === 'Keychain') { r.kind = 'keychain'; return; }
-            if (r.embedded) { r.kind = 'derived'; return; }
+            if (r.fs === 'Keychain' || KEY_ROW.test(r.path)) { r.kind = 'keychain'; return; }
+            if (r.embedded || TOOL_ROW.test(r.path)) { r.kind = 'derived'; return; }
             for (var at = r.path.lastIndexOf('/'); at > 0; at = r.path.lastIndexOf('/', at - 1)) {
                 if (paths.has(r.path.slice(0, at))) { r.kind = 'derived'; return; }
             }
@@ -482,9 +487,14 @@
     function summaryText(report) {
         var c = report.counts;
         var parts = ['Rapport i UFDR-format' + (report.paVersion ? ', rapportverktygets version ' + report.paVersion : '') + (report.createdText ? ', skapad ' + report.createdText : '') + '.'];
-        // Rapportens egen benämning, utan verktygets namn: det ska inte stå i programmets texter.
-        if (report.device && !/cellebrite|physical analyzer|\bufed\b/i.test(report.device)) parts.push('Extraktion: ' + report.device + '.');
-        if (report.sources.length) parts.push('Källfiler enligt rapporten: ' + report.sources.map(function (s) { return s.path + (s.verify ? ' (' + s.verify + ')' : ''); }).join(', ') + '.');
+        // Rapportens egen benämning, utan verktygets namn: det ska inte stå i programmets texter. Benämningen kan vara
+        // allmän (Google Android Generic), så modellen står efter, när det är en modell och inte en intern kod.
+        var vendor = /cellebrite|physical analyzer|\bufed\b/i;
+        var model = /\d/.test(report.selectedDevice || '') && !vendor.test(report.selectedDevice) ? ' (' + report.selectedDevice + ')' : '';
+        if (report.device && !vendor.test(report.device)) parts.push('Extraktion: ' + report.device + model + '.');
+        // Nyckelfilerna kan komma ur samma zip som filerna, och då är det en och samma källfil.
+        var sources = report.sources.map(function (s) { return s.path + (s.verify ? ' (' + s.verify + ')' : ''); }).filter(function (s, i, all) { return all.indexOf(s) === i; });
+        if (sources.length) parts.push('Källfiler enligt rapporten: ' + sources.join(', ') + '.');
         parts.push(count(c.files) + ' filer från telefonen' + (c.related ? ', varav ' + count(c.related) + ' med samma innehåll som en annan fil' : '') + '.');
         return parts.join(' ');
     }

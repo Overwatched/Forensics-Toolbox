@@ -88,7 +88,7 @@
     }
 
     // Ett urval EXIF-fält för kortet, ur protokollets taggrader [[tagg, värde]]. Hela listan finns i EXIF-visaren.
-    // Tiderna står inte här: tabellen under Skapandetid har dem alla, med källa och i en och samma zon.
+    // EXIF-tiderna står inte här: kortet har filens alla tider i en egen grupp (timesGroup), i en och samma zon.
     var EXIF_PICKS = [
         ['Kamera', /:(Make)$/, /:(Model)$/],
         ['Objektiv', /:LensModel$/],
@@ -183,6 +183,22 @@
             { title: 'I rapporten (rapportverktygets uppgifter och tolkning)', rows: fileEntry.reportRows || [] },
             { title: 'Inuti filen (EXIF eller QuickTime)', rows: exifSummary(exifRows) },
         ].filter(function (g) { return g.rows.length; });
+    }
+
+    // Filens tider för kortet, ur samma rader som tabellen under Skapandetid (ProvenanceCore.fileTimes), så att det
+    // syns direkt att filen har tider. Bara tiden och vad den är: källorna och avståndet till T står i tabellen.
+    // Det som saknas står också här, eftersom det också är ett besked. timeText(ms) -> tiden i rapportens zon.
+    // Alla tider står i rubrikens zon. Ett namn som "GPS-tid (UTC)" skulle läsas som att just den står i UTC, så
+    // zonen i namnet tas bort här. I tabellen står namnet kvar: där finns en egen kolumn för UTC.
+    function timesGroup(times, timeText, zoneLabel) {
+        if (!times || !times.length) return null;
+        return {
+            title: 'Filens tider (' + zoneLabel + ')', note: 'Källorna står i tabellen under 4.', times: true,
+            rows: times.map(function (r) {
+                var has = r.ms !== null && r.ms !== undefined;
+                return [String(r.label).replace(/ \(UTC\)$/, '') + (r.isT ? ' (T)' : ''), has ? timeText(r.ms) : (r.text || r.absent || '')];
+            }),
+        };
     }
 
     // Vad rapporten säger om filen, för kortet och protokollet: posten, kategorin och rapportverktygets tolkning.
@@ -355,7 +371,7 @@
     var api = {
         decodeUserComment: decodeUserComment,
         kindOf: kindOf, mimeOf: mimeOf, baseName: baseName, thumbnailSuffix: thumbnailSuffix, suffixKeeper: suffixKeeper, pickBySuffix: pickBySuffix,
-        previewPlan: previewPlan, exifSummary: exifSummary, cardGroups: cardGroups, reportRows: reportRows, parseLocal: parseLocal, parseWhen: parseWhen, dateText: dateText, timeText: timeText, dayRange: dayRange, zoneOffsetAt: zoneOffsetAt, toUtcMs: toUtcMs, exifTakenMs: exifTakenMs, exifZone: exifZone,
+        previewPlan: previewPlan, exifSummary: exifSummary, cardGroups: cardGroups, timesGroup: timesGroup, reportRows: reportRows, parseLocal: parseLocal, parseWhen: parseWhen, dateText: dateText, timeText: timeText, dayRange: dayRange, zoneOffsetAt: zoneOffsetAt, toUtcMs: toUtcMs, exifTakenMs: exifTakenMs, exifZone: exifZone,
         nearestFirst: nearestFirst, deltaText: deltaText, mediaKeeper: mediaKeeper, entryMs: entryMs, dataUrl: dataUrl, THUMB_FILE: THUMB_FILE,
     };
     if (typeof module !== 'undefined' && module.exports) module.exports = api;

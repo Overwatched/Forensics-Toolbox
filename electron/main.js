@@ -3,6 +3,7 @@ const path = require('node:path');
 const fs = require('node:fs');
 const maps = require('./map-protocol');
 const media = require('./media-protocol');
+const keyFiles = require('./key-files');
 
 // Sökväg till projektroten. I dev-läge (npm start) är detta repo-roten.
 // I ett paketerat bygge (electron-builder, asar: false) är strukturen identisk under
@@ -182,6 +183,10 @@ app.whenReady().then(() => {
     });
     ipcMain.handle('media-times', function (event, filePath) {
         return fromAppPage(event) ? media.times(filePath) : null;
+    });
+    // Bara huvudfönstret frågar, åt verktygen. Verktygens ramar, också de med tredjepartskod, får inget svar.
+    ipcMain.handle('keys-beside', function (event, filePath) {
+        return fromAppPage(event) && !event.senderFrame.parent ? keyFiles.beside(filePath) : null;
     });
     maps.stripIdentifyingHeaders(session.defaultSession);
 

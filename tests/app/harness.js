@@ -10,6 +10,7 @@ const path = require('node:path');
 const ROOT = path.join(__dirname, '..', '..');
 const maps = require(path.join(ROOT, 'electron', 'map-protocol'));
 const media = require(path.join(ROOT, 'electron', 'media-protocol'));
+const keyFiles = require(path.join(ROOT, 'electron', 'key-files'));
 
 app.commandLine.appendSwitch('remote-debugging-port', String(process.env.FT_PORT || 9223));
 maps.registerMapScheme();
@@ -25,6 +26,7 @@ app.whenReady().then(() => {
     ipcMain.handle('media-allow', (_event, filePath) => media.allow(filePath));
     ipcMain.handle('media-revoke', (_event, filePath) => media.revoke(filePath));
     ipcMain.handle('media-times', (_event, filePath) => media.times(filePath));
+    ipcMain.handle('keys-beside', (_event, filePath) => keyFiles.beside(filePath));
     const win = new BrowserWindow({
         width: 1600, height: 1000, show: false,
         webPreferences: {

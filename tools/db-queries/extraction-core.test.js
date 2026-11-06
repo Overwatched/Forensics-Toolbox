@@ -229,3 +229,108 @@ test('openSource: en zip är en zip, en UFDR läses in och databasen hittas på 
     assert.strictEqual(core.sourceWord({}), 'zippen');
     assert.strictEqual(core.sourceWord({ report: {} }), 'rapporten');
 });
+
+// ---------- Nycklarna som hör till extraktionen ----------
+
+const secretsLib = require('./app-secrets');
+core.use({ AppSecrets: secretsLib });
+require('../ios-keychain/lib/bplist.js');
+require('../ios-keychain/lib/asn1.js');
+const { encryptedKeychain } = require('./fixtures/keychain-builder');
+const KEY48 = Buffer.alloc(48, 7);
+const KEY96 = KEY48.toString('hex');
+const SIGNAL_POST = { svce: 'GRDBKeyChainService', acct: 'GRDBDatabaseCipherKeySpec', agrp: 'X.org.whispersystems.signal', value: KEY48 };
+const plainKeychain = (key) => '<plist><dict><key>genp</key><array><dict><key>svce</key><string>GRDBKeyChainService</string><key>acct</key><string>GRDBDatabaseCipherKeySpec</string><key>v_Data</key><data>' + key.toString('base64') + '</data></dict></array></dict></plist>';
+const readerOf = (buf) => async (offset, length) => new Uint8Array(buf.subarray(offset, offset + length));
+
+test('findKeys: nyckelringen under extra/ räcker, och mappen bredvid zippen rörs inte', async () => {
+    const buf = buildZip([
+        { name: 'filesystem1/private/var/mobile/extra/falsk_keychain.plist', data: plainKeychain(Buffer.alloc(48, 9)) },
+        { name: 'extra/KeychainDump/backup_keychain_v2.plist', data: encryptedKeychain([SIGNAL_POST]), deflate: true },
+    ]);
+    let asked = 0;
+    const out = await core.findKeys(readerOf(buf), buf.length, { beside: async () => { asked++; return { files: [], other: [] }; } });
+    assert.strictEqual(asked, 0, 'mappen ska inte läsas när nyckeln redan finns');
+    assert.strictEqual(out.lookedBeside, false);
+    assert.deepStrictEqual(out.secrets.map((x) => x.source), ['extra/KeychainDump/backup_keychain_v2.plist i zippen']);
+    assert.strictEqual(secretsLib.keysForProfile(out.secrets, 'signal-ios').dbKey, KEY96);
+});
+
+test('findKeys: utan nyckel i zippen läses filerna bredvid, och namnet säger var de låg', async () => {
+    const buf = buildZip([{ name: 'filesystem1/a.txt', data: 'x' }]);
+    const out = await core.findKeys(readerOf(buf), buf.length, { beside: async () => ({ files: [{ name: 'X_keychain.plist', bytes: new Uint8Array(Buffer.from(plainKeychain(KEY48))) }], other: ['Y_keychain.plist'] }) });
+    assert.strictEqual(out.lookedBeside, true);
+    assert.deepStrictEqual(out.other, ['Y_keychain.plist']);
+    assert.strictEqual(secretsLib.keysForProfile(out.secrets, 'signal-ios').source, 'X_keychain.plist bredvid zippen');
+    // En rapport säger rapporten, och dess egen nyckelring står först.
+    const rep = await core.findKeys(readerOf(buildZip([{ name: 'Keychain/R_keychain.plist', data: plainKeychain(KEY48) }])), buildZip([{ name: 'Keychain/R_keychain.plist', data: plainKeychain(KEY48) }]).length, { report: { keychains: [] }, beside: async () => ({ files: [{ name: 'X_keychain.plist', bytes: new Uint8Array(Buffer.from(plainKeychain(KEY48))) }], other: [] }) });
+    assert.strictEqual(secretsLib.keysForProfile(rep.secrets, 'signal-ios').source, 'X_keychain.plist bredvid rapporten');
+});
+
+test('findKeys: i en rapport ur en zip med extra/ ligger nyckelfilerna högst upp, och mappen bredvid rörs inte', async () => {
+    const fs = 'EXTRACTION_FFS.zip';
+    const open = async (rows) => {
+        const { buf } = buildUfdr(rows);
+        const source = await core.openSource(fakeFile(buf, 'rapport.ufdr'));
+        let asked = 0;
+        const out = await core.findKeys(source.read, buf.length, { report: source.report, beside: async () => { asked++; return { files: [], other: [] }; } });
+        assert.strictEqual(asked, 0, 'mappen ska inte läsas när nyckeln redan finns');
+        return out;
+    };
+    const ios = await open([{ path: '/backup_keychain_v2.plist', data: encryptedKeychain([SIGNAL_POST]), tag: 'Configuration', fs }]);
+    assert.strictEqual(secretsLib.keysForProfile(ios.secrets, 'signal-ios').dbKey, KEY96);
+    assert.strictEqual(secretsLib.keysForProfile(ios.secrets, 'signal-ios').source, 'backup_keychain_v2.plist i rapporten');
+    const android = await open([{ path: '/Secrets/secrets.json', data: JSON.stringify([{ app: secretsLib.SIGNAL, script_output: [{ payload: { 'sqlite db key': 'ab'.repeat(32), 'signal attachment key': { modernKey: 'bilagenyckeln' } } }] }]), tag: 'Uncategorized', fs }]);
+    assert.deepStrictEqual(secretsLib.keysForProfile(android.secrets, 'signal'), { dbKey: 'ab'.repeat(32), modernKey: 'bilagenyckeln', source: 'secrets.json i rapporten', modernSource: 'secrets.json i rapporten' });
+});
+
+test('findKeys: i en webbläsare letas bara i zippen, och det sägs', async () => {
+    const buf = buildZip([{ name: 'filesystem1/a.txt', data: 'x' }]);
+    const out = await core.findKeys(readerOf(buf), buf.length, {});
+    assert.deepStrictEqual(out, { secrets: [], lookedBeside: false, other: [] });
+    assert.match(secretsLib.missingKeyText({ profile: 'signal-ios', word: 'zippen', search: out }), /En webbläsare får inte se mappen/);
+    // Går mappen inte att läsa är det samma sak som att inte ha letat där.
+    const failed = await core.findKeys(readerOf(buf), buf.length, { beside: async () => null });
+    assert.strictEqual(failed.lookedBeside, false);
+    const threw = await core.findKeys(readerOf(buf), buf.length, { beside: async () => { throw new Error('nej'); } });
+    assert.strictEqual(threw.lookedBeside, false);
+});
+
+test('findKeys: en trasig fil stoppar inte nästa, och felet följer med', async () => {
+    const buf = buildZip([{ name: 'extra/KeychainDump/trasig_keychain.plist', data: 'inte en plist' }, { name: 'extra/Secrets/secrets.json', data: JSON.stringify([{ app: secretsLib.SIGNAL, script_output: [{ payload: { 'sqlite db key': 'ab'.repeat(32) } }] }]) }]);
+    const out = await core.findKeys(readerOf(buf), buf.length, {});
+    assert.strictEqual(out.secrets.length, 2);
+    assert.match(out.secrets.find((x) => /trasig/.test(x.source)).error, /ingen nyckelfil/);
+    assert.strictEqual(secretsLib.keysForProfile(out.secrets, 'signal').dbKey, 'ab'.repeat(32));
+});
+
+test('findKeys: ett läsfel i en fil stoppar inte nästa, och felet följer med', async () => {
+    const buf = buildZip([{ name: 'extra/Trasig/x_keychain.plist', data: plainKeychain(KEY48) }, { name: 'extra/Secrets/secrets.json', data: JSON.stringify([{ app: secretsLib.SIGNAL, script_output: [{ payload: { 'sqlite db key': 'ab'.repeat(32) } }] }]) }]);
+    // Filhuvudet för den första posten ligger först i zippen, och bara den går inte att läsa.
+    const read = async (offset, length) => {
+        if (offset === 0 && length < buf.length) throw new Error('läsfel på disken');
+        return new Uint8Array(buf.subarray(offset, offset + length));
+    };
+    const out = await core.findKeys(read, buf.length, {});
+    assert.strictEqual(out.secrets.length, 2);
+    assert.match(out.secrets[0].error, /Filen kunde inte läsas: läsfel på disken/);
+    assert.strictEqual(secretsLib.keysForProfile(out.secrets, 'signal').dbKey, 'ab'.repeat(32));
+});
+
+test('findKeys: en jättestor fil under extra/ läses inte in, och det sägs', async () => {
+    const buf = buildZip([{ name: 'extra/stor_keychain.plist', data: Buffer.alloc(65 * 1024 * 1024), deflate: true }]);
+    const out = await core.findKeys(readerOf(buf), buf.length, {});
+    assert.deepStrictEqual(out.secrets.map((x) => x.source), ['extra/stor_keychain.plist i zippen']);
+    assert.match(out.secrets[0].error, /för stor/);
+});
+
+test('readKeyFile: en zip packas upp, och nyckelfilen i den tolkas', async () => {
+    const ks = JSON.stringify({ 'org.thoughtcrime.securesms': [{ description: 'pref_database_encrypted_secret', key_name: 'SignalSecret', decrypted_data: 'cd'.repeat(32) }] });
+    const zipped = buildZip([{ name: 'android_keystore', data: ks, deflate: true }]);
+    const r = await core.readKeyFile(new Uint8Array(zipped), 'X_android_keystore.zip');
+    assert.strictEqual(r.error, undefined);
+    assert.deepStrictEqual(secretsLib.keysForProfile([r], 'signal'), { dbKey: 'cd'.repeat(32), modernKey: null, source: 'X_android_keystore.zip', modernSource: null });
+    assert.match((await core.readKeyFile(new Uint8Array(buildZip([{ name: 'annat.txt', data: 'x' }])), 'Y.zip')).error, /ingen nyckelfil/);
+    // Och utan zip går filen rakt till tolken.
+    assert.strictEqual(secretsLib.keysForProfile([await core.readKeyFile(new Uint8Array(Buffer.from(plainKeychain(KEY48))), 'k.plist')], 'signal-ios').dbKey, KEY96);
+});

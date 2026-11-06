@@ -179,12 +179,15 @@ test('en trasig metadata.msgpack sägs och stoppar inte', async () => {
     assert.strictEqual(e.timeField, 'UT');
 });
 
-test('nanosekunder blir exakta millisekunder, också över 2^53', () => {
+test('nanosekunder avrundas exakt till millisekunder, också över 2^53', () => {
     const ms = (v) => FsTimes.nsToMs(uint(v), 0);
     assert.strictEqual(ms(0n), null);
-    assert.strictEqual(ms(1793704566123999999n), 1793704566123);
+    assert.strictEqual(ms(1793704566123499999n), 1793704566123);
+    assert.strictEqual(ms(1793704566123500000n), 1793704566124);
+    assert.strictEqual(ms(1793704566123999999n), 1793704566124);
     assert.strictEqual(ms(1793704566124000000n), 1793704566124);
-    assert.strictEqual(ms(4294967295n), 4294);
+    assert.strictEqual(ms(1793704566999500000n), 1793704567000, 'över sekundgränsen');
+    assert.strictEqual(ms(4294967295n), 4295);
     const negative = Buffer.alloc(9);
     negative[0] = 0xd3;
     negative.writeBigInt64BE(-1000n, 1);
