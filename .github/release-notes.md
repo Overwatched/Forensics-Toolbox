@@ -1,5 +1,19 @@
 Automatiskt byggd från commit `{{SHA}}`.
 
+## Nytt i 1.52
+
+På Samsung räcker Härkomst nu mycket längre bakåt. Två av Samsungs egna loggar ger app, kamera och skärm där `usagestats` och `appops` tagit slut, och varje rad går att kontrollera i råtext.
+
+- **App, kamera och skärm på Samsung:** SSRM-loggen (`ssrm_heating_N.log`) och batterihistoriken (`newbatterystats…`) läses ur zippen eller rapporten. På labbtelefonen räcker batterihistoriken tio månader bakåt och SSRM drygt sex, medan `usagestats` bara hade en dag. På en telefon i daglig användning räcker SSRM kortare, kanske tio dygn.
+- **Provat på en riktig bild:** en kamerabild från mars fick förut "Inte registrerat" i alla tre faktorerna. Nu är den förenlig i alla tre: kameraappen i förgrunden, skärmen tänd och kameran på i 14 sekunder, med bilden mitt i det spannet.
+- **Råraden syns:** i händelsetabellen och protokollet står filen, radnumren och själva raderna, till exempel `newbatterystats… rad 2699–2718 → +1h37m42s570ms (1) 081 +camera … -camera`. Bilagan har filerna med CRC32 och råraderna i fönstret.
+- **Batterihistorikens klocka:** tiden där räknas fram från den senaste `TIME:`-raden, och den raden kan skrivas sent. Då ligger raderna fel tills nästa `TIME:` rättar dem, i labbet 160 sekunder. Programmet mäter stegen vid varje `TIME:`. Rader i ett sådant avsnitt, och i en fil som spänner över ett byte av tidszon, märks "tiden osäker". De står i händelsetabellen men räknas inte i bedömningen och ritas inte i tidslinjen, och faktorn säger varför. Ett steg framåt räknas bara bort när nästa rad visar att telefonen just vaknade, så hellre en rad för mycket märkt än en för lite.
+- **Vilken källa som gäller:** för app och skärm gäller `usagestats` eller Wellbeing i första hand, sedan SSRM och sist batterihistoriken. Kameran står med från varje källa, eftersom oberoende källor som säger samma sak är värda att se. Faktorn har en rad per källa, förklaringen en händelse.
+- **Kameran i batterihistoriken har ingen app:** den säger bara att kameran var på. Appen som nämns är den som var i förgrunden just då, och raden säger det. SSRM nämner appen som använde kameran.
+- **Besked när loggen inte räcker:** en bild äldre än `usagestats` kunde få "Wellbeing finns inte i rapporten", fast `usagestats` fanns. Nu står det vad varje logg täcker, och om batterihistoriken eller SSRM har ett hål vid tiden står hålet med sina tider.
+- **Rättat i tidslinjen:** kameraband från flera källor ovanpå varandra gav text ovanpå text.
+- **Inte provat:** allt kommer från en enda Samsung, en telefon som mest legat oanvänd. Samsungs egen kamera-app har aldrig setts på SSRM:s kamerarad, bara Signal, så att den raden saknas säger inget. Kontrollera råraden innan du drar slutsatser av den. Avstängd telefon (`eRR.p`) och Rubins positioner läses inte än.
+
 ## Nytt i 1.51
 
 Programmet hittar nyckeln till Signal själv, filens tider står också på filkortet, och rapporter ur extraktioner med mappen `extra/` går att läsa med nyckeln. Signal på Android är kontrollerat mot en riktig rapport, och två fel i protokollet och Signal-faktorn är rättade.

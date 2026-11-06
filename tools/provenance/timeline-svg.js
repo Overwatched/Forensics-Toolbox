@@ -261,7 +261,7 @@
                 return { state: st, l1: names.join(', ') + ' i förgrunden', l2: since(running[0]) };
             case 'camera': {
                 var cam = camOps[0];
-                if (cam) return { state: st, l1: cam.cameraOp ? 'används av ' + ctx.appName(cam.app) : 'igång', l2: since(cam) + ', ' + dur(cam.endMs - T) + ' till' };
+                if (cam) return { state: st, l1: cam.cameraOp && cam.app ? 'används av ' + ctx.appName(cam.app) : cam.cameraOp ? 'på' : 'igång', l2: since(cam) + ', ' + dur(cam.endMs - T) + ' till' };
                 var rec = ev.find(function (e) { return isRecording(e, T); });
                 if (rec) return { state: st, l1: 'Snapchats kamera', l2: rec.kind === 'snap-memory' ? 'tagning registrerad i Memories ' + atWord : 'inspelning registrerad ' + atWord };
                 var capAt = atT ? ev.find(function (e) { return e.kind === 'file-captured'; }) : null;
@@ -466,11 +466,18 @@
                 events.filter(function (e) { return e.kind === 'app' && e.lane !== 'camera'; }).forEach(function (e) {
                     out += band(cx(e.ms), cx(e.endMs), mid, COLORS.off, 'Inte kameran: ' + (appName(e.app) || e.app) + ' ' + fmt(e.ms) + ' – ' + fmt(e.endMs), COLORS.offStroke);
                 });
-                events.filter(function (e) { return e.kind === 'app' && e.lane === 'camera'; }).forEach(function (e) {
+                var camBands = events.filter(function (e) { return e.kind === 'app' && e.lane === 'camera'; });
+                camBands.forEach(function (e, i) {
                     var x1 = cx(e.ms), x2 = cx(e.endMs);
                     var word = e.cameraOp ? 'används' : 'igång';
-                    out += band(x1, x2, mid, COLORS.camera, (appName(e.app) || e.app) + (e.cameraOp ? ' använder kameran ' : ' igång ') + fmt(e.ms) + ' – ' + fmt(e.endMs));
-                    texts += bandText(x1, x2, mid, [e.cameraOp ? (appName(e.app) || e.app) + ' ' + fmtTime(fmt, e.ms) + ' → ' + fmtTime(fmt, e.endMs) : sinceText(e, word), word], '#ffffff');
+                    var who = e.app ? appName(e.app) || e.app : 'Kameran';
+                    out += band(x1, x2, mid, COLORS.camera, who + (!e.app ? ' på ' : e.cameraOp ? ' använder kameran ' : ' igång ') + fmt(e.ms) + ' – ' + fmt(e.endMs));
+                    // Samma tid ur flera källor ger band ovanpå varandra. Texten står en gång, på den rad som säger att kameran användes.
+                    var covered = camBands.some(function (o, j) {
+                        if (o === e || o.ms >= e.endMs || e.ms >= o.endMs) return false;
+                        return !!o.cameraOp === !!e.cameraOp ? j < i : !!o.cameraOp;
+                    });
+                    if (!covered) texts += bandText(x1, x2, mid, [e.cameraOp ? who + ' ' + fmtTime(fmt, e.ms) + ' → ' + fmtTime(fmt, e.endMs) : sinceText(e, word), word], '#ffffff');
                 });
                 // Snapchats egen kamera: inspelningsposten (iOS) eller tagningen i Memories (Android).
                 events.filter(function (e) { return (e.kind === 'snap-cache' && e.context === 34) || (e.kind === 'snap-memory' && e.captured); }).forEach(function (e) {

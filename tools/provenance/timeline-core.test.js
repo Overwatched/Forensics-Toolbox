@@ -867,3 +867,124 @@ test('samma tidpunktsnamn upprepas inte i positionstexten', () => {
     const text = pos.items.map((i) => i.text).join(' ');
     assert.strictEqual((text.match(/när filen skickades i WhatsApp/g) || []).length, 1, text);
 });
+
+// Samsungs loggar: raderna kommer ur samsung-logs.js i samma form som usagestats och appops.
+const SAM_CAM = 'com.sec.android.app.camera';
+const SAM_NAMES = { [SAM_CAM]: 'Samsung Kamera', 'org.example.chat': 'Chatten', 'com.snapchat.android': 'Snapchat' };
+const BATTERY_SRC = { db: 'batterihistoriken', table: 'newbatterystats260317080553 rad 2699–2718', column: '+1h37m42s570ms (1) 081 +camera … +1h37m56s149ms (1) 081 -camera', queryId: 'batterystats-history' };
+const SSRM_SRC = { db: 'SSRM', table: 'ssrm_heating_3.log rad 11–12', column: '2026 camera running :: true … 2026 camera running :: false', queryId: 'ssrm-heating' };
+function samsungInput(over) {
+    return Object.assign({
+        platform: 'Android', file: { pk: 7, filename: '20260312_133111.jpg', relativePath: 'DCIM/Camera/', importer: SAM_CAM, createdMs: T, addedMs: T + S, modifiedMs: T + S },
+        appNames: (id) => SAM_NAMES[id] || null, cameraApps: [SAM_CAM], windowMs: 15 * M, exif: null, samsung: { ssrm: true, battery: true },
+        appIntervals: [{ startMs: T - 9 * S, endMs: T + 5 * S, app: SAM_CAM, stream: 'batterihistoriken', source: BATTERY_SRC }],
+        screen: [{ startMs: T - 3 * M, endMs: T + 3 * M, on: true, stream: 'batterihistoriken', source: BATTERY_SRC }],
+        lock: [], cameraUse: [{ startMs: T - 8 * S, endMs: T + 5 * S, app: SAM_CAM, stream: 'batterihistoriken', source: BATTERY_SRC }],
+        coverage: { usagestats: { firstMs: T + 200 * 86400 * S, lastMs: T + 201 * 86400 * S }, SSRM: { firstMs: T + 3 * 86400 * S, lastMs: T + 202 * 86400 * S, rows: 100, gaps: [] }, batterihistoriken: { firstMs: T - 100 * 86400 * S, lastMs: T + 202 * 86400 * S, rows: 50, gaps: [] } },
+        androidLog: 'usagestats', missingDbs: {},
+    }, over || {});
+}
+const textOf = (f) => f.items.map((i) => i.text).join(' ');
+
+test('Samsung: batterihistoriken ger app, kamera och skärm vid T, och säger hur tiden räknas', () => {
+    const m = core.build(samsungInput());
+    const f = Object.fromEntries(m.factors.map((x) => [x.id, x]));
+    assert.deepStrictEqual([f.app.state, f.camera.state, f.screen.state], ['support', 'support', 'support']);
+    assert.ok(/Kameran var igång vid tidpunkten \(batterihistoriken\)/.test(textOf(f.app)), textOf(f.app));
+    assert.ok(/Kameraappen använde kameran .* \(batterihistoriken, \+camera, med appen i förgrunden\)/.test(textOf(f.camera)), textOf(f.camera));
+    assert.ok(/Skärmen var tänd vid tidpunkten \(batterihistoriken\)/.test(textOf(f.screen)), textOf(f.screen));
+    ['app', 'camera', 'screen'].forEach((id) => assert.ok(/räknas fram från närmaste TIME-rad\. Inget steg över 5 s/.test(textOf(f[id])), id + ': ' + textOf(f[id])));
+    assert.strictEqual(m.beta, true);
+    const cam = m.events.find((e) => e.cameraOp);
+    assert.strictEqual(cam.text, 'Kameran på, Samsung Kamera i förgrunden (batterihistoriken, +camera)');
+    assert.strictEqual(cam.lane, 'camera');
+});
+
+test('Samsung: en rad med osäker tid räknas inte, och faktorn säger varför', () => {
+    const unsure = [
+        { what: 'camera', startMs: T - 100 * S, endMs: T - 90 * S, app: SAM_CAM, stream: 'batterihistoriken', clockMs: 163000, zoneMs: 0, source: BATTERY_SRC },
+        { what: 'app', startMs: T - 100 * S, endMs: T - 90 * S, app: SAM_CAM, stream: 'batterihistoriken', clockMs: 163000, zoneMs: 0, source: BATTERY_SRC },
+        { what: 'screen', startMs: T - 100 * S, endMs: T - 90 * S, on: true, stream: 'batterihistoriken', clockMs: 163000, zoneMs: 0, source: BATTERY_SRC },
+    ];
+    const m = core.build(samsungInput({ appIntervals: [], screen: [], cameraUse: [], logUnsure: unsure }));
+    const f = Object.fromEntries(m.factors.map((x) => [x.id, x]));
+    assert.deepStrictEqual([f.app.state, f.camera.state, f.screen.state], ['missing', 'missing', 'missing']);
+    ['app', 'camera', 'screen'].forEach((id) => assert.ok(/Batterihistoriken har rader kring tidpunkten, men de räknas inte: klockan flyttades 2 min 43 s/.test(textOf(f[id])), id + ': ' + textOf(f[id])));
+    const row = m.events.filter((e) => e.kind === 'log-unsure');
+    assert.strictEqual(row.length, 3);
+    assert.strictEqual(row[0].text, 'Samsung Kamera använder kameran (batterihistoriken, tiden osäker)');
+    assert.ok(row.every((e) => e.plain === null), 'inga meningar i förklaringen');
+    // Tiden kan inte täcka T även med klockans fel: då nämns raden inte.
+    const far = core.build(samsungInput({ appIntervals: [], screen: [], cameraUse: [], logUnsure: [Object.assign({}, unsure[0], { startMs: T - 400 * S, endMs: T - 390 * S })] }));
+    assert.ok(!/räknas inte/.test(textOf(far.factors.find((x) => x.id === 'camera'))));
+    // En säker källa vid T: den osäkra raden nämns inte.
+    const safe = core.build(samsungInput({ logUnsure: unsure.slice(2) }));
+    assert.ok(!/räknas inte/.test(textOf(safe.factors.find((x) => x.id === 'screen'))));
+    // Zonen är osäker.
+    const zone = core.build(samsungInput({ appIntervals: [], screen: [], cameraUse: [], logUnsure: [Object.assign({}, unsure[0], { startMs: T, endMs: T + S, clockMs: 0, zoneMs: 3600000 })] }));
+    assert.ok(/tidszonen bytte under loggens gång, så tiden kan ligga 1 h 0 min fel/.test(textOf(zone.factors.find((x) => x.id === 'camera'))));
+});
+
+test('Samsung: utan registrering säger faktorn vad varje logg täcker', () => {
+    const m = core.build(samsungInput({ appIntervals: [], screen: [], cameraUse: [], coverage: {
+        usagestats: { firstMs: T + 200 * 86400 * S, lastMs: T + 201 * 86400 * S },
+        SSRM: { firstMs: T + 3 * 86400 * S, lastMs: T + 202 * 86400 * S, rows: 100, gaps: [] },
+        batterihistoriken: { firstMs: T - 100 * 86400 * S, lastMs: T + 202 * 86400 * S, rows: 50, gaps: [{ startMs: T - S, endMs: T + S }] },
+    } }));
+    const text = textOf(m.factors.find((x) => x.id === 'camera'));
+    assert.ok(/utanför usagestats:s täckning/.test(text), text);
+    assert.ok(/också utanför SSRM:s täckning/.test(text), text);
+    assert.ok(/Batterihistoriken har inga rader från /.test(text), text);
+    const inside = core.build(samsungInput({ appIntervals: [], screen: [], cameraUse: [], coverage: { SSRM: { firstMs: T - M, lastMs: T + M, rows: 100, gaps: [] }, batterihistoriken: { firstMs: T - M, lastMs: T + M, rows: 50, gaps: [] } } }));
+    const t2 = textOf(inside.factors.find((x) => x.id === 'screen'));
+    assert.ok(/SSRM har inget om det vid tidpunkten\. Batterihistoriken har inget om det vid tidpunkten\./.test(t2), t2);
+    // Utan Samsungs loggar är texten densamma som förut.
+    const none = core.build(samsungInput({ appIntervals: [], screen: [], cameraUse: [], samsung: null, coverage: { usagestats: { firstMs: T - M, lastMs: T + M, rows: 5 } } }));
+    assert.strictEqual(textOf(none.factors.find((x) => x.id === 'screen')), 'Inga registreringar i tidsfönstret.');
+    assert.strictEqual(none.beta, false);
+});
+
+test('Samsung: samma kameraanvändning ur tre källor är en rad per källa men en händelse i förklaringen', () => {
+    const cameraUse = [
+        { startMs: T - 9 * S, endMs: T + 4 * S, app: SAM_CAM, stream: 'batterihistoriken', source: BATTERY_SRC },
+        { startMs: T - 7 * S, endMs: T + 6 * S, app: SAM_CAM, stream: 'SSRM', source: SSRM_SRC },
+        { startMs: T - 8 * S, endMs: T + 5 * S, app: SAM_CAM, source: { db: 'appops', table: 'discrete/x', column: 'op 26', queryId: 'appops-discrete' } },
+    ];
+    const m = core.build(samsungInput({ cameraUse, appIntervals: [], screen: [] }));
+    const cam = m.factors.find((x) => x.id === 'camera');
+    assert.strictEqual(cam.state, 'support');
+    assert.deepStrictEqual(cam.items.filter((i) => i.state === 'support').map((i) => /\(([^,)]+)/.exec(i.text)[1]).sort(), ['SSRM', 'appops', 'batterihistoriken']);
+    const lines = m.narrative[0].lines.filter((l) => /(startar|stänger) kameran/.test(l.text)).map((l) => l.text);
+    assert.deepStrictEqual(lines.sort(), ['Samsung Kamera startar kameran', 'Samsung Kamera stänger kameran']);
+    assert.strictEqual(m.events.filter((e) => e.cameraOp).length, 3);
+});
+
+test('Samsung: kameran utan känd app, och en app som använde kameran enligt SSRM', () => {
+    const m = core.build(samsungInput({ appIntervals: [], screen: [], cameraUse: [{ startMs: T - 8 * S, endMs: T + 5 * S, app: null, stream: 'batterihistoriken', source: BATTERY_SRC }] }));
+    const cam = m.factors.find((x) => x.id === 'camera');
+    assert.ok(/^Kameran var på .* \(batterihistoriken, \+camera/.test(cam.items[0].text), cam.items[0].text);
+    assert.ok(/^Kameran var på vid tidpunkten \(batterihistoriken\)/.test(m.factors.find((x) => x.id === 'screen').items[0].text));
+    assert.strictEqual(m.events.find((e) => e.cameraOp).text, 'Kameran på (batterihistoriken, +camera)');
+    assert.deepStrictEqual(m.narrative[0].lines.filter((l) => /Kameran/.test(l.text)).map((l) => l.text), ['Kameran startas', 'Kameran stängs']);
+
+    const saved = { pk: 8, filename: 'x.jpg', relativePath: 'Pictures/Chatten/', importer: 'org.example.chat', createdMs: T, addedMs: T };
+    const own = core.build(samsungInput({ file: saved, appIntervals: [], screen: [], cameraUse: [{ startMs: T - 8 * S, endMs: T + 2 * S, app: 'org.example.chat', stream: 'SSRM', source: SSRM_SRC }] }));
+    const f = own.factors.find((x) => x.id === 'camera');
+    assert.strictEqual(f.state, 'support');
+    assert.ok(/^Chatten använde kameran .* enligt SSRM \(camera running\), vilket täcker tidpunkten\.$/.test(f.items[0].text), f.items[0].text);
+    assert.ok(/Chatten använde kameran vid tidpunkten \(SSRM\), så appen var igång|Inte registrerat|utanför/.test(textOf(own.factors.find((x) => x.id === 'app'))));
+    // Kameran ur batterihistoriken med en annan app i förgrunden är ingen användning av den här appen.
+    const other = core.build(samsungInput({ file: saved, appIntervals: [], screen: [], cameraUse: [{ startMs: T - 8 * S, endMs: T + 2 * S, app: 'com.snapchat.android', stream: 'batterihistoriken', source: BATTERY_SRC }] }));
+    assert.ok(/Ingen kameraanvändning av Chatten är registrerad i batterihistoriken/.test(textOf(other.factors.find((x) => x.id === 'camera'))));
+    // En rad utan app säger inget om vilken app det var.
+    const unknown = core.build(samsungInput({ file: saved, appIntervals: [], screen: [], cameraUse: [{ startMs: T - 8 * S, endMs: T + 2 * S, app: null, stream: 'batterihistoriken', source: BATTERY_SRC }] }));
+    assert.ok(!/Ingen kameraanvändning av Chatten/.test(textOf(unknown.factors.find((x) => x.id === 'camera'))));
+});
+
+test('Samsung: Snapchat-raden namnger loggen som raden kommer ur', () => {
+    const file = { pk: 9, filename: 'Snapchat-1.jpg', snapchatCache: { path: 'x', key: 'k', context: 1, known: true, label: 'x', external: {} }, createdMs: T, addedMs: T };
+    const m = core.build(samsungInput({ file, cameraUse: [], screen: [], appIntervals: [{ startMs: T - 8 * S, endMs: T + 2 * S, app: 'com.snapchat.android', stream: 'SSRM', source: SSRM_SRC }] }));
+    assert.ok(/enligt SSRM\./.test(textOf(m.factors.find((x) => x.id === 'app'))), textOf(m.factors.find((x) => x.id === 'app')));
+    const other = core.build(samsungInput({ file, cameraUse: [], screen: [], appIntervals: [{ startMs: T - 8 * S, endMs: T + 2 * S, app: 'org.example.chat', stream: 'batterihistoriken', source: BATTERY_SRC }] }));
+    assert.ok(/^batterihistoriken registrerar Chatten/.test(other.factors.find((x) => x.id === 'app').items[0].text), other.factors.find((x) => x.id === 'app').items[0].text);
+});

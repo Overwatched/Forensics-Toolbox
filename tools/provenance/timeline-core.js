@@ -24,8 +24,14 @@
     var WHATSAPP = 'net.whatsapp.WhatsApp';
     var WHATSAPP_BUSINESS = 'net.whatsapp.WhatsAppSMB';
     var TELEGRAM = 'ph.telegra.Telegraph';
+    var SSRM = 'SSRM';
+    var BATTERY = 'batterihistoriken';
+
+    // Starkast källa först när samma kameraanvändning står i flera loggar.
+    function CAM_RANK(stream) { return stream === BATTERY ? 2 : stream === SSRM ? 1 : 0; }
 
     function isSnapchatApp(id) { return id === SNAPCHAT || id === SNAPCHAT_ANDROID; }
+    function isSamsungStream(stream) { return stream === SSRM || stream === BATTERY; }
 
     // Loggen för app, skärm och lås: knowledgeC på iOS; på Android usagestats när den finns i
     // extraktionen, annars Wellbeing. Etiketten står i faktorernas texter, nyckeln i täckningen.
@@ -446,13 +452,23 @@
         // sekund långt. Tätt följande kameraoperationer från samma app (kameran öppnas igen inom två
         // sekunder, t.ex. vid byte mellan fram- och bakkamera) slås ihop till ett intervall.
         var camUse = mergeIntervals((input.cameraUse || []).map(function (iv) {
-            return { startMs: iv.startMs, endMs: iv.endMs != null ? iv.endMs : iv.startMs + 1000, app: iv.app, stream: iv.stream || 'appops', source: iv.source, openEnded: iv.endMs == null };
+            return { startMs: iv.startMs, endMs: iv.endMs != null ? iv.endMs : iv.startMs + 1000, app: iv.app, stream: iv.stream || 'appops', source: iv.source, openEnded: iv.openEnded || iv.endMs == null };
         }));
         camUse.forEach(function (iv) {
-            var name = appName(iv.app, names);
+            var name = iv.app ? appName(iv.app, names) : 'Kameran';
             var pl = iv.stream === 'PowerLog';
+            // Samma kameraanvändning ur flera källor står på var sin rad i tabellen, men är en händelse i förklaringen.
+            var told = camUse.some(function (o) { return o !== iv && CAM_RANK(o.stream) < CAM_RANK(iv.stream) && o.startMs <= iv.endMs && iv.startMs <= o.endMs; });
+            var how = iv.stream === BATTERY ? 'batterihistoriken, +camera' : iv.stream === SSRM ? 'SSRM, camera running' : pl ? 'PowerLog, PLCameraAgent' : 'appops op 26';
             add({ ms: iv.startMs, endMs: iv.endMs, kind: 'app', lane: 'camera', app: iv.app, stream: iv.stream, openEnded: !!iv.openEnded, cameraOp: true, merged: iv.merged || null,
-                text: name + ' använder kameran (' + (pl ? 'PowerLog, PLCameraAgent' : 'appops op 26') + (iv.merged ? ', ' + iv.merged + (pl ? ' sessioner' : ' operationer') + ' i följd' : '') + (iv.openEnded ? ', slutet inte registrerat' : '') + ')', plain: name + ' startar kameran', plainEnd: name + ' stänger kameran', source: iv.source });
+                text: (iv.stream === BATTERY ? 'Kameran på' + (iv.app ? ', ' + name + ' i förgrunden' : '') : name + ' använder kameran') + ' (' + how + (iv.merged ? ', ' + iv.merged + (pl ? ' sessioner' : ' operationer') + ' i följd' : '') + (iv.openEnded ? ', slutet inte registrerat' : '') + ')',
+                plain: told ? null : iv.app ? name + ' startar kameran' : 'Kameran startas', plainEnd: told ? null : iv.app ? name + ' stänger kameran' : 'Kameran stängs', source: iv.source });
+        });
+        // Rader vars tid är osäker: de står i händelsetabellen, men räknas inte i bedömningen och ritas inte i tidslinjen.
+        (input.logUnsure || []).forEach(function (u) {
+            var what = u.what === 'screen' ? (u.on ? 'Skärmen tänd' : 'Skärmen släckt') : u.what === 'camera' ? (u.app ? appName(u.app, names) + ' använder kameran' : 'Kameran på') : appName(u.app, names) + ' i förgrunden';
+            add({ ms: u.startMs, endMs: u.endMs, kind: 'log-unsure', lane: 'log', app: u.app || null, on: u.on, what: u.what, stream: u.stream, openEnded: u.openEnded, clockMs: u.clockMs || 0, zoneMs: u.zoneMs || 0,
+                text: what + ' (' + u.stream + ', tiden osäker)', plain: null, source: u.source });
         });
         (input.screen || []).forEach(function (iv) {
             add({ ms: iv.startMs, endMs: iv.endMs, kind: 'screen', lane: 'screen', on: !!iv.on, stream: iv.stream, openEnded: iv.openEnded,
@@ -492,7 +508,7 @@
     // iOS, PowerLogs täckning och glapp.
     function reasonAt(input, key, ms, label) {
         var r = coverageReason(key, input, ms, label);
-        if (input.platform === 'Android') return r;
+        if (input.platform === 'Android') return r + samsungReason(input, ms);
         var c = input.coverage && input.coverage.PowerLog;
         if (!c) return r + (input.missingDbs && input.missingDbs.PowerLog === 'unread' ? ' PowerLog kunde inte läsas.' : '');
         var gap = (c.gaps || []).find(function (g) { return g.startMs <= ms && ms <= g.endMs; });
@@ -501,8 +517,45 @@
         return r + ' PowerLog har inga registreringar heller.';
     }
 
-    // Var en kameraanvändning per app kommer ifrån: Androids appops (op 26) eller PowerLog på iOS.
-    function camSource(e) { return e && e.stream === 'PowerLog' ? 'PowerLog (PLCameraAgent)' : 'appops (op 26)'; }
+    // Samsungs loggar, när de finns i extraktionen, säger inte heller något vid T.
+    function samsungReason(input, ms) {
+        var out = '';
+        [[SSRM, 'SSRM', 'SSRM:s'], [BATTERY, 'Batterihistoriken', 'batterihistorikens']].forEach(function (k) {
+            var c = input.coverage && input.coverage[k[0]];
+            if (!c) return;
+            var gap = (c.gaps || []).find(function (g) { return g.startMs <= ms && ms <= g.endMs; });
+            out += c.firstMs != null && c.lastMs != null && (ms < c.firstMs || ms > c.lastMs)
+                ? ' Tidpunkten ligger också utanför ' + k[2] + ' täckning (' + formatUtc(c.firstMs) + ' till ' + formatUtc(c.lastMs) + ').'
+                : gap ? ' ' + k[1] + ' har inga rader från ' + formatUtc(gap.startMs) + ' till ' + formatUtc(gap.endMs) + '.'
+                    : ' ' + k[1] + ' har inget om det vid tidpunkten.';
+        });
+        return out;
+    }
+
+    // Var en kameraanvändning kommer ifrån: Androids appops (op 26) eller PowerLog på iOS, och på Samsung SSRM
+    // och batterihistoriken. Batterihistoriken säger bara att kameran var på; appen är den som var i förgrunden då.
+    function camSource(e) {
+        if (e && e.stream === 'PowerLog') return 'PowerLog (PLCameraAgent)';
+        if (e && e.stream === SSRM) return 'SSRM (camera running)';
+        if (e && e.stream === BATTERY) return 'batterihistoriken (+camera, med appen i förgrunden)';
+        return 'appops (op 26)';
+    }
+
+    // Batterihistorikens rader som inte räknas vid T, för att tiden är osäker. what: 'app', 'camera' eller 'screen'.
+    function unsureItems(events, T, what) {
+        var near = events.filter(function (e) { return e.kind === 'log-unsure' && e.what === what && covers(e, T, TOLERANCE_MS + Math.max(e.clockMs, e.zoneMs)); });
+        if (!near.length) return [];
+        var zone = near.filter(function (e) { return e.zoneMs > 0; });
+        var why = zone.length ? 'tidszonen bytte under loggens gång, så tiden kan ligga ' + duration(Math.max.apply(null, zone.map(function (e) { return e.zoneMs; }))) + ' fel'
+            : 'klockan flyttades ' + duration(Math.max.apply(null, near.map(function (e) { return e.clockMs; }))) + ' i det avsnittet, så tiden kan ligga så mycket fel';
+        return [{ state: 'info', text: (near[0].stream === BATTERY ? 'Batterihistoriken' : near[0].stream) + ' har rader kring tidpunkten, men de räknas inte: ' + why + '. Raderna står bland händelserna.' }];
+    }
+
+    // Används batterihistorikens tid sägs det, en gång per faktor.
+    function batteryItems(list) {
+        return (list || []).some(function (e) { return e.stream === BATTERY; })
+            ? [{ state: 'info', text: 'Batterihistorikens tid räknas fram från närmaste TIME-rad. Inget steg över 5 s i klockan syns i det avsnittet.' }] : [];
+    }
 
     function isQuickTimeTag(tag) { return /^(QuickTime|Keys|Track\d*|UserData|ItemList):/.test(String(tag || '')); }
 
@@ -978,8 +1031,8 @@
             var own = events.filter(function (e) { return /^snap-/.test(e.kind) && Math.abs(e.ms - T) <= SAME_TIME_MS; }).sort(function (a, b) { return Math.abs(a.ms - T) - Math.abs(b.ms - T); });
             var kcSnap = running.filter(function (e) { return isSnapchatApp(e.app); });
             if (own.length) items.push({ state: 'support', text: 'Snapchat skrev själv i sitt register vid tidpunkten (' + own[0].source.db + ' → ' + own[0].source.table + '), vilket förutsätter att appen kördes.' });
-            if (kcSnap.length) items.push({ state: 'support', text: 'Snapchat var igång vid tidpunkten enligt ' + kcLabel + ' (' + kcSnap[0].stream + ').' });
-            else if (running.length) items.push({ state: 'info', text: kcLabel + ' registrerar ' + runningNames.join(', ') + ' vid tidpunkten, inte Snapchat. Snapchat kan ha skrivit i registret i bakgrunden, till exempel vid en notis.' });
+            if (kcSnap.length) items.push({ state: 'support', text: 'Snapchat var igång vid tidpunkten enligt ' + (isSamsungStream(kcSnap[0].stream) ? kcSnap[0].stream : kcLabel + ' (' + kcSnap[0].stream + ')') + '.' });
+            else if (running.length) items.push({ state: 'info', text: (isSamsungStream(running[0].stream) ? running[0].stream : kcLabel) + ' registrerar ' + runningNames.join(', ') + ' vid tidpunkten, inte Snapchat. Snapchat kan ha skrivit i registret i bakgrunden, till exempel vid en notis.' });
             else items.push({ state: 'info', text: coverageReason(streamKey, input, T, kcLabel) });
             state = kcSnap.length ? 'support' : own.length ? (running.length ? 'info' : 'support') : 'missing';
             plain = state === 'support' ? 'Snapchat var igång när filen registrerades.'
@@ -989,10 +1042,10 @@
         }
         if (!running.length && camOps.length) {
             state = 'support';
-            items.push({ state: 'support', text: appName(camOps[0].app, names) + ' använde kameran vid tidpunkten (' + (camOps[0].stream === 'PowerLog' ? 'PowerLog' : 'appops') + '), så appen var igång.' });
+            items.push({ state: 'support', text: appName(camOps[0].app, names) + ' använde kameran vid tidpunkten (' + camOps[0].stream + '), så appen var igång.' });
             items.push({ state: 'info', text: 'Förgrundsloggen: ' + reasonAt(input, streamKey, T, kcLabel) });
             plain = 'Kameraappen använde kameran när bilden togs.';
-            var via = { l1: appName(camOps[0].app, names) + ' använder kameran', l2: (camOps[0].stream === 'PowerLog' ? 'PowerLog' : 'appops') + ', ingen förgrundslogg' };
+            var via = { l1: appName(camOps[0].app, names) + ' använder kameran', l2: camOps[0].stream + ', ingen förgrundslogg' };
         } else if (!running.length && expected && activityAt(events, T).some(function (a) { return a.app === expected; })) {
             var act = activityAt(events, T).filter(function (a) { return a.app === expected; })[0];
             state = 'support';
@@ -1026,6 +1079,7 @@
                 : state === 'contradiction' ? 'Vid den här tiden var ' + runningNames.join(' och ') + ' igång, inte ' + appName(expected, names) + '.'
                     : 'Vid den här tiden var ' + runningNames.join(' och ') + ' igång.';
         }
+        items = items.concat(batteryItems(running.length ? running : camOps), state === 'missing' || state === 'contradiction' ? unsureItems(events, T, 'app') : []);
         return { id: 'app', title: title, state: state, items: items, plain: plain, running: running.map(function (e) { return e.app; }), via: via || null };
     }
 
@@ -1074,12 +1128,12 @@
         var tolOf = function (e) { return e.stream === 'PowerLog' ? POWERLOG_TOL_MS : TOLERANCE_MS; };
         var importerCamera = function (app, creator) {
             var at = ops.filter(function (e) { return e.app === app && covers(e, tCam, tolOf(e)); });
-            if (at.length) return { state: 'support', text: creator + ' använde kameran ' + formatUtc(at[0].ms) + ' till ' + formatUtc(at[0].endMs) + ' enligt ' + camSource(at[0]) + ', vilket täcker ' + whenText + '.',
+            if (at.length) return { state: 'support', events: at, text: creator + ' använde kameran ' + formatUtc(at[0].ms) + ' till ' + formatUtc(at[0].endMs) + ' enligt ' + camSource(at[0]) + ', vilket täcker ' + whenText + '.',
                 plain: creator + ' använde kameran när ' + (file.memory && file.memory.video ? 'videon spelades in' : 'bilden togs') + '.' };
             var before = ops.filter(function (e) { return e.app === app && e.endMs <= tCam + tolOf(e) && tCam - e.endMs <= 2 * MINUTE && !covers(e, tCam, tolOf(e)); });
             if (before.length) {
                 var last = before[before.length - 1];
-                return { state: 'info', text: creator + ' använde kameran ' + formatUtc(last.ms) + ' till ' + formatUtc(last.endMs) + ' enligt ' + camSource(last) + ', ' + duration(tCam - last.endMs) + ' före ' + whenText + '. Appen sparar filen när användaren väljer det, så kameran kan ha stängts innan.',
+                return { state: 'info', events: [last], text: creator + ' använde kameran ' + formatUtc(last.ms) + ' till ' + formatUtc(last.endMs) + ' enligt ' + camSource(last) + ', ' + duration(tCam - last.endMs) + ' före ' + whenText + '. Appen sparar filen när användaren väljer det, så kameran kan ha stängts innan.',
                     plain: creator + ' använde kameran ' + duration(tCam - last.endMs) + ' innan filen sparades.' };
             }
             return null;
@@ -1090,10 +1144,11 @@
             var creator = appName(type.importer, names);
             // Appops (Android) och PowerLog (iOS) registrerar kameran per app, även en tredjepartsapps egen kamera.
             var own = importerCamera(type.importer, creator);
-            if (own) return { id: 'camera', title: 'Kamera igång', state: own.state, items: [{ state: own.state, text: own.text }], plain: own.plain };
-            if (ops.length) {
+            if (own) return { id: 'camera', title: 'Kamera igång', state: own.state, items: [{ state: own.state, text: own.text }].concat(batteryItems(own.events)), plain: own.plain };
+            var namedOps = ops.filter(function (e) { return !!e.app; });
+            if (namedOps.length) {
                 var f0 = Object.assign({}, appFactor, { id: 'camera', title: 'Skaparappen igång' });
-                f0.items = f0.items.concat([{ state: 'info', text: 'Ingen kameraanvändning av ' + creator + ' är registrerad i ' + (ops[0].stream === 'PowerLog' ? 'PowerLog' : 'appops') + ' kring ' + whenText + '. Filen kan ha tagits emot, valts ur galleriet eller skapats på annat sätt i appen.' }]);
+                f0.items = f0.items.concat([{ state: 'info', text: 'Ingen kameraanvändning av ' + creator + ' är registrerad i ' + namedOps[0].stream + ' kring ' + whenText + '. Filen kan ha tagits emot, valts ur galleriet eller skapats på annat sätt i appen.' }]);
                 return f0;
             }
             // En tredjepartsapp med egen kamera ger inga rader för systemkameran.
@@ -1109,12 +1164,13 @@
         if (cam.length) {
             // Varje källa för sig: knowledgeC (kameraappen i förgrunden) och PowerLog eller appops (kameran används).
             var camItems = [];
-            cam.forEach(function (e) {
+            // En rad per källa. Står både kameraappen och kameran i samma logg är det kameran som säger mest.
+            cam.slice().sort(function (a, b) { return Number(!!b.cameraOp) - Number(!!a.cameraOp); }).forEach(function (e) {
                 if (camItems.some(function (it) { return it.stream === e.stream; })) return;
-                var who = e.cameraOp && isCameraApp(e.app, input.cameraApps) ? 'Kameraappen' : appName(e.app, names);
-                camItems.push({ stream: e.stream, state: 'support', text: who + (e.cameraOp ? ' använde kameran ' : ' var igång ') + formatUtc(e.ms) + ' till ' + formatUtc(e.endMs) + ' (' + (e.cameraOp ? camSource(e).replace(' (', ', ').replace(/\)$/, '') : e.stream) + ').' });
+                var who = !e.app ? 'Kameran' : e.cameraOp && isCameraApp(e.app, input.cameraApps) ? 'Kameraappen' : appName(e.app, names);
+                camItems.push({ stream: e.stream, state: 'support', text: who + (!e.app ? ' var på ' : e.cameraOp ? ' använde kameran ' : ' var igång ') + formatUtc(e.ms) + ' till ' + formatUtc(e.endMs) + ' (' + (e.cameraOp ? camSource(e).replace(' (', ', ').replace(/\)$/, '') : e.stream) + ').' });
             });
-            return { id: 'camera', title: 'Kamera igång', state: 'support', items: camItems.map(function (it) { return { state: it.state, text: it.text }; }),
+            return { id: 'camera', title: 'Kamera igång', state: 'support', items: camItems.map(function (it) { return { state: it.state, text: it.text }; }).concat(batteryItems(cam)),
                 plain: 'Kameran var igång när bilden togs.' };
         }
         // En fil av okänd typ behöver inte ha tagits med kameran, så att kameran inte var igång talar inte emot något.
@@ -1123,11 +1179,11 @@
                 plain: 'Kameran är inte registrerad som igång vid den här tiden. Eftersom filens typ är okänd säger det inte varifrån filen kommer.' };
         }
         if (running.length) {
-            return { id: 'camera', title: 'Kamera igång', state: 'contradiction', items: [{ state: 'contradiction', text: 'Kameran är inte registrerad vid tidpunkten. Igång var ' + uniq(running.map(function (e) { return appName(e.app, names); })).join(', ') + '.' }],
+            return { id: 'camera', title: 'Kamera igång', state: 'contradiction', items: [{ state: 'contradiction', text: 'Kameran är inte registrerad vid tidpunkten. Igång var ' + uniq(running.map(function (e) { return appName(e.app, names); })).join(', ') + '.' }].concat(batteryItems(running), unsureItems(events, tCam, 'camera')),
                 plain: 'Kameran är inte registrerad som igång vid den här tiden. ' + uniq(running.map(function (e) { return appName(e.app, names); })).join(' och ') + ' var igång.' };
         }
         var reason = anyCamInWindow ? 'Kameran var igång i fönstret, men inte vid själva tidpunkten.' : reasonAt(input, streamKey, T, kcLabel);
-        return { id: 'camera', title: 'Kamera igång', state: 'missing', items: [{ state: 'missing', text: reason }],
+        return { id: 'camera', title: 'Kamera igång', state: 'missing', items: [{ state: 'missing', text: reason }].concat(unsureItems(events, tCam, 'camera')),
             plain: 'Det finns ingen registrering av om kameran var igång vid den här tiden. Det betyder inte att den inte var det.' };
     }
 
@@ -1427,13 +1483,13 @@
             // Kameravyn och åtgärder i en app kräver tänd skärm: då användes telefonen vid T.
             var act = activityAt(events, T)[0];
             if (act) {
-                var who = appName(act.app, input.appNames);
+                var who = act.app ? appName(act.app, input.appNames) : '';
                 return { id: 'screen', title: 'Skärm', state: 'support',
-                    items: [{ state: 'support', text: act.camera ? who + ' använde kameran vid tidpunkten (' + act.db + '). Kameravyn visas bara med tänd skärm.' : who + ' användes vid tidpunkten: ' + act.text + ' (' + act.db + '). Det görs med tänd skärm.' },
-                        { state: 'info', text: 'Skärmloggen: ' + reason }],
+                    items: [{ state: 'support', text: act.camera ? (who ? who + ' använde kameran' : 'Kameran var på') + ' vid tidpunkten (' + act.db + '). Kameravyn visas bara med tänd skärm.' : who + ' användes vid tidpunkten: ' + act.text + ' (' + act.db + '). Det görs med tänd skärm.' },
+                        { state: 'info', text: 'Skärmloggen: ' + reason }].concat(unsureItems(events, T, 'screen')),
                     plain: 'Skärmen var tänd: telefonen användes.', via: { l1: 'tänd enligt ' + (act.camera ? 'kameran' : who + (/log/i.test(act.db) ? 's logg' : 's databas')), l2: 'ingen skärmlogg vid T' } };
             }
-            return { id: 'screen', title: 'Skärm', state: 'missing', items: [{ state: 'missing', text: reason }], plain: 'Det finns ingen registrering av om skärmen var tänd.' };
+            return { id: 'screen', title: 'Skärm', state: 'missing', items: [{ state: 'missing', text: reason }].concat(unsureItems(events, T, 'screen')), plain: 'Det finns ingen registrering av om skärmen var tänd.' };
         }
         // Flera källor (knowledgeC och PowerLog på iOS) räknas var för sig. En källa räknar skärmen som tänd
         // om den var tänd inom marginalen kring T, som förut; en övergång nära T är alltså inte två lägen.
@@ -1461,6 +1517,7 @@
         if (lockItem) items.push(lockItem);
         var litLocked = lit && lockedBy.length && !openBy.length;
         if (litLocked) items.push({ state: 'info', text: 'Aviseringar tänder skärmen medan telefonen är låst (labbet), så en tänd skärm visar inte att någon använde telefonen.' });
+        items = items.concat(batteryItems(on), lit ? [] : unsureItems(events, T, 'screen'));
         return { id: 'screen', title: 'Skärm', state: lit ? 'support' : 'contradiction', items: items,
             plain: litLocked ? 'Skärmen var tänd, men telefonen var låst. En avisering kan ha tänt den.' : lit ? 'Skärmen var tänd.' : 'Skärmen var släckt vid den här tiden, vilket inte stämmer med att någon använde telefonen då.' };
     }
@@ -1599,7 +1656,7 @@
             platform: input.platform, file: file, type: type, windows: wins, moments: moments, defaultMoment: defaultMoment(moments), events: events, outside: built.outside,
             factors: factors, alternatives: alts, narrative: perWindow, warnings: warnings, summary: summary,
             positions: pos.list, filePosition: pos.filePos, copies: input.copies || [],
-            beta: !!(type.snapchat || (input.extraEvents || []).length || input.signal || input.whatsapp || input.telegram),
+            beta: !!(type.snapchat || (input.extraEvents || []).length || input.signal || input.whatsapp || input.telegram || input.samsung),
             stateLabel: STATE_LABEL,
         };
     }

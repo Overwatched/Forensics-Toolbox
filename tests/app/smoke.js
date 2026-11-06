@@ -759,6 +759,57 @@ const scenarios = [
         await noInjectedScript(c);
         return desktop ? 'under extra/, bredvid zippen, flera, och reserven' : 'under extra/ och reserven, i webbläsaren utan mappen';
     }],
+
+    ['Samsung: batterihistoriken och SSRM ger app, kamera och skärm, med råraderna, och en flyttad klocka räknas inte', async ({ c, fx, downloads }) => {
+        await c.nav('Härkomst');
+        // Härkomst behåller det som visas när en annan zip väljs, så det som är öppet stängs först.
+        await c.ev(PROV, `document.getElementById('ex-close').click(), 1`);
+        await c.setFiles(null, '#cb-input', [fx.files.samsung]);
+        await c.ev(null, `document.getElementById('cb-input').dispatchEvent(new Event('change')), 1`);
+        await c.waitFor(PROV, `!ProvenanceApp.busy() && document.getElementById('ex-status').textContent.includes('Testextraktion-Samsung.zip') && /databas(er)? hittades/.test(document.getElementById('ex-status').textContent)`, 60000, 'Samsung-zippen');
+        const status = await c.ev(PROV, `document.getElementById('ex-status').textContent`);
+        expect(/1 SSRM-fil, 4 filer med batterihistorik/.test(status), 'Raden om loggarna: ' + status);
+        const detail = () => c.ev(PROV, `(function(){ const m = ProvenanceApp.model(); return { factors: Object.fromEntries(m.factors.map(f => [f.id, { state: f.state, text: f.items.map(i => i.text).join(' ') }])), events: [...document.querySelectorAll('#events tbody tr')].map(r => r.textContent), sql: [...document.querySelectorAll('#sources pre.sql')].map(p => p.textContent).join(' '), sources: [...document.querySelectorAll('#sources h4')].map(h => h.textContent), kinds: m.events.map(e => e.kind + '/' + (e.stream || '')), beta: m.beta, warnings: m.warnings, narrative: m.narrative.flatMap(n => n.lines.map(l => l.text)) }; })()`);
+
+        // Bara batterihistoriken täcker tiden.
+        const one = await assessNamed(c, '20260312_133111.jpg');
+        expect(one.f.app.state === 'support' && one.f.camera.state === 'support' && one.f.screen.state === 'support', 'Batterihistoriken: ' + JSON.stringify(one.f));
+        let d = await detail();
+        expect(/Samsung Kamera|Kameran var igång vid tidpunkten \(batterihistoriken\)/.test(d.factors.app.text), 'App: ' + d.factors.app.text);
+        expect(/använde kameran .*\(batterihistoriken, \+camera/.test(d.factors.camera.text), 'Kamera: ' + d.factors.camera.text);
+        expect(/Inget steg över 5 s/.test(d.factors.camera.text), 'Klockan: ' + d.factors.camera.text);
+        expect(d.events.some((r) => /Kameran på, Samsung Kamera i förgrunden/.test(r) && /newbatterystats260312133200 rad 5–6/.test(r) && /\+1m05s000ms \(1\) 090 \+camera/.test(r) && /-camera/.test(r)), 'Råraden i händelserna: ' + d.events.join(' / '));
+        expect(/under log\/batterystats\//.test(d.sql) && /ankare rad 2/.test(d.sql) && /TIME: 2026-03-12-13-30-00-000/.test(d.sql), 'Bilagan saknar råraderna: ' + d.sql.slice(-900));
+        expect(d.sources.some((s) => /batterihistoriken newbatterystats260312133200/.test(s)), 'Källorna: ' + d.sources);
+        expect(d.beta, 'Märkt beta');
+        expect(d.narrative.includes('Samsung Kamera startar kameran') && d.narrative.includes('Samsung Kamera stänger kameran'), 'Förklaringen: ' + d.narrative);
+
+        // SSRM täcker tiden och nämner appen som använde kameran. Nätets namn bär HTML, och raden skrivs ut som text.
+        const two = await assessNamed(c, 'chatt_kamera.jpg');
+        expect(two.f.camera.state === 'support' && two.f.app.state === 'support' && two.f.screen.state === 'support', 'SSRM: ' + JSON.stringify(two.f));
+        d = await detail();
+        expect(/org\.example\.chat använde kameran .* enligt SSRM \(camera running\)/.test(d.factors.camera.text), 'Kamera: ' + d.factors.camera.text);
+        expect(d.factors.app.text.includes('(SSRM)') && d.factors.screen.text.includes('(SSRM)'), 'App och skärm: ' + d.factors.app.text + ' / ' + d.factors.screen.text);
+        expect(d.events.some((r) => /ssrm_heating_0\.log rad 5–6/.test(r) && /camera running :: true/.test(r)), 'Råraden: ' + d.events.join(' / '));
+        await noInjectedScript(c);
+
+        // Klockan flyttades 162 s i avsnittet kring T: raderna står i händelserna men räknas inte.
+        const three = await assessNamed(c, '20260930_094450.jpg');
+        expect(three.f.camera.state === 'missing' && three.f.app.state === 'missing' && three.f.screen.state === 'missing', 'Flyttad klocka: ' + JSON.stringify(three.f));
+        d = await detail();
+        ['app', 'camera', 'screen'].forEach((id) => expect(/Batterihistoriken har rader kring tidpunkten, men de räknas inte: klockan flyttades 2 min 42 s/.test(d.factors[id].text), id + ': ' + d.factors[id].text));
+        expect(d.events.some((r) => /tiden osäker/.test(r) && /\+camera/.test(r)), 'Raderna: ' + d.events.join(' / '));
+        expect(!d.kinds.some((k) => k === 'app/batterihistoriken' || k === 'screen/batterihistoriken'), 'Osäkra rader räknades: ' + d.kinds);
+        expect(/klockan kan ligga 2 min 42 s fel/.test(d.sql), 'Bilagan saknar klockan: ' + d.sql.slice(-900));
+
+        // Protokollet har samma uppgifter.
+        fs.readdirSync(downloads).filter((n) => /^harkomst-20260930_094450-protokoll-/.test(n)).forEach((n) => fs.unlinkSync(path.join(downloads, n)));
+        await c.ev(PROV, `document.getElementById('save-protocol').click(), 1`);
+        const html = await download(downloads, /^harkomst-20260930_094450-protokoll-.*\.html$/);
+        expect(html.includes('tiden osäker') && html.includes('newbatterystats260930094318') && html.includes('batterihistoriken'), 'Protokollet saknar raderna');
+        await noInjectedScript(c);
+        return 'batterihistoriken, SSRM och en flyttad klocka';
+    }],
 ];
 
 module.exports = { scenarios, expect, factors, assessNamed, waitResult, download, noInjectedScript, PROV, QUER };

@@ -325,3 +325,34 @@ test('långa tider står i dygn', () => {
     assert.strictEqual(tl.dur(48 * 3600 * S), '2 dygn');
     assert.strictEqual(tl.dur(410 * 86400 * S + 20 * 3600 * S), '410 dygn 20 tim');
 });
+
+test('kameran utan känd app ritas utan appnamn, och en rad med osäker tid ritas inte', () => {
+    const m = model({
+        platform: 'Android', appIntervals: [], screen: [], lock: [], locations: [], neighbours: [], samsung: { battery: true },
+        cameraUse: [{ startMs: T - 5 * S, endMs: T + 5 * S, app: null, stream: 'batterihistoriken', source: { db: 'batterihistoriken' } }],
+        logUnsure: [{ what: 'app', startMs: T + 30 * S, endMs: T + 40 * S, app: 'com.example.osaker', stream: 'batterihistoriken', clockMs: 163000, zoneMs: 0, source: { db: 'batterihistoriken' } }],
+    });
+    const out = tl.svg(m, m.windows[0], { format: fmt, appName: names, labels: true });
+    assert.ok(!/null/.test(out), 'null i tidslinjen');
+    assert.ok(/Kameran på /.test(out), 'kameran saknas i tidslinjen');
+    assert.ok(!/com\.example\.osaker/.test(out), 'raden med osäker tid ritades');
+    const row = tl.rowsFor(m).find((r) => r.id === 'camera');
+    assert.strictEqual(tl.stateAt(row, { model: m, T, fmt, appName: names }).l1, 'på');
+});
+
+test('kameraband ur flera källor ovanpå varandra: texten står en gång', () => {
+    const src = { db: 'x' };
+    const M = 60 * S;
+    const m = model({
+        platform: 'Android', cameraApps: ['com.example.camera'], screen: [], lock: [], locations: [], neighbours: [], samsung: { battery: true },
+        appIntervals: [{ startMs: T - 9 * M, endMs: T + 9 * M, app: 'com.example.camera', stream: 'batterihistoriken', source: src }],
+        cameraUse: [
+            { startMs: T - 8 * M, endMs: T + 8 * M, app: 'com.example.camera', stream: 'batterihistoriken', source: src },
+            { startMs: T - 8 * M, endMs: T + 8 * M, app: 'com.example.camera', stream: 'SSRM', source: src },
+        ],
+    });
+    const out = tl.svg(m, m.windows[0], { format: fmt, appName: names, labels: true });
+    const texts = (out.match(/<text[^>]*>[^<]*<\/text>/g) || []).map((t) => t.replace(/<[^>]+>/g, ''));
+    assert.strictEqual(texts.filter((t) => t === 'används').length, 1, texts.join(' | '));
+    assert.ok(!texts.some((t) => /^igång sedan/.test(t)), texts.join(' | '));
+});

@@ -10,6 +10,9 @@
 // bild vald ur bildbiblioteket, en bild tagen med Telegrams kamera (kvar i Telegrams tmp/) och en
 // mottagen bild under postbox/media/. PowerLog täcker samma timmar (knowledgeC gör det inte): skärmen,
 // låset, kameraappen och Telegram på skärmen och Telegrams kamera när IMG_0008 togs.
+// Samsung: en Android-extraktion utan usagestats, med SSRM-loggen och batterihistoriken. Kamerabilden togs när
+// bara batterihistoriken täcker tiden, en bild i en chattapp när SSRM gör det, och en bild när batterihistorikens klocka
+// flyttades. Namnen i loggarna bär HTML.
 'use strict';
 
 const crypto = require('node:crypto');
@@ -290,6 +293,79 @@ function reportRows(entries, keychain, ufed) {
     return rows;
 }
 
+// ---------- Samsung ----------
+
+const TS = Date.UTC(2026, 2, 12, 12, 31, 11) / 1000;    // kamerabilden: bara batterihistoriken täcker tiden
+const TS2 = Date.UTC(2026, 4, 22, 10, 24, 58) / 1000;   // bilden i chattappen: SSRM täcker tiden
+const TS3 = Date.UTC(2026, 8, 30, 7, 44, 50) / 1000;    // batterihistorikens klocka flyttades
+const CHAT = 'org.example.chat';
+
+// external.db med raderna som Härkomst frågar efter.
+function mediaStoreDb(SQL) {
+    const db = new SQL.Database();
+    db.run('CREATE TABLE files (_id INTEGER PRIMARY KEY, _data TEXT, _display_name TEXT, relative_path TEXT, mime_type TEXT, owner_package_name TEXT, datetaken INTEGER, date_added INTEGER, date_modified INTEGER, is_trashed INTEGER, is_pending INTEGER, _size INTEGER)');
+    [[1, '20260312_133111.jpg', 'DCIM/Camera/', 'com.sec.android.app.camera', TS], [2, 'chatt_kamera.jpg', 'Pictures/Chatten/', CHAT, TS2], [3, '20260930_094450.jpg', 'DCIM/Camera/', 'com.sec.android.app.camera', TS3]].forEach(([id, name, dir, owner, t]) => {
+        insert(db, 'files', { _id: id, _data: '/storage/emulated/0/' + dir + name, _display_name: name, relative_path: dir, mime_type: 'image/jpeg', owner_package_name: owner, datetaken: t * 1000, date_added: t + 1, date_modified: t + 1, is_trashed: 0, is_pending: 0, _size: 1000 });
+    });
+    const out = db.export();
+    db.close();
+    return out;
+}
+
+function samsungEntries(SQL, jpeg) {
+    const other = (tag) => Buffer.concat([jpeg, Buffer.from(tag)]);
+    const rtc = (localText, utcText) => localText + ' [RTC] 148911.38 37981.19    ' + utcText + ' ' + Date.parse(utcText.replace(' ', 'T') + 'Z') / 1000;
+    const ssrm = [
+        rtc('2026-05-22 11:00:00', '2026-05-22 09:00:00'),
+        '2026-05-22 12:18:40 [VER] A000XXU1 START',
+        '2026-05-22 12:18:41 [SET] [] [LCD] ON  [sleep_count = 107, sleep_time_sec = 1500]',
+        '2026-05-22 12:21:10 [PKG] ' + CHAT,
+        '2026-05-22 12:24:57 [SET] [ND0XOXOMOXXXXXWXX / Wifi:"' + XSS + '",5180MHz] camera running :: true  client : ' + CHAT,
+        '2026-05-22 12:25:00 [SET] [ND0XOXOMXXXXXXWXX / Wifi:"' + XSS + '",5180MHz] camera running :: false  client : ' + CHAT,
+        '2026-05-22 12:26:05 [SET] [ND0XXXOMXXXXXXWXX / Wifi:"' + XSS + '",5180MHz] [LCD] OFF',
+    ].join('\n');
+    // Äldre formen: tiden räknas från ankaret. Skärmen är tänd, kameraappen i förgrunden och kameran på vid 12:31:11 UTC (13:31:11 lokalt).
+    const march = [
+        'Battery History (86% used, 3560KB used of 4096KB, 2669 strings using 209KB):',
+        '                    0 (20) TIME: 2026-03-12-13-30-00-000',
+        '            +10s000ms (2) 090 +screen',
+        '            +50s000ms (2) 090 +top=u0a96:"com.sec.android.app.camera"',
+        '          +1m05s000ms (1) 090 +camera',
+        '          +1m20s000ms (1) 090 -camera',
+        '          +1m21s000ms (2) 090 -top=u0a96:"com.sec.android.app.camera"',
+        '          +1m21s000ms (2) 090 +top=u0a128:"' + XSS + '"',
+        '          +1m40s000ms (2) 090 -screen',
+        '          +2m00s000ms (20) TIME: 2026-03-12-13-32-00-000',
+        '',
+        'Per process state tracking available: true',
+    ].join('\n');
+    // Nyare formen, med en sen skrivning som flyttar tiden 162 s och ett ankare som flyttar tillbaka den. T är lokalt 09:44:50.
+    const sept = [
+        '  09-30 09:40:00.000 RESET:TIME: 2026-09-30-09-40-00-000',
+        '  09-30 09:40:10.000 060 84800018 +running wake_reason=0:"186 wlan_mbox_irq"',
+        '  09-30 09:42:52.000 TIME: 2026-09-30-09-42-52-000',
+        '  09-30 09:42:52.000 060 04800018 -running',
+        '  09-30 09:44:40.000 060 80800018 +screen',
+        '  09-30 09:44:45.000 060 80800018 +top=u0a96:"com.sec.android.app.camera"',
+        '  09-30 09:44:48.000 060 80800018 +camera',
+        '  09-30 09:44:55.000 060 80800018 -camera',
+        '  09-30 09:45:00.000 060 80800018 -screen',
+        '  09-30 09:43:18.000 TIME: 2026-09-30-09-43-18-000',
+    ].join('\n');
+    return [
+        { name: 'data/data/com.android.providers.media.module/databases/external.db', data: Buffer.from(mediaStoreDb(SQL)), deflate: true },
+        { name: 'data/media/0/DCIM/Camera/20260312_133111.jpg', data: other('samsung-1'), mtime: TS + 1 },
+        { name: 'data/media/0/Pictures/Chatten/chatt_kamera.jpg', data: other('samsung-2'), mtime: TS2 + 1 },
+        { name: 'data/media/0/DCIM/Camera/20260930_094450.jpg', data: other('samsung-3'), mtime: TS3 + 1 },
+        { name: 'data/data/com.sec.android.sdhms/ssrm_heating_0.log', data: ssrm, mtime: TS2 + 3600 },
+        { name: 'data/log/batterystats/newbatterystats260312133200', data: march, mtime: Date.UTC(2026, 2, 12, 12, 32, 0) / 1000 },
+        // En fil som spänner över bytet till sommartid, och en fil efter den med samma zon som nästa.
+        { name: 'data/log/batterystats/newbatterystats260522121000', data: ['  05-22 12:05:00.000 RESET:TIME: 2026-05-22-12-05-00-000', '  05-22 12:05:10.000 060 80800018 +screen', '  05-22 12:05:20.000 060 80800018 -screen'].join('\n'), mtime: Date.UTC(2026, 4, 22, 10, 10, 0) / 1000 },
+        { name: 'data/log/batterystats/newbatterystats260930093000', data: ['  09-30 09:29:00.000 RESET:TIME: 2026-09-30-09-29-00-000', '  09-30 09:29:30.000 060 84800018 status=full'].join('\n'), mtime: Date.UTC(2026, 8, 30, 7, 30, 0) / 1000 },
+        { name: 'data/log/batterystats/newbatterystats260930094318', data: sept, mtime: Date.UTC(2026, 8, 30, 7, 43, 18) / 1000 },
+    ];
+}
+
 async function build() {
     const SQL = await loadSql();
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ft-provkorning-'));
@@ -364,6 +440,7 @@ async function build() {
         // Ingen nyckel någonstans.
         noKey: path.join(dir, 'ingen', 'Ingen-nyckel.zip'),
         powerlogArchive: path.join(dir, 'powerlog_2024-06-06_ABCDEF12.PLSQL.gz'),
+        samsung: path.join(dir, 'Testextraktion-Samsung.zip'),
     };
     fs.writeFileSync(files.zip, zip);
     fs.writeFileSync(files.ufdr, buildUfdr(reportRows(entries, keychainPlist())).buf);
@@ -384,7 +461,8 @@ async function build() {
     fs.writeFileSync(files.image, jpeg);
     fs.writeFileSync(files.knowledge, knowledge);
     fs.writeFileSync(files.powerlogArchive, require('node:zlib').gzipSync(powerlog(SQL)));
-    return { files, T: T * 1000, imageName: 'IMG_0001.JPG', T2: T2 * 1000, waMedia: 'mottagen.jpg', T3: T3 * 1000, tgMedia: TG_MEDIA };
+    fs.writeFileSync(files.samsung, buildZip(samsungEntries(SQL, jpeg)));
+    return { files, T: T * 1000, imageName: 'IMG_0001.JPG', T2: T2 * 1000, waMedia: 'mottagen.jpg', T3: T3 * 1000, tgMedia: TG_MEDIA, TS: TS * 1000, TS2: TS2 * 1000, TS3: TS3 * 1000 };
 }
 
 module.exports = { build, loadSql, T: T * 1000 };

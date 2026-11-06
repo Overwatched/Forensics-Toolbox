@@ -291,3 +291,17 @@ test('protokollet har alla tidslinjer och säger vilken som är T', () => {
     const one = report.protocol(model(), META);
     assert.ok(!one.includes('Bedömningen i avsnitt 2 gäller T'), 'en tidslinje behöver inte förklaras');
 });
+
+test('händelsetabellen: en rad med osäker tid står med råraden, och värdet säger vad den gäller', () => {
+    const src = { db: 'batterihistoriken', table: 'newbatterystats260930125909 rad 5418–5419', column: '09-30 09:44:50.528 060 c4900019 +top=u0a128:"com.example.launcher"', queryId: 'batterystats-history' };
+    const m = model({ logUnsure: [
+        { what: 'app', startMs: T - 5 * S, endMs: T + 5 * S, app: 'com.example.launcher', stream: 'batterihistoriken', clockMs: 163000, zoneMs: 0, source: src },
+        { what: 'screen', startMs: T - 5 * S, endMs: T + 5 * S, on: true, stream: 'batterihistoriken', clockMs: 163000, zoneMs: 0, source: src },
+    ] });
+    const html = report.eventsTable(m, META);
+    assert.ok(html.includes('com.example.launcher i förgrunden (batterihistoriken, tiden osäker)'), html);
+    assert.ok(html.includes('Skärmen tänd (batterihistoriken, tiden osäker)'));
+    assert.ok(html.includes('newbatterystats260930125909 rad 5418–5419'));
+    assert.ok(html.includes('+top=u0a128:'));
+    assert.ok(/tiden osäker\)<\/td><td[^>]*>tänd<\/td>/.test(html), 'Värdet saknas i raden om skärmen');
+});

@@ -76,6 +76,7 @@
 
     function eventValue(e) {
         if (e.kind === 'app') return e.app || '';
+        if (e.kind === 'log-unsure') return e.app || (e.what === 'screen' ? (e.on ? 'tänd' : 'släckt') : '');
         if (e.kind === 'snap-cache' || e.kind === 'snap-cache-deleted') return 'typ ' + e.context + (e.cacheKey ? ', ' + String(e.cacheKey) : '');
         if (e.kind === 'snap-message' || e.kind === 'snap-read') return (e.conversation ? String(e.conversation) + ' #' + e.serverId : '') + (e.senderId ? ', avsändare ' + e.senderId : '');
         if (e.kind === 'snap-notification') return e.notifType || '';

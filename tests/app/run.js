@@ -8,10 +8,12 @@
 // tas ur FT_LAB_ZIP, FT_LAB_IOS_DIR och FT_LAB_IOS_LOG_DIR, annars ~/Documents/Exampleextractions/. Zippar med
 // metadata.msgpack kontrolleras mot det fristående facit om sökvägarna står i FT_LAB_NAMED_ZIPS (åtskilda med kolon).
 // Rapporter ur en sådan zip kontrolleras om de står i FT_LAB_UFED_REPORTS, med zippen efter = om den finns.
+// Samsungs loggar kontrolleras mot rapporten i FT_LAB_SAMSUNG_REPORT.
 //
 //   npm run test:app                röktestet, och labbtesterna om labbzipparna finns
 //   npm run test:app -- --smoke     bara röktestet
 //   npm run test:app -- --facit     bara labbtesterna (kräver minst en labbzipp)
+//   npm run test:app -- --samsung   bara Samsungs loggar (kräver FT_LAB_SAMSUNG_REPORT)
 //   FT_SHOTS=<mapp>                 skärmdumpar efter varje del
 'use strict';
 
@@ -26,7 +28,8 @@ const ROOT = path.join(__dirname, '..', '..');
 const PORT = Number(process.env.FT_PORT || 9223);
 const args = process.argv.slice(2);
 const onlySmoke = args.includes('--smoke');
-const onlyFacit = args.includes('--facit');
+const onlySamsung = args.includes('--samsung');
+const onlyFacit = args.includes('--facit') || onlySamsung;
 
 function labZip() {
     const p = process.env.FT_LAB_ZIP || path.join(os.homedir(), 'Documents', 'Exampleextractions', 'Lab-Android-Nord-2026-11-02.zip');
@@ -64,7 +67,8 @@ async function main() {
     const labIosLog = labIosDir(logFacit, 'FT_LAB_IOS_LOG_DIR');
     const namedZips = (process.env.FT_LAB_NAMED_ZIPS || '').split(path.delimiter).filter((p) => p && fs.existsSync(p));
     const ufedReports = (process.env.FT_LAB_UFED_REPORTS || '').split(path.delimiter).map((p) => p.split('=')).filter(([r]) => r && fs.existsSync(r));
-    if (onlyFacit && !lab && !labIos && !labIosLog && !namedZips.length && !ufedReports.length) {
+    const samsungReport = process.env.FT_LAB_SAMSUNG_REPORT && fs.existsSync(process.env.FT_LAB_SAMSUNG_REPORT) ? process.env.FT_LAB_SAMSUNG_REPORT : null;
+    if (onlyFacit && !lab && !labIos && !labIosLog && !namedZips.length && !ufedReports.length && !samsungReport) {
         console.error('Labbzipparna finns inte. Ange sökvägarna i FT_LAB_ZIP, FT_LAB_IOS_DIR och FT_LAB_IOS_LOG_DIR.');
         process.exit(1);
     }
@@ -88,6 +92,8 @@ async function main() {
         if (!onlySmoke && !labIosLog) console.log('iOS-labbtelefonen, loggad session: mappen finns inte, hoppar över (FT_LAB_IOS_LOG_DIR).\n');
         if (!onlySmoke) namedZips.forEach((z, i) => groups.push(['Tiderna ur metadata.msgpack, zipp ' + (i + 1), require('./lab-ios').namedTimesScenarios(z)]));
         if (!onlySmoke) ufedReports.forEach(([r, z], i) => groups.push(['Rapport ur en zip med extra/, nummer ' + (i + 1), require('./lab-ios').ufedReportScenarios(r, z)]));
+        if (!onlySmoke && samsungReport) groups.push(['Samsungs loggar mot rapporten', require('./lab-samsung').scenarios(samsungReport)]);
+        if (onlySamsung) groups.splice(0, groups.length - 1);
         for (const [group, list] of groups) {
             console.log(group);
             for (const [name, fn] of list) {

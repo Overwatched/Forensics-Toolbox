@@ -212,15 +212,19 @@
         if (platform === 'Android') {
             // Androids systemloggar (usagestats, appops) ur innehållsförteckningen, och Android-versionen ur usagestats/version.
             try {
-                var logEntries = await ExtractionCore.find(read, file.size, ProvenanceAndroidLogs.keeper());
+                var keepAndroid = ProvenanceAndroidLogs.keeper(), keepSamsung = ProvenanceSamsungLogs.keeper();
+                var logEntries = await ExtractionCore.find(read, file.size, function (name) { return keepAndroid(name) || keepSamsung(name); });
                 var logs = ProvenanceAndroidLogs.sortEntries(logEntries);
+                logs.samsung = ProvenanceSamsungLogs.sortEntries(logEntries);
                 state.zip.androidLogs = logs;
                 if (logs.version && logs.version.size < 4096) {
                     var vr = await ExtractionCore.readEntry(read, logs.version);
                     logs.versionInfo = ProvenanceAndroidLogs.usageVersion(vr.bytes);
                     if (logs.versionInfo.release) state.zip.androidVersion = logs.versionInfo.release;
                 }
-                logLine = ' · systemloggar: ' + logs.daily.length + (logs.daily.length === 1 ? ' dagsfil' : ' dagsfiler') + ' usagestats, ' + logs.discrete.length + ' appops-filer';
+                logLine = ' · systemloggar: ' + logs.daily.length + (logs.daily.length === 1 ? ' dagsfil' : ' dagsfiler') + ' usagestats, ' + logs.discrete.length + ' appops-filer' +
+                    (logs.samsung.ssrm.length ? ', ' + logs.samsung.ssrm.length + (logs.samsung.ssrm.length === 1 ? ' SSRM-fil' : ' SSRM-filer') : '') +
+                    (logs.samsung.battery.length ? ', ' + logs.samsung.battery.length + (logs.samsung.battery.length === 1 ? ' fil' : ' filer') + ' med batterihistorik' : '');
             } catch (e) { console.warn('Androids loggar kunde inte läsas', e); }
         }
         var text = opened.found.length + (opened.found.length === 1 ? ' databas' : ' databaser') + ' hittades på ' + opened.seconds.toFixed(1).replace('.', ',') + ' s. ' +
@@ -910,7 +914,7 @@
             platform: platform, file: fileRow, appNames: appName, cameraApps: cams, windowMs: windowMs, format: fmt, fixedZone: zone.fixed ? zone.label : null,
             fileSource: run.fileSource || { db: run.fileLabel, table: platform === 'Android' ? 'files' : fileQuery.sql.indexOf('ZGENERICASSET') >= 0 ? 'ZGENERICASSET' : 'ZASSET', column: ProvenanceRoles.fieldSpec(fileQuery, 'created').col, queryId: fileQuery.id },
             appIntervals: [], screen: [], lock: [], locations: [], neighbours: [], coverage: {}, missingDbs: {}, warnings: [], copies: [], extraEvents: [], extraNotes: [],
-            cameraUse: [], androidLog: null, container: Z(),
+            cameraUse: [], logUnsure: [], androidLog: null, container: Z(),
         };
         if (fileRow.createdFrom === 'date_added') input.fileSource = Object.assign({}, input.fileSource, { column: 'date_added (datetaken saknas)' });
         if (run.bandNote) input.warnings.push(run.bandNote);
@@ -1177,6 +1181,9 @@
             // usagestats (app, skärm, lås) och appops (kameran per app) ur zippens filer.
             try { await addAndroidLogs(input, meta, range, run); }
             catch (e) { input.warnings.push('Androids systemloggar kunde inte läsas: ' + e.message); console.warn(e); }
+            // Samsungs egna loggar (SSRM och batterihistoriken) räcker längre bakåt.
+            try { await addSamsungLogs(input, meta, wins, run); }
+            catch (e) { input.warnings.push('Samsungs loggar kunde inte läsas: ' + e.message); console.warn(e); }
         }
 
         // Snapchats egna register (beta): cachade filer, meddelanden, konton, notiser och på Android
@@ -1231,9 +1238,9 @@
 
     // Protokollet får varje läst loggfil som en källa (sökväg, storlek, CRC32, SHA-256), eftersom
     // det inte finns någon databas att peka på.
-    function logSource(meta, entry, label, read) {
+    function logSource(meta, entry, label, read, kind) {
         meta.sources.push({ label: label, path: entry.name, size: entry.size, mtime: ExtractionCore.entryTime(entry), crc32: ExtractionCore.hex(entry.crc32), crcOk: read.crcOk, sha256: read.sha256 || '',
-            walPath: '', walCrc32: '', walSha256: '', walSummary: 'Binär fil, ingen WAL.', warnings: [] });
+            walPath: '', walCrc32: '', walSha256: '', walSummary: (kind || 'Binär') + ' fil, ingen WAL.', warnings: [] });
     }
 
     // usagestats (app i förgrunden, skärm, lås) och appops discrete (kameran per app) ur zippen.
@@ -1291,6 +1298,11 @@
                     '\n-- Kontroll på telefonen: adb shell dumpsys usagestats' });
         } else if (!logs.daily.length) {
             input.missingDbs.usagestats = true;
+        } else {
+            // Loggen finns men räcker inte till fönstret. Det är något annat än att den saknas, och dagsfilernas namn säger hur långt den räcker.
+            var begins = logs.daily.map(function (d) { return L.dailyBeginMs(d.name); });
+            input.androidLog = 'usagestats';
+            input.coverage.usagestats = { firstMs: Math.min.apply(null, begins), lastMs: Math.max.apply(null, logs.daily.map(function (d) { return ExtractionCore.entryTimes(d).modifiedMs || L.dailyBeginMs(d.name); })) };
         }
 
         var discrete = L.pickDiscrete(logs.discrete, range);
@@ -1327,6 +1339,140 @@
         } else if (!logs.discrete.length) {
             input.missingDbs.appops = true;
         }
+    }
+
+    // ---------- Samsungs loggar: SSRM och batterihistoriken ----------
+
+    // Filerna läses och tolkas en gång per extraktion: de kan vara stora, och en lista med filer frågar samma filer om och om igen.
+    async function samsungText(entry) {
+        var r = await readLog(entry);
+        return { text: new TextDecoder('utf-8').decode(r.bytes), read: { crcOk: r.crcOk, sha256: r.sha256 } };
+    }
+
+    async function samsungSsrm(sam, cache) {
+        if (cache.ssrm) return cache.ssrm;
+        var files = [], read = {}, errors = [];
+        for (var i = 0; i < sam.ssrm.length; i++) {
+            var e = sam.ssrm[i], name = ExtractionCore.baseName(e.name);
+            try {
+                var t = await samsungText(e);
+                files.push({ name: name, text: t.text });
+                read[name] = { entry: e, read: t.read };
+            } catch (err) { errors.push(name + ' kunde inte läsas: ' + err.message); }
+        }
+        cache.ssrm = { parsed: files.length ? ProvenanceSamsungLogs.parseSsrm(files) : null, files: read, errors: errors };
+        return cache.ssrm;
+    }
+
+    async function samsungBattery(entry, cache) {
+        var name = ExtractionCore.baseName(entry.name);
+        if (cache.battery[name]) return cache.battery[name];
+        var done;
+        try {
+            var t = await samsungText(entry);
+            done = { entry: entry, read: t.read, parsed: ProvenanceSamsungLogs.parseBattery(t.text, name), empty: !t.text.length };
+        } catch (err) { done = { entry: entry, read: null, parsed: null, error: err.message }; }
+        cache.battery[name] = done;
+        return done;
+    }
+
+    // SSRM och batterihistoriken till samma app-, skärm- och kamerarader som usagestats och appops. Raderna som inte går
+    // att lita på i tiden står i logUnsure. Bilagan får en pseudoquery per logg med filerna och råraderna i fönstret.
+    async function addSamsungLogs(input, meta, wins, run) {
+        var sam = state.zip.androidLogs && state.zip.androidLogs.samsung;
+        if (!sam || (!sam.ssrm.length && !sam.battery.length)) return;
+        var S = ProvenanceSamsungLogs;
+        var fmtU = ProvenanceCore.formatUtc;
+        var cache = state.zip.samsungCache || (state.zip.samsungCache = { ssrm: null, battery: {} });
+        var ssrm = null;
+        if (sam.ssrm.length) {
+            progress('Läser SSRM-loggen (app, skärm, kamera)…');
+            ssrm = await samsungSsrm(sam, cache);
+            ssrm.errors.forEach(function (msg) { input.warnings.push('SSRM: ' + msg); });
+        }
+        var picked = [];
+        if (sam.battery.length) {
+            progress('Läser batterihistoriken (app, skärm, kamera)…');
+            var wanted = S.pickBattery(sam.battery, wins);
+            for (var i = 0; i < wanted.length; i++) picked.push(await samsungBattery(wanted[i], cache));
+            picked.forEach(function (b) {
+                var name = ExtractionCore.baseName(b.entry.name);
+                if (b.error) input.warnings.push('Batterihistoriken: ' + name + ' kunde inte läsas: ' + b.error);
+                else if (b.empty) input.warnings.push('Batterihistoriken: ' + name + ' är tom i ' + Z() + ', så tiden den täcker saknas.');
+            });
+        }
+        var battery = picked.filter(function (b) { return b.parsed && b.parsed.format; }).map(function (b) { return b.parsed; });
+        var withTimes = sam.battery.map(function (e) { return { name: e.name, mtimeMs: ExtractionCore.entryTimes(e).modifiedMs }; });
+        var zones = S.batteryZones(withTimes, ssrm && ssrm.parsed ? ssrm.parsed.offsets : []);
+        // Telefonens egen logg går först för app och skärm där den räcker.
+        var primary = [];
+        var us = input.coverage.usagestats, wb = input.coverage.wellbeing;
+        if (us && us.rows) primary.push({ startMs: us.firstMs, endMs: us.lastMs });
+        if (wb && wb.rows) primary.push({ startMs: wb.firstMs, endMs: wb.lastMs });
+        var got = S.collect({ windows: wins, ssrm: ssrm && ssrm.parsed, battery: battery, zones: zones, primary: primary });
+        input.appIntervals = input.appIntervals.concat(got.apps);
+        input.screen = input.screen.concat(got.screen);
+        input.cameraUse = input.cameraUse.concat(got.camera);
+        input.logUnsure = input.logUnsure.concat(got.unsure);
+        input.samsung = { ssrm: !!(ssrm && ssrm.parsed), battery: sam.battery.length > 0 };
+        if (got.camera.length || got.unsure.some(function (u) { return u.what === 'camera'; })) {
+            var camNote = 'Kameran igång betyder att kameravyn visades, inte att en bild togs.';
+            if (input.extraNotes.indexOf(camNote) < 0) input.extraNotes.push(camNote);
+        }
+        if (got.noZone) input.warnings.push('Samsungs loggar: ' + got.noZone + ' rader saknar tidszon, varken SSRM eller filernas tider säger vilken, så de används inte.');
+        if (ssrm && ssrm.parsed) {
+            var sCov = S.ssrmCoverage(ssrm.parsed);
+            input.coverage[S.SSRM] = sCov;
+            meta.coverage.push(['SSRM (' + sam.ssrm.length + ' filer)', sCov.firstMs ? fmtU(sCov.firstMs) : '', sCov.lastMs ? fmtU(sCov.lastMs) : '', sCov.rows]);
+            Object.keys(got.usedSsrm).sort().forEach(function (name) { var f = ssrm.files[name]; if (f) logSource(meta, f.entry, 'SSRM ' + name, f.read, 'Text'); });
+            run.queries.push({ id: 'ssrm-heating', db: 'SSRM', title: 'Härkomst: SSRM-loggen (text, ingen SQL)',
+                sql: '-- ' + sam.ssrm.length + ' textfiler ur ' + Z() + ' under com.sec.android.sdhms/. Raderna har lokal tid utan zon; zonen kommer ur raderna [RTC], som har både lokal tid och unixtid.\n-- ' +
+                    Object.keys(ssrm.files).sort().map(function (n) { var f = ssrm.files[n]; return f.entry.name + ' (' + f.entry.size + ' byte, CRC32 ' + ExtractionCore.hex(f.entry.crc32) + ')'; }).join('\n-- ') +
+                    '\n-- App: [PKG] <paket>, till nästa [PKG], [LCD] OFF, omstart eller ett uppehåll på mer än en timme. Skärm: [SET] … [LCD] ON/OFF. Kamera: [SET] … camera running :: true/false  client : <paket>.' +
+                    (got.ssrmRows.length ? '\n-- Råraderna i fönstret:\n-- ' + samsungRows(got.ssrmRows).join('\n-- ') : '\n-- Inga rader om app, skärm eller kamera i fönstret.') });
+        }
+        if (sam.battery.length) {
+            await samsungBattery(sam.battery[0], cache);
+            var readSoFar = {};
+            Object.keys(cache.battery).forEach(function (n) { if (cache.battery[n].parsed) readSoFar[n] = cache.battery[n].parsed; });
+            var bCov = S.batteryCoverage(sam.battery, zones, readSoFar);
+            bCov.rows = battery.reduce(function (n, p) { return n + p.rows; }, 0);
+            input.coverage[S.BATTERY] = bCov;
+            meta.coverage.push(['batterihistoriken (' + sam.battery.length + ' filer, ' + battery.length + ' lästa för fönstret)', bCov.firstMs ? fmtU(bCov.firstMs) : '', bCov.lastMs ? fmtU(bCov.lastMs) : '', bCov.rows]);
+            picked.forEach(function (b) {
+                var name = ExtractionCore.baseName(b.entry.name);
+                if (got.usedBattery[name]) logSource(meta, b.entry, 'batterihistoriken ' + name, b.read, 'Text');
+            });
+            var clockSteps = [];
+            picked.forEach(function (b) {
+                if (!b.parsed) return;
+                b.parsed.segments.forEach(function (seg) {
+                    if (seg.clockMs > S.CLOCK_LIMIT_MS && seg.endLocal - seg.startLocal >= 0) clockSteps.push(ExtractionCore.baseName(b.entry.name) + ' rad ' + seg.line + ': ' + seg.raw + ' (klockan kan ligga ' + ProvenanceCore.duration(seg.clockMs) + ' fel till nästa TIME:)');
+                });
+            });
+            run.queries.push({ id: 'batterystats-history', db: 'batterihistoriken', title: 'Härkomst: batterihistoriken (text, ingen SQL)',
+                sql: '-- ' + picked.length + ' av ' + sam.battery.length + ' textfiler ur ' + Z() + ' under log/batterystats/. Filen täcker tiden från förra filens namn till sitt eget. Raderna har lokal tid utan zon; zonen är filnamnets tid mot filens ändringstid i UTC.\n-- ' +
+                    picked.map(function (b) { return b.entry.name + ' (' + b.entry.size + ' byte, CRC32 ' + ExtractionCore.hex(b.entry.crc32) + ')'; }).join('\n-- ') +
+                    '\n-- App: +top=<uid>:"<paket>" till -top eller -screen. Skärm: +screen/-screen. Kamera: +camera/-camera, utan app; appen är den som var i förgrunden.' +
+                    '\n-- Tiden räknas fram från senaste raden med TIME:. Ett steg i klockan vid den raden gör raderna intill osäkra: sådana rader räknas inte i bedömningen.' +
+                    (clockSteps.length ? '\n-- Avsnitt med osäker klocka i de lästa filerna:\n-- ' + clockSteps.slice(0, 40).join('\n-- ') + (clockSteps.length > 40 ? '\n-- … och ' + (clockSteps.length - 40) + ' till.' : '') : '') +
+                    (got.batteryRows.length ? '\n-- Råraderna i fönstret:\n-- ' + samsungRows(got.batteryRows, picked).join('\n-- ') : '\n-- Inga rader om app, skärm eller kamera i fönstret.') });
+        }
+    }
+
+    // Råraderna i fönstret, i filens ordning och en gång var. Batterihistorikens äldre form saknar klockslag, så ankaret står med.
+    function samsungRows(rows, picked) {
+        var seen = {};
+        var list = rows.filter(function (r) { var k = r.file + '|' + r.line; if (seen[k]) return false; seen[k] = true; return true; })
+            .sort(function (a, b) { return a.startMs - b.startMs || a.line - b.line; });
+        var out = list.slice(0, 60).map(function (r) {
+            var line = r.file + ' rad ' + r.line + ': ' + r.raw;
+            var p = (picked || []).find(function (b) { return b.parsed && b.parsed.name === r.file; });
+            var seg = p && r.seg != null ? p.parsed.segments[r.seg] : null;
+            return seg && p.parsed.format === 'offset' ? line + '  [ankare rad ' + seg.line + ': ' + seg.raw + ']' : line;
+        });
+        if (list.length > 60) out.push('… och ' + (list.length - 60) + ' rader till.');
+        return out;
     }
 
     // ---------- Snapchat (beta) ----------
