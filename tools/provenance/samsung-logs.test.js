@@ -517,3 +517,288 @@ test('täckningen: delarna av SSRM-loggen och hålen i batterihistoriken', () =>
     assert.deepStrictEqual(b.gaps, [{ startMs: L(2025, 12, 2, 15, 45, 13), endMs: L(2025, 12, 12, 12, 7, 44) }]);
     assert.deepStrictEqual(logs.batteryCoverage(list, zones, { newbatterystats251202164513: parsed.newbatterystats251202164513 }).gaps, [], 'en fil som inte är läst har inget känt hål');
 });
+
+// ---------- eRR.p ----------
+
+const errHead = (n) => 'LOGM' + String.fromCharCode(n, 0, 0, 0, n - 1, 0, 0, 0) + '\n\n\n\n';
+const err = (lines) => logs.parseErr(errHead(lines.length) + lines.join('\n') + '\n', 'eRR.p');
+const spanKinds = (list) => list.map((s) => s.kind + (s.why ? '/' + s.why : ''));
+const spansOf = (e, over) => logs.powerSpans(Object.assign({ err: e, boots: [], unlocks: [], covered: () => true, ssrmSpans: [] }, over));
+const REBOOT = (t, why) => t + '+0200 |  REBOOT  |       | REASON: ' + why + ' [28]';
+const OFF = (t, why) => t + '+0200 | SHUTDOWN |       | REASON: ' + why;
+const ON = (t, code) => t + '+0200 |    ON    | ' + (code || 'RP') + '    | A000XXU1 [29]';
+
+test('eRR.p: raderna i alla former, med egen zon, orsak och krasch', () => {
+    const e = logs.parseErr(errHead(9) + [
+        '2025-11-13 09:49:17+0100 |    ON    | KP    | A000XXU1 / OFFSRC: - / ONSRC: ACOKB / RSTSTAT: SWRESET / RCNT: 1 / PC: f+0x1/0x4 LR: g+0x8/0x4 PANIC: Oops: Fatal exception [0]',
+        '2025-11-13 10:29:37+0100 |  REBOOT  |       | REASON: shell [0]',
+        '2025-12-12 00:40:21+0100 | SHUTDOWN |       | REASON: no power',
+        '2025-12-12 11:28:40+0000 |          | NP    | OFFSRC: PWRHOLD / ONSRC: PWRONB / RSTSTAT: PINRESET RSVD31 / RCNT: 0 / PC: - LR: - / 3624000(1%) ',
+        '2025-12-12 11:28:40+0000 |   LPM    |',
+        '2026-03-16 08:05:56+0000 |   LPM    |       |',
+        '2026-04-21 19:38:51+0200 |    ON    | NP    | A000XXU1 / OFFSRC: PWRHOLD / ONSRC: PWRONB / RSTSTAT: PINRESET PORESET [28]/ apex_updated ',
+        '2026-04-22 09:00:00+0200 | PLATFORM | PF_NT | A000XXU1 / system_server [2]',
+        '2026-04-24 19:46:27+0200 |  REBOOT  |       | REASON: device_locked_3days [28]',
+    ].join('\n') + '\n', 'eRR.p');
+    assert.strictEqual(e.headerRows, 9);
+    assert.strictEqual(e.rows.length, 9);
+    assert.deepStrictEqual(e.rows.map((r) => r.what), ['ON', 'REBOOT', 'SHUTDOWN', '', 'LPM', 'LPM', 'ON', 'PLATFORM', 'REBOOT']);
+    assert.deepStrictEqual(e.rows.map((r) => r.kind), ['on', 'down', 'down', 'other', 'other', 'other', 'on', 'other', 'down']);
+    assert.strictEqual(e.rows[0].ms, L(2025, 11, 13, 8, 49, 17), 'zonen i raden gäller');
+    assert.strictEqual(e.rows[3].ms, L(2025, 12, 12, 11, 28, 40), '+0000 är UTC');
+    assert.strictEqual(e.rows[8].ms, L(2026, 4, 24, 17, 46, 27));
+    assert.strictEqual(logs.parseErr('2026-04-24 12:00:00-0530 |    ON    | RP    | A [1]', 'x').rows[0].ms, L(2026, 4, 24, 17, 30, 0), 'zon väster om UTC');
+    assert.ok(e.rows[0].crash && !e.rows[6].crash);
+    assert.strictEqual(e.rows[0].code, 'KP');
+    assert.deepStrictEqual(e.rows.map((r) => r.reason), [null, 'shell', 'no power', null, null, null, null, null, 'device_locked_3days']);
+    assert.strictEqual(e.rows[0].line, 5, 'radnumret är filens');
+    assert.strictEqual(e.clockLost, 0);
+});
+
+test('eRR.p: en rad med en tid före raden innan har fel klocka, och huvudet säger hur många rader som ska finnas', () => {
+    const e = logs.parseErr(errHead(4) + [
+        OFF('2026-01-27 00:05:24', 'no power'),
+        OFF('2023-10-12 16:49:57', 'no power'),
+        '2023-10-17 03:26:59+0000 |   LPM    |',
+        ON('2026-02-10 10:07:14'),
+    ].join('\n'), 'eRR.p');
+    assert.deepStrictEqual(e.rows.map((r) => !!r.clockLost), [false, true, true, false]);
+    assert.strictEqual(e.clockLost, 2);
+    assert.strictEqual(logs.parseErr('2026-01-27 00:05:24+0100 | SHUTDOWN |       | REASON: no power', 'x').headerRows, null, 'utan huvud');
+    assert.strictEqual(logs.parseErr(new Uint8Array([76, 79, 71, 77, 200, 1, 0, 0]), 'x').headerRows, 456, 'fyra byte, minst värd först');
+    assert.deepStrictEqual(logs.parseErr('skräp\n2026-01-27 | ON |\n', 'x').rows, []);
+});
+
+test('eRR.p: filen hittas på sin sökväg, och andra filer tas inte för den', () => {
+    const keep = logs.keeper();
+    ['data/system/users/service/data/eRR.p', 'Dump/data/system/users/service/data/eRR.p', '/data/system/users/service/data/eRR.p'].forEach((n) => assert.ok(keep(n) && logs.isErrPath(n), n));
+    ['data/system/users/service/data/RC.p', 'data/system/users/service/data/xeRR.p', 'data/media/0/eRR.p'].forEach((n) => assert.ok(!logs.isErrPath(n), n));
+    const got = logs.sortEntries([{ name: 'Dump/data/system/users/service/data/eRR.p' }, { name: 'data/log/batterystats/newbatterystats260312133200' }]);
+    assert.strictEqual(got.err.name, 'Dump/data/system/users/service/data/eRR.p');
+    assert.strictEqual(logs.sortEntries([]).err, null);
+});
+
+test('batterihistoriken: starterna och första appen efter dem, inte skärmen före upplåsningen', () => {
+    const p = logs.parseBattery([
+        '                    0 (17) START',
+        '                    0 (19) TIME: 2026-05-25-12-50-29',
+        '            +10s000ms (2) 100 +screen',
+        '            +11s000ms (2) 100 +top=1000:"com.android.settings"',
+        '            +40s000ms (2) 100 -top=1000:"com.android.settings"',
+        '            +50s000ms (2) 100 +top=u0a96:"com.sec.android.app.launcher"',
+        '          +1m00s000ms (2) 100 -top=u0a96:"com.sec.android.app.launcher"',
+        '          +1m01s000ms (2) 100 +top=u0a98:"org.example.chat"',
+        '          +2m00s000ms (17) SHUTDOWN',
+        '          +2m00s001ms (17) START',
+        '          +2m00s002ms (19) TIME: 2026-05-25-13-00-00',
+        '          +2m10s000ms (2) 100 +top=1000:"com.android.settings"',
+        '          +2m20s000ms (2) 100 +top=u0a98:"org.example.chat"',
+        '          +2m30s000ms (19) TIME: 2026-05-25-13-00-28',
+    ].join('\n'), 'newbatterystats260525130100');
+    assert.deepStrictEqual(p.boots.map((b) => [b.localMs, b.line]), [[L(2026, 5, 25, 12, 50, 29), 2], [L(2026, 5, 25, 13, 0, 0), 11]]);
+    assert.deepStrictEqual(p.unlocks.map((u) => [u.localMs, u.app, u.line]), [[L(2026, 5, 25, 12, 51, 19), 'com.sec.android.app.launcher', 6], [L(2026, 5, 25, 13, 0, 19, 998), 'org.example.chat', 13]]);
+    assert.ok(p.boots[0].raw.includes('TIME: 2026-05-25-12-50-29'));
+    // En app som lämnar toppen säger inget: den kan ha legat kvar sedan före omstarten.
+    const gone = logs.parseBattery(['                    0 (17) START', '                    0 (19) TIME: 2026-05-25-12-50-29', '            +10s000ms (2) 100 -top=u0a98:"org.example.chat"'].join('\n'), 'newbatterystats260525130100');
+    assert.deepStrictEqual(gone.unlocks, []);
+    // En fil som fortsätter mitt i en start: läget på första raden räknas.
+    const q = logs.parseBattery(['  05-26 08:00:00.000 RESET:TIME: 2026-05-26-08-00-00-000', '  05-26 08:00:00.001 100 80000000 top=u0a96:"com.sec.android.app.launcher"'].join('\n'), 'newbatterystats260526090000');
+    assert.deepStrictEqual(q.boots, []);
+    assert.strictEqual(q.unlocks[0].localMs, L(2026, 5, 26, 8, 0, 0, 1));
+});
+
+test('batterihistoriken: en start eller upplåsning med en gammal klocka får första tiden att lita på', () => {
+    const p = logs.parseBattery([
+        '                    0 (19) TIME: 2026-01-26-23-00-00',
+        '            +10s000ms (2) 100 +top=u0a96:"com.sec.android.app.launcher"',
+        '            +20s000ms (17) SHUTDOWN',
+        '            +20s001ms (17) START',
+        '            +20s002ms (19) TIME: 2021-01-01-13-07-36',
+        '            +30s000ms (17) SHUTDOWN',
+        '            +30s001ms (17) START',
+        '            +30s002ms (19) TIME: 2023-10-17-05-29-16',
+        '            +40s000ms (2) 100 +top=u0a96:"com.sec.android.app.launcher"',
+        '            +50s000ms (19) TIME: 2026-02-10-09-54-48',
+    ].join('\n'), 'newbatterystats260210100000');
+    assert.deepStrictEqual(p.boots.map((b) => [b.localMs, b.line]), [[L(2026, 2, 10, 9, 54, 48), 10]], 'en start, med tiden när klockan ställts');
+    assert.deepStrictEqual(p.unlocks.map((u) => [u.localMs, u.line]), [[L(2026, 1, 26, 23, 0, 10), 2], [L(2026, 2, 10, 9, 54, 48), 10]], 'upplåsningen med fel klocka står på samma tid, så den ger inget spann');
+});
+
+test('läget: omstart, inte upplåst till första appen, och sedan igång', () => {
+    const e = err([REBOOT('2026-04-24 19:46:27', 'device_locked_3days'), ON('2026-04-24 19:47:15')]);
+    const boot = { ms: L(2026, 4, 24, 17, 46, 58), file: 'b', line: 9, raw: 'TIME' };
+    const open = { ms: L(2026, 4, 27, 6, 53, 4), file: 'b', line: 90, raw: '+top', via: 'batterihistoriken', app: 'launcher' };
+    const got = spansOf(e, { boots: [boot], unlocks: [open] });
+    assert.deepStrictEqual(spanKinds(got), ['off', 'bfu', 'on']);
+    assert.deepStrictEqual(got.map((s) => [s.startMs, s.endMs]), [[e.rows[0].ms, boot.ms], [boot.ms, open.ms], [open.ms, null]]);
+    assert.strictEqual(got[1].on.what, 'ON');
+    assert.strictEqual(got[2].endUnknown, false);
+});
+
+test('läget: ON-raden kan komma efter upplåsningen, och då slutar avstängd och inte upplåst där batterihistorikens rader säger', () => {
+    const e = err([REBOOT('2026-02-10 13:11:23', 'shell'), ON('2026-02-10 14:53:31'), REBOOT('2026-02-10 15:00:00', 'shell')]);
+    const boot = { ms: e.rows[0].ms + 28000, file: 'b', line: 9, raw: 'TIME' };
+    const open = { ms: e.rows[1].ms - 9000, file: 'b', line: 90, raw: '+top', via: 'batterihistoriken', app: 'launcher' };
+    const got = spansOf(e, { boots: [boot], unlocks: [open] });
+    assert.deepStrictEqual(spanKinds(got), ['off', 'bfu', 'on', 'unsure/end']);
+    assert.strictEqual(got[0].endMs, boot.ms);
+    assert.strictEqual(got[1].endMs, open.ms);
+    assert.strictEqual(got[2].endMs, e.rows[2].ms);
+    // Utan raden om starten ska tecknet före ON-raden ändå säga att telefonen var upplåst, också när ett senare tecken finns.
+    const later = { ms: e.rows[1].ms + 100000, file: 'c', line: 1, raw: 'top', via: 'batterihistoriken', app: 'launcher' };
+    const noBoot = spansOf(e, { unlocks: [open, later], covered: () => false });
+    assert.deepStrictEqual(spanKinds(noBoot), ['unsure/battery', 'on', 'unsure/end']);
+    const noBoot2 = spansOf(e, { unlocks: [open, later] });
+    assert.deepStrictEqual(spanKinds(noBoot2), ['off', 'on', 'unsure/end'], 'tecknet före ON-raden gäller, inte det senare');
+});
+
+test('läget: avstängd kräver att batterihistoriken täcker tiden, en start emellan och inga rader med fel klocka', () => {
+    const e = err([OFF('2026-03-01 10:00:00', 'userrequested'), ON('2026-03-12 10:00:00')]);
+    assert.deepStrictEqual(spanKinds(spansOf(e)), ['off', 'on']);
+    assert.deepStrictEqual(spanKinds(spansOf(e, { covered: () => false })), ['unsure/battery', 'on']);
+    let asked = null;
+    spansOf(e, { covered: (a, b) => { asked = asked || [a, b]; return true; } });
+    assert.deepStrictEqual(asked, [e.rows[0].ms, e.rows[1].ms], 'hela tiden frågas');
+
+    const lost = err([OFF('2026-01-27 00:05:24', 'no power'), OFF('2023-10-12 16:49:57', 'no power'), ON('2026-02-10 10:07:14')]);
+    const withLost = spansOf(lost);
+    assert.deepStrictEqual(spanKinds(withLost), ['unsure/clock', 'on']);
+    assert.strictEqual(withLost[0].lost.length, 1);
+
+    const twice = err([REBOOT('2025-12-04 14:38:35', 'shell'), OFF('2025-12-12 00:40:21', 'no power'), ON('2025-12-12 12:30:26')]);
+    assert.deepStrictEqual(spanKinds(spansOf(twice)), ['unsure/row', 'off', 'on']);
+
+    assert.deepStrictEqual(spanKinds(spansOf(err([OFF('2026-03-01 10:00:00', 'userrequested')]))), ['unsure/end']);
+
+    // Rader med fel klocka säger bara något om spannet de står i.
+    const elsewhere = err([OFF('2026-01-27 00:05:24', 'no power'), OFF('2023-10-12 16:49:57', 'no power'), ON('2026-02-10 10:07:14'), OFF('2026-03-01 10:00:00', 'userrequested'), ON('2026-03-12 10:00:00')]);
+    assert.deepStrictEqual(spanKinds(spansOf(elsewhere)), ['unsure/clock', 'on', 'off', 'on']);
+});
+
+test('läget: en start utan nedstängning före säger inte när telefonen gick ner, och en rad som bara handlar om laddning ändrar inget', () => {
+    const e = err([ON('2022-07-02 16:39:30'), ON('2025-11-13 09:49:17', 'KP'), OFF('2025-12-12 00:40:21', 'no power'), '2025-12-12 10:20:00+0000 |   LPM    |', ON('2025-12-12 12:30:26')]);
+    const got = spansOf(e);
+    assert.deepStrictEqual(spanKinds(got), ['on', 'on', 'off', 'on']);
+    assert.strictEqual(got[0].endUnknown, true);
+    assert.strictEqual(got[1].endUnknown, false);
+    assert.strictEqual(got[2].endMs, e.rows[4].ms, 'LPM-raden avslutar inget');
+});
+
+test('läget: tecknet på upplåsning måste höra till samma start, och bevisa att ingen upplåsning kom före', () => {
+    const e = err([REBOOT('2026-08-07 10:00:00', 'shell')]);
+    const b1 = { ms: L(2026, 8, 7, 8, 1, 0), file: 'b', line: 1, raw: 'TIME' };
+    const b2 = { ms: L(2026, 8, 7, 8, 30, 0), file: 'b', line: 2, raw: 'TIME' };
+    const after = { ms: L(2026, 8, 7, 9, 0, 0), file: 'b', line: 3, raw: '+top', via: 'batterihistoriken', app: 'launcher' };
+    const got = spansOf(e, { boots: [b1, b2], unlocks: [after] });
+    assert.deepStrictEqual(spanKinds(got), ['off', 'on', 'bfu', 'on'], 'den första starten har inget tecken, så den sägs inte vara utan upplåsning');
+    assert.strictEqual(got[1].endUnknown, true);
+
+    // Batterihistoriken med ett hål från starten till tecknet bevisar inget. SSRM:s START är en egen rad och gör det.
+    const hole = (a, b) => !(a === b1.ms && b === after.ms);
+    assert.deepStrictEqual(spanKinds(spansOf(e, { boots: [b1], unlocks: [after], covered: hole })), ['off', 'on']);
+    const start = { ms: after.ms, file: 's', line: 1, raw: 'START', via: 'SSRM' };
+    assert.deepStrictEqual(spanKinds(spansOf(e, { boots: [b1], unlocks: [start], covered: hole })), ['off', 'bfu', 'on']);
+    // SSRM-rader före START: SSRM har startat om, och telefonen var redan upplåst.
+    const rows = [{ startMs: b1.ms + 60000 }, { startMs: after.ms }];
+    assert.deepStrictEqual(spanKinds(spansOf(e, { boots: [b1], unlocks: [start], covered: hole, ssrmSpans: rows })), ['off', 'on']);
+});
+
+test('läget i fönstren: texter, rader, de tre låsta dygnen och skärmen före upplåsningen', () => {
+    const e = err([ON('2026-04-21 19:38:51', 'NP'), REBOOT('2026-04-24 19:46:27', 'device_locked_3days'), ON('2026-04-24 19:47:15'), OFF('2026-05-01 10:00:00', 'okänd_orsak')]);
+    const boot = { ms: L(2026, 4, 24, 17, 46, 58), file: 'newbatterystats1', line: 9, raw: 'TIME: x' };
+    const open = { ms: L(2026, 4, 27, 6, 53, 4), file: 'newbatterystats2', line: 90, raw: '+top', via: 'batterihistoriken', app: 'launcher' };
+    const opts = { err: e, boots: [boot], unlocks: [open], covered: () => true, ssrmSpans: [] };
+    const reboot = e.rows[1].ms;
+
+    const inBfu = logs.collectPower(Object.assign({ windows: [{ startMs: L(2026, 4, 25, 12), endMs: L(2026, 4, 25, 13) }] }, opts));
+    assert.deepStrictEqual(inBfu.spans.map((s) => s.kind), ['bfu']);
+    assert.ok(inBfu.spans[0].startText.includes('batterihistoriken: START, newbatterystats1 rad 9'), inBfu.spans[0].startText);
+    assert.ok(inBfu.spans[0].endText.includes('första appen efter starten, launcher'), inBfu.spans[0].endText);
+    assert.deepStrictEqual(inBfu.rows, [], 'inga rader i fönstret');
+    assert.strictEqual(inBfu.locks.length, 1);
+    assert.ok(inBfu.locks[0].notUnlocked && inBfu.locks[0].locked && inBfu.locks[0].plain === null && inBfu.locks[0].plainEnd === 'Telefonen låses upp första gången');
+
+    const before = logs.collectPower(Object.assign({ windows: [{ startMs: reboot - 3600000, endMs: reboot + 600000 }] }, opts));
+    assert.deepStrictEqual(before.rows.map((r) => r.what), ['REBOOT', 'ON']);
+    assert.ok(/Telefonen startar om \(eRR\.p: REBOOT, device_locked_3days \(låst i tre dygn\)\)/.test(before.rows[0].text), before.rows[0].text);
+    assert.strictEqual(before.rows[0].plain, 'Telefonen startar om: låst i tre dygn');
+    assert.deepStrictEqual(before.rows[0].source, { db: 'eRR.p', table: 'eRR.p rad 6', column: e.rows[1].raw, queryId: 'err-p' });
+    assert.deepStrictEqual(before.spans.map((s) => s.kind), ['on', 'off', 'bfu']);
+    const three = before.locks.find((l) => l.threeDays);
+    assert.deepStrictEqual([three.startMs, three.endMs, three.plain, three.plainEnd], [reboot - 72 * 3600000, reboot, 'Telefonen låses', null]);
+
+    // Tre dygn före omstarten är telefonen låst, och fönstret där har bara det.
+    const third = logs.collectPower(Object.assign({ windows: [{ startMs: reboot - 40 * 3600000, endMs: reboot - 39 * 3600000 }] }, opts));
+    assert.deepStrictEqual(third.locks.map((l) => !!l.threeDays), [true]);
+    assert.deepStrictEqual(logs.collectPower(Object.assign({ windows: [{ startMs: reboot - 73 * 3600000, endMs: reboot - 72 * 3600000 - 1000 }] }, opts)).locks, [], 'före de tre dygnen');
+
+    // En rad med fel klocka är ingen händelse, inte ens i ett fönster på den tiden.
+    const wrong = err([ON('2026-04-21 19:38:51'), REBOOT('2023-10-12 16:49:57', 'shell')]);
+    const wrongTime = wrong.rows[1].ms;
+    assert.deepStrictEqual(logs.collectPower({ err: wrong, boots: [], unlocks: [], covered: () => true, ssrmSpans: [], windows: [{ startMs: wrongTime - 1000, endMs: wrongTime + 1000 }] }).rows, []);
+
+    // En orsak utan ord står som den är.
+    const unknown = logs.collectPower(Object.assign({ windows: [{ startMs: e.rows[3].ms - 1000, endMs: e.rows[3].ms + 1000 }] }, opts));
+    assert.ok(/eRR\.p: SHUTDOWN, okänd_orsak\)/.test(unknown.rows[0].text), unknown.rows[0].text);
+    assert.strictEqual(unknown.rows[0].plain, 'Telefonen stängs av');
+
+    // Skärmen före upplåsningen är ingen app, och Inställningar efter den är det.
+    const span = inBfu.spans[0];
+    const rows = [
+        { app: 'com.android.settings', stream: 'batterihistoriken', startMs: span.startMs + 10000, endMs: span.endMs },
+        { app: 'com.android.settings', stream: 'batterihistoriken', startMs: span.endMs + 100000, endMs: span.endMs + 200000 },
+        { app: 'com.android.settings', stream: 'SSRM', startMs: span.startMs + 10000, endMs: span.endMs },
+        { app: 'org.example.chat', stream: 'batterihistoriken', startMs: span.startMs + 10000, endMs: span.endMs },
+    ];
+    assert.deepStrictEqual(logs.dropFallbackHome(rows, inBfu.spans), rows.slice(1));
+    assert.deepStrictEqual(logs.dropFallbackHome(rows, []), rows);
+});
+
+test('läget: bara det som behövs läses, och täckningen frågas utan hål', () => {
+    const e = err([ON('2026-01-01 10:00:00'), REBOOT('2026-02-01 10:00:00', 'shell'), ON('2026-02-01 10:01:00'), ON('2026-03-01 10:00:00', 'KP'), REBOOT('2026-04-01 10:00:00', 'shell')]);
+    const at = (t) => [{ startMs: t, endMs: t + 60000 }];
+    assert.deepStrictEqual(logs.powerRange(e, at(L(2026, 3, 15))), [{ startMs: e.rows[1].ms, endMs: e.rows[4].ms }], 'från senaste nedstängningen, förbi kraschen, till nästa rad');
+    assert.deepStrictEqual(logs.powerRange(e, at(L(2025, 1, 1))), [{ startMs: L(2025, 1, 1), endMs: e.rows[0].ms + 0 }]);
+    assert.deepStrictEqual(logs.powerRange(e, at(L(2026, 5, 1))), [{ startMs: e.rows[4].ms, endMs: L(2026, 5, 1) + 60000 }]);
+    const cov = { firstMs: 100, lastMs: 1000, gaps: [{ startMs: 400, endMs: 500 }] };
+    assert.ok(logs.batteryCovers(cov, 100, 400));
+    assert.ok(logs.batteryCovers(cov, 500, 1000));
+    assert.ok(!logs.batteryCovers(cov, 300, 450));
+    assert.ok(!logs.batteryCovers(cov, 99, 200));
+    assert.ok(!logs.batteryCovers(cov, 900, 1001));
+    assert.ok(!logs.batteryCovers(null, 100, 200));
+});
+
+test('läget: batterihistorikens tider får eRR.p:s zon när raderna runt om säger samma, och klockans fel blir marginal', () => {
+    const e = err([ON('2026-03-19 10:00:00'), ON('2026-03-19 13:00:00')].map((r) => r.replace('+0200', '+0100')));
+    const p = logs.parseBattery(['                    0 (17) START', '                    0 (19) TIME: 2026-03-19-11-00-00', '            +10s000ms (2) 100 +top=u0a96:"com.sec.android.app.launcher"'].join('\n'), 'newbatterystats260521101855');
+    // Filen skrevs i maj, med en annan zon än raderna i mars.
+    const zones = logs.batteryZones([{ name: 'data/log/batterystats/newbatterystats260319080000', mtimeMs: L(2026, 3, 19, 7) }, { name: 'data/log/batterystats/newbatterystats260521101855', mtimeMs: L(2026, 5, 21, 8, 18, 55) }], []);
+    assert.strictEqual(zones.newbatterystats260521101855.offsetMinutes, 120);
+    const ev = logs.powerEvidence({ err: e, battery: [p], zones });
+    assert.strictEqual(ev.boots[0].ms, L(2026, 3, 19, 10, 0, 0), 'zonen ur eRR.p, inte filens');
+    assert.strictEqual(ev.boots[0].zoneMs, 0);
+    assert.strictEqual(ev.unlocks[0].ms, L(2026, 3, 19, 10, 0, 10));
+    assert.strictEqual(ev.unlocks[0].via, 'batterihistoriken');
+    // Zonen byts mellan raderna runt om: filens zon gäller, och skillnaden blir marginal.
+    const change = err(['2026-03-19 10:00:00+0100 |    ON    | RP    | A [1]', '2026-04-21 19:38:51+0200 |    ON    | RP    | A [1]']);
+    const q = logs.parseBattery(['                    0 (17) START', '                    0 (19) TIME: 2026-04-01-11-00-00'].join('\n'), 'newbatterystats260521101855');
+    const ev2 = logs.powerEvidence({ err: change, battery: [q], zones });
+    assert.strictEqual(ev2.boots[0].ms, L(2026, 4, 1, 9, 0, 0));
+    assert.strictEqual(ev2.boots[0].zoneMs, 3600000);
+    // SSRM:s START har zonen ur [RTC].
+    const ssrm = logs.parseSsrm([{ name: 'ssrm_heating_0.log', text: [rtc('2026-05-22 10:00:00', '2026-05-22 08:00:00'), '2026-05-22 11:47:57 [VER] A000XXU1 START'].join('\n') }]);
+    const ev3 = logs.powerEvidence({ err: e, battery: [], zones: {}, ssrm });
+    assert.deepStrictEqual(ev3.unlocks.map((u) => [u.ms, u.via, u.line]), [[L(2026, 5, 22, 9, 47, 57), 'SSRM', 2]]);
+});
+
+test('täckningen: ett byte av zon mellan två filer är inget hål', () => {
+    const list = [{ name: 'data/log/batterystats/newbatterystats261009082142', mtimeMs: L(2026, 10, 9, 6, 21, 42) }, { name: 'data/log/batterystats/newbatterystats261106145528', mtimeMs: L(2026, 11, 6, 13, 55, 28) }];
+    const zones = logs.batteryZones(list, []);
+    const after = logs.parseBattery('  10-09 08:21:43.000 RESET:TIME: 2026-10-09-08-21-43-000\n  10-09 08:21:44.000 100 80000000 +screen', 'newbatterystats261106145528');
+    const before = logs.parseBattery('  10-09 08:00:00.000 RESET:TIME: 2026-10-09-08-00-00-000', 'newbatterystats261009082142');
+    assert.deepStrictEqual(logs.batteryCoverage(list, zones, { newbatterystats261009082142: before, newbatterystats261106145528: after }).gaps, []);
+    // Ett riktigt hål står kvar.
+    const late = logs.parseBattery('  10-09 09:30:00.000 RESET:TIME: 2026-10-09-09-30-00-000', 'newbatterystats261106145528');
+    assert.strictEqual(logs.batteryCoverage(list, zones, { newbatterystats261009082142: before, newbatterystats261106145528: late }).gaps.length, 1);
+});

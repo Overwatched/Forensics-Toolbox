@@ -1,5 +1,32 @@
 Automatiskt byggd från commit `{{SHA}}`.
 
+## Nytt i 1.54
+
+Härkomst läser nu Samsungs `eRR.p`. Där skriver telefonen en rad vid varje start, omstart och nedstängning, med tid, zon och ofta skälet. Det svarar på en fråga som de andra loggarna är tysta om: var telefonen igång, och hade den låsts upp sedan start, när filen fick sin tid? Två fel som gav fel besked i 1.52 och 1.53 är rättade.
+
+- **Faktorn "Telefonen igång":** visas när svaret säger något.
+  - *Avstängd:* tiden ligger mellan en nedstängning och nästa start, och batterihistoriken täcker tiden.
+  - *Inte upplåst:* telefonen var startad men hade inte låsts upp sedan starten.
+  - *Kanske avstängd:* raderna säger avstängd, men batterihistoriken har ett hål där, klockan var fel, eller nästa rad är en ny nedstängning.
+  - *Nära en omstart:* tiden ligger inom en minut från ett skifte.
+
+  Avstängd och Inte upplåst är Inte förenligt för kamerabilder och skärmdumpar. För andra filer är de en upplysning, eftersom tiden i en mottagen eller kopierad fil kan komma från en annan enhet. Var telefonen igång och upplåst visas ingen faktor, men skälet säger det när loggarna är tysta.
+- **Raden Telefonen i tidslinjen:** starter och nedstängningar med skälet (batteriet tog slut, vald på telefonen, uppdatering, kommando från en dator, låst i tre dygn), band för avstängd tid och lås före första upplåsningen. En omstart med skälet `device_locked_3days` ger ett lås de 72 timmarna före.
+- **Skärmen tänd i veckor:** efter en omstart på laddning kan batterihistoriken visa skärmen tänd i veckor. Visar `eRR.p` att telefonen inte var upplåst, säger faktorn Skärm nu "Inte upplåst" i stället för att skärmen var tänd.
+- **Mätt på labbtelefonen:**
+  - Omstarter och nedstängningar ligger 6–11 s efter SSRM:s (6 av 6) och inom 15 s från batterihistorikens (13 av 13 med rätt klocka).
+  - Första upplåsningen enligt batterihistoriken och enligt SSRM ligger 4–8 s isär på sex av sju starter.
+  - Under sex spann före första upplåsningen, sammanlagt 183 dygn, ändrades ingen fil bland bilder och appdata.
+  - Före sessionen startade telefonen 9 oktober och låstes inte upp förrän sessionen 6 november. Det är de dygnen batterihistoriken visar som tänd skärm.
+- **Rättat: falskt hål vid byte mellan sommar- och vintertid.** Batterihistorikens täckning räknades i UTC, så ett byte av zon mellan två filer gav ett hål på en timme som inte fanns. Faktorerna kunde då säga att batterihistoriken saknade tiden. Nu räknas täckningen i telefonens lokala tid.
+- **Rättat: Inställningar som app efter en start.** Före första upplåsningen visar telefonen en startskärm som hör till Inställningar, och 1.52 och 1.53 tog det för att appen Inställningar var öppen. När `eRR.p` visar att telefonen inte var upplåst räknas den inte längre som app.
+- **Källan:** varje rad ur `eRR.p` i händelsetabellen har radnummer och rårad. Protokollets bilaga har filen med CRC32, hur raderna tolkas, läget i fönstret och raderna med fel klocka.
+- **Inte provat:**
+  - Allt kommer från en enda telefon, och Samsung beskriver inte filen, så reglerna bygger på jämförelser med SSRM och batterihistoriken.
+  - Ingen riktig bild på labbtelefonen har en tid då telefonen var avstängd, så Avstängd är bara provat med påhittade filer.
+  - På äldre programvara kom startraden i labbet upp till 31 dygn efter själva starten. Då säger faktorn Kanske avstängd, om inte batterihistoriken visar starten.
+  - Rader i en batterihistorikfil som spänner över bytet mellan sommar- och vintertid märks fortfarande "tiden osäker".
+
 ## Nytt i 1.53
 
 Härkomst är jämförd med en loggad session på en Samsung. Kamera, appar och skärm stämmer med det som gjordes på telefonen, och Samsungs kamera-app syns på SSRM:s kamerarad. Sessionen visade också ett fel som funnits på all Android sedan 1.26, och det är rättat.

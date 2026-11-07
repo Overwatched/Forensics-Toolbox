@@ -16,8 +16,8 @@ async function assess(c, name) {
     return c.ev(PROV, `(function(){
         const m = ProvenanceApp.model();
         return { T: m.file.createdMs, type: m.type.type,
-            factors: Object.fromEntries(m.factors.map(x => [x.id, { state: x.state, title: x.title, verdictText: x.verdictText, text: x.items.map(i => i.text).join(' | ') }])),
-            events: m.events.filter(e => e.kind === 'app' || e.kind === 'screen' || e.kind === 'log-unsure' || e.kind === 'snap-memory').map(e => ({ kind: e.kind, stream: e.stream, app: e.app, on: e.on, ms: e.ms, endMs: e.endMs, cameraOp: !!e.cameraOp, byUid: !!e.byUid, captured: !!e.captured, clockMs: e.clockMs, zoneMs: e.zoneMs, text: e.text, source: ProvenanceReport.sourceText(e.source) })),
+            factors: Object.fromEntries(m.factors.map(x => [x.id, { state: x.state, title: x.title, verdictText: x.verdictText, verdict: x.verdict, plain: x.plain, text: x.items.map(i => i.text).join(' | ') }])),
+            events: m.events.filter(e => e.kind === 'app' || e.kind === 'screen' || e.kind === 'lock' || e.kind === 'power' || e.kind === 'power-off' || e.kind === 'log-unsure' || e.kind === 'snap-memory').map(e => ({ locked: e.locked, notUnlocked: e.notUnlocked, what: e.what, unsure: e.unsure, kind: e.kind, stream: e.stream, app: e.app, on: e.on, ms: e.ms, endMs: e.endMs, cameraOp: !!e.cameraOp, byUid: !!e.byUid, captured: !!e.captured, clockMs: e.clockMs, zoneMs: e.zoneMs, text: e.text, source: ProvenanceReport.sourceText(e.source) })),
             warnings: m.warnings, beta: m.beta, sources: ProvenanceApp.meta().sources.map(s => s.label), coverage: ProvenanceApp.meta().coverage };
     })()`);
 }
@@ -33,7 +33,7 @@ function openIn(file, what) {
         await sleep(1000);
         await c.waitFor(PROV, `!ProvenanceApp.busy() && /databaser hittades/.test(document.getElementById('ex-status').textContent) && document.getElementById('ex-status').textContent.includes(${JSON.stringify(path.basename(file))})`, 300000, what);
         const status = await c.ev(PROV, `document.getElementById('ex-status').textContent`);
-        expect(/20 SSRM-filer, 40 filer med batterihistorik/.test(status), 'Loggarna: ' + status);
+        expect(/20 SSRM-filer, 40 filer med batterihistorik, eRR\.p/.test(status), 'Loggarna: ' + status);
         return status.split(' · ').slice(-1)[0];
     }];
 }
@@ -58,7 +58,9 @@ function sharedScenarios() {
         expect(/utanför usagestats:s täckning/.test(r.factors.camera.text), 'usagestats: ' + r.factors.camera.text);
         expect(/Batterihistoriken har inga rader från 2025-12-02 [\d:]+ UTC till 2025-12-12 [\d:]+ UTC\./.test(r.factors.camera.text), 'Hålet: ' + r.factors.camera.text);
         expect(!r.warnings.some((w) => /Wellbeing/.test(w)), 'Varningarna: ' + r.warnings);
-        return 'hål 2 till 12 december';
+        expect(!r.factors.power, 'Telefonen var igång, så faktorn ska inte visas: ' + JSON.stringify(r.factors.power));
+        expect(r.factors.camera.text.includes('Telefonen var igång enligt eRR.p: den startade 2025-12-04 10:52:14 UTC och gick ner 2025-12-04 11:51:59 UTC.'), 'eRR.p: ' + r.factors.camera.text);
+        return 'hål 2 till 12 december, telefonen igång';
     }];
     return { camera, gap };
 }
@@ -93,6 +95,57 @@ function zipScenarios(zip, facit) {
     const near = (a, b, what) => expect(a != null && Math.abs(a - at(b)) <= tol, what + ': ' + (a == null ? 'saknas' : new Date(a).toISOString()) + ', facit ' + b);
     const cams = (r, stream, app) => r.events.filter((e) => e.cameraOp && e.stream === stream && e.app === app);
     const { camera, gap } = sharedScenarios();
+    const p = facit.power;
+    const statusErr = ['eRR.p hittas, och raderna med fel klocka räknas inte', async ({ c }) => {
+        const status = await c.ev(PROV, `document.getElementById('ex-status').textContent`);
+        expect(/, eRR\.p/.test(status), 'Raden om loggarna: ' + status);
+        const r = await assess(c, p.notUnlocked.name);
+        const cov = r.coverage.find((x) => /^eRR\.p/.test(x[0]));
+        expect(cov && cov[0] === 'eRR.p (' + p.rows + ' rader, ' + p.clockLost + ' med fel klocka)' && cov[3] === p.rows, 'Täckningen: ' + JSON.stringify(cov));
+        expect(r.sources.includes('eRR.p'), 'Källan: ' + r.sources.join(', '));
+        const sql = await c.ev(PROV, `[...document.querySelectorAll('#sources pre.sql')].map(p => p.textContent).join(' ')`);
+        expect(/Härkomst|eRR\.p/.test(sql) && /Rader med fel klocka:/.test(sql) && /2023-10-12 16:49:57/.test(sql) && /Läget i fönstret:/.test(sql), 'Bilagan: ' + sql.slice(-700));
+        return cov[0];
+    }];
+    const bfu = ['Inte upplåst sedan start: telefonen stod igång i 71 dygn, och skärmen före upplåsningen står inte som en app', async ({ c }) => {
+        const f = p.notUnlocked;
+        const r = await assess(c, f.name);
+        expect(Math.abs(r.T - at(f.T)) <= 1000, 'T: ' + new Date(r.T).toISOString());
+        expect(r.factors.power && r.factors.power.verdict === 'Inte upplåst', 'Faktorn: ' + JSON.stringify(r.factors.power));
+        expect(r.factors.power.state === 'info', 'Filens typ är okänd, så det väger inte: ' + JSON.stringify(r.factors.power));
+        const lock = r.events.find((e) => e.kind === 'lock' && e.notUnlocked);
+        near(lock && lock.ms, f.from, 'Starten');
+        near(lock && lock.endMs, f.to, 'Första upplåsningen');
+        expect(/batterihistoriken: START, newbatterystats\d+ rad \d+/.test(r.factors.power.text) && /första appen efter starten, com\.sec\.android\.app\.launcher/.test(r.factors.power.text), 'Källorna: ' + r.factors.power.text);
+        expect(!r.events.some((e) => e.kind === 'app' && e.app === 'com.android.settings'), 'Skärmen före upplåsningen står som Inställningar: ' + JSON.stringify(r.events.filter((e) => e.kind === 'app')));
+        expect(r.factors.app.state === 'missing' && /hade inte låsts upp sedan start/.test(r.factors.app.text), 'App: ' + JSON.stringify(r.factors.app));
+        // Raden +screen spänner över avsnitt där klockan flyttats, så den räknas inte här.
+        expect(r.factors.screen.state === 'missing' && /hade inte låsts upp sedan start/.test(r.factors.screen.text) && /men de räknas inte/.test(r.factors.screen.text), 'Skärm: ' + JSON.stringify(r.factors.screen));
+        return 'T ' + new Date(r.T).toISOString().slice(0, 10);
+    }];
+    const maybe = ['Kanske avstängd: batterihistoriken saknar tiden, och telefonen var igång en stund före ON-raden', async ({ c }) => {
+        const f = p.maybeOff;
+        const r = await assess(c, f.name);
+        expect(Math.abs(r.T - at(f.T)) <= 1000, 'T: ' + new Date(r.T).toISOString());
+        expect(r.factors.power && r.factors.power.verdict === 'Kanske avstängd' && r.factors.power.state === 'info', 'Faktorn: ' + JSON.stringify(r.factors.power));
+        expect(/batterihistoriken saknar den här tiden/.test(r.factors.power.text), 'Skälet: ' + r.factors.power.text);
+        const band = r.events.find((e) => e.kind === 'power-off');
+        near(band && band.ms, f.from, 'Nedstängningen');
+        near(band && band.endMs, f.to, 'Nästa start');
+        expect(band.unsure, 'Bandet ska säga kanske');
+        return 'nästa start ' + f.to;
+    }];
+    const three = ['De tre låsta dygnen före en omstart: låst enligt orsaken, utan egen faktor', async ({ c }) => {
+        const f = p.lockedThreeDays;
+        const r = await assess(c, f.name);
+        expect(Math.abs(r.T - at(f.T)) <= 1000, 'T: ' + new Date(r.T).toISOString());
+        expect(!r.factors.power, 'Faktorn ska inte visas: ' + JSON.stringify(r.factors.power));
+        const lock = r.events.find((e) => e.kind === 'lock' && e.stream === 'eRR.p' && !e.notUnlocked);
+        near(lock && lock.ms, f.from, 'Låst från');
+        near(lock && lock.endMs, f.to, 'Omstarten');
+        expect(/Telefonen var låst vid tidpunkten \(.*eRR\.p.*\)/.test(r.factors.screen.text), 'Skärm: ' + JSON.stringify(r.factors.screen));
+        return 'låst till ' + f.to;
+    }];
     const photo = ['Bilden med kamera-appen: fyra loggar är överens, och Samsungs kamera-app står på SSRM:s kamerarad', async ({ c }) => {
         const f = facit.files.camera;
         const r = await assess(c, f.name);
@@ -160,7 +213,7 @@ function zipScenarios(zip, facit) {
         expect(!r.events.some((e) => e.cameraOp && e.app === 'com.google.android.permissioncontroller'), 'Behörighetsfrågan ska inte stå som appen bakom kameran');
         return 'T ' + iso(r.T) + ' UTC';
     }];
-    return [openIn(zip, 'Zippen'), photo, sessions, fore, signalCam, signalRoll, snap, camera, gap];
+    return [openIn(zip, 'Zippen'), photo, sessions, fore, signalCam, signalRoll, snap, camera, gap, statusErr, bfu, maybe, three];
 }
 
 module.exports = { scenarios, zipScenarios, assess };

@@ -1073,3 +1073,145 @@ test('Samsung: Snapchat-raden namnger loggen som raden kommer ur', () => {
     const other = core.build(samsungInput({ file, cameraUse: [], screen: [], appIntervals: [{ startMs: T - 8 * S, endMs: T + 2 * S, app: 'org.example.chat', stream: 'batterihistoriken', source: BATTERY_SRC }] }));
     assert.ok(/^batterihistoriken registrerar Chatten/.test(other.factors.find((x) => x.id === 'app').items[0].text), other.factors.find((x) => x.id === 'app').items[0].text);
 });
+
+// Samsungs eRR.p: telefonens läge vid T.
+function powerInput(span, over) {
+    const ANDROID = 'com.sec.android.app.camera';
+    const file = { filename: '20260312_133111.jpg', directory: 'DCIM/Camera', createdMs: T, addedMs: T + 1000, importer: ANDROID, mimeType: 'image/jpeg', datetakenSource: true };
+    return Object.assign({
+        platform: 'Android', androidLog: 'usagestats', file, appNames: names, cameraApps: [ANDROID], windowMs: 15 * M, appIntervals: [], screen: [], lock: [], cameraUse: [], logUnsure: [], warnings: [], coverage: { usagestats: { firstMs: T + 3600000, lastMs: T + 7200000, rows: 5 } },
+        power: { spans: [span], rows: [], locks: [], file: 'eRR.p' }, samsung: { err: true },
+    }, over || {});
+}
+const powerSpan = (over) => Object.assign({ kind: 'off', why: null, startMs: T - 3600000, endMs: T + 3600000, zoneMs: 0, startText: 'eRR.p: SHUTDOWN, no power (batteriet tog slut)', endText: 'eRR.p: ON', source: { db: 'eRR.p', table: 'eRR.p rad 5', column: 'rå', queryId: 'err-p' } }, over);
+const powerF = (m) => m.factors.find((f) => f.id === 'power');
+
+test('telefonen avstängd vid T: en kamerabild är inte förenlig, och sammanvägningen säger det', () => {
+    const m = core.build(powerInput(powerSpan()));
+    const f = powerF(m);
+    assert.strictEqual(m.type.type, 'camera');
+    assert.strictEqual(f.state, 'contradiction');
+    assert.strictEqual(f.verdict, 'Avstängd');
+    assert.strictEqual(f.title, 'Telefonen igång');
+    assert.strictEqual(f.question, 'Var telefonen igång och upplåst sedan start vid T?');
+    assert.ok(/Telefonen gick ner .* \(eRR\.p: SHUTDOWN, no power \(batteriet tog slut\)\), och nästa tecken på att den var igång är .* \(eRR\.p: ON\)\. Batterihistoriken täcker tiden/.test(f.items[0].text), f.items[0].text);
+    assert.strictEqual(f.plain, 'Telefonen var avstängd vid den här tiden.');
+    assert.ok(/inte förenligt med att bilden togs med den här telefonens kamera/.test(m.summary), m.summary);
+    assert.strictEqual(m.factors[1].id, 'power', 'direkt efter tiderna');
+    const received = m.alternatives.find((a) => a.id === 'received');
+    assert.ok(received.for.includes(f.plain), 'talar för att filen kom från annat håll: ' + JSON.stringify(received.for));
+    const app = m.factors.find((x) => x.id === 'app');
+    assert.strictEqual(app.state, 'missing');
+    assert.ok(/Telefonen var avstängd vid tiden enligt eRR\.p\./.test(app.items[0].text), app.items[0].text);
+    const band = m.events.find((e) => e.kind === 'power-off');
+    assert.ok(band && band.ms === T - 3600000 && band.endMs === T + 3600000 && !band.unsure, 'bandet i tidslinjen');
+    assert.ok(/^Telefonen avstängd \(eRR\.p: SHUTDOWN/.test(band.text), band.text);
+    assert.strictEqual(band.source.queryId, 'err-p');
+    assert.strictEqual(band.plain, null);
+});
+
+test('telefonen avstängd vid T: en fil som kan ha fått sin tid på en annan enhet är en upplysning', () => {
+    const saved = core.build(powerInput(powerSpan(), { file: { filename: 'chatt.jpg', directory: 'Pictures/Chatten', createdMs: T, addedMs: T + 1000, importer: 'org.example.chat', mimeType: 'image/jpeg' } }));
+    const f = powerF(saved);
+    assert.strictEqual(saved.type.type, 'saved');
+    assert.strictEqual(f.state, 'info');
+    assert.ok(/kan komma från en annan enhet/.test(f.plain), f.plain);
+    assert.ok(!/inte förenligt/.test(saved.summary), saved.summary);
+    const shot = core.build(powerInput(powerSpan(), { file: { filename: 'Screenshot_20260312_133111.jpg', directory: 'DCIM/Screenshots', createdMs: T, addedMs: T + 1000, importer: 'com.android.systemui', mimeType: 'image/jpeg' } }));
+    assert.strictEqual(shot.type.type, 'screenshot');
+    assert.strictEqual(powerF(shot).state, 'contradiction');
+});
+
+test('telefonen igång men inte upplåst vid T: samma bedömning, med första upplåsningen utskriven', () => {
+    const span = powerSpan({ kind: 'bfu', startText: 'batterihistoriken: START, b rad 9', endText: 'SSRM: [VER] START, s rad 2' });
+    const lock = { startMs: span.startMs, endMs: span.endMs, locked: true, notUnlocked: true, stream: 'eRR.p', text: 'Telefonen inte upplåst sedan start', plain: null, plainEnd: 'Telefonen låses upp första gången', source: span.source };
+    const screen = [{ startMs: T - 60 * M, endMs: T + 60 * M, on: true, stream: 'batterihistoriken', source: { db: 'batterihistoriken', table: 'b', column: '+screen' } }];
+    const m = core.build(powerInput(span, { lock: [lock], screen }));
+    const f = powerF(m);
+    assert.strictEqual(f.state, 'contradiction');
+    assert.strictEqual(f.verdict, 'Inte upplåst');
+    assert.ok(/Telefonen startade .* \(batterihistoriken: START, b rad 9\) och låstes upp första gången .* \(SSRM: \[VER\] START, s rad 2\)\./.test(f.items[0].text), f.items[0].text);
+    assert.ok(/krypterade/.test(f.items[1].text) && f.items[1].state === 'info');
+    assert.ok(/så filen kan inte ha skrivits på telefonen då/.test(f.plain), f.plain);
+    const sc = m.factors.find((x) => x.id === 'screen');
+    assert.strictEqual(sc.state, 'info', 'en tänd skärm före upplåsningen väger inget');
+    assert.strictEqual(sc.verdict, 'Inte upplåst');
+    assert.ok(/Efter en omstart på laddning/.test(sc.items[0].text), sc.items[0].text);
+    const lk = m.events.find((e) => e.kind === 'lock');
+    assert.ok(lk.notUnlocked && lk.text === 'Telefonen inte upplåst sedan start' && lk.plain === null && lk.plainEnd === 'Telefonen låses upp första gången');
+    const other = core.build(powerInput(span, { lock: [lock], file: { filename: 'chatt.jpg', directory: 'Pictures/Chatten', createdMs: T, addedMs: T + 1000, importer: 'org.example.chat', mimeType: 'image/jpeg' } }));
+    assert.strictEqual(powerF(other).state, 'info');
+    assert.ok(/kan komma från en annan enhet/.test(powerF(other).plain));
+    // Släckt skärm före upplåsningen: vanlig bedömning, och låset säger att telefonen inte låsts upp.
+    const dark = core.build(powerInput(span, { lock: [lock], screen: [Object.assign({}, screen[0], { on: false })] }));
+    const scd = dark.factors.find((x) => x.id === 'screen');
+    assert.strictEqual(scd.state, 'contradiction');
+    assert.ok(scd.items.some((i) => /hade inte låsts upp sedan start vid tidpunkten \(eRR\.p\)/.test(i.text)), JSON.stringify(scd.items));
+});
+
+test('telefonen kanske avstängd: varje skäl står, och det väger inte', () => {
+    const run = (over) => powerF(core.build(powerInput(powerSpan(Object.assign({ kind: 'unsure' }, over)))));
+    const battery = run({ why: 'battery' });
+    assert.strictEqual(battery.state, 'info');
+    assert.strictEqual(battery.verdict, 'Kanske avstängd');
+    assert.ok(/batterihistoriken saknar den här tiden/.test(battery.items[0].text), battery.items[0].text);
+    assert.ok(/Den kan ha varit avstängd/.test(battery.plain));
+    assert.ok(/Däremellan står 2 rader med fel klocka, så den var igång en stund/.test(run({ why: 'clock', lost: ['a', 'b'] }).items[0].text));
+    assert.ok(/Däremellan står 1 rad med fel klocka/.test(run({ why: 'clock', lost: ['a'] }).items[0].text));
+    assert.ok(/nästa rad är en ny nedstängning .* utan en start emellan/.test(run({ why: 'row' }).items[0].text));
+    assert.ok(/eRR\.p har inga rader efter det/.test(run({ why: 'end', endMs: null }).items[0].text));
+    const band = core.build(powerInput(powerSpan({ kind: 'unsure', why: 'battery' }))).events.find((e) => e.kind === 'power-off');
+    assert.ok(band.unsure && /^Telefonen kanske avstängd/.test(band.text), band.text);
+    assert.ok(!core.build(powerInput(powerSpan({ kind: 'unsure', why: 'end', startMs: T - 10 * M, endMs: null }))).events.some((e) => e.kind === 'power-off'), 'utan slut inget band');
+    assert.ok(!core.build(powerInput(powerSpan({ kind: 'bfu' }))).events.some((e) => e.kind === 'power-off'), 'inte upplåst är inte avstängd');
+});
+
+test('nära ett skifte: det går inte att säga vilken sida tiden hör till, och zonens osäkerhet räknas', () => {
+    const edge = (over) => powerF(core.build(powerInput(powerSpan(over))));
+    const justOff = edge({ startMs: T - 30 * S });
+    assert.strictEqual(justOff.state, 'info');
+    assert.strictEqual(justOff.verdict, 'Nära en omstart');
+    assert.ok(/nära nedstängningen .* \(eRR\.p: SHUTDOWN/.test(justOff.items[0].text), justOff.items[0].text);
+    assert.ok(/nära starten .* \(eRR\.p: ON\)/.test(edge({ endMs: T + 30 * S }).items[0].text));
+    assert.ok(/nära starten/.test(edge({ kind: 'bfu', startMs: T - 30 * S }).items[0].text));
+    assert.ok(/nära första upplåsningen/.test(edge({ kind: 'bfu', endMs: T + 30 * S }).items[0].text));
+    assert.ok(/nära första upplåsningen/.test(edge({ kind: 'on', hasUnlock: true, startMs: T - 30 * S }).items[0].text));
+    assert.ok(/nära starten/.test(edge({ kind: 'on', startMs: T - 30 * S }).items[0].text));
+    assert.ok(/nära nedstängningen/.test(edge({ kind: 'on', endMs: T + 30 * S }).items[0].text));
+    assert.ok(/nära en ny start/.test(edge({ kind: 'on', endUnknown: true, endMs: T + 30 * S }).items[0].text));
+    assert.strictEqual(edge({ startMs: T - 61 * S }).verdict, 'Avstängd', 'en sekund utanför marginalen');
+    assert.strictEqual(edge({ startMs: T - 61 * S, zoneMs: 2000 }).verdict, 'Nära en omstart', 'zonen ökar marginalen');
+});
+
+test('telefonen igång vid T: ingen faktor, men ett skäl när loggarna är tysta', () => {
+    const on = (over) => powerSpan(Object.assign({ kind: 'on', bootMs: T - 7200000, startMs: T - 3600000 }, over));
+    const m = core.build(powerInput(on()));
+    assert.ok(!powerF(m), 'igång som vanligt är inget att bedöma');
+    const app = m.factors.find((x) => x.id === 'app').items[0].text;
+    assert.ok(/Telefonen var igång enligt eRR\.p: den startade 2025-09-24 10:31:09 UTC och gick ner 2025-09-24 13:31:09 UTC\./.test(app), app);
+    const open = core.build(powerInput(on({ endMs: null }))).factors.find((x) => x.id === 'app').items[0].text;
+    assert.ok(/ingen nedstängning står efter det/.test(open), open);
+    const crash = core.build(powerInput(on({ endUnknown: true }))).factors.find((x) => x.id === 'app').items[0].text;
+    assert.ok(/Nästa rad är en ny start .* utan nedstängning, så det syns inte när den gick ner\./.test(crash) && !/var igång/.test(crash), crash);
+    const locks = [{ startMs: T - 3600000, endMs: T + 3600000, threeDays: true, locked: true, stream: 'eRR.p', text: 't', plain: 'Telefonen låses', plainEnd: null }];
+    const locked = core.build(powerInput(on(), { power: { spans: [on()], rows: [], locks, file: 'eRR.p' }, lock: locks }));
+    assert.ok(/igång men låst: omstarten .* kom efter tre dygn utan upplåsning/.test(locked.factors.find((x) => x.id === 'app').items[0].text));
+    const none = core.build(powerInput(on(), { power: undefined }));
+    assert.ok(!/eRR/.test(none.factors.find((x) => x.id === 'app').items[0].text), 'utan filen sägs inget');
+    const unsure = core.build(powerInput(powerSpan({ kind: 'unsure', why: 'battery' }))).factors.find((x) => x.id === 'app').items[0].text;
+    assert.ok(/Telefonen gick ner .* enligt eRR\.p och kan ha varit avstängd vid tiden\./.test(unsure), unsure);
+    const bfu = core.build(powerInput(powerSpan({ kind: 'bfu' }))).factors.find((x) => x.id === 'app').items[0].text;
+    assert.ok(/hade inte låsts upp sedan start, och de här loggarna skrivs inte förrän då/.test(bfu), bfu);
+    // Tre dygn låst, med en släckt skärm: vanlig text om låset.
+    const screen = [{ startMs: T - 60 * M, endMs: T + 60 * M, on: false, stream: 'SSRM', source: {} }];
+    const sc = core.build(powerInput(on(), { lock: locks, screen })).factors.find((x) => x.id === 'screen');
+    assert.ok(sc.items.some((i) => /Telefonen var låst vid tidpunkten \(eRR\.p\)\. Kameran går att starta från låsskärmen/.test(i.text)), JSON.stringify(sc.items));
+});
+
+test('raderna ur eRR.p är händelser, med sin mening i förklaringen', () => {
+    const rows = [{ ms: T - 2 * M, what: 'REBOOT', reason: 'device_locked_3days', crash: false, text: 'Telefonen startar om (eRR.p: REBOOT)', plain: 'Telefonen startar om: låst i tre dygn', source: { db: 'eRR.p', table: 'eRR.p rad 6', column: 'rå', queryId: 'err-p' } }];
+    const m = core.build(powerInput(powerSpan({ kind: 'on', startMs: T - 60 * M, endMs: null }), { power: { spans: [powerSpan({ kind: 'on', startMs: T - 60 * M, endMs: null })], rows, locks: [], file: 'eRR.p' } }));
+    const e = m.events.find((x) => x.kind === 'power');
+    assert.ok(e && e.lane === 'power' && e.what === 'REBOOT' && e.stream === 'eRR.p' && e.source.queryId === 'err-p');
+    assert.ok(m.narrative.some((n) => n.lines.some((l) => l.text === 'Telefonen startar om: låst i tre dygn')), JSON.stringify(m.narrative.map((n) => n.lines.map((l) => l.text))));
+});

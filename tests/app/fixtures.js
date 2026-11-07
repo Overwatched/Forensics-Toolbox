@@ -11,7 +11,8 @@
 // mottagen bild under postbox/media/. PowerLog täcker samma timmar (knowledgeC gör det inte): skärmen,
 // låset, kameraappen och Telegram på skärmen och Telegrams kamera när IMG_0008 togs.
 // Samsung: en Android-extraktion utan usagestats, med SSRM-loggen och batterihistoriken. Kamerabilden togs när
-// bara batterihistoriken täcker tiden, en bild i en chattapp när SSRM gör det, och en bild när batterihistorikens klocka
+// bara batterihistoriken täcker tiden, en bild i en chattapp när SSRM gör det, tre bilder där eRR.p säger att telefonen var
+// avstängd, inte upplåst eller just startade, och en bild när batterihistorikens klocka
 // flyttades. Namnen i loggarna bär HTML.
 'use strict';
 
@@ -298,13 +299,17 @@ function reportRows(entries, keychain, ufed) {
 const TS = Date.UTC(2026, 2, 12, 12, 31, 11) / 1000;    // kamerabilden: bara batterihistoriken täcker tiden
 const TS2 = Date.UTC(2026, 4, 22, 10, 24, 58) / 1000;   // bilden i chattappen: SSRM täcker tiden
 const TS3 = Date.UTC(2026, 8, 30, 7, 44, 50) / 1000;    // batterihistorikens klocka flyttades
+const TS_OFF = Date.UTC(2026, 9, 7, 8, 0, 0) / 1000;    // telefonen avstängd enligt eRR.p
+const TS_BFU = Date.UTC(2026, 9, 11, 8, 0, 0) / 1000;   // igång, inte upplåst sedan start
+const TS_NEAR = Date.UTC(2026, 9, 10, 6, 0, 20) / 1000; // strax efter en start
 const CHAT = 'org.example.chat';
 
 // external.db med raderna som Härkomst frågar efter.
 function mediaStoreDb(SQL) {
     const db = new SQL.Database();
     db.run('CREATE TABLE files (_id INTEGER PRIMARY KEY, _data TEXT, _display_name TEXT, relative_path TEXT, mime_type TEXT, owner_package_name TEXT, datetaken INTEGER, date_added INTEGER, date_modified INTEGER, is_trashed INTEGER, is_pending INTEGER, _size INTEGER)');
-    [[1, '20260312_133111.jpg', 'DCIM/Camera/', 'com.sec.android.app.camera', TS], [2, 'chatt_kamera.jpg', 'Pictures/Chatten/', CHAT, TS2], [3, '20260930_094450.jpg', 'DCIM/Camera/', 'com.sec.android.app.camera', TS3]].forEach(([id, name, dir, owner, t]) => {
+    [[1, '20260312_133111.jpg', 'DCIM/Camera/', 'com.sec.android.app.camera', TS], [2, 'chatt_kamera.jpg', 'Pictures/Chatten/', CHAT, TS2], [3, '20260930_094450.jpg', 'DCIM/Camera/', 'com.sec.android.app.camera', TS3],
+        [4, '20261007_100000.jpg', 'DCIM/Camera/', 'com.sec.android.app.camera', TS_OFF], [5, '20261011_100000.jpg', 'DCIM/Camera/', 'com.sec.android.app.camera', TS_BFU], [6, '20261010_080020.jpg', 'DCIM/Camera/', 'com.sec.android.app.camera', TS_NEAR]].forEach(([id, name, dir, owner, t]) => {
         insert(db, 'files', { _id: id, _data: '/storage/emulated/0/' + dir + name, _display_name: name, relative_path: dir, mime_type: 'image/jpeg', owner_package_name: owner, datetaken: t * 1000, date_added: t + 1, date_modified: t + 1, is_trashed: 0, is_pending: 0, _size: 1000 });
     });
     const out = db.export();
@@ -352,8 +357,35 @@ function samsungEntries(SQL, jpeg) {
         '  09-30 09:45:00.000 060 80800018 -screen',
         '  09-30 09:43:18.000 TIME: 2026-09-30-09-43-18-000',
     ].join('\n');
+    // Filen med starter och nedstängningar, och batterihistoriken som täcker tiden: nedstängd 5 oktober, start 10 oktober, första appen 12 oktober.
+    const errRows = [
+        '2026-01-10 09:00:00+0100 |    ON    | RP    | A000XXU1 [0]',
+        '2026-02-01 09:00:00+0100 | SHUTDOWN |       | REASON: no power',
+        '2023-10-12 16:49:57+0200 | SHUTDOWN |       | REASON: no power',
+        '2026-02-02 09:00:00+0100 |    ON    | RP    | A000XXU1 [0]',
+        '2026-10-05 12:00:01+0200 | SHUTDOWN |       | REASON: no power',
+        '2026-10-05 12:30:00+0000 |   LPM    |',
+        '2026-10-10 08:00:40+0200 |    ON    | RP    | A000XXU1 <b>1</b> [1]',
+    ];
+    const errFile = Buffer.concat([Buffer.from([0x4c, 0x4f, 0x47, 0x4d, errRows.length, 0, 0, 0, errRows.length - 1, 0, 0, 0]), Buffer.from('\n\n\n\n' + errRows.join('\n') + '\n', 'latin1')]);
+    const october = [
+        '  09-30 09:43:20.000 RESET:TIME: 2026-09-30-09-43-20-000',
+        '  10-05 12:00:00.000 050 04000000 stats=0:"shutdown"',
+        '  10-05 12:00:00.100 SHUTDOWN',
+        '  10-05 12:00:00.200 START',
+        '  10-10 08:00:00.000 TIME: 2026-10-10-08-00-00-000',
+        '  10-10 08:00:10.000 050 80800018 +top=1000:"com.android.settings"',
+        '  10-12 09:00:00.000 050 80800018 -top=1000:"com.android.settings"',
+        '  10-12 09:00:00.000 050 80800018 +top=u0a96:"com.sec.android.app.launcher"',
+        '  10-20 09:59:00.000 TIME: 2026-10-20-09-59-00-000',
+    ].join('\n');
     return [
         { name: 'data/data/com.android.providers.media.module/databases/external.db', data: Buffer.from(mediaStoreDb(SQL)), deflate: true },
+        { name: 'data/system/users/service/data/eRR.p', data: errFile, mtime: Date.UTC(2026, 9, 10, 6, 0, 40) / 1000 },
+        { name: 'data/log/batterystats/newbatterystats261020100000', data: october, mtime: Date.UTC(2026, 9, 20, 8, 0, 0) / 1000 },
+        { name: 'data/media/0/DCIM/Camera/20261007_100000.jpg', data: other('samsung-off'), mtime: TS_OFF + 1 },
+        { name: 'data/media/0/DCIM/Camera/20261011_100000.jpg', data: other('samsung-bfu'), mtime: TS_BFU + 1 },
+        { name: 'data/media/0/DCIM/Camera/20261010_080020.jpg', data: other('samsung-near'), mtime: TS_NEAR + 1 },
         { name: 'data/media/0/DCIM/Camera/20260312_133111.jpg', data: other('samsung-1'), mtime: TS + 1 },
         { name: 'data/media/0/Pictures/Chatten/chatt_kamera.jpg', data: other('samsung-2'), mtime: TS2 + 1 },
         { name: 'data/media/0/DCIM/Camera/20260930_094450.jpg', data: other('samsung-3'), mtime: TS3 + 1 },

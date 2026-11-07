@@ -29,5 +29,13 @@
     "signalCamera": { "name": "part3413830337896181889.mms", "T": "2026-11-06T15:02:05+01:00", "note": "Signals krypterade bilaga: T är filens ändringstid" },
     "signalAttached": { "name": "part1501464198839346640.mms", "T": "2026-11-06T15:03:03+01:00", "note": "Signals krypterade bilaga: T är filens ändringstid" },
     "snapchat": { "name": "4B5817F5011B937377BAE43EF9764989.posted_story_snap.1", "T": "2026-11-06T15:07:01.019+01:00", "capturedInMemories": "2026-11-06T15:07:01.218+01:00" }
+  },
+  "power": {
+    "note": "Ur eRR.p på samma telefon, jämfört med batterihistoriken och SSRM. Sessionen har ingen fil som hamnar i de spannen, så filer med en ändringstid där prövar läget.",
+    "rows": 98,
+    "clockLost": 3,
+    "notUnlocked": { "name": "ewlog2_20260630_045320406388.log", "T": "2026-06-30T02:53:30Z", "from": "2026-05-25T10:50:29Z", "to": "2026-08-04T08:45:40Z" },
+    "maybeOff": { "name": "omcnw_code.dat", "T": "2026-03-12T09:21:15Z", "from": "2026-02-27T11:08:58Z", "to": "2026-03-12T09:38:40Z" },
+    "lockedThreeDays": { "name": "aboxlong.log", "T": "2026-09-30T14:27:10Z", "from": "2026-09-30T14:15:08Z", "to": "2026-10-03T14:15:08Z" }
   }
 }

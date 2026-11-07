@@ -245,6 +245,11 @@
                     <td>App i förgrunden, skärm, kamera (på nyare Android med appens uid) och GPS, ofta månader bakåt. Text. Tiden räknas från raderna <code>TIME:</code> och kan ligga minuter fel i ett avsnitt. Härkomst läser den och märker sådana avsnitt.</td>
                 </tr>
                 <tr>
+                    <td>Starter och nedstängningar (Samsung)</td>
+                    <td><code>/data/system/users/service/data/eRR.p</code></td>
+                    <td>Varje start, omstart och nedstängning med orsak och zon, ofta år bakåt. Text. Omstartsorsaken <code>device_locked_3days</code> betyder tre dygn utan upplåsning. ON-raden kan komma efter själva starten på äldre programvara. Härkomst läser den och säger om telefonen var avstängd eller inte upplåst sedan start.</td>
+                </tr>
+                <tr>
                     <td>Digital Wellbeing</td>
                     <td><code>/data/data/com.google.android.apps.wellbeing/databases/app_usage</code></td>
                     <td>App i förgrund (ACTIVITY_RESUMED). Loggar inte alltid skärmen. Queries.</td>

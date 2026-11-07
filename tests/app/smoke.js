@@ -768,7 +768,7 @@ const scenarios = [
         await c.ev(null, `document.getElementById('cb-input').dispatchEvent(new Event('change')), 1`);
         await c.waitFor(PROV, `!ProvenanceApp.busy() && document.getElementById('ex-status').textContent.includes('Testextraktion-Samsung.zip') && /databas(er)? hittades/.test(document.getElementById('ex-status').textContent)`, 60000, 'Samsung-zippen');
         const status = await c.ev(PROV, `document.getElementById('ex-status').textContent`);
-        expect(/1 SSRM-fil, 4 filer med batterihistorik/.test(status), 'Raden om loggarna: ' + status);
+        expect(/1 SSRM-fil, 5 filer med batterihistorik, eRR\.p/.test(status), 'Raden om loggarna: ' + status);
         const detail = () => c.ev(PROV, `(function(){ const m = ProvenanceApp.model(); return { factors: Object.fromEntries(m.factors.map(f => [f.id, { state: f.state, text: f.items.map(i => i.text).join(' ') }])), events: [...document.querySelectorAll('#events tbody tr')].map(r => r.textContent), sql: [...document.querySelectorAll('#sources pre.sql')].map(p => p.textContent).join(' '), sources: [...document.querySelectorAll('#sources h4')].map(h => h.textContent), kinds: m.events.map(e => e.kind + '/' + (e.stream || '')), beta: m.beta, warnings: m.warnings, narrative: m.narrative.flatMap(n => n.lines.map(l => l.text)) }; })()`);
 
         // Bara batterihistoriken täcker tiden.
@@ -808,7 +808,44 @@ const scenarios = [
         const html = await download(downloads, /^harkomst-20260930_094450-protokoll-.*\.html$/);
         expect(html.includes('tiden osäker') && html.includes('newbatterystats260930094318') && html.includes('batterihistoriken'), 'Protokollet saknar raderna');
         await noInjectedScript(c);
-        return 'batterihistoriken, SSRM och en flyttad klocka';
+
+        // eRR.p: telefonen avstängd vid T. Raden ur filen bär HTML, och skrivs ut som text.
+        const off = await assessNamed(c, '20261007_100000.jpg');
+        expect(off.f.power && off.f.power.state === 'contradiction', 'Avstängd: ' + JSON.stringify(off.f));
+        d = await detail();
+        expect(/Telefonen gick ner 2026-10-05 10:00:01 UTC \(eRR\.p: SHUTDOWN, no power \(batteriet tog slut\)\), och nästa tecken på att den var igång är 2026-10-10 06:00:00 UTC \(batterihistoriken: START, newbatterystats261020100000 rad 5\)/.test(d.factors.power.text), 'Faktorn: ' + d.factors.power.text);
+        expect(/Telefonen var avstängd vid tiden enligt eRR\.p/.test(d.factors.camera.text), 'Kamera: ' + d.factors.camera.text);
+        expect(d.events.some((r) => /Telefonen avstängd/.test(r) && /eRR\.p rad 9/.test(r)), 'Bandet: ' + d.events.join(' / '));
+        expect(d.sources.some((s) => /^eRR\.p/.test(s)), 'Källorna: ' + d.sources);
+        expect(/system\/users\/service\/data\/eRR\.p \(\d+ byte, CRC32 [0-9a-f]+\)/.test(d.sql) && /Rader med fel klocka:/.test(d.sql) && /2023-10-12 16:49:57/.test(d.sql) && /off: 2026-10-05 10:00:01 UTC/.test(d.sql), 'Bilagan: ' + d.sql.slice(-900));
+        const svgRows = await c.ev(PROV, `[...document.querySelectorAll('#timelines svg text, #timeline svg text')].map(t => t.textContent).join(' | ')`);
+        expect(/Telefonen/.test(svgRows) && /avstängd/i.test(svgRows), 'Tidslinjen: ' + svgRows.slice(0, 400));
+        const summary = await c.ev(PROV, `document.getElementById('summary').textContent`);
+        expect(/inte förenligt med att bilden togs/.test(summary), 'Sammanvägningen: ' + summary);
+
+        // Igång men inte upplåst: skärmen före upplåsningen är ingen app.
+        const bfu = await assessNamed(c, '20261011_100000.jpg');
+        expect(bfu.f.power && bfu.f.power.state === 'contradiction', 'Inte upplåst: ' + JSON.stringify(bfu.f));
+        d = await detail();
+        expect(/Telefonen startade 2026-10-10 06:00:00 UTC .* och låstes upp första gången 2026-10-12 07:00:00 UTC \(batterihistoriken: första appen efter starten, com\.sec\.android\.app\.launcher/.test(d.factors.power.text), 'Faktorn: ' + d.factors.power.text);
+        expect(!d.kinds.includes('app/batterihistoriken'), 'Skärmen före upplåsningen står som en app: ' + d.kinds);
+        expect(d.kinds.includes('lock/eRR.p'), 'Låset: ' + d.kinds);
+        expect(d.factors.app.state === 'missing' && /hade inte låsts upp sedan start/.test(d.factors.app.text), 'App: ' + JSON.stringify(d.factors.app));
+
+        // Strax efter starten går det inte att säga vilken sida tiden hör till, och raden står i händelserna och förklaringen.
+        const near = await assessNamed(c, '20261010_080020.jpg');
+        expect(near.f.power && near.f.power.state === 'info', 'Nära: ' + JSON.stringify(near.f));
+        d = await detail();
+        expect(/nära starten 2026-10-10 06:00:00 UTC/.test(d.factors.power.text), 'Faktorn: ' + d.factors.power.text);
+        expect(d.events.some((r) => /Telefonen startar \(eRR\.p: ON\)/.test(r) && /eRR\.p rad 11/.test(r) && /<b>1<\/b>/.test(r)), 'Raden: ' + d.events.join(' / '));
+        expect(d.narrative.includes('Telefonen startar'), 'Förklaringen: ' + d.narrative);
+        await noInjectedScript(c);
+
+        fs.readdirSync(downloads).filter((n) => /^harkomst-20261010_080020-protokoll-/.test(n)).forEach((n) => fs.unlinkSync(path.join(downloads, n)));
+        await c.ev(PROV, `document.getElementById('save-protocol').click(), 1`);
+        const nearHtml = await download(downloads, /^harkomst-20261010_080020-protokoll-.*\.html$/);
+        expect(nearHtml.includes('Telefonen igång') && nearHtml.includes('Nära en omstart') && nearHtml.includes('eRR.p rad 11') && !nearHtml.includes('<b>1</b>'), 'Protokollet saknar raden, eller skriver den som HTML');
+        return 'batterihistoriken, SSRM, en flyttad klocka och eRR.p';
     }],
 ];
 

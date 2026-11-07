@@ -398,3 +398,37 @@ test('skärm, lås och app ur flera källor ovanpå varandra: texten står en g�
     // Band som bara rör vid varandra möts inte.
     assert.strictEqual(labelsOf(svgOf({ screen: [on(-6, 0, 'a'), on(0, 6, 'a')] }), 'tänd').length, 2);
 });
+
+test('raden Telefonen: bara när eRR.p säger något, med bandet och raderna', () => {
+    const w = { id: 'T', startMs: 0, endMs: 3600000, centerMs: 1800000, closeup: { startMs: 900000, endMs: 2700000 }, label: 'när filen skapades' };
+    const base = { platform: 'Android', file: { filename: 'a.jpg', createdMs: 1800000 }, type: { type: 'camera' }, windows: [w], moments: [], factors: [], events: [], positions: [] };
+    const row = (m) => tl.rowsFor(m).find((r) => r.id === 'power');
+    assert.ok(!row(base), 'igång som vanligt ger ingen rad');
+    const factor = { id: 'power', title: 'Telefonen igång', state: 'contradiction', verdict: 'Avstängd', items: [], plain: '' };
+    assert.ok(row(Object.assign({}, base, { factors: [factor] })).factor === factor);
+    const off = { id: 1, kind: 'power-off', lane: 'power', ms: 600000, endMs: 3000000, stream: 'eRR.p', text: 'Telefonen avstängd', source: {} };
+    assert.ok(row(Object.assign({}, base, { events: [off] })), 'en händelse i fönstret ger raden utan faktor');
+    const unsure = Object.assign({}, off, { id: 2, unsure: true, ms: 0, endMs: 300000 });
+    const down = { id: 3, kind: 'power', lane: 'power', ms: 600000, what: 'SHUTDOWN', reason: 'no power', text: 'Telefonen stängs av', source: {} };
+    const crash = { id: 4, kind: 'power', lane: 'power', ms: 3000000, what: 'ON', crash: true, text: 'Telefonen startar om', source: {} };
+    const m = Object.assign({}, base, { factors: [factor], events: [off, unsure, down, crash] });
+    const rows = tl.rowsFor(m);
+    assert.deepStrictEqual(rows.slice(0, 3).map((r) => r.id), ['file', 'power', 'app'], 'överst, före apparna');
+    const fmt = (ms) => new Date(ms).toISOString();
+    const out = tl.svg(m, { format: fmt, appName: (a) => a, labels: true });
+    assert.ok(out.includes('>Telefonen<'), 'radens namn');
+    assert.ok(/avstängd 1970-01-01T00:10:00\.000Z – 1970-01-01T00:50:00\.000Z/.test(out), 'bandet har sin tid i texten för musen');
+    assert.ok(/kanske avstängd 1970-01-01T00:00:00\.000Z/.test(out), 'det osäkra bandet');
+    assert.ok(out.includes('Av: no power') && out.includes('Start efter krasch'), 'raderna står utskrivna');
+    assert.ok(out.includes('>Avstängd<'), 'läget vid T');
+    assert.ok(!/undefined/.test(out));
+    assert.ok(out.includes('Start eller nedstängning') && out.includes('>Avstängd<'), 'teckenförklaringen');
+    assert.ok(!tl.svg(base, { format: fmt, appName: (a) => a, labels: true }).includes('Start eller nedstängning'), 'bara när raden finns');
+    // Radens text står ovanför bandet, så att den inte hamnar ovanpå bandets egen text.
+    const y = (word) => Number(new RegExp('<text[^>]* y="([\\d.-]+)"[^>]*>(?:<tspan[^>]*>)?' + word).exec(out)[1]);
+    const closeup = tl.svg(Object.assign({}, m, { events: [off, down] }), { format: fmt, appName: (a) => a, labels: true });
+    const yIn = (word) => Number(new RegExp('<text[^>]* y="([\\d.-]+)"[^>]*>(?:<tspan[^>]*>)?' + word).exec(closeup)[1]);
+    const top = Number(/<rect x="[\d.]+" y="([\d.-]+)"[^>]*><title>avstängd /.exec(closeup)[1]);
+    assert.ok(yIn('Av: no power') < top, 'texten ovanför bandet: ' + yIn('Av: no power') + ' ' + top);
+    assert.ok(y('Av: no power') < y('avstängd'));
+});

@@ -22,6 +22,7 @@
     var STATE_LABEL = { support: 'Förenligt', contradiction: 'Inte förenligt', missing: 'Saknas', info: 'Upplysning', na: 'Inte tillämplig' };
     var ROWS = [
         { id: 'file', label: 'Fil', factor: 'time' },
+        { id: 'power', label: 'Telefonen', factor: 'power' },
         { id: 'app', label: 'App', factor: 'app' },
         { id: 'camera', label: 'Kamera', factor: 'camera' },
         { id: 'screen', label: 'Skärm', factor: 'screen' },
@@ -83,6 +84,7 @@
         var ev = model.events || [];
         return ROWS.filter(function (r) {
             if (r.id === 'file' || r.id === 'app') return true;
+            if (r.id === 'power') return !!f.power || ev.some(function (e) { return e.lane === 'power'; });
             if (r.id === 'camera') return !!f.camera;
             if (r.id === 'screen') return !!f.screen || ev.some(function (e) { return e.kind === 'screen'; });
             if (r.id === 'lock') return ev.some(function (e) { return e.kind === 'lock'; });
@@ -92,6 +94,12 @@
             if (CHATS[r.id]) return !!f[r.id] || ev.some(function (e) { return e.kind.indexOf(CHATS[r.id].prefix) === 0; });
             return false;
         }).map(function (r) { return { id: r.id, label: r.label, factor: r.factor ? f[r.factor] || null : null }; });
+    }
+
+    // Kort text för en rad ur eRR.p: vad som hände, och orsaken som den står i raden.
+    function powerLabel(e) {
+        var word = e.what === 'ON' ? (e.crash ? 'Start efter krasch' : 'Start') : e.what === 'SHUTDOWN' ? 'Av' : e.what === 'REBOOT' ? 'Omstart' : e.what === 'LPM' ? 'Laddning, avstängd' : e.what || 'Rad';
+        return e.reason ? word + ': ' + e.reason : word;
     }
 
     // Kort text för en Snapchat-händelse i närbilden. null = bara markören med sin tooltip. Meddelanden
@@ -206,6 +214,7 @@
         ev.forEach(function (e) {
             if (e.isFile) keep.add(e);
             else if (e.lane === 'file' && !e.neighbour) keep.add(e);
+            else if (e.kind === 'power') keep.add(e);
             else if (isRecording(e, T)) keep.add(e);
         });
         var snap = snapAtT(ev, T);
@@ -259,6 +268,11 @@
                 if (fsm) parts.push(Math.abs(fsm.ms - T) <= 2000 ? 'filsystemet stämmer' : 'filsystemet ' + dur(fsm.ms - T) + (fsm.ms < T ? ' före' : ' efter'));
                 var verb = tSrc === 'bildfilen' ? 'Tiden i filen' : tSrc === 'zippen' || tSrc === 'rapporten' ? 'Ändringstid' : model.type && model.type.type === 'snapchat' ? 'Registrerad' : 'Skapad';
                 return { state: st, l1: verb + (created && created.source && created.source.db ? ' · ' + created.source.db : ''), l2: parts.join(' · ') };
+            }
+            case 'power': {
+                if (factor) return { state: st, l1: factor.verdict || '', l2: '' };
+                var down = ev.find(function (e) { return e.kind === 'power-off' && covers(e, T); });
+                return down ? { state: null, l1: down.unsure ? 'kanske avstängd' : 'avstängd', l2: since(down) } : { state: null, l1: 'igång', l2: '' };
             }
             case 'app':
                 if (!running.length && factor && factor.via) return { state: st, l1: factor.via.l1, l2: factor.via.l2 };
@@ -339,6 +353,7 @@
         }
         if (row.id === 'screen') { var s = ev.find(function (e) { return e.kind === 'screen' && covers(e, T); }); return s ? (s.on ? { fill: COLORS.phone } : off) : null; }
         if (row.id === 'lock') { var l = ev.find(function (e) { return e.kind === 'lock' && covers(e, T); }); return l ? (!l.locked ? { fill: COLORS.phone } : off) : null; }
+        if (row.id === 'power') return ev.some(function (e) { return e.kind === 'power-off' && covers(e, T); }) ? off : null;
         return null;
     }
 
@@ -453,7 +468,7 @@
         // En rad med radens mitt i mid. Ger { svg, lanes }.
         function renderRow(r, mid) {
             var place = placer();
-            var overBand = r.id === 'camera';
+            var overBand = r.id === 'camera' || r.id === 'power';
             var said = [];
             var out = '', texts = '';
             function label(px, short, time, bold) {
@@ -513,6 +528,17 @@
                     var x1 = cx(e.ms), x2 = cx(e.endMs);
                     out += band(x1, x2, mid, on ? COLORS.phone : COLORS.off, word + ' ' + fmt(e.ms) + ' – ' + fmt(e.endMs), on ? null : COLORS.offStroke);
                     if (!labelElsewhere(stateBands, i, function (o) { return (r.id === 'screen' ? !!o.on : !o.locked) === on; })) texts += bandText(x1, x2, mid, [sinceText(e, word), word], on ? '#ffffff' : COLORS.text);
+                });
+            } else if (r.id === 'power') {
+                events.filter(function (e) { return e.kind === 'power-off' && e.endMs != null; }).forEach(function (e) {
+                    var word = e.unsure ? 'kanske avstängd' : 'avstängd';
+                    var x1 = cx(e.ms), x2 = cx(e.endMs);
+                    out += band(x1, x2, mid, COLORS.off, word + ' ' + fmt(e.ms) + ' – ' + fmt(e.endMs), COLORS.offStroke);
+                    texts += bandText(x1, x2, mid, [sinceText(e, word), word], COLORS.text);
+                });
+                events.filter(function (e) { return e.kind === 'power'; }).forEach(function (e) {
+                    out += faded(marker(e, x(e.ms), mid, fmt), e);
+                    if (labels && important(e)) texts += label(x(e.ms), powerLabel(e), fmtTime(fmt, e.ms), false);
                 });
             } else if (r.id === 'location') {
                 var ps = ctx.positions.filter(function (p) { return p.kind === 'phone'; });
@@ -667,6 +693,8 @@
         items.push(['▬', 'Annan app', COLORS.other]);
         if (ids.indexOf('screen') >= 0 || ids.indexOf('lock') >= 0) items.push(['▬', 'Tänd / olåst', COLORS.phone], ['▬', 'Släckt / låst / inte kameran', COLORS.offStroke]);
         if (has(function (e) { return (e.kind === 'snap-cache' && e.context === 34) || (e.kind === 'snap-memory' && e.captured); })) items.push(['●', 'Snapchats kamera', COLORS.camera]);
+        if (has(kind('power'))) items.push(['●', 'Start eller nedstängning', COLORS.file]);
+        if (has(kind('power-off'))) items.push(['▬', 'Avstängd', COLORS.offStroke]);
         if (ids.indexOf('location') >= 0) items.push(['●', 'Position', COLORS.location]);
         if (ids.indexOf('signal') >= 0) {
             if (has(function (e) { return e.kind === 'sig-message' && e.own; })) items.push(['▲', 'Skickat i Signal', COLORS.signal]);

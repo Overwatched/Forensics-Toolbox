@@ -485,10 +485,20 @@
                 text: iv.on ? 'Skärmen tänd' : 'Skärmen släckt', plain: iv.on ? 'Skärmen tänds' : 'Skärmen släcks', plainEnd: iv.on ? 'Skärmen släcks' : null, source: iv.source });
         });
         (input.lock || []).forEach(function (iv) {
-            add({ ms: iv.startMs, endMs: iv.endMs, kind: 'lock', lane: 'lock', locked: !!iv.locked, stream: iv.stream, openEnded: iv.openEnded,
-                text: iv.locked ? 'Telefonen låst' : 'Telefonen olåst', plain: iv.locked ? 'Telefonen låses' : 'Telefonen låses upp',
-                plainEnd: iv.locked ? 'Telefonen låses upp' : 'Telefonen låses', source: iv.source });
+            add({ ms: iv.startMs, endMs: iv.endMs, kind: 'lock', lane: 'lock', locked: !!iv.locked, notUnlocked: !!iv.notUnlocked, stream: iv.stream, openEnded: iv.openEnded,
+                text: iv.text || (iv.locked ? 'Telefonen låst' : 'Telefonen olåst'), plain: iv.plain !== undefined ? iv.plain : iv.locked ? 'Telefonen låses' : 'Telefonen låses upp',
+                plainEnd: iv.plainEnd !== undefined ? iv.plainEnd : iv.locked ? 'Telefonen låses upp' : 'Telefonen låses', source: iv.source });
         });
+        // Samsungs eRR.p: raderna, och tiden telefonen var avstängd.
+        if (input.power) {
+            input.power.rows.forEach(function (r) {
+                add({ ms: r.ms, kind: 'power', lane: 'power', what: r.what, reason: r.reason, crash: r.crash, stream: 'eRR.p', text: r.text, plain: r.plain, source: r.source });
+            });
+            input.power.spans.forEach(function (sp) {
+                if ((sp.kind !== 'off' && sp.kind !== 'unsure') || sp.endMs == null) return;
+                add({ ms: sp.startMs, endMs: sp.endMs, kind: 'power-off', lane: 'power', unsure: sp.kind === 'unsure', stream: 'eRR.p', text: (sp.kind === 'off' ? 'Telefonen avstängd (' : 'Telefonen kanske avstängd (') + sp.startText + ')', plain: null, source: sp.source });
+            });
+        }
         (input.locations || []).forEach(function (p) {
             add({ ms: p.ms, kind: 'location', lane: 'location', lat: p.lat, lon: p.lon, accuracy: p.accuracy, locType: p.type,
                 text: 'Position ' + p.lat.toFixed(5) + ', ' + p.lon.toFixed(5) + ' (±' + Math.round(p.accuracy) + ' m, ' + (p.type === 1 ? 'GNSS' : p.type === 4 ? 'Wi-Fi' : 'typ ' + p.type) + ')',
@@ -527,6 +537,32 @@
         return r + ' PowerLog har inga registreringar heller.';
     }
 
+    // Telefonens läge vid en tid enligt Samsungs eRR.p. Ligger tiden så nära ett skifte att loggarnas tider inte räcker
+    // för att säga vilken sida den hör till är det nearStart eller nearEnd.
+    function powerAt(input, ms) {
+        var spans = input.power ? input.power.spans : null;
+        if (!spans) return null;
+        var s = spans.find(function (x) { return x.startMs <= ms && (x.endMs == null || ms <= x.endMs); });
+        if (!s) return null;
+        var margin = MINUTE + (s.zoneMs || 0);
+        return { span: s, nearStart: ms - s.startMs <= margin, nearEnd: s.endMs != null && s.endMs - ms <= margin };
+    }
+
+    // Varför loggarna är tysta, när eRR.p kan säga det.
+    function powerNote(input, ms) {
+        var at = powerAt(input, ms);
+        if (!at) return '';
+        var s = at.span;
+        if (s.kind === 'off') return ' Telefonen var avstängd vid tiden enligt eRR.p.';
+        if (s.kind === 'bfu') return ' Telefonen hade inte låsts upp sedan start, och de här loggarna skrivs inte förrän då.';
+        if (s.kind === 'unsure') return ' Telefonen gick ner ' + formatUtc(s.startMs) + ' enligt eRR.p och kan ha varit avstängd vid tiden.';
+        var locked = (input.power.locks || []).find(function (l) { return l.threeDays && l.startMs <= ms && ms <= l.endMs; });
+        if (locked) return ' Telefonen var igång men låst: omstarten ' + formatUtc(locked.endMs) + ' kom efter tre dygn utan upplåsning (eRR.p).';
+        var boot = s.bootMs != null ? s.bootMs : s.startMs;
+        if (s.endUnknown) return ' Telefonen startade ' + formatUtc(boot) + ' enligt eRR.p. Nästa rad är en ny start ' + formatUtc(s.endMs) + ' utan nedstängning, så det syns inte när den gick ner.';
+        return ' Telefonen var igång enligt eRR.p: den startade ' + formatUtc(boot) + (s.endMs == null ? ', och ingen nedstängning står efter det.' : ' och gick ner ' + formatUtc(s.endMs) + '.');
+    }
+
     // Samsungs loggar, när de finns i extraktionen, säger inte heller något vid T.
     function samsungReason(input, ms) {
         var out = '';
@@ -539,7 +575,7 @@
                 : gap ? ' ' + k[1] + ' har inga rader från ' + formatUtc(gap.startMs) + ' till ' + formatUtc(gap.endMs) + '.'
                     : ' ' + k[1] + ' har inget om det vid tidpunkten.';
         });
-        return out;
+        return out + powerNote(input, ms);
     }
 
     // Var en kameraanvändning kommer ifrån: Androids appops (op 26) eller PowerLog på iOS, och på Samsung SSRM
@@ -1499,6 +1535,46 @@
             plain: 'Ingen av Telegrams poster pekar på filen. Telegram kodar om bilder, så en skickad bild känns bara igen på lagringsdatabasens post för bildbiblioteket, som kan saknas om cachen har tömts.' };
     }
 
+    // Var telefonen igång och upplåst sedan start vid T? Bara på Samsung, och faktorn visas bara när svaret säger något: en
+    // telefon som var igång som vanligt är inget att bedöma. En kamerabild eller skärmdump kan inte ha tagits på en avstängd
+    // telefon. En annan fil kan ha fått sin tid på en annan enhet, så där är det en upplysning.
+    function factorPower(input, type) {
+        var at = powerAt(input, input.file.createdMs);
+        if (!at) return null;
+        var s = at.span;
+        var title = 'Telefonen igång';
+        if (at.nearStart || at.nearEnd) {
+            var word = at.nearEnd ? (s.kind === 'bfu' ? 'första upplåsningen' : s.kind === 'on' ? (s.endUnknown ? 'en ny start' : 'nedstängningen') : 'starten')
+                : s.kind === 'on' ? (s.hasUnlock ? 'första upplåsningen' : 'starten') : s.kind === 'bfu' ? 'starten' : 'nedstängningen';
+            return { id: 'power', title: title, state: 'info', verdictText: 'Nära en omstart',
+                items: [{ state: 'info', text: 'Tidpunkten ligger nära ' + word + ' ' + formatUtc(at.nearEnd ? s.endMs : s.startMs) + ' (' + (at.nearEnd ? s.endText : s.startText) + '). Loggarnas tider skiljer sig något, så det går inte att säga vilken sida tiden hör till.' }],
+                plain: 'Telefonen startades om eller låstes upp första gången kring den här tiden.' };
+        }
+        if (s.kind === 'on') return null;
+        var firm = type.type === 'camera' || type.type === 'screenshot';
+        var state = firm ? 'contradiction' : 'info';
+        var copied = ' Tiden i en mottagen eller kopierad fil kan komma från en annan enhet, så det säger inte när filen kom till telefonen.';
+        var down = 'Telefonen gick ner ' + formatUtc(s.startMs) + ' (' + s.startText + ')';
+        if (s.kind === 'off') {
+            return { id: 'power', title: title, state: state, verdictText: 'Avstängd',
+                items: [{ state: state, text: down + ', och nästa tecken på att den var igång är ' + formatUtc(s.endMs) + ' (' + s.endText + '). Batterihistoriken täcker tiden och har inga rader däremellan.' }],
+                plain: 'Telefonen var avstängd vid den här tiden.' + (firm ? '' : copied) };
+        }
+        if (s.kind === 'bfu') {
+            return { id: 'power', title: title, state: state, verdictText: 'Inte upplåst',
+                items: [{ state: state, text: 'Telefonen startade ' + formatUtc(s.startMs) + ' (' + s.startText + ') och låstes upp första gången ' + formatUtc(s.endMs) + ' (' + s.endText + ').' },
+                    { state: 'info', text: 'Före första upplåsningen är appars data och telefonens bilder krypterade och kan inte skrivas. I labbet hade ingen fil under data/media, data/data eller data/user en ändringstid i sådana spann, sex stycken på drygt 180 dygn.' }],
+                plain: 'Telefonen var igång men hade inte låsts upp sedan start' + (firm ? ', så filen kan inte ha skrivits på telefonen då.' : '.' + copied) };
+        }
+        var text = s.why === 'row' ? down + ', och nästa rad är en ny nedstängning ' + formatUtc(s.endMs) + ' (' + s.endText + ') utan en start emellan. Den startade alltså någon gång däremellan, okänt när.'
+            : s.why === 'end' ? down + ', och eRR.p har inga rader efter det.'
+                : down + '. Nästa tecken på att den var igång är ' + formatUtc(s.endMs) + ' (' + s.endText + ').' +
+                    (s.why === 'clock' ? ' Däremellan står ' + s.lost.length + (s.lost.length === 1 ? ' rad' : ' rader') + ' med fel klocka, så den var igång en stund, okänt när.'
+                        : ' En start kan ligga före den raden, i labbet upp till 31 dygn på äldre programvara, och batterihistoriken saknar den här tiden.');
+        return { id: 'power', title: title, state: 'info', verdictText: 'Kanske avstängd', items: [{ state: 'info', text: text }],
+            plain: 'Telefonen gick ner ' + formatUtc(s.startMs) + ', och det går inte att säga när den startade igen. Den kan ha varit avstängd vid den här tiden.' };
+    }
+
     function factorScreen(input, events) {
         var T = input.file.createdMs;
         var on = events.filter(function (e) { return e.kind === 'screen' && covers(e, T); });
@@ -1531,7 +1607,16 @@
         });
         var lockedBy = lockAt.filter(function (e) { return e.locked; }).map(function (e) { return e.stream; });
         var openBy = lockAt.filter(function (e) { return !e.locked; }).map(function (e) { return e.stream; });
-        var lockItem = lockedBy.length && openBy.length ? { state: 'info', text: 'Källorna säger olika om låset vid tidpunkten: låst enligt ' + lockedBy.join(', ') + ', olåst enligt ' + openBy.join(', ') + '.' }
+        var notUnlocked = lockAt.some(function (e) { return e.notUnlocked; });
+        var lit0 = litBy.length > 0 && !darkBy.length;
+        // Efter en omstart på laddning står +screen ofta kvar tills telefonen låses upp, utan att någon använder den.
+        if (lit0 && notUnlocked) {
+            return { id: 'screen', title: 'Skärm', state: 'info', verdictText: 'Inte upplåst',
+                items: [{ state: 'info', text: 'Skärmen står som tänd vid tidpunkten (' + litBy.join(', ') + '), men telefonen hade inte låsts upp sedan start (eRR.p). Efter en omstart på laddning kan raden +screen stå i veckor, i labbet upp till 70 dygn. Den säger inte att någon använde telefonen.' }],
+                plain: 'Skärmen står som tänd, men telefonen hade inte låsts upp sedan start, så det visar inte att någon använde den.' };
+        }
+        var lockItem = notUnlocked ? { state: 'info', text: 'Telefonen hade inte låsts upp sedan start vid tidpunkten (eRR.p).' }
+            : lockedBy.length && openBy.length ? { state: 'info', text: 'Källorna säger olika om låset vid tidpunkten: låst enligt ' + lockedBy.join(', ') + ', olåst enligt ' + openBy.join(', ') + '.' }
             : lockAt.length ? { state: 'info', text: 'Telefonen var ' + (lockedBy.length ? 'låst' : 'olåst') + ' vid tidpunkten (' + (lockedBy.length ? lockedBy : openBy).join(', ') + '). Kameran går att starta från låsskärmen, så det avgör inget.' } : null;
         if (litBy.length && darkBy.length) {
             var mixed = [{ state: 'info', text: 'Källorna säger olika vid tidpunkten: skärmen tänd enligt ' + litBy.join(', ') + ', släckt enligt ' + darkBy.join(', ') + '. Kontrollera övergångarna i båda källorna.' }];
@@ -1560,6 +1645,7 @@
             out.push({ id: id, label: label, for: fors.filter(Boolean), against: againsts.filter(Boolean) });
         }
         var posF = factors.find(function (f) { return f.id === 'position'; });
+        var powerF = factors.find(function (f) { return f.id === 'power' && f.state === 'contradiction'; });
         // För Snapchat-media är kamerafaktorn Snapchats egen registrering, inte kameraappen i loggen.
         var camText = cam && cam.state === 'support' ? (type.type === 'snapchat' && !cam.viaLog ? 'Snapchats kamera användes för filen enligt Snapchats register.' : 'Kameran var igång vid tidpunkten.') : null;
         var copyAreas = {};
@@ -1572,7 +1658,8 @@
                 type.origin === 'received' ? 'Filen kom via Snapchat-chatten från ' + (type.who || 'ett annat konto') + ' enligt arroyo.db.' : null,
                 copyAreas.messages ? 'Exakt samma fil finns som bilaga i Meddelanden (' + copyAreas.messages.name + ').' : null,
                 copyAreas.snapchat && type.type !== 'snapchat' ? 'Exakt samma fil finns i Snapchats lagring (' + copyAreas.snapchat.name + ').' : null,
-                posF && posF.state === 'contradiction' ? posF.items.filter(function (i) { return i.state === 'contradiction'; }).map(function (i) { return i.text; }).join(' ') : null],
+                posF && posF.state === 'contradiction' ? posF.items.filter(function (i) { return i.state === 'contradiction'; }).map(function (i) { return i.text; }).join(' ') : null,
+                powerF ? powerF.plain : null],
             [type.type === 'camera' ? 'Databasen anger kameran som källa (' + type.reasons.join(', ') + ').' : null,
                 type.origin === 'recorded' ? 'Registrerad som inspelning med Snapchats kamera på den här telefonen.' : null,
                 type.origin === 'sent' ? 'Filen skickades från den här telefonen' + (type.recipient ? ' till @' + type.recipient : '') + '.' : null,
@@ -1659,7 +1746,8 @@
             var fCam = factorCamera(input, type, events, fApp);
             var fScreen = factorScreen(input, events);
             var fPos = factorPosition(input, pos, type, wins);
-            factors = [fTime, fApp, fCam, fScreen, fPos];
+            var fPower = factorPower(input, type);
+            factors = [fTime].concat(fPower ? [fPower] : [], [fApp, fCam, fScreen, fPos]);
             if (input.signal) factors.push(factorSignal(input, type));
             if (input.whatsapp) factors.push(factorWhatsApp(input, type));
             if (input.telegram) factors.push(factorTelegram(input, type));
@@ -1707,6 +1795,7 @@
     // Vad varje faktor frågar och svaret i klartext. Läget styr färgen; svaret är faktorns eget ord,
     // och meningen säger vad svaret betyder för hypotesen. Nycklarna är faktorernas rubriker.
     var FACTOR_WORDS = {
+        'Telefonen igång': { q: 'Var telefonen igång och upplåst sedan start vid T?' },
         'Skapandetid': { q: 'Hänger filens egna tider ihop?', support: 'Tiderna stämmer', contradiction: 'Tiderna går isär', info: 'Kan inte jämföras', missing: 'Tid saknas' },
         'App igång': { q: 'Var appen som skapade filen igång vid T?', support: 'Appen var igång', contradiction: 'En annan app var igång', missing: 'Inte registrerat', na: 'Frågas inte' },
         'App på skärmen': { q: 'Vilken app var på skärmen när skärmdumpen togs?', missing: 'Inte registrerat' },

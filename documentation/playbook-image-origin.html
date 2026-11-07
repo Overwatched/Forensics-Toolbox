@@ -219,6 +219,7 @@
                         <li>usagestats: <code>/data/system_ce/0/usagestats/daily/&lt;ms&gt;</code>, protobuf (Android 9+), med <code>mappings</code> på nyare versioner. App i förgrunden, skärm och låsskärm</li>
                         <li>appops: <code>/data/system/appops/discrete/</code>, binär XML. Op 26 är kameran, per app med start och längd</li>
                         <li>Samsung: SSRM (<code>com.sec.android.sdhms/ssrm_heating_N.log</code>) och batterihistoriken (<code>/data/log/batterystats/newbatterystats&lt;tid&gt;</code>), text, med app, skärm och kamera långt bakåt. Kontrollera råraden: batterihistorikens tid kan ligga minuter fel, och kameran där säger bara på nyare rader vilken app som använde den</li>
+                        <li>Samsung: <code>/data/system/users/service/data/eRR.p</code>, text, med varje start och nedstängning och orsaken. Säger om telefonen var avstängd eller inte upplåst sedan start när loggarna är tysta</li>
                         <li>Digital Wellbeing (<code>app_usage</code>) är reserv, och loggar inte alltid skärmen</li>
                     </ul>
                     <p class="tools"><a href="../tools/provenance/index.html" data-tool="tools/provenance/index.html">Härkomst</a> avkodar usagestats och appops och läser Samsungs loggar · <a href="../tools/db-queries/queries.html?db=wellbeing" data-tool="tools/db-queries/queries.html?db=wellbeing">Queries</a></p>

@@ -3,11 +3,14 @@
 // och båda ger app i förgrunden, skärm och kamera långt bakåt i tiden, där usagestats och appops inte längre räcker.
 // Formaten är kontrollerade mot en Samsung-telefon (SM-A336B, en rapport): SSRM-raderna mot rapportverktygets egna
 // tolkningar, och batterihistorikens tider mot SSRM och usagestats. Ingen DOM, ingen SQL. Testas i Node.
+// eRR.p (/data/system/users/service/data/eRR.p) är telefonens egen lista över starter och nedstängningar, med orsak.
+// Tillsammans med batterihistoriken och SSRM säger den om telefonen var avstängd, igång men inte upplåst sedan start, eller igång.
 (function (root) {
     'use strict';
 
     var SSRM_RE = /(^|\/)com\.sec\.android\.sdhms\/ssrm_heating_(\d+)\.log$/;
     var BATTERY_RE = /(^|\/)batterystats\/newbatterystats(\d{12})$/;
+    var ERR_RE = /(^|\/)system\/users\/service\/data\/eRR\.p$/;
     var MINUTE = 60000;
     var DAY = 86400000;
     var SILENCE_MS = 3600000;       // SSRM skriver flera gånger i timmen när telefonen är igång; ett längre uppehåll är ett hål i loggen
@@ -17,11 +20,14 @@
     var RAW_MAX = 220;
     var MERGE_GAP_MS = 2000;        // samma marginal som Härkomsts övriga hopslagning av täta händelser
     var RTC_NEAR_MS = MINUTE;       // [RTC] skrivs någon sekund efter en start
+    var LOCKED_MS = 72 * 3600000;   // device_locked_3days: labbet, skärmen släcktes 0–9 s före SSRM:s nedstängning minus 72 h på alla fyra raderna SSRM räcker till
+    var FALLBACK_HOME = 'com.android.settings';     // skärmen före första upplåsningen hör till Inställningar i batterihistoriken
 
     function isSsrmPath(name) { return SSRM_RE.test(String(name || '')); }
     function isBatteryPath(name) { return BATTERY_RE.test(String(name || '')); }
+    function isErrPath(name) { return ERR_RE.test(String(name || '')); }
     function keeper() {
-        return function (name) { return SSRM_RE.test(name) || BATTERY_RE.test(name); };
+        return function (name) { return SSRM_RE.test(name) || BATTERY_RE.test(name) || ERR_RE.test(name); };
     }
 
     function baseName(name) { return String(name).slice(String(name).lastIndexOf('/') + 1); }
@@ -41,7 +47,8 @@
         var ssrm = (entries || []).filter(function (e) { return isSsrmPath(e.name); }).filter(once);
         var battery = (entries || []).filter(function (e) { return isBatteryPath(e.name); }).filter(once)
             .sort(function (a, b) { return batteryNameMs(a.name) - batteryNameMs(b.name); });
-        return { ssrm: ssrm, battery: battery };
+        var err = (entries || []).filter(function (e) { return isErrPath(e.name); })[0] || null;
+        return { ssrm: ssrm, battery: battery, err: err };
     }
 
     // En egen kopia av ett namn: en delsträng håller annars hela filens text kvar i minnet så länge raden sparas.
@@ -89,7 +96,7 @@
     // loggen, en omstart eller filernas slut avslutar allt som pågår: efter det finns inga registreringar, inte samma läge.
     function parseSsrm(files) {
         var rows = ssrmRows(files);
-        var out = { apps: [], screen: [], camera: [], offsets: [], spans: [], rows: 0 };
+        var out = { apps: [], screen: [], camera: [], offsets: [], spans: [], starts: [], rows: 0 };
         var app = null;
         var screen = null;
         var cams = {};
@@ -122,6 +129,7 @@
             }
             if (!span) { span = { startLocal: r.localMs, endLocal: r.localMs }; out.spans.push(span); }
             if (r.localMs > span.endLocal) span.endLocal = r.localMs;
+            if (ver && ver[1] === 'START') out.starts.push({ localMs: r.localMs, ref: rowRef(r) });
             if (r.tag === 'RTC') {
                 var off = rtcOffset(r);
                 if (off) {
@@ -204,9 +212,13 @@
     // Kameran: nyare rader säger vem som använder den (+camera +state=10330:"camera"), och raderna +top vilket paket
     // uid:n är. Utan den uppgiften är appen den som låg i förgrunden, och det kan vara en annan: i labbet startade Snapchat
     // kameran medan frågan om behörighet låg överst.
+    // Starterna (boots) är ankaret efter START. Första upplåsningen (unlocks) är första appen överst som inte är skärmen före
+    // upplåsningen: i labbet 4–8 s före SSRM:s [VER] START på sex av sju, och på den sjunde med en klocka som bevisligen låg 160 s fel.
+    // Har batteriet varit helt slut står klockan på ett gammalt år en stund (labbet 2021 och 2023). En start eller upplåsning då
+    // får första tiden att lita på, ett ankare som inte ligger långt före de tidigare i filen.
     function parseBattery(text, name) {
         var str = String(text);
-        var out = { name: name, format: null, rows: 0, firstLocal: null, lastLocal: null, apps: [], screen: [], camera: [], segments: [] };
+        var out = { name: name, format: null, rows: 0, firstLocal: null, lastLocal: null, apps: [], screen: [], camera: [], segments: [], boots: [], unlocks: [] };
         var anchor = null;
         var prevRow = null;     // förra radens utskrivna tid
         var restarted = false;
@@ -218,6 +230,9 @@
         var uids = Object.create(null);
         var openApp = null;
         var cam = null;
+        var otherTop = false;   // en app utom skärmen före upplåsningen har legat överst sedan starten eller filens början
+        var latestAnchor = -Infinity;
+        var pendingBoot = false, pendingUnlock = null;
         function ref(line, raw) { return { file: name, line: line, raw: cutRaw(raw), seg: out.segments.length - 1 }; }
         // Tillståndsraden efter RESET:TIME: skriver läget som +screen eller -screen. Det ger ett intervall utan längd, och det säger inget.
         function pushInterval(list, iv, end, openEnded) {
@@ -274,6 +289,14 @@
                 if (seg) seg.endStep = step;
                 seg = { startLocal: at, endLocal: at, startStep: step, endStep: null, follow: null, line: lineNo, raw: cutRaw(line) };
                 out.segments.push(seg);
+                if (restarted) pendingBoot = true;
+                if (at >= latestAnchor - LARGE_STEP_MS) {
+                    if (pendingBoot) out.boots.push({ localMs: at, file: name, line: lineNo, raw: cutRaw(line), seg: out.segments.length - 1 });
+                    if (pendingUnlock) out.unlocks.push({ localMs: at, file: name, line: lineNo, raw: cutRaw(line), seg: out.segments.length - 1, app: pendingUnlock });
+                    pendingBoot = false;
+                    pendingUnlock = null;
+                }
+                if (at > latestAnchor) latestAnchor = at;
                 waitFollow = seg;
                 anchor = { localMs: at, relMs: relMs };
                 prevRow = at;
@@ -282,7 +305,11 @@
                 last = { localMs: at, ref: ref(lineNo, line) };
                 continue;
             }
-            if (rowLocal == null) continue;
+            if (rowLocal == null) {
+                // Filen börjar med en start, före första ankaret.
+                if (rest.indexOf('START') === 0) restarted = true;
+                continue;
+            }
             out.rows++;
             if (rest.indexOf('START') === 0 || rest.indexOf('SHUTDOWN') === 0) {
                 var down = rest.indexOf('SHUTDOWN') === 0;
@@ -290,6 +317,7 @@
                 scr = { on: null, since: null };
                 curTop = null;
                 restarted = true;
+                otherTop = false;
                 last = null;
                 continue;
             }
@@ -324,6 +352,11 @@
                 var topUid = uidNumber(t[2]);
                 // Uid 1000 delas av flera systemappar. Då säger uid:n inte vilken.
                 uids[topUid] = uids[topUid] === undefined || uids[topUid] === topName ? topName : null;
+                if (t[1] !== '-' && topName !== FALLBACK_HOME && !otherTop) {
+                    otherTop = true;
+                    if (rowLocal < latestAnchor - LARGE_STEP_MS) pendingUnlock = topName;
+                    else out.unlocks.push({ localMs: rowLocal, file: name, line: lineNo, raw: cutRaw(line), seg: out.segments.length - 1, app: topName });
+                }
                 if (t[1] === '-') {
                     if (openApp && openApp.app === topName) closeApp(here);
                     if (curTop === topName) curTop = null;
@@ -384,6 +417,214 @@
         var max = 0;
         for (var i = Math.max(0, a); i <= b && i < segments.length; i++) if (segments[i].clockMs > max) max = segments[i].clockMs;
         return max;
+    }
+
+    // ---------- eRR.p ----------
+
+    var ERR_ROW = /^(\d{4})-(\d\d)-(\d\d) (\d\d):(\d\d):(\d\d)([+-])(\d\d)(\d\d) \|\s*([A-Z]*)\s*(?:\|\s*([A-Z_]*)\s*(?:\|\s*(.*?))?\s*)?$/;
+    // Orsakerna som setts i labbet, i ord. Raden står alltid med, och en annan orsak står som den är.
+    var ERR_REASONS = {
+        'no power': 'batteriet tog slut',
+        userrequested: 'vald på telefonen',
+        device_locked_3days: 'låst i tre dygn',
+        recovery: 'till recovery, till exempel en uppdatering',
+        shell: 'ett kommando, oftast adb från en dator',
+    };
+
+    // Filen börjar med LOGM och antalet rader (fyra byte, minst värd först). Raderna står i skrivordning med egen zon.
+    // En rad med en tid före raden innan har fel klocka (batteriet har varit helt slut, labbet: 2023 mitt i 2026) och räknas inte.
+    function parseErr(input, name) {
+        var str = '';
+        if (typeof input === 'string') str = input;
+        else for (var b = 0; b < input.length; b++) str += String.fromCharCode(input[b]);
+        var out = { name: name, rows: [], headerRows: null, clockLost: 0 };
+        if (str.slice(0, 4) === 'LOGM' && str.length >= 8) out.headerRows = str.charCodeAt(4) + str.charCodeAt(5) * 256 + str.charCodeAt(6) * 65536 + str.charCodeAt(7) * 16777216;
+        var latest = -Infinity;
+        str.split(/\r?\n/).forEach(function (line, i) {
+            var m = ERR_ROW.exec(line);
+            if (!m) return;
+            var offsetMinutes = (m[7] === '-' ? -1 : 1) * (Number(m[8]) * 60 + Number(m[9]));
+            var localMs = Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +m[6]);
+            var what = m[10];
+            var rest = m[12] || '';
+            var reason = /^REASON: (.*?)(?: \[\d+\])?\s*$/.exec(rest);
+            var row = { ms: localMs - offsetMinutes * MINUTE, localMs: localMs, offsetMinutes: offsetMinutes, what: what, code: m[11] || '', reason: reason ? reason[1] : null,
+                crash: /\bPANIC:/.test(rest), kind: what === 'ON' ? 'on' : what === 'REBOOT' || what === 'SHUTDOWN' ? 'down' : 'other', index: out.rows.length, file: name, line: i + 1, raw: cutRaw(line) };
+            if (row.ms < latest) { row.clockLost = true; out.clockLost++; }
+            else latest = row.ms;
+            out.rows.push(row);
+        });
+        return out;
+    }
+
+    function errGood(err) { return err.rows.filter(function (r) { return !r.clockLost && r.kind !== 'other'; }); }
+
+    // Vad som måste läsas i batterihistoriken för att säga något om tiderna i fönstren: från senaste nedstängningen före
+    // fönstret till nästa rad efter det. Starten och första upplåsningen kan ligga långt från fönstret.
+    function powerRange(err, windows) {
+        var rows = errGood(err);
+        return (windows || []).map(function (w) {
+            var from = null, to = null;
+            rows.forEach(function (r) {
+                if (r.ms <= w.startMs && r.kind === 'down') from = r;
+                else if (r.ms >= w.endMs && !to) to = r;
+            });
+            return { startMs: from ? from.ms : w.startMs, endMs: to ? to.ms : w.endMs };
+        });
+    }
+
+    // Täcker batterihistoriken tiden, utan hål? cov: ur batteryCoverage.
+    function batteryCovers(cov, startMs, endMs) {
+        if (!cov || cov.firstMs == null || cov.lastMs == null || cov.firstMs > startMs || endMs > cov.lastMs) return false;
+        return !(cov.gaps || []).some(function (g) { return g.startMs < endMs && startMs < g.endMs; });
+    }
+
+    // Starterna och tecknen på första upplåsningen i UTC. Batterihistorikens rader har zonen för sitt datum, så eRR.p:s zon
+    // går först: säger raderna före och efter samma zon är den säker, också i en fil som spänner över ett byte av zon.
+    // opts: { err, battery: [parsed], zones, ssrm: parsed }
+    function powerEvidence(opts) {
+        var table = errGood(opts.err).map(function (r) { return { localMs: r.localMs, offsetMinutes: r.offsetMinutes }; });
+        var boots = [], unlocks = [];
+        (opts.battery || []).forEach(function (p) {
+            var z = (opts.zones || {})[baseName(p.name)];
+            var utc = function (x) {
+                var viaErr = zoneAt(table, x.localMs);
+                var zone = viaErr && !viaErr.unsureMs ? viaErr : batteryZoneAt(z, x.localMs) || viaErr;
+                // Ett steg på över en timme är att klockan ställdes, inte ett fel i den här radens tid.
+                var seg = p.segments ? p.segments[x.seg] : null;
+                var clockMs = seg && seg.clockMs <= LARGE_STEP_MS ? seg.clockMs : 0;
+                return zone ? { ms: x.localMs - zone.offsetMinutes * MINUTE, zoneMs: Math.max(zone.unsureMs, clockMs), file: x.file, line: x.line, raw: x.raw } : null;
+            };
+            (p.boots || []).forEach(function (b) { var u = utc(b); if (u) boots.push(u); });
+            (p.unlocks || []).forEach(function (b) { var u = utc(b); if (u) { u.via = 'batterihistoriken'; u.app = b.app; unlocks.push(u); } });
+        });
+        if (opts.ssrm) {
+            (opts.ssrm.starts || []).forEach(function (s) {
+                var zone = zoneAt(opts.ssrm.offsets, s.localMs);
+                if (zone) unlocks.push({ ms: s.localMs - zone.offsetMinutes * MINUTE, zoneMs: zone.unsureMs, file: s.ref.file, line: s.ref.line, raw: s.ref.raw, via: 'SSRM' });
+            });
+        }
+        var byTime = function (a, b) { return a.ms - b.ms; };
+        return { boots: boots.sort(byTime), unlocks: unlocks.sort(byTime) };
+    }
+
+    // Telefonens läge över tiden: off (avstängd), unsure (nere, men slutet går inte att säga), bfu (igång, inte upplåst sedan
+    // start) och on. Spannen läggs kant i kant.
+    // - ON-raden kan komma efter starten: på den äldre programvaran i labbet efter första upplåsningen, upp till 31 dygn. Därför
+    //   gäller batterihistorikens första rad efter START när den finns. off kräver att batterihistoriken täcker hela tiden.
+    // - bfu kräver att första upplåsningen syns: SSRM:s [VER] START utan SSRM-rader före den, eller batterihistoriken utan hål från starten.
+    // opts: { err, boots, unlocks, covered: function (startMs, endMs), ssrmSpans: [{ startMs }] }
+    function powerSpans(opts) {
+        var err = opts.err;
+        var good = errGood(err);
+        var stream = good.map(function (r) { return { ms: r.ms, order: r.kind === 'down' ? 0 : 2, row: r }; })
+            .concat((opts.boots || []).map(function (b) { return { ms: b.ms, order: 1, boot: b }; }))
+            .sort(function (a, b) { return a.ms - b.ms || a.order - b.order; });
+        var covered = opts.covered || function () { return false; };
+        var out = [];
+        var cur = null;
+        function nextRow(row) { return good.find(function (r) { return r.index > row.index; }) || null; }
+        function pushDown(d, next) {
+            var after = nextRow(d.down);
+            var lost = err.rows.filter(function (r) { return r.clockLost && r.index > d.down.index && (!after || r.index < after.index); });
+            var why = !next ? 'end' : next.row && next.row.kind === 'down' ? 'row' : lost.length ? 'clock' : !covered(d.ms, next.ms) ? 'battery' : null;
+            out.push({ kind: why ? 'unsure' : 'off', why: why, startMs: d.ms, endMs: next ? next.ms : null, zoneMs: next && next.boot ? next.boot.zoneMs || 0 : 0, down: d.down, up: next ? next.row || next.boot : null, lost: lost });
+        }
+        function pushUp(u, next) {
+            var end = next ? next.ms : null;
+            var first = (opts.unlocks || []).find(function (e) { return e.ms > u.since && (end == null || e.ms < end); }) || null;
+            var claim = first && first.ms > u.ms && (first.via === 'SSRM'
+                ? !(opts.ssrmSpans || []).some(function (s) { return s.startMs >= u.ms && s.startMs < first.ms; })
+                : covered(u.ms, first.ms));
+            var zoneMs = Math.max(u.boot ? u.boot.zoneMs || 0 : 0, first ? first.zoneMs || 0 : 0);
+            if (claim) out.push({ kind: 'bfu', startMs: u.ms, endMs: first.ms, zoneMs: zoneMs, boot: u.boot || u.on, on: u.on, unlock: first });
+            out.push({ kind: 'on', startMs: claim ? first.ms : u.ms, endMs: end, zoneMs: zoneMs, boot: u.boot || u.on, on: u.on, unlock: claim ? first : null, end: next ? next.row || next.boot : null, endUnknown: !!next && !(next.row && next.row.kind === 'down') });
+        }
+        function close(next) {
+            if (cur) { if (cur.down) pushDown(cur, next); else pushUp(cur, next); }
+        }
+        // Tecken på upplåsning räknas från nedstängningen, inte från ON-raden: en ON-rad kan komma efter upplåsningen.
+        stream.forEach(function (it) {
+            if (it.row && it.row.kind === 'down') {
+                close(it);
+                cur = { down: it.row, ms: it.ms };
+                return;
+            }
+            if (!it.boot && cur && cur.boot && !cur.on) { cur.on = it.row; return; }
+            var since = cur && cur.down ? cur.ms : it.ms;
+            close(it);
+            cur = it.boot ? { boot: it.boot, ms: it.ms, on: null, since: since } : { on: it.row, ms: it.ms, since: since };
+        });
+        close(null);
+        return out;
+    }
+
+    function errRowText(r) {
+        var plain = r.reason ? ERR_REASONS[r.reason] : null;
+        return 'eRR.p: ' + (r.what || r.code) + (r.reason ? ', ' + r.reason + (plain ? ' (' + plain + ')' : '') : '') + (r.crash ? ', efter en krasch' : '');
+    }
+
+    function evidenceText(e) {
+        if (e.what !== undefined) return errRowText(e);
+        if (e.via === 'SSRM') return 'SSRM: [VER] START, ' + e.file + ' rad ' + e.line;
+        if (e.via) return 'batterihistoriken: första appen efter starten, ' + e.app + ', ' + e.file + ' rad ' + e.line;
+        return 'batterihistoriken: START, ' + e.file + ' rad ' + e.line;
+    }
+
+    function evidenceSource(e) {
+        var db = e.what !== undefined ? 'eRR.p' : e.via === 'SSRM' ? 'SSRM' : 'batterihistoriken';
+        var query = db === 'eRR.p' ? 'err-p' : db === 'SSRM' ? 'ssrm-heating' : 'batterystats-history';
+        return { db: db, table: e.file + ' rad ' + e.line, column: e.raw, queryId: query };
+    }
+
+    function overlapsAny(windows, startMs, endMs) {
+        return (windows || []).some(function (w) { return startMs <= w.endMs && (endMs == null ? startMs : endMs) >= w.startMs; });
+    }
+
+    // Skärmen före första upplåsningen heter Inställningar i batterihistoriken, men ingen har öppnat Inställningar.
+    function dropFallbackHome(rows, spans) {
+        return (rows || []).filter(function (r) {
+            if (r.app !== FALLBACK_HOME || r.stream !== 'batterihistoriken') return true;
+            return !(spans || []).some(function (s) { return s.kind === 'bfu' && s.startMs - MINUTE <= r.startMs && r.endMs <= s.endMs + MINUTE; });
+        });
+    }
+
+    // Det Härkomst behöver för fönstren: spannen med sina texter, raderna som händelser och låsta intervall.
+    // opts: som powerSpans, och windows.
+    function collectPower(opts) {
+        var windows = opts.windows;
+        var spans = powerSpans(opts).filter(function (s) { return overlapsAny(windows, s.startMs, s.endMs); }).map(function (s) {
+            var out = { kind: s.kind, why: s.why || null, startMs: s.startMs, endMs: s.endMs, zoneMs: s.zoneMs || 0 };
+            var from = s.down || s.boot;
+            var to = s.kind === 'bfu' ? s.unlock : s.up || s.end || null;
+            out.startText = from ? evidenceText(from) : '';
+            out.endText = to ? evidenceText(to) : '';
+            out.hasUnlock = !!s.unlock;
+            out.endUnknown = !!s.endUnknown;
+            if (s.kind === 'on' && s.boot) { out.bootMs = s.boot.ms; out.bootText = evidenceText(s.boot); }
+            if (s.lost && s.lost.length) out.lost = s.lost.map(function (r) { return r.raw; });
+            out.source = evidenceSource(from || to);
+            return out;
+        });
+        var rows = opts.err.rows.filter(function (r) { return !r.clockLost && (r.kind !== 'other' || r.what) && overlapsAny(windows, r.ms, r.ms); }).map(function (r) {
+            var word = r.what === 'ON' ? (r.crash ? 'Telefonen startar om efter en krasch' : 'Telefonen startar')
+                : r.what === 'SHUTDOWN' ? 'Telefonen stängs av' : r.what === 'REBOOT' ? 'Telefonen startar om'
+                    : r.what === 'LPM' ? 'Telefonen laddas avstängd' : r.what === 'PLATFORM' ? 'Androids system startar om' : 'Telefonen: ' + r.what;
+            var plain = r.reason ? ERR_REASONS[r.reason] : null;
+            return { ms: r.ms, what: r.what, reason: r.reason, crash: r.crash, text: word + ' (' + errRowText(r) + ')', plain: word + (plain ? ': ' + plain : ''), source: evidenceSource(r) };
+        });
+        // Inte upplåst sedan start, och de tre dygnen före en omstart med device_locked_3days.
+        var locks = [];
+        powerSpans(opts).forEach(function (s) {
+            if (s.kind === 'bfu' && overlapsAny(windows, s.startMs, s.endMs)) {
+                locks.push({ startMs: s.startMs, endMs: s.endMs, locked: true, notUnlocked: true, stream: 'eRR.p', text: 'Telefonen inte upplåst sedan start (' + evidenceText(s.boot) + '; ' + evidenceText(s.unlock) + ')', plain: null, plainEnd: 'Telefonen låses upp första gången', source: evidenceSource(s.boot) });
+            }
+        });
+        errGood(opts.err).forEach(function (r) {
+            if (r.reason !== 'device_locked_3days' || !overlapsAny(windows, r.ms - LOCKED_MS, r.ms)) return;
+            locks.push({ startMs: r.ms - LOCKED_MS, endMs: r.ms, locked: true, threeDays: true, stream: 'eRR.p', text: 'Telefonen låst i tre dygn före omstarten (' + errRowText(r) + ')', plain: 'Telefonen låses', plainEnd: null, source: evidenceSource(r) });
+        });
+        return { spans: spans, rows: rows, locks: locks, file: opts.err.name };
     }
 
     // Filen skrivs när historiken nollställs, så den täcker tiden från förra filens namn till sitt eget. Tiderna är lokala
@@ -564,7 +805,8 @@
             if (!i || !p || p.firstLocal == null) return;
             var from = utc(list[i - 1], batteryNameMs(list[i - 1].name));
             var to = utc(e, p.firstLocal);
-            if (from != null && to != null && to - from > MINUTE) gaps.push({ startMs: from, endMs: to });
+            // Jämförs i lokal tid: raderna har zonen för sitt datum, så ett byte av zon mellan två filer är inget hål.
+            if (from != null && to != null && p.firstLocal - batteryNameMs(list[i - 1].name) > MINUTE) gaps.push({ startMs: from, endMs: to });
         });
         var first = list.length ? parsed[baseName(list[0].name)] : null;
         return {
@@ -578,6 +820,7 @@
         isSsrmPath: isSsrmPath, isBatteryPath: isBatteryPath, keeper: keeper, sortEntries: sortEntries, batteryNameMs: batteryNameMs,
         parseSsrm: parseSsrm, parseBattery: parseBattery, zoneAt: zoneAt, pickBattery: pickBattery, fileOffset: fileOffset, batteryZones: batteryZones, batteryZoneAt: batteryZoneAt,
         collect: collect, ssrmCoverage: ssrmCoverage, batteryCoverage: batteryCoverage, baseName: baseName, CLOCK_LIMIT_MS: CLOCK_LIMIT_MS, SSRM: 'SSRM', BATTERY: 'batterihistoriken',
+        isErrPath: isErrPath, parseErr: parseErr, powerRange: powerRange, batteryCovers: batteryCovers, powerEvidence: powerEvidence, powerSpans: powerSpans, collectPower: collectPower, dropFallbackHome: dropFallbackHome, spansUtc: spansUtc,
     };
     if (typeof module !== 'undefined' && module.exports) module.exports = api;
     else root.ProvenanceSamsungLogs = api;
