@@ -37,5 +37,17 @@
     "notUnlocked": { "name": "ewlog2_20260630_045320406388.log", "T": "2026-06-30T02:53:30Z", "from": "2026-05-25T10:50:29Z", "to": "2026-08-04T08:45:40Z" },
     "maybeOff": { "name": "omcnw_code.dat", "T": "2026-03-12T09:21:15Z", "from": "2026-02-27T11:08:58Z", "to": "2026-03-12T09:38:40Z" },
     "lockedThreeDays": { "name": "aboxlong.log", "T": "2026-09-30T14:27:10Z", "from": "2026-09-30T14:15:08Z", "to": "2026-10-03T14:15:08Z" }
+  },
+  "zone": {
+    "note": "persist.sys.timezone i /data/property/persistent_properties. Zonerna i loggarna: eRR.p:s rader, SSRM:s [RTC] och batterifilernas namn mot ändringstid. Starten 9 oktober ur batterihistoriken (newbatterystats261106145528, filen över sommartidens slut), 64 s före eRR.p:s ON 06:40:41Z.",
+    "name": "Europe/Stockholm",
+    "observations": 344,
+    "files": 40,
+    "file": { "name": "ewlog3_20261009_083940911116.log", "T": "2026-10-15T12:34:59Z", "boot": "2026-10-09T06:39:37.412Z" }
+  },
+  "screenshots": {
+    "note": "Fyra skärmdumpar 2026-09-30 har Captured_App_Info i Samsungs bilaga sist i JPEG-filen, alla com.solflare.mobile, och SSRM har Solflare överst 07:46:23–07:47:53Z. Den äldre från 2025-11-13 har appens namn i filnamnet; ingen logg räcker tillbaka dit.",
+    "trailer": { "name": "Screenshot_20260930_094637.jpg", "component": "com.solflare.mobile/.MainActivity" },
+    "label": { "name": "Screenshot_20251113-074800_Instagram.jpg" }
   }
 }

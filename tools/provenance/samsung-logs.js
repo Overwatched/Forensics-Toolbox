@@ -11,6 +11,7 @@
     var SSRM_RE = /(^|\/)com\.sec\.android\.sdhms\/ssrm_heating_(\d+)\.log$/;
     var BATTERY_RE = /(^|\/)batterystats\/newbatterystats(\d{12})$/;
     var ERR_RE = /(^|\/)system\/users\/service\/data\/eRR\.p$/;
+    var PROPS_RE = /(^|\/)property\/persistent_properties$/;
     var MINUTE = 60000;
     var DAY = 86400000;
     var SILENCE_MS = 3600000;       // SSRM skriver flera gånger i timmen när telefonen är igång; ett längre uppehåll är ett hål i loggen
@@ -26,8 +27,9 @@
     function isSsrmPath(name) { return SSRM_RE.test(String(name || '')); }
     function isBatteryPath(name) { return BATTERY_RE.test(String(name || '')); }
     function isErrPath(name) { return ERR_RE.test(String(name || '')); }
+    function isPropsPath(name) { return PROPS_RE.test(String(name || '')); }
     function keeper() {
-        return function (name) { return SSRM_RE.test(name) || BATTERY_RE.test(name) || ERR_RE.test(name); };
+        return function (name) { return SSRM_RE.test(name) || BATTERY_RE.test(name) || ERR_RE.test(name) || PROPS_RE.test(name); };
     }
 
     function baseName(name) { return String(name).slice(String(name).lastIndexOf('/') + 1); }
@@ -48,7 +50,144 @@
         var battery = (entries || []).filter(function (e) { return isBatteryPath(e.name); }).filter(once)
             .sort(function (a, b) { return batteryNameMs(a.name) - batteryNameMs(b.name); });
         var err = (entries || []).filter(function (e) { return isErrPath(e.name); })[0] || null;
-        return { ssrm: ssrm, battery: battery, err: err };
+        var props = (entries || []).filter(function (e) { return isPropsPath(e.name); })[0] || null;
+        return { ssrm: ssrm, battery: battery, err: err, props: props };
+    }
+
+    // ---------- Telefonens zon ----------
+
+    // /data/property/persistent_properties är en protobuf med en post per egenskap (fält 1), med namnet i fält 1 och värdet
+    // i fält 2. persist.sys.timezone är telefonens zon som IANA-namn, till exempel Europe/Stockholm. null utan en sådan.
+    function readZoneProperty(bytes) {
+        var b = bytes || [];
+        function varint(i) {
+            var v = 0, mul = 1, c;
+            do { if (i >= b.length) return null; c = b[i++]; v += (c & 0x7f) * mul; mul *= 128; } while (c & 0x80);
+            return { v: v, i: i };
+        }
+        function fields(from, to) {
+            var out = [], i = from;
+            while (i < to) {
+                var k = varint(i);
+                if (!k) return out;
+                i = k.i;
+                var wire = k.v % 8;
+                if (wire === 0) { var x = varint(i); if (!x) return out; i = x.i; }
+                else if (wire === 2) {
+                    var n = varint(i);
+                    if (!n || n.i + n.v > to) return out;
+                    out.push({ no: Math.floor(k.v / 8), from: n.i, to: n.i + n.v });
+                    i = n.i + n.v;
+                } else if (wire === 1) i += 8;
+                else if (wire === 5) i += 4;
+                else return out;
+            }
+            return out;
+        }
+        function text(f) { var s = ''; for (var i = f.from; i < f.to; i++) s += String.fromCharCode(b[i]); return s; }
+        var found = null;
+        fields(0, b.length).forEach(function (rec) {
+            if (rec.no !== 1 || found) return;
+            var inner = fields(rec.from, rec.to);
+            var name = inner.filter(function (f) { return f.no === 1; })[0];
+            var value = inner.filter(function (f) { return f.no === 2; })[0];
+            if (name && value && text(name) === 'persist.sys.timezone') found = text(value);
+        });
+        return found && /^([A-Za-z_]+(\/[A-Za-z0-9_+-]+)+|UTC|GMT)$/.test(found) ? found : null;
+    }
+
+    function offsetVia(fmt, utcMs) {
+        var p = {};
+        fmt.formatToParts(new Date(utcMs)).forEach(function (x) { p[x.type] = x.value; });
+        var asUtc = Date.UTC(+p.year, +p.month - 1, +p.day, +p.hour % 24, +p.minute, +p.second);
+        return Math.round((asUtc - Math.floor(utcMs / 1000) * 1000) / MINUTE);
+    }
+
+    // Zonens regler som en tabell över skiften 2005–2040, byggd med Intl en gång per zon. Med den räknas en lokal tid om
+    // med den förskjutning som gällde just då, sommartid eller vintertid. null när zonen är okänd.
+    var rulesCache = {};
+    function zoneRules(name) {
+        if (!name) return null;
+        if (Object.prototype.hasOwnProperty.call(rulesCache, name)) return rulesCache[name];
+        var fmt;
+        try { fmt = new Intl.DateTimeFormat('en-US', { timeZone: name, hourCycle: 'h23', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' }); }
+        catch (e) { rulesCache[name] = null; return null; }
+        var shifts = [];
+        var from = Date.UTC(2005, 0, 1), to = Date.UTC(2040, 0, 1);
+        var first = offsetVia(fmt, from), prev = first;
+        for (var t = from + DAY; t <= to; t += DAY) {
+            var o = offsetVia(fmt, t);
+            if (o === prev) continue;
+            var lo = t - DAY, hi = t;
+            while (hi - lo > MINUTE) {
+                var mid = lo + Math.floor((hi - lo) / 2 / MINUTE) * MINUTE;
+                if (mid <= lo) mid = lo + MINUTE;
+                if (offsetVia(fmt, mid) === prev) lo = mid; else hi = mid;
+            }
+            shifts.push({ utcMs: hi, before: prev, after: o });
+            prev = o;
+        }
+        function offsetAt(utcMs) {
+            var lo = 0, hi = shifts.length;
+            while (lo < hi) { var m = (lo + hi) >> 1; if (shifts[m].utcMs <= utcMs) lo = m + 1; else hi = m; }
+            return lo === 0 ? first : shifts[lo - 1].after;
+        }
+        // Lokal tid -> möjliga UTC-tider, stigande. Två i timmen som går två gånger när sommartiden slutar, ingen i timmen
+        // som hoppas över när den börjar.
+        function candidates(localMs) {
+            var out = [];
+            [offsetAt(localMs - 14 * 3600000), offsetAt(localMs), offsetAt(localMs + 14 * 3600000)].forEach(function (off) {
+                var u = localMs - off * MINUTE;
+                if (offsetAt(u) === off && out.indexOf(u) < 0) out.push(u);
+            });
+            return out.sort(function (a, b) { return a - b; });
+        }
+        rulesCache[name] = { name: name, shifts: shifts, offsetAt: offsetAt, candidates: candidates };
+        return rulesCache[name];
+    }
+
+    // Lokala tider i den ordning de skrevs -> UTC med zonens regler. I timmen som går två gånger hör en rad till andra varvet
+    // när tiden har gått bakåt in i timmen; utan ett sådant steg går det inte att veta, och twice säger det. I timmen som
+    // hoppas över finns ingen sådan tid: då ges förskjutningen före skiftet, och twice säger att tiden är osäker.
+    function clockReader(rules) {
+        var lastLocal = null, second = false;
+        return function (localMs) {
+            var c = rules.candidates(localMs);
+            var res;
+            if (c.length === 1) { second = false; res = { ms: c[0], twice: false }; }
+            else if (c.length > 1) {
+                if (lastLocal != null && localMs < lastLocal) second = true;
+                res = { ms: second ? c[c.length - 1] : c[0], twice: !second };
+            } else res = { ms: localMs - rules.offsetAt(localMs - 14 * 3600000) * MINUTE, twice: true };
+            lastLocal = localMs;
+            return res;
+        };
+    }
+
+    // Stämmer en zon i loggen ({ localMs, offsetMinutes }) med reglerna?
+    function agrees(rules, o) { return rules.offsetAt(o.localMs - o.offsetMinutes * MINUTE) === o.offsetMinutes; }
+
+    function offsetLabel(minutes) {
+        var abs = Math.abs(minutes);
+        return 'UTC' + (minutes < 0 ? '−' : '+') + String(Math.floor(abs / 60)).padStart(2, '0') + ':' + String(abs % 60).padStart(2, '0');
+    }
+
+    // Loggarnas egna zoner mot telefonens zon: eRR.p:s rader, SSRM:s [RTC] och batterifilernas namn mot ändringstid.
+    // { agree, total, differ: [text] }, med högst fem exempel på zoner som inte stämmer.
+    function zoneCheck(rules, opts) {
+        var out = { agree: 0, total: 0, differ: [] };
+        function one(o, where) {
+            out.total++;
+            if (agrees(rules, o)) { out.agree++; return; }
+            if (out.differ.length < 5) out.differ.push(where + ' säger ' + offsetLabel(o.offsetMinutes) + ', zonen ' + offsetLabel(rules.offsetAt(o.localMs - o.offsetMinutes * MINUTE)));
+        }
+        errGood(opts.err).forEach(function (r) { one({ localMs: r.localMs, offsetMinutes: r.offsetMinutes }, 'eRR.p rad ' + r.line); });
+        (opts.ssrm ? opts.ssrm.offsets : []).forEach(function (o) { if (!o.atStart) one(o, 'SSRM [RTC] ' + new Date(o.localMs).toISOString().slice(0, 16).replace('T', ' ')); });
+        (opts.battery || []).forEach(function (e) {
+            var off = fileOffset(e);
+            if (off != null) one({ localMs: batteryNameMs(e.name), offsetMinutes: off }, baseName(e.name));
+        });
+        return out;
     }
 
     // En egen kopia av ett namn: en delsträng håller annars hela filens text kvar i minnet så länge raden sparas.
@@ -94,19 +233,29 @@
 
     // App, skärm och kamera som intervall i lokal tid. Appen slutar när skärmen släcks, som i usagestats. Ett hål i
     // loggen, en omstart eller filernas slut avslutar allt som pågår: efter det finns inga registreringar, inte samma läge.
-    function parseSsrm(files) {
+    // opts.rules: telefonens zon (zoneRules). Då får varje rad och intervall också UTC (utcMs, startUtc, endUtc) med den
+    // förskjutning som gällde vid raden, och uppehållen mäts i UTC: vårens hopp på en timme är inget hål i loggen.
+    function parseSsrm(files, opts) {
+        var rules = opts && opts.rules || null;
+        var read = rules ? clockReader(rules) : null;
         var rows = ssrmRows(files);
-        var out = { apps: [], screen: [], camera: [], offsets: [], spans: [], starts: [], rows: 0 };
+        var out = { apps: [], screen: [], camera: [], offsets: [], spans: [], starts: [], rows: 0, rules: rules ? rules.name : null };
         var app = null;
         var screen = null;
         var cams = {};
         var last = null;
         var span = null;
+        function start(r, extra) {
+            var iv = { startLocal: r.localMs, from: rowRef(r) };
+            if (r.utcMs != null) { iv.startUtc = r.utcMs; if (r.twice) iv.startTwice = true; }
+            return Object.assign(iv, extra);
+        }
         function close(iv, list, r, openEnded) {
             iv.endLocal = r.localMs;
             iv.to = rowRef(r);
+            if (r.utcMs != null) { iv.endUtc = r.utcMs; if (r.twice) iv.endTwice = true; }
             if (openEnded) iv.openEnded = true;
-            if (iv.endLocal >= iv.startLocal) list.push(iv);
+            if (iv.endUtc != null && iv.startUtc != null ? iv.endUtc >= iv.startUtc : iv.endLocal >= iv.startLocal) list.push(iv);
         }
         function closeAll(r, openEnded) {
             if (app) { close(app, out.apps, r, openEnded); app = null; }
@@ -122,26 +271,29 @@
                 return;
             }
             out.rows++;
+            if (read) { var u = read(r.localMs); r.utcMs = u.ms; r.twice = u.twice; }
             var ver = r.tag === 'VER' ? /\b(START|SHUTDOWN)\s*$/.exec(r.rest) : null;
-            if (last && (Math.abs(r.localMs - last.localMs) > SILENCE_MS || (ver && ver[1] === 'START'))) {
+            var gap = last ? (r.utcMs != null && last.utcMs != null ? r.utcMs - last.utcMs : r.localMs - last.localMs) : 0;
+            if (last && (Math.abs(gap) > SILENCE_MS || (ver && ver[1] === 'START'))) {
                 closeAll(last, true);
                 span = null;
             }
-            if (!span) { span = { startLocal: r.localMs, endLocal: r.localMs }; out.spans.push(span); }
+            if (!span) { span = { startLocal: r.localMs, endLocal: r.localMs }; if (r.utcMs != null) { span.startUtc = r.utcMs; span.endUtc = r.utcMs; } out.spans.push(span); }
             if (r.localMs > span.endLocal) span.endLocal = r.localMs;
-            if (ver && ver[1] === 'START') out.starts.push({ localMs: r.localMs, ref: rowRef(r) });
+            if (r.utcMs != null && r.utcMs > span.endUtc) span.endUtc = r.utcMs;
+            if (ver && ver[1] === 'START') out.starts.push({ localMs: r.localMs, utcMs: r.utcMs != null ? r.utcMs : null, twice: !!r.twice, ref: rowRef(r) });
             if (r.tag === 'RTC') {
                 var off = rtcOffset(r);
                 if (off) {
                     out.offsets.push(off);
                     // Raderna från starten till den första [RTC] har samma zon som den, inte zonen före starten. Skärmen tänds på
                     // de raderna, och med en zonändring medan telefonen var låst blev hela skärmraden annars osäker (labbet, 28 dagar).
-                    if (r.localMs > span.startLocal && r.localMs - span.startLocal <= RTC_NEAR_MS) out.offsets.push({ localMs: span.startLocal, offsetMinutes: off.offsetMinutes });
+                    if (r.localMs > span.startLocal && r.localMs - span.startLocal <= RTC_NEAR_MS) out.offsets.push({ localMs: span.startLocal, offsetMinutes: off.offsetMinutes, atStart: true });
                 }
             } else if (r.tag === 'PKG') {
                 if (app) close(app, out.apps, r);
                 var pkg = own(r.rest.trim());
-                app = pkg && !(screen && !screen.on) ? { startLocal: r.localMs, app: pkg, from: rowRef(r) } : null;
+                app = pkg && !(screen && !screen.on) ? start(r, { app: pkg }) : null;
             } else if (ver && ver[1] === 'SHUTDOWN') {
                 closeAll(r, false);
                 span = null;
@@ -151,17 +303,18 @@
                     var on = lcd[1] === 'ON';
                     if (screen && screen.on === on) { last = r; return; }
                     if (screen) close(screen, out.screen, r);
-                    screen = { startLocal: r.localMs, on: on, from: rowRef(r) };
+                    screen = start(r, { on: on });
                     if (!on && app) { close(app, out.apps, r); app = null; }
                 }
                 var cam = /camera running :: (true|false)\s+client : (\S+)/.exec(r.rest);
                 if (cam) {
                     var client = own(cam[2]);
                     if (cam[1] === 'true') {
-                        if (!cams[client]) cams[client] = { startLocal: r.localMs, endLocal: null, app: client, from: rowRef(r) };
+                        if (!cams[client]) cams[client] = start(r, { endLocal: null, app: client });
                     } else if (cams[client]) {
                         cams[client].endLocal = r.localMs;
                         cams[client].to = rowRef(r);
+                        if (r.utcMs != null) { cams[client].endUtc = r.utcMs; if (r.twice) cams[client].endTwice = true; }
                         out.camera.push(cams[client]);
                         delete cams[client];
                     }
@@ -179,19 +332,36 @@
     // Zonen vid en lokal tid ur en tabell av kända zoner: { offsetMinutes, unsureMs }, eller null utan någon känd zon.
     // Säger raderna före och efter olika har zonen bytts däremellan, och då vet man inte vilken sida tiden hör till.
     function zoneAt(offsets, localMs) {
+        var z = zoneLookup(offsets, localMs);
+        return z ? { offsetMinutes: z.offsetMinutes, unsureMs: z.unsureMs } : null;
+    }
+
+    // Som zoneAt, och dessutom vilka kända zoner svaret bygger på (used) och om tiden ligger långt från dem (far).
+    function zoneLookup(offsets, localMs) {
         var list = offsets || [];
         var lo = 0, hi = list.length;
         while (lo < hi) { var mid = (lo + hi) >> 1; if (list[mid].localMs <= localMs) lo = mid + 1; else hi = mid; }
         var before = lo > 0 ? list[lo - 1] : null;
         var after = lo < list.length ? list[lo] : null;
         if (!before && !after) return null;
-        if (before && before.localMs === localMs) return { offsetMinutes: before.offsetMinutes, unsureMs: 0 };
+        var used = [before, after].filter(Boolean);
+        if (before && before.localMs === localMs) return { offsetMinutes: before.offsetMinutes, unsureMs: 0, used: [before], far: false };
         if (before && after && before.offsetMinutes !== after.offsetMinutes) {
             var near = localMs - before.localMs <= after.localMs - localMs ? before : after;
-            return { offsetMinutes: near.offsetMinutes, unsureMs: Math.abs(before.offsetMinutes - after.offsetMinutes) * MINUTE };
+            return { offsetMinutes: near.offsetMinutes, unsureMs: Math.abs(before.offsetMinutes - after.offsetMinutes) * MINUTE, used: used, far: false };
         }
         var one = before || after;
-        return { offsetMinutes: one.offsetMinutes, unsureMs: Math.abs(localMs - one.localMs) > FAR_ZONE_MS && !(before && after) ? 60 * MINUTE : 0 };
+        var far = Math.abs(localMs - one.localMs) > FAR_ZONE_MS && !(before && after);
+        return { offsetMinutes: one.offsetMinutes, unsureMs: far ? 60 * MINUTE : 0, used: used, far: far };
+    }
+
+    // En tid i SSRM i UTC. SSRM skriver raden när det händer, i zonen då. Med telefonens zon (rules) räknas den om med
+    // förskjutningen just då, när loggens egna zoner närmast före och efter stämmer med den: ett byte mellan sommar- och
+    // vintertid däremellan är då inget tvivel. Annars, och långt från en känd zon, som förut. { ms, unsureMs } eller null.
+    function ssrmZone(offsets, rules, localMs, utcMs, twice) {
+        var z = zoneLookup(offsets, localMs);
+        if (rules && utcMs != null && z && !z.far && z.used.every(function (o) { return agrees(rules, o); })) return { ms: utcMs, unsureMs: twice ? 60 * MINUTE : 0 };
+        return z ? { ms: localMs - z.offsetMinutes * MINUTE, unsureMs: z.unsureMs } : null;
     }
 
     // ---------- Batterihistoriken ----------
@@ -216,11 +386,18 @@
     // upplåsningen: i labbet 4–8 s före SSRM:s [VER] START på sex av sju, och på den sjunde med en klocka som bevisligen låg 160 s fel.
     // Har batteriet varit helt slut står klockan på ett gammalt år en stund (labbet 2021 och 2023). En start eller upplåsning då
     // får första tiden att lita på, ett ankare som inte ligger långt före de tidigare i filen.
-    function parseBattery(text, name) {
+    // opts.rules: telefonens zon (zoneRules), när den stämmer med zonen då filen skrevs. Ankarna och, i den nyare formen,
+    // varje rad skrivs ut med den förskjutning som gällde vid tiden, så timmen går två gånger i oktober (labbet: 02:59:49
+    // följs av 02:00:06). Då får rader och intervall UTC (utcMs, startUtc, endUtc), och stegen vid ankarna mäts i UTC: ett
+    // byte mellan sommar- och vintertid är inget steg i klockan. I den äldre formen räknas raderna fram från ankarets UTC.
+    function parseBattery(text, name, opts) {
+        var rules = opts && opts.rules || null;
+        var read = rules ? clockReader(rules) : null;
         var str = String(text);
-        var out = { name: name, format: null, rows: 0, firstLocal: null, lastLocal: null, apps: [], screen: [], camera: [], segments: [], boots: [], unlocks: [] };
+        var out = { name: name, format: null, rows: 0, firstLocal: null, lastLocal: null, apps: [], screen: [], camera: [], segments: [], boots: [], unlocks: [], rules: rules ? rules.name : null };
         var anchor = null;
         var prevRow = null;     // förra radens utskrivna tid
+        var prevUtc = null;     // och i UTC, med zonens regler
         var restarted = false;
         var seg = null;
         var waitFollow = null;  // ankaret vars nästa rad säger om steget framåt var ett uppehåll eller en sen skrivning
@@ -234,21 +411,38 @@
         var latestAnchor = -Infinity;
         var pendingBoot = false, pendingUnlock = null;
         function ref(line, raw) { return { file: name, line: line, raw: cutRaw(raw), seg: out.segments.length - 1 }; }
+        function point(localMs, utc, twice, r) { return { localMs: localMs, utcMs: utc, twice: twice, ref: r }; }
+        function begin(p, extra) {
+            var iv = { startLocal: p.localMs, from: p.ref };
+            if (p.utcMs != null) { iv.startUtc = p.utcMs; if (p.twice) iv.startTwice = true; }
+            return Object.assign(iv, extra);
+        }
         // Tillståndsraden efter RESET:TIME: skriver läget som +screen eller -screen. Det ger ett intervall utan längd, och det säger inget.
         function pushInterval(list, iv, end, openEnded) {
             iv.endLocal = end.localMs;
             iv.to = end.ref;
+            if (end.utcMs != null) { iv.endUtc = end.utcMs; if (end.twice) iv.endTwice = true; }
             if (openEnded) iv.openEnded = true;
-            if (iv.endLocal > iv.startLocal || (list === out.camera && iv.endLocal === iv.startLocal)) list.push(iv);
+            var len = iv.startUtc != null && iv.endUtc != null ? iv.endUtc - iv.startUtc : iv.endLocal - iv.startLocal;
+            if (len > 0 || (list === out.camera && len === 0)) list.push(iv);
         }
         function closeApp(end, openEnded) { if (openApp) { pushInterval(out.apps, openApp, end, openEnded); openApp = null; } }
         function endScreen(end, openEnded) {
-            if (scr.on !== null && scr.since) pushInterval(out.screen, { startLocal: scr.since.localMs, on: scr.on, from: scr.since.ref }, end, openEnded);
+            if (scr.on !== null && scr.since) pushInterval(out.screen, begin(scr.since, { on: scr.on }), end, openEnded);
         }
         function closeAll(end, openEnded) {
             closeApp(end, openEnded);
             endScreen(end, openEnded);
             if (cam) { pushInterval(out.camera, cam, end, true); cam = null; }
+        }
+        // Ankaret i den äldre formen: tiden räknad fram från förra ankaret avgör timmen som går två gånger.
+        function anchorUtc(at, expect) {
+            var c = rules.candidates(at);
+            if (c.length === 1) return { ms: c[0], twice: false };
+            if (!c.length) return { ms: at - rules.offsetAt(at - 14 * 3600000) * MINUTE, twice: true };
+            if (expect == null) return { ms: c[0], twice: true };
+            var near = c.slice().sort(function (x, y) { return Math.abs(x - expect) - Math.abs(y - expect); });
+            return { ms: near[0], twice: Math.abs(near[1] - expect) - Math.abs(near[0] - expect) < 30 * MINUTE };
         }
         var pos = 0, lineNo = 0, n = str.length;
         var last = null;
@@ -266,6 +460,7 @@
             var relMs = rel ? Number(rel[1] || 0) * DAY + Number(rel[2] || 0) * 3600000 + Number(rel[3] || 0) * MINUTE + Number(rel[4] || 0) * 1000 + Number(rel[5] || 0) : null;
             if (!out.format) out.format = d ? 'date' : 'offset';
             var rowLocal = null;
+            var rowUtc = null, rowTwice = false;
             if (d) {
                 var refMs = anchor ? anchor.localMs : batteryNameMs(name) || 0;
                 var y = new Date(refMs).getUTCFullYear();
@@ -275,34 +470,48 @@
                 else if (refMs - rowLocal > 182 * DAY) rowLocal = Date.UTC(y + 1, +d[1] - 1, +d[2], +d[3], +d[4], +d[5], +d[6]);
             } else if (anchor) {
                 rowLocal = anchor.localMs + (relMs - anchor.relMs);
+                if (anchor.utcMs != null) { rowUtc = anchor.utcMs + (relMs - anchor.relMs); rowTwice = anchor.twice; }
             }
             var a = ANCHOR_RE.exec(rest);
             if (a) {
                 var at = Date.UTC(+a[2], +a[3] - 1, +a[4], +a[5], +a[6], +a[7], +(a[8] || 0));
+                var atUtc = null, atTwice = false;
+                if (rules) {
+                    // Efter en omstart börjar räknaren om, så tiden räknad från förra ankaret säger inget.
+                    var u = d ? read(at) : anchorUtc(at, restarted ? null : rowUtc);
+                    atUtc = u.ms;
+                    atTwice = u.twice;
+                }
                 // Steget: hur mycket ankaret skiljer sig från tiden raderna före det räknades fram till. I den äldre formen är
                 // det exakt. I den nyare är bara förra radens tid känd, så ett steg framåt kan också vara ett uppehåll i raderna.
                 var step = null;
                 if (!restarted) {
-                    if (d && prevRow != null) step = at - prevRow;
+                    if (rules) {
+                        if (d && prevUtc != null) step = atUtc - prevUtc;
+                        else if (!d && rowUtc != null) step = atUtc - rowUtc;
+                    } else if (d && prevRow != null) step = at - prevRow;
                     else if (!d && anchor) step = at - rowLocal;
                 }
                 if (seg) seg.endStep = step;
                 seg = { startLocal: at, endLocal: at, startStep: step, endStep: null, follow: null, line: lineNo, raw: cutRaw(line) };
+                if (rules) { seg.startUtc = atUtc; seg.endUtc = atUtc; }
                 out.segments.push(seg);
                 if (restarted) pendingBoot = true;
-                if (at >= latestAnchor - LARGE_STEP_MS) {
-                    if (pendingBoot) out.boots.push({ localMs: at, file: name, line: lineNo, raw: cutRaw(line), seg: out.segments.length - 1 });
-                    if (pendingUnlock) out.unlocks.push({ localMs: at, file: name, line: lineNo, raw: cutRaw(line), seg: out.segments.length - 1, app: pendingUnlock });
+                var atCmp = rules ? atUtc : at;
+                if (atCmp >= latestAnchor - LARGE_STEP_MS) {
+                    if (pendingBoot) out.boots.push({ localMs: at, utcMs: atUtc, twice: atTwice, file: name, line: lineNo, raw: cutRaw(line), seg: out.segments.length - 1 });
+                    if (pendingUnlock) out.unlocks.push({ localMs: at, utcMs: atUtc, twice: atTwice, file: name, line: lineNo, raw: cutRaw(line), seg: out.segments.length - 1, app: pendingUnlock });
                     pendingBoot = false;
                     pendingUnlock = null;
                 }
-                if (at > latestAnchor) latestAnchor = at;
+                if (atCmp > latestAnchor) latestAnchor = atCmp;
                 waitFollow = seg;
-                anchor = { localMs: at, relMs: relMs };
+                anchor = { localMs: at, relMs: relMs, utcMs: atUtc, twice: atTwice };
                 prevRow = at;
+                prevUtc = atUtc;
                 restarted = false;
-                if (scr.on === null && !scr.since) scr.since = { localMs: at, ref: ref(lineNo, line) };
-                last = { localMs: at, ref: ref(lineNo, line) };
+                if (scr.on === null && !scr.since) scr.since = point(at, atUtc, atTwice, ref(lineNo, line));
+                last = point(at, atUtc, atTwice, ref(lineNo, line));
                 continue;
             }
             if (rowLocal == null) {
@@ -310,10 +519,11 @@
                 if (rest.indexOf('START') === 0) restarted = true;
                 continue;
             }
+            if (d && rules) { var ur = read(rowLocal); rowUtc = ur.ms; rowTwice = ur.twice; }
             out.rows++;
             if (rest.indexOf('START') === 0 || rest.indexOf('SHUTDOWN') === 0) {
                 var down = rest.indexOf('SHUTDOWN') === 0;
-                if (last) closeAll(down ? { localMs: rowLocal, ref: ref(lineNo, line) } : last, !down);
+                if (last) closeAll(down ? point(rowLocal, rowUtc, rowTwice, ref(lineNo, line)) : last, !down);
                 scr = { on: null, since: null };
                 curTop = null;
                 restarted = true;
@@ -326,8 +536,10 @@
                 waitFollow = null;
             }
             prevRow = rowLocal;
+            prevUtc = rowUtc;
             if (seg && rowLocal > seg.endLocal) seg.endLocal = rowLocal;
-            var here = { localMs: rowLocal, ref: ref(lineNo, line) };
+            if (seg && rowUtc != null && rowUtc > seg.endUtc) seg.endUtc = rowUtc;
+            var here = point(rowLocal, rowUtc, rowTwice, ref(lineNo, line));
             last = here;
             if (rest.indexOf('screen') < 0 && rest.indexOf('camera') < 0 && rest.indexOf('top=') < 0) continue;
             var flags = rest.replace(/"[^"]*"/g, '""');
@@ -336,7 +548,7 @@
                 var on = sc[1] === '+';
                 if (scr.on === null) {
                     // Första övergången efter en omstart eller filens början säger vad skärmen var fram till dess.
-                    if (scr.since) pushInterval(out.screen, { startLocal: scr.since.localMs, on: !on, from: scr.since.ref }, here);
+                    if (scr.since) pushInterval(out.screen, begin(scr.since, { on: !on }), here);
                     if (on) openApp = null;
                     scr = { on: on, since: here };
                 } else if (scr.on !== on) {
@@ -354,8 +566,8 @@
                 uids[topUid] = uids[topUid] === undefined || uids[topUid] === topName ? topName : null;
                 if (t[1] !== '-' && topName !== FALLBACK_HOME && !otherTop) {
                     otherTop = true;
-                    if (rowLocal < latestAnchor - LARGE_STEP_MS) pendingUnlock = topName;
-                    else out.unlocks.push({ localMs: rowLocal, file: name, line: lineNo, raw: cutRaw(line), seg: out.segments.length - 1, app: topName });
+                    if ((rules ? rowUtc : rowLocal) < latestAnchor - LARGE_STEP_MS) pendingUnlock = topName;
+                    else out.unlocks.push({ localMs: rowLocal, utcMs: rowUtc, twice: rowTwice, file: name, line: lineNo, raw: cutRaw(line), seg: out.segments.length - 1, app: topName });
                 }
                 if (t[1] === '-') {
                     if (openApp && openApp.app === topName) closeApp(here);
@@ -363,7 +575,7 @@
                 } else {
                     curTop = topName;
                     if (openApp && openApp.app !== curTop) closeApp(here);
-                    if (!openApp && scr.on !== false) openApp = { startLocal: rowLocal, app: curTop, from: here.ref };
+                    if (!openApp && scr.on !== false) openApp = begin(here, { app: curTop });
                 }
             }
             var ca = /(?:^| )([+-])camera(?= |$)/.exec(flags);
@@ -371,10 +583,10 @@
                 var st = /(?:^| )[+-]state=([^:\s]+):"camera"/.exec(rest);
                 var camUid = st ? uidNumber(st[1]) : null;
                 if (ca[1] === '+') {
-                    if (!cam) cam = { startLocal: rowLocal, app: curTop, uid: camUid, from: here.ref };
+                    if (!cam) cam = begin(here, { app: curTop, uid: camUid });
                 } else if (cam) { pushInterval(out.camera, cam, here); cam = null; }
                 // Kameran var på redan när avsnittet började: en ny fil börjar mitt i en användning.
-                else if (seg) pushInterval(out.camera, { startLocal: seg.startLocal, app: curTop, uid: camUid, from: { file: name, line: seg.line, raw: seg.raw, seg: out.segments.length - 1 } }, here);
+                else if (seg) pushInterval(out.camera, begin(point(seg.startLocal, seg.startUtc != null ? seg.startUtc : null, false, { file: name, line: seg.line, raw: seg.raw, seg: out.segments.length - 1 }), { app: curTop, uid: camUid }), here);
             }
         }
         if (last) closeAll(last, true);
@@ -390,8 +602,12 @@
         });
         // Täckningen räknas på avsnitt med en klocka att lita på: en telefon utan nät kan ha stått på 2021 ett tag.
         var good = out.segments.filter(function (s) { return s.clockMs <= LARGE_STEP_MS; });
-        out.firstLocal = good.length ? Math.min.apply(null, good.map(function (s) { return s.startLocal; })) : null;
-        out.lastLocal = good.length ? Math.max.apply(null, good.map(function (s) { return s.endLocal; })) : null;
+        out.firstLocal = good.length ? good.reduce(function (m, s) { return Math.min(m, s.startLocal); }, Infinity) : null;
+        out.lastLocal = good.length ? good.reduce(function (m, s) { return Math.max(m, s.endLocal); }, -Infinity) : null;
+        if (rules) {
+            out.firstUtc = good.length ? good.reduce(function (m, s) { return Math.min(m, s.startUtc); }, Infinity) : null;
+            out.lastUtc = good.length ? good.reduce(function (m, s) { return Math.max(m, s.endUtc); }, -Infinity) : null;
+        }
         return out;
     }
 
@@ -487,7 +703,13 @@
         var boots = [], unlocks = [];
         (opts.battery || []).forEach(function (p) {
             var z = (opts.zones || {})[baseName(p.name)];
+            var rulesHere = byRules(z, p);
             var utc = function (x) {
+                var seg0 = p.segments ? p.segments[x.seg] : null;
+                if (rulesHere && x.utcMs != null) {
+                    var c0 = seg0 && seg0.clockMs <= LARGE_STEP_MS ? seg0.clockMs : 0;
+                    return { ms: x.utcMs, zoneMs: Math.max(x.twice ? 60 * MINUTE : 0, c0), file: x.file, line: x.line, raw: x.raw };
+                }
                 var viaErr = zoneAt(table, x.localMs);
                 var zone = viaErr && !viaErr.unsureMs ? viaErr : batteryZoneAt(z, x.localMs) || viaErr;
                 // Ett steg på över en timme är att klockan ställdes, inte ett fel i den här radens tid.
@@ -499,9 +721,10 @@
             (p.unlocks || []).forEach(function (b) { var u = utc(b); if (u) { u.via = 'batterihistoriken'; u.app = b.app; unlocks.push(u); } });
         });
         if (opts.ssrm) {
+            var sRules = ssrmRules(opts.ssrm, opts.rules);
             (opts.ssrm.starts || []).forEach(function (s) {
-                var zone = zoneAt(opts.ssrm.offsets, s.localMs);
-                if (zone) unlocks.push({ ms: s.localMs - zone.offsetMinutes * MINUTE, zoneMs: zone.unsureMs, file: s.ref.file, line: s.ref.line, raw: s.ref.raw, via: 'SSRM' });
+                var zone = ssrmZone(opts.ssrm.offsets, sRules, s.localMs, s.utcMs, s.twice);
+                if (zone) unlocks.push({ ms: zone.ms, zoneMs: zone.unsureMs, file: s.ref.file, line: s.ref.line, raw: s.ref.raw, via: 'SSRM' });
             });
         }
         var byTime = function (a, b) { return a.ms - b.ms; };
@@ -649,10 +872,12 @@
         return quarters * 15;
     }
 
-    // Zonen per fil. Raderna skrivs ut med zonen när filen skrevs, inte zonen då det hände, så SSRM:s tabell gäller bara
-    // en fil utan ändringstid. Har zonen bytts sedan förra filen spänner filen över bytet (sommartid eller en resa), och
-    // då går det inte att säga vilken sida en rad hör till. entries är sorterade och har mtimeMs.
-    function batteryZones(entries, ssrmOffsets) {
+    // Zonen per fil. Raderna skrivs ut i telefonens zon när filen skrevs, med den förskjutning som gällde vid varje rad (labbet:
+    // timmen går två gånger i oktober), inte i zonen där telefonen var när det hände. SSRM:s tabell gäller bara en fil utan
+    // ändringstid. Utan telefonens zon: har förskjutningen bytts sedan förra filen spänner filen över bytet (sommartid eller
+    // en resa), och då går det inte att säga vilken sida en rad hör till. Med telefonens zon (rules) räknas raderna om med
+    // zonens regler när förskjutningen då filen skrevs stämmer med den (rules i svaret). entries är sorterade och har mtimeMs.
+    function batteryZones(entries, ssrmOffsets, rules) {
         var out = {};
         var prev = null;
         (entries || []).forEach(function (e, i) {
@@ -662,11 +887,15 @@
             var offset = own != null ? own : viaSsrm ? viaSsrm.offsetMinutes : null;
             var unsure = viaSsrm ? viaSsrm.unsureMs : 0;
             if (prev != null && offset != null && prev !== offset) unsure = Math.max(unsure, Math.abs(prev - offset) * MINUTE);
-            out[baseName(e.name)] = { offsetMinutes: offset, unsureMs: unsure, oldest: i === 0, nameMs: nameMs };
+            var fits = !!rules && offset != null && (own != null ? rules.offsetAt(e.mtimeMs) === own : !viaSsrm.unsureMs && agrees(rules, { localMs: nameMs, offsetMinutes: offset }));
+            out[baseName(e.name)] = { offsetMinutes: offset, unsureMs: unsure, oldest: i === 0, nameMs: nameMs, rules: fits ? rules : null };
             if (offset != null) prev = offset;
         });
         return out;
     }
+
+    // En tolkad batterifil räknad med telefonens zon, som också gäller filen?
+    function byRules(z, p) { return !!(z && z.rules && p && p.rules === z.rules.name); }
 
     // Den äldsta filen har ingen fil före sig att jämföra zonen med, så rader långt före filens namn är osäkra.
     function batteryZoneAt(z, localMs) {
@@ -676,10 +905,13 @@
         return { offsetMinutes: z.offsetMinutes, unsureMs: unsure };
     }
 
-    function spansUtc(spans, offsets) {
+    // Telefonens zon för en tolkad SSRM, när den tolkades med just den zonen.
+    function ssrmRules(parsed, rules) { return rules && parsed && parsed.rules === rules.name ? rules : null; }
+
+    function spansUtc(spans, offsets, rules) {
         return (spans || []).map(function (s) {
-            var a = zoneAt(offsets, s.startLocal), b = zoneAt(offsets, s.endLocal);
-            return a && b ? { startMs: s.startLocal - a.offsetMinutes * MINUTE, endMs: s.endLocal - b.offsetMinutes * MINUTE } : null;
+            var a = ssrmZone(offsets, rules, s.startLocal, s.startUtc, false), b = ssrmZone(offsets, rules, s.endLocal, s.endUtc, false);
+            return a && b ? { startMs: a.ms, endMs: b.ms } : null;
         }).filter(Boolean);
     }
 
@@ -719,12 +951,13 @@
     //   telefonens egen logg (primary: usagestats eller Wellbeing), sedan SSRM, sist batterihistoriken. Kameran har ingen
     //   sådan ordning: där är flera oberoende källor just det undersökaren vill se.
     // - En rad vars tid är osäker hamnar i unsure och räknas inte i bedömningen.
-    // opts: { windows: [{ startMs, endMs }], ssrm, battery: [parsed], zones, primary: [{ startMs, endMs }] }
+    // opts: { windows: [{ startMs, endMs }], ssrm, battery: [parsed], zones, primary: [{ startMs, endMs }], rules }
     function collect(opts) {
         var out = { apps: [], screen: [], camera: [], unsure: [], usedSsrm: {}, usedBattery: {}, ssrmRows: [], batteryRows: [], noZone: 0 };
         var offsets = opts.ssrm ? opts.ssrm.offsets : [];
         var primary = opts.primary || [];
-        var ssrmSpans = opts.ssrm ? spansUtc(opts.ssrm.spans, offsets) : [];
+        var sRules = ssrmRules(opts.ssrm, opts.rules);
+        var ssrmSpans = opts.ssrm ? spansUtc(opts.ssrm.spans, offsets, sRules) : [];
         function inRange(startMs, endMs) { return opts.windows.some(function (w) { return startMs <= w.endMs && (endMs != null ? endMs : startMs) >= w.startMs; }); }
         function take(what, iv, stream, startMs, endMs, zoneMs) {
             var clockMs = iv.clockMs || 0;
@@ -751,11 +984,12 @@
         if (opts.ssrm) {
             [['app', opts.ssrm.apps], ['screen', opts.ssrm.screen], ['camera', opts.ssrm.camera]].forEach(function (pair) {
                 pair[1].forEach(function (iv) {
-                    var a = zoneAt(offsets, iv.startLocal);
+                    var a = ssrmZone(offsets, sRules, iv.startLocal, iv.startUtc, iv.startTwice);
                     if (!a) { out.noZone++; return; }
-                    var b = iv.endLocal != null ? zoneAt(offsets, iv.endLocal) : a;
-                    var startMs = iv.startLocal - a.offsetMinutes * MINUTE;
-                    var endMs = iv.endLocal != null ? iv.endLocal - b.offsetMinutes * MINUTE : null;
+                    var b = iv.endLocal != null ? ssrmZone(offsets, sRules, iv.endLocal, iv.endUtc, iv.endTwice) : a;
+                    if (!b) { out.noZone++; return; }
+                    var startMs = a.ms;
+                    var endMs = iv.endLocal != null ? b.ms : null;
                     if (!inRange(startMs, endMs)) return;
                     if (pair[0] !== 'camera' && inSpan(primary, startMs, endMs != null ? endMs : startMs)) return;
                     take(pair[0], iv, 'SSRM', startMs, endMs, Math.max(a.unsureMs, b.unsureMs));
@@ -765,8 +999,14 @@
         var parts = { app: [], screen: [], camera: [] };
         (opts.battery || []).forEach(function (p) {
             var z = (opts.zones || {})[baseName(p.name)];
+            var rulesHere = byRules(z, p);
             [['app', p.apps], ['screen', p.screen], ['camera', p.camera]].forEach(function (pair) {
                 pair[1].forEach(function (iv) {
+                    // Med telefonens zon är raden räknad med förskjutningen vid sin tid. Bara timmen som går två gånger är osäker.
+                    if (rulesHere && iv.startUtc != null && iv.endUtc != null) {
+                        parts[pair[0]].push(Object.assign({}, iv, { startMs: iv.startUtc, endMs: iv.endUtc, zoneMs: iv.startTwice || iv.endTwice ? 60 * MINUTE : 0 }));
+                        return;
+                    }
                     var a = batteryZoneAt(z, iv.startLocal);
                     if (!a) { out.noZone++; return; }
                     var b = batteryZoneAt(z, iv.endLocal);
@@ -786,8 +1026,8 @@
 
     // Täckningen i UTC, och hålen i den: tiden mellan två delar av SSRM-loggen (telefonen var avstängd, eller inte upplåst
     // efter en omstart: loggen ligger i appens krypterade lagring).
-    function ssrmCoverage(parsed) {
-        var list = spansUtc(parsed.spans, parsed.offsets);
+    function ssrmCoverage(parsed, rules) {
+        var list = spansUtc(parsed.spans, parsed.offsets, ssrmRules(parsed, rules));
         var gaps = [];
         list.forEach(function (s, i) { if (i && s.startMs > list[i - 1].endMs) gaps.push({ startMs: list[i - 1].endMs, endMs: s.startMs }); });
         return { firstMs: list.length ? list[0].startMs : null, lastMs: list.length ? list[list.length - 1].endMs : null, rows: parsed.rows, gaps: gaps };
@@ -798,20 +1038,33 @@
     // parsed: { filnamn: tolkad fil } för de filer som är lästa; bara deras hål är kända.
     function batteryCoverage(entries, zones, parsed) {
         var list = entries || [];
-        var utc = function (e, localMs) { var z = zones[baseName(e.name)]; return z && z.offsetMinutes != null ? localMs - z.offsetMinutes * MINUTE : null; };
+        // Filnamnets tid är lokal i zonen när filen skrevs. Med telefonens zon räknas den om med förskjutningen just då.
+        var nameUtc = function (e) {
+            var z = zones[baseName(e.name)], local = batteryNameMs(e.name);
+            if (z && z.rules) { var c = z.rules.candidates(local); if (c.length) return c[0]; }
+            return z && z.offsetMinutes != null ? local - z.offsetMinutes * MINUTE : null;
+        };
+        var firstUtc = function (e, p) {
+            var z = zones[baseName(e.name)];
+            if (byRules(z, p) && p.firstUtc != null) return p.firstUtc;
+            return z && z.offsetMinutes != null ? p.firstLocal - z.offsetMinutes * MINUTE : null;
+        };
         var gaps = [];
         list.forEach(function (e, i) {
             var p = parsed[baseName(e.name)];
             if (!i || !p || p.firstLocal == null) return;
-            var from = utc(list[i - 1], batteryNameMs(list[i - 1].name));
-            var to = utc(e, p.firstLocal);
-            // Jämförs i lokal tid: raderna har zonen för sitt datum, så ett byte av zon mellan två filer är inget hål.
-            if (from != null && to != null && p.firstLocal - batteryNameMs(list[i - 1].name) > MINUTE) gaps.push({ startMs: from, endMs: to });
+            var from = nameUtc(list[i - 1]);
+            var to = firstUtc(e, p);
+            // Med telefonens zon för båda filerna jämförs UTC. Annars lokal tid: raderna har förskjutningen för sin tid, så ett
+            // byte mellan två filer är inget hål.
+            var both = byRules(zones[baseName(e.name)], p) && zones[baseName(list[i - 1].name)] && zones[baseName(list[i - 1].name)].rules;
+            var late = both && from != null && to != null ? to - from : p.firstLocal - batteryNameMs(list[i - 1].name);
+            if (from != null && to != null && late > MINUTE) gaps.push({ startMs: from, endMs: to });
         });
         var first = list.length ? parsed[baseName(list[0].name)] : null;
         return {
-            firstMs: first && first.firstLocal != null ? utc(list[0], first.firstLocal) : null,
-            lastMs: list.length ? utc(list[list.length - 1], batteryNameMs(list[list.length - 1].name)) : null,
+            firstMs: first && first.firstLocal != null ? firstUtc(list[0], first) : null,
+            lastMs: list.length ? nameUtc(list[list.length - 1]) : null,
             gaps: gaps,
         };
     }
@@ -820,7 +1073,8 @@
         isSsrmPath: isSsrmPath, isBatteryPath: isBatteryPath, keeper: keeper, sortEntries: sortEntries, batteryNameMs: batteryNameMs,
         parseSsrm: parseSsrm, parseBattery: parseBattery, zoneAt: zoneAt, pickBattery: pickBattery, fileOffset: fileOffset, batteryZones: batteryZones, batteryZoneAt: batteryZoneAt,
         collect: collect, ssrmCoverage: ssrmCoverage, batteryCoverage: batteryCoverage, baseName: baseName, CLOCK_LIMIT_MS: CLOCK_LIMIT_MS, SSRM: 'SSRM', BATTERY: 'batterihistoriken',
-        isErrPath: isErrPath, parseErr: parseErr, powerRange: powerRange, batteryCovers: batteryCovers, powerEvidence: powerEvidence, powerSpans: powerSpans, collectPower: collectPower, dropFallbackHome: dropFallbackHome, spansUtc: spansUtc,
+        isPropsPath: isPropsPath, readZoneProperty: readZoneProperty, zoneRules: zoneRules, clockReader: clockReader, ssrmZone: ssrmZone, zoneCheck: zoneCheck, ssrmRules: ssrmRules,
+        isErrPath: isErrPath, parseErr: parseErr, ERR_REASONS: ERR_REASONS, powerRange: powerRange, batteryCovers: batteryCovers, powerEvidence: powerEvidence, powerSpans: powerSpans, collectPower: collectPower, dropFallbackHome: dropFallbackHome, spansUtc: spansUtc,
     };
     if (typeof module !== 'undefined' && module.exports) module.exports = api;
     else root.ProvenanceSamsungLogs = api;

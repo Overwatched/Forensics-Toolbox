@@ -1215,3 +1215,76 @@ test('raderna ur eRR.p är händelser, med sin mening i förklaringen', () => {
     assert.ok(e && e.lane === 'power' && e.what === 'REBOOT' && e.stream === 'eRR.p' && e.source.queryId === 'err-p');
     assert.ok(m.narrative.some((n) => n.lines.some((l) => l.text === 'Telefonen startar om: låst i tre dygn')), JSON.stringify(m.narrative.map((n) => n.lines.map((l) => l.text))));
 });
+
+// Skärmdumpen säger själv vilken app den visar (Samsung): jämförs med appen på skärmen vid T.
+function shotInput(shown, apps) {
+    const file = { filename: 'Screenshot_20260930_094637.jpg', directory: 'DCIM/Screenshots', relativePath: 'DCIM/Screenshots/', createdMs: T, addedMs: T + 1000, importer: 'com.android.systemui', mimeType: 'image/jpeg' };
+    return input({ platform: 'Android', file, exif: { read: true, takenMs: T }, screenshotApp: shown, appNames: (id) => ({ 'org.example.wallet': 'Plånboken', 'org.example.chat': 'Chatten' })[id] || null,
+        appIntervals: apps.map((a) => ({ startMs: T - 40 * S, endMs: T + 30 * S, app: a, stream: 'SSRM', source: { db: 'SSRM', table: 's rad 1', column: '[PKG] ' + a } })),
+        coverage: { SSRM: { firstMs: T - 86400 * S, lastMs: T + 86400 * S, rows: 10 } } });
+}
+const BILAGA = { package: 'org.example.wallet', component: 'org.example.wallet/.MainActivity', where: 'Captured_App_Info i Samsungs bilaga sist i filen' };
+
+test('skärmdump som säger sin app: samma app på skärmen vid T är förenligt, en annan inte', () => {
+    const same = core.build(shotInput(BILAGA, ['org.example.wallet']));
+    const app = same.factors.find((f) => f.id === 'app');
+    assert.strictEqual(same.type.type, 'screenshot');
+    assert.strictEqual(app.state, 'support');
+    assert.strictEqual(app.items[0].text, 'Skärmdumpen säger själv att den visar Plånboken (org.example.wallet/.MainActivity), enligt Captured_App_Info i Samsungs bilaga sist i filen. Plånboken var på skärmen vid tidpunkten (SSRM).');
+    assert.strictEqual(app.plain, 'Skärmdumpen visar Plånboken, och Plånboken var på skärmen när den togs.');
+    assert.strictEqual(app.question, 'Var appen som skärmdumpen visar på skärmen när den togs?');
+    assert.strictEqual(app.verdict, 'Samma app som i filen');
+    assert.ok(same.alternatives.find((a) => a.id === 'received').against.includes(app.plain));
+    const other = core.build(shotInput(BILAGA, ['org.example.chat']));
+    const f = other.factors.find((x) => x.id === 'app');
+    assert.strictEqual(f.state, 'contradiction');
+    assert.match(f.items[0].text, /Vid tidpunkten var Chatten på skärmen \(SSRM\), inte Plånboken\.$/);
+    assert.strictEqual(f.verdict, 'En annan app än i filen');
+    assert.ok(other.alternatives.find((a) => a.id === 'received').for.includes(f.plain));
+});
+
+test('skärmdump som säger sin app: namnet i filnamnet, och utan loggar säger faktorn vad filen säger', () => {
+    const byName = core.build(shotInput({ label: 'Chatten', packages: [], where: 'filnamnet, där Samsung skriver appens namn' }, ['org.example.chat']));
+    assert.strictEqual(byName.factors.find((f) => f.id === 'app').state, 'support', 'namnet stämmer med katalogens namn på appen');
+    const unknown = core.build(shotInput({ label: 'Okänd', packages: [], where: 'filnamnet, där Samsung skriver appens namn' }, ['org.example.chat']));
+    const u = unknown.factors.find((f) => f.id === 'app');
+    assert.strictEqual(u.state, 'info');
+    assert.match(u.items[0].text, /går inte att koppla till en app i katalogen/);
+    const none = core.build(shotInput(BILAGA, []));
+    const n = none.factors.find((f) => f.id === 'app');
+    assert.strictEqual(n.state, 'missing');
+    assert.ok(n.items.some((i) => i.state === 'info' && /^Skärmdumpen säger själv att den visar Plånboken/.test(i.text)));
+    // En kamerabild med samma uppgift jämförs inte: frågan gäller bara skärmdumpar.
+    const cam = core.build(input({ screenshotApp: BILAGA }));
+    assert.strictEqual(cam.factors.find((f) => f.id === 'app').shown, null);
+});
+
+// Samsungs bilaga: tagningstiden i UTC (Image_UTC_Data), jämförd med tiden i EXIF.
+test('Samsungs tagningstid i UTC: samma sekund är en upplysning, en ändrad tid i EXIF går isär', () => {
+    const exT = T - 622;
+    const time = (m) => m.factors.find((f) => f.id === 'time');
+    const same = core.build(input({ samsungUtc: { ms: exT + 300 } }));
+    const row = time(same).times.find((r) => r.id === 'file-samsung-utc');
+    assert.ok(row && row.label === 'Tagen enligt Samsungs bilaga' && row.source.column === 'Image_UTC_Data', JSON.stringify(row));
+    assert.ok(time(same).items.some((i) => i.state === 'info' && /^Samsungs bilaga sist i filen har tagningstiden .* \(Image_UTC_Data\), samma sekund som tiden i EXIF\. Kameran skriver båda/.test(i.text)));
+    assert.strictEqual(time(same).state, 'support');
+    // Tiden i EXIF har flyttats tre dygn: bilagan står kvar på tagningen.
+    const moved = core.build(input({ samsungUtc: { ms: exT + 3 * 86400000 } }));
+    assert.strictEqual(time(moved).state, 'info');
+    assert.strictEqual(time(moved).verdict, 'Tiderna går isär');
+    assert.ok(time(moved).timesSplit);
+    assert.strictEqual(time(moved).plain, 'Tiderna går isär: Samsungs bilaga i filen säger att bilden togs 3 dygn 0 h efter tiden i EXIF, så tiden i filen har ändrats i efterhand.');
+});
+
+test('Samsungs tagningstid i UTC: en timme ifrån en EXIF-tid utan zon är en zonfråga, och utan EXIF står tiden ensam', () => {
+    const time = (m) => m.factors.find((f) => f.id === 'time');
+    const ex = { read: true, takenMs: T, takenText: '2025-09-24 14:31:09', zoneAssumed: true, zoneLabel: 'Europe/Stockholm', sourceTag: 'DateTimeOriginal' };
+    const zone = core.build(input({ exif: ex, samsungUtc: { ms: T + 3600000 } }));
+    const it = time(zone).items.find((i) => /Image_UTC_Data/.test(i.text));
+    assert.ok(it && it.state === 'info' && /jämnt på kvarten\. Tiden i EXIF anger ingen zon och är tolkad i Europe\/Stockholm/.test(it.text), JSON.stringify(it));
+    assert.notStrictEqual(time(zone).verdict, 'Tiderna går isär');
+    const right = core.build(input({ exif: ex, samsungUtc: { ms: T + 200 } }));
+    assert.ok(time(right).items.some((i) => /visar att den är rätt tolkad i Europe\/Stockholm/.test(i.text)));
+    const none = core.build(input({ exif: { read: true, takenMs: null }, samsungUtc: { ms: T + 500 } }));
+    assert.ok(time(none).items.some((i) => /Filen har ingen tid i EXIF att jämföra den med\.$/.test(i.text)));
+});

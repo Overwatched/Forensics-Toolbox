@@ -676,6 +676,8 @@
             if (t.assumed) note += ' Filen anger ingen tidszon, så tiden är tolkad i ' + (t.zoneLabel || 'rapportens zon') + '.';
             add(t === main ? 'file-time' : 'file-' + t.source, t.ms, t.label, { db: 'Filen', column: t.source }, note, t === main && tInFile);
         });
+        // Samsungs bilaga sist i filen har tagningstiden i UTC, så den står alltid med.
+        if (input.samsungUtc && input.samsungUtc.ms) add('file-samsung-utc', input.samsungUtc.ms, 'Tagen enligt Samsungs bilaga', { db: 'Filen', column: 'Image_UTC_Data' }, 'Tagningstiden i UTC, i bilagan sist i filen.');
         if (!inFile.length) {
             if (ex && ex.read) absent('file-time', 'Tid i filen', 'Filen har ingen egen tid.');
             else absent('file-time', 'Tid i filen', ex && ex.notParsed ? input.fileMissingReason + '.' : 'Filen lästes inte' + (input.fileMissingReason ? ': ' + input.fileMissingReason : '') + '.');
@@ -849,6 +851,29 @@
             if (type.type === 'screenshot') items.push({ state: 'info', text: 'Filen har ingen egen tid, vilket är normalt för en skärmdump.' });
         } else if (!tInFile) {
             items.push({ state: 'info', text: ex && ex.notParsed ? input.fileMissingReason + '.' : 'Själva filen lästes inte' + (input.fileMissingReason ? ': ' + input.fileMissingReason : '') + '.' });
+        }
+        // Samsungs bilaga sist i filen: tagningstiden i UTC (Image_UTC_Data), som kameran skriver när bilden tas, liksom tiden
+        // i EXIF. Bilagan följer inte med när tiden i EXIF ändras i efterhand, så en skillnad säger att någon av dem har ändrats.
+        // I labbet låg den högst 0,94 s från tiden i EXIF på tre kamerabilder.
+        var su = input.samsungUtc;
+        if (su && su.ms) {
+            var sWhen = 'Samsungs bilaga sist i filen har tagningstiden ' + formatUtc(su.ms) + ' (Image_UTC_Data)';
+            if (ex && ex.takenMs) {
+                var sd = su.ms - ex.takenMs;
+                var sApart = Math.abs(sd) < 1000 ? 'samma sekund som tiden i EXIF' : duration(sd) + (sd < 0 ? ' före' : ' efter') + ' tiden i EXIF';
+                if (Math.abs(sd) <= SAME_TIME_MS) {
+                    items.push({ state: 'info', text: sWhen + ', ' + sApart + '.' + (ex.zoneAssumed ? ' Tiden i EXIF anger ingen zon, så det visar att den är rätt tolkad i ' + (ex.zoneLabel || 'rapportens zon') + '.' : ' Kameran skriver båda, så att de stämmer är ingen egen bekräftelse.') });
+                } else if (ex.zoneAssumed && zoneLike(sd)) {
+                    items.push({ state: 'info', text: sWhen + ', ' + sApart + ', jämnt på kvarten. Tiden i EXIF anger ingen zon och är tolkad i ' + (ex.zoneLabel || 'rapportens zon') + ', så den ska troligen tolkas i en annan zon. Bilagans tid är i UTC och beror inte på zonen.' });
+                } else {
+                    var sSplit = { state: 'info', text: sWhen + ', ' + sApart + '. Kameran skriver båda när bilden tas, och bilagan följer inte med när tiden i EXIF ändras i efterhand. Någon av tiderna har alltså ändrats, till exempel i galleriet eller med ett annat verktyg.',
+                        plain: 'Tiderna går isär: Samsungs bilaga i filen säger att bilden togs ' + sApart + ', så tiden i filen har ändrats i efterhand.' };
+                    items.push(sSplit);
+                    if (!changed) changed = sSplit;
+                }
+            } else {
+                items.push({ state: 'info', text: sWhen + ', ' + apart(su.ms - file.createdMs, ref) + '. Filen har ingen tid i EXIF att jämföra den med.' });
+            }
         }
         if (ex && (ex.make || ex.model) && (file.cameraMake || file.cameraModel)) {
             var fileDev = lower((ex.make || '') + ' ' + (ex.model || '')).replace(/\s+/g, ' ').trim();
@@ -1088,6 +1113,16 @@
         var state;
         var plain;
         var via = null;
+        // Skärmdumpen säger själv vilken app den visar (Samsung): paketet ur bilagan sist i filen, eller namnet sist i
+        // filnamnet med paketen som har det namnet i katalogen. Det jämförs med appen i loggarna vid T.
+        var shown = type.type === 'screenshot' ? input.screenshotApp || null : null;
+        var shownName = shown ? (shown.package ? appName(shown.package, names) : shown.label) : '';
+        var shownSays = shown ? 'Skärmdumpen säger själv att den visar ' + shownName + (shown.component ? ' (' + shown.component + ')' : '') + ', enligt ' + shown.where + '.' : '';
+        var isShown = function (e) {
+            if (!shown) return false;
+            if (shown.package) return e.app === shown.package;
+            return (shown.packages || []).indexOf(e.app) >= 0 || sameAppName(appName(e.app, names), shown.label);
+        };
         if (type.transfer) {
             var moved = type.transfer === 'airdrop' ? 'togs emot med AirDrop' : 'skapades i Bilder';
             return { id: 'app', title: title, state: 'na', items: [{ state: 'na', text: 'Filen ' + moved + ', så T är tiden från källan. Ingen app behöver ha varit igång då.' }], plain: 'Filen ' + moved + ', så frågan om vilken app som var igång vid T ställs inte.', running: [], via: null };
@@ -1123,11 +1158,24 @@
             state = 'missing';
             var reason = anyInWindow ? 'Ingen app är registrerad som igång vid tidpunkten, men det finns registreringar i fönstret.' : reasonAt(input, streamKey, T, kcLabel);
             items.push({ state: 'missing', text: reason });
+            if (shown) items.push({ state: 'info', text: shownSays });
             plain = 'Det finns ingen registrering av vilken app som var öppen vid den här tiden. Det betyder inte att ingen app var öppen.';
         } else if (type.type === 'screenshot') {
-            state = 'info';
-            items.push({ state: 'info', text: 'På skärmen vid tidpunkten: ' + runningNames.join(', ') + ' (' + running[0].stream + ').' });
-            plain = 'När skärmdumpen togs var ' + runningNames.join(' och ') + ' öppen på skärmen.';
+            var seen = running.filter(isShown);
+            if (seen.length) {
+                state = 'support';
+                items.push({ state: 'support', text: shownSays + ' ' + shownName + ' var på skärmen vid tidpunkten (' + seen[0].stream + ').' });
+                plain = 'Skärmdumpen visar ' + shownName + ', och ' + shownName + ' var på skärmen när den togs.';
+            } else if (shown && (shown.package || (shown.packages || []).length)) {
+                state = 'contradiction';
+                items.push({ state: 'contradiction', text: shownSays + ' Vid tidpunkten var ' + runningNames.join(', ') + ' på skärmen (' + running[0].stream + '), inte ' + shownName + '.' });
+                plain = 'Skärmdumpen visar ' + shownName + ', men vid den här tiden var ' + runningNames.join(' och ') + ' på skärmen.';
+            } else {
+                state = 'info';
+                if (shown) items.push({ state: 'info', text: shownSays + ' Namnet går inte att koppla till en app i katalogen, så det jämförs inte med loggarna.' });
+                items.push({ state: 'info', text: 'På skärmen vid tidpunkten: ' + runningNames.join(', ') + ' (' + running[0].stream + ').' });
+                plain = 'När skärmdumpen togs var ' + runningNames.join(' och ') + ' öppen på skärmen.';
+            }
         } else if (type.type === 'camera') {
             var cam = running.filter(camApp);
             if (cam.length) { state = 'support'; items.push({ state: 'support', text: (isCameraApp(cam[0].app, input.cameraApps) ? 'Kameran' : appName(cam[0].app, names) + ', som skapade filen,') + ' var igång vid tidpunkten (' + cam[0].stream + ').' }); }
@@ -1146,7 +1194,13 @@
                     : 'Vid den här tiden var ' + runningNames.join(' och ') + ' igång.';
         }
         items = items.concat(batteryItems(running.length ? running : camOps), state === 'missing' || state === 'contradiction' ? unsureItems(events, T, 'app') : []);
-        return { id: 'app', title: title, state: state, items: items, plain: plain, running: running.map(function (e) { return e.app; }), via: via || null };
+        return { id: 'app', title: title, state: state, items: items, plain: plain, running: running.map(function (e) { return e.app; }), via: via || null, shown: shown ? shownName : null };
+    }
+
+    // Samma app: namnen utan skiftläge, mellanslag och skiljetecken (filnamnets "WhatsApp" mot katalogens "WhatsApp").
+    function sameAppName(a, b) {
+        var norm = function (x) { return String(x || '').toLowerCase().replace(/[^a-z0-9åäö]/g, ''); };
+        return !!norm(a) && norm(a) === norm(b);
     }
 
     // Meddelandet där filen togs emot i en chattapp, när filen inte också skickades från telefonen.
@@ -1659,14 +1713,16 @@
                 copyAreas.messages ? 'Exakt samma fil finns som bilaga i Meddelanden (' + copyAreas.messages.name + ').' : null,
                 copyAreas.snapchat && type.type !== 'snapchat' ? 'Exakt samma fil finns i Snapchats lagring (' + copyAreas.snapchat.name + ').' : null,
                 posF && posF.state === 'contradiction' ? posF.items.filter(function (i) { return i.state === 'contradiction'; }).map(function (i) { return i.text; }).join(' ') : null,
-                powerF ? powerF.plain : null],
+                powerF ? powerF.plain : null,
+                app && app.shown && app.state === 'contradiction' ? app.plain : null],
             [type.type === 'camera' ? 'Databasen anger kameran som källa (' + type.reasons.join(', ') + ').' : null,
                 type.origin === 'recorded' ? 'Registrerad som inspelning med Snapchats kamera på den här telefonen.' : null,
                 type.origin === 'sent' ? 'Filen skickades från den här telefonen' + (type.recipient ? ' till @' + type.recipient : '') + '.' : null,
                 memText,
                 lateDiff != null && Math.abs(lateDiff) <= SAME_TIME_MS && file.createdFrom !== 'date_added' ? 'Filen hamnade i biblioteket direkt när den skapades.' : null,
                 type.origin === 'recorded' ? null : camText,
-                posF && posF.state === 'support' ? 'Telefonen var på bildens position vid tidpunkten.' : null]);
+                posF && posF.state === 'support' ? 'Telefonen var på bildens position vid tidpunkten.' : null,
+                app && app.shown && app.state === 'support' ? app.plain : null]);
         alt('synced', 'Synkad från en annan enhet eller molnet',
             [lateDiff != null && lateDiff > LATE_MS && type.type !== 'saved' ? 'Filen lades till i biblioteket långt efter att den skapades.' : null,
                 file.cloudLocalState != null && Number(file.cloudLocalState) !== 0 ? 'ZCLOUDLOCALSTATE är ' + file.cloudLocalState + '.' : null],
@@ -1798,7 +1854,7 @@
         'Telefonen igång': { q: 'Var telefonen igång och upplåst sedan start vid T?' },
         'Skapandetid': { q: 'Hänger filens egna tider ihop?', support: 'Tiderna stämmer', contradiction: 'Tiderna går isär', info: 'Kan inte jämföras', missing: 'Tid saknas' },
         'App igång': { q: 'Var appen som skapade filen igång vid T?', support: 'Appen var igång', contradiction: 'En annan app var igång', missing: 'Inte registrerat', na: 'Frågas inte' },
-        'App på skärmen': { q: 'Vilken app var på skärmen när skärmdumpen togs?', missing: 'Inte registrerat' },
+        'App på skärmen': { q: 'Vilken app var på skärmen när skärmdumpen togs?', support: 'Samma app som i filen', contradiction: 'En annan app än i filen', missing: 'Inte registrerat' },
         'Snapchat igång': { q: 'Var Snapchat igång när filen skapades?', support: 'Snapchat var igång', contradiction: 'Snapchat var inte igång', missing: 'Inte registrerat' },
         'Kamera igång': { q: 'Användes kameran när bilden togs?', support: 'Kameran användes', contradiction: 'Kameran användes inte', missing: 'Inte registrerat', na: 'Frågas inte' },
         'Skaparappen igång': { q: 'Var appen som sparade filen igång när den sparades?', support: 'Appen var igång', contradiction: 'En annan app var igång', missing: 'Inte registrerat' },
@@ -1815,6 +1871,7 @@
         var w = FACTOR_WORDS[f.title] || {};
         var q = w.q || '';
         if (f.id === 'app' && type.type === 'camera') q = 'Var kameraappen igång när bilden togs?';
+        if (f.id === 'app' && type.type === 'screenshot' && f.shown) q = 'Var appen som skärmdumpen visar på skärmen när den togs?';
         if (f.id === 'camera' && f.title === 'Kamera igång' && type.type === 'saved') q = 'Använde appen som sparade filen kameran när bilden togs?';
         return {
             question: q,

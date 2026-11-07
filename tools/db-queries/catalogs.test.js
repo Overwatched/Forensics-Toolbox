@@ -16,6 +16,7 @@ const signalAndroid = require(path.join(ROOT, 'queries', 'android', 'signal', 'c
 const signalIos = require(path.join(ROOT, 'queries', 'ios', 'signal', 'catalog.json'));
 const whatsappIos = require(path.join(ROOT, 'queries', 'ios', 'whatsapp', 'catalog.json'));
 const telegramIos = require(path.join(ROOT, 'queries', 'ios', 'telegram', 'catalog.json'));
+const samsungAndroid = require(path.join(ROOT, 'queries', 'android', 'samsung', 'catalog.json'));
 const SCHEMAS = require(path.join(__dirname, 'fixtures', 'chat-schemas.json'));
 const fs = require('node:fs');
 
@@ -126,6 +127,7 @@ test('hjälpfrågor heter "Hjälp: …" eller "Tips: …"', () => {
         ...appUsage.databases.flatMap((d) => d.queries.map((q) => [q.id, q.title, q.group])),
         ...routined.databases.flatMap((d) => d.queries.map((q) => [q.id, q.title, q.group])),
         ...snapchat.databases.flatMap((d) => d.queries.map((q) => [q.id, q.title, q.group])),
+        ...samsungAndroid.databases.flatMap((d) => d.queries.map((q) => [q.id, q.title, q.group])),
     ];
     for (const [id, title, group] of all) {
         if (/^(Hjälp|Tips):/.test(title)) assert.strictEqual(group, 'advanced', id + ': hjälpfråga utan group advanced');
@@ -184,7 +186,7 @@ test('sökvägar för extraktion: alla SQL-databaser har dem, och de är skrivna
         ...appUsage.databases.map((d) => [d.id, d.paths]),
         ...routined.databases.map((d) => [d.id, d.paths]),
         ...snapchat.databases.map((d) => [d.id, d.paths]),
-        ...signalIos.databases.concat(whatsappIos.databases).map((d) => [d.id, d.paths]),
+        ...signalIos.databases.concat(whatsappIos.databases, samsungAndroid.databases).map((d) => [d.id, d.paths]),
         ...android.categories.filter((c) => c.id !== 'usage').map((c) => ['android-' + c.id, c.paths]),
     ];
     for (const [name, paths] of groups) {
@@ -399,4 +401,48 @@ test('PowerLog: queryerna körs, tiden rättas med förskjutningen som gällde, 
     const cov = run('pl-coverage', ['first', 'last'])[0];
     assert.deepStrictEqual([Math.round(cov.firstMs / 1000) - T, Math.round(cov.lastMs / 1000) - T, Number(cov.rows)], [-7200, 1800 + 6 * 3600, hb.length]);
     db.close();
+});
+
+// ---------- Samsungs textfiler ----------
+
+test('Samsung: eRR.p läses in som tabellen err, och varje query körs mot påhittade rader', async () => {
+    const textLogs = require('./text-logs');
+    assert.deepStrictEqual(samsungAndroid.databases.map((d) => [d.id, d.convert]), [['samsung-err-p', 'err-p']]);
+    for (const db of samsungAndroid.databases) {
+        assert.ok(textLogs.known(db.convert), db.id + ': okänd tolkning ' + db.convert);
+        assert.strictEqual(db.queries.filter((q) => q.recommended).length, 1, db.id + ': en rekommenderad');
+        for (const q of db.queries) assert.ok(q.subtitle && q.returns, db.id + '/' + q.id + ': undertext och returns');
+    }
+    // Påhittade rader i eRR.p:s form: huvudet LOGM, antalet rader och sista radens index, sedan raderna.
+    const lines = [
+        '2026-10-03 16:15:08+0200 | REBOOT | | REASON: device_locked_3days [0]',
+        '2026-10-03 16:15:59+0200 | ON | RP | A000XXU1 [1]',
+        '2023-01-01 09:00:00+0100 | ON | NP | A000XXU1 [2]',
+        '2026-10-09 08:34:12+0200 | REBOOT | | REASON: recovery [3]',
+    ];
+    const head = Buffer.alloc(12);
+    head.write('LOGM', 0, 'latin1');
+    head.writeUInt32LE(lines.length, 4);
+    head.writeUInt32LE(lines.length - 1, 8);
+    const bytes = new Uint8Array(Buffer.concat([head, Buffer.from('\n' + lines.join('\n') + '\n')]));
+    const S = await sqlJs();
+    const conv = textLogs.toSqlite(S, 'err-p', bytes, 'eRR.p');
+    assert.strictEqual(conv.rows, 4);
+    assert.match(conv.line, /^eRR\.p är text: 4 rader, 1 med fel klocka lästes in i tabellen err i minnet/);
+    const db = new S.Database(conv.bytes);
+    try {
+        const run = (id) => { const q = samsungAndroid.databases[0].queries.find((x) => x.id === id); const r = db.exec(q.sql); return r.length ? r[0] : { columns: [], values: [] }; };
+        const all = run('err-all');
+        assert.deepStrictEqual(all.columns, ['rad', 'tid', 'utc', 'vad', 'kod', 'orsak', 'orsak_i_ord', 'krasch', 'fel_klocka', 'text']);
+        assert.ok(Number.isInteger(all.values[0][0]), 'radnumret i filen');
+        assert.deepStrictEqual(all.values[0].slice(1, 8), ['2026-10-03 16:15:08+0200', '2026-10-03 14:15:08', 'REBOOT', '', 'device_locked_3days', 'låst i tre dygn', 0]);
+        assert.deepStrictEqual(all.values.map((r) => r[8]), [0, 0, 1, 0], 'raden från 2023 har en tid före raden innan');
+        assert.deepStrictEqual(run('err-downs').values.map((r) => r[3]), ['REBOOT', 'REBOOT']);
+        assert.deepStrictEqual(run('err-locked').values.map((r) => [r[1], r[2]]), [['2026-09-30 14:15:08', '2026-10-03 14:15:08']]);
+        assert.deepStrictEqual(run('err-clock').values.map((r) => r[1]), ['2023-01-01 09:00:00+0100']);
+        assert.deepStrictEqual(db.exec('SELECT unix_ms FROM err WHERE rad = (SELECT min(rad) FROM err)')[0].values[0], [Date.UTC(2026, 9, 3, 14, 15, 8)]);
+    } finally {
+        db.close();
+    }
+    assert.throws(() => textLogs.toSqlite(S, 'okänd', bytes, 'x'), /Okänd textfil/);
 });

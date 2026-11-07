@@ -65,6 +65,14 @@
         return r && r.entry && r.match === 'exakt' ? r.entry.name : null;
     }
 
+    // Paketen som har det namnet i App-ID-katalogen (Android), för namnet sist i en skärmdumps filnamn.
+    function appsNamed(label) {
+        var norm = function (x) { return String(x || '').toLowerCase().replace(/[^a-z0-9åäö]/g, ''); };
+        var want = norm(label);
+        if (!want || !window.AppIds) return [];
+        return window.AppIds.APPS.filter(function (a) { return a.android && norm(a.name) === want; }).map(function (a) { return a.android; });
+    }
+
     function cameraApps() {
         var out = ['com.apple.camera'];
         (window.AppIds ? window.AppIds.APPS : []).forEach(function (a) {
@@ -947,6 +955,15 @@
                 var fsAt = run.mediaEntry ? ProvenanceCore.fsMoment(fsWhen) : null;
                 if (fsAt) fileRow.extraWindows = (fileRow.extraWindows || []).filter(function (w) { return w.id !== 'filesystem'; }).concat([fsAt]);
                 fileSha = read.sha256 || '';
+                if (read.bytes) {
+                    // Samsungs bilaga sist i filen, och appen som en skärmdump säger att den visar (bilagan eller filnamnet).
+                    meta.fileEntry.trailerRows = ProvenanceMedia.trailerRows(read.bytes, appName);
+                    var shotApp = ProvenanceMedia.screenshotApp(read.bytes, fileRow.filename);
+                    if (shotApp && shotApp.label) shotApp.packages = appsNamed(shotApp.label);
+                    if (shotApp) input.screenshotApp = shotApp;
+                    var sefUtc = ProvenanceMedia.trailerUtc(read.bytes);
+                    if (sefUtc) input.samsungUtc = { ms: sefUtc };
+                }
                 var tags = null;
                 if (read.bytes) {
                     progress('Läser EXIF ur bildfilen…');
@@ -1350,7 +1367,21 @@
         return { text: new TextDecoder('utf-8').decode(r.bytes), read: { crcOk: r.crcOk, sha256: r.sha256 } };
     }
 
-    async function samsungSsrm(sam, cache) {
+    // Telefonens zon ur persistent_properties, en gång per extraktion: { name, rules, entry, read } eller null utan filen.
+    async function samsungZone(sam, cache) {
+        if (cache.zone !== undefined) return cache.zone;
+        cache.zone = null;
+        if (sam.props) {
+            try {
+                var r = await readLog(sam.props);
+                var name = ProvenanceSamsungLogs.readZoneProperty(r.bytes);
+                cache.zone = { name: name, rules: ProvenanceSamsungLogs.zoneRules(name), entry: sam.props, read: { crcOk: r.crcOk, sha256: r.sha256 } };
+            } catch (err) { cache.zone = { name: null, rules: null, entry: sam.props, read: null, error: err.message }; }
+        }
+        return cache.zone;
+    }
+
+    async function samsungSsrm(sam, cache, rules) {
         if (cache.ssrm) return cache.ssrm;
         var files = [], read = {}, errors = [];
         for (var i = 0; i < sam.ssrm.length; i++) {
@@ -1361,17 +1392,19 @@
                 read[name] = { entry: e, read: t.read };
             } catch (err) { errors.push(name + ' kunde inte läsas: ' + err.message); }
         }
-        cache.ssrm = { parsed: files.length ? ProvenanceSamsungLogs.parseSsrm(files) : null, files: read, errors: errors };
+        cache.ssrm = { parsed: files.length ? ProvenanceSamsungLogs.parseSsrm(files, { rules: rules }) : null, files: read, errors: errors };
         return cache.ssrm;
     }
 
-    async function samsungBattery(entry, cache) {
+    // zones: batteryZones. Filen räknas med telefonens zon när zonen då filen skrevs stämmer med den.
+    async function samsungBattery(entry, cache, zones) {
         var name = ExtractionCore.baseName(entry.name);
         if (cache.battery[name]) return cache.battery[name];
         var done;
         try {
             var t = await samsungText(entry);
-            done = { entry: entry, read: t.read, parsed: ProvenanceSamsungLogs.parseBattery(t.text, name), empty: !t.text.length };
+            var z = zones && zones[name];
+            done = { entry: entry, read: t.read, parsed: ProvenanceSamsungLogs.parseBattery(t.text, name, { rules: z ? z.rules : null }), empty: !t.text.length };
         } catch (err) { done = { entry: entry, read: null, parsed: null, error: err.message }; }
         cache.battery[name] = done;
         return done;
@@ -1397,6 +1430,10 @@
         var S = ProvenanceSamsungLogs;
         var fmtU = ProvenanceCore.formatUtc;
         var cache = state.zip.samsungCache || (state.zip.samsungCache = { ssrm: null, battery: {}, err: null });
+        var zone = await samsungZone(sam, cache);
+        var rules = zone && zone.rules;
+        if (zone && zone.error) input.warnings.push('Telefonens zon (persistent_properties) kunde inte läsas: ' + zone.error);
+        else if (zone && zone.name && !rules) input.warnings.push('Telefonens zon ' + zone.name + ' är okänd här, så Samsungs loggar får zonen ur sina egna rader.');
         var err = null;
         if (sam.err) {
             progress('Läser eRR.p (starter och nedstängningar)…');
@@ -1406,14 +1443,16 @@
         var ssrm = null;
         if (sam.ssrm.length) {
             progress('Läser SSRM-loggen (app, skärm, kamera)…');
-            ssrm = await samsungSsrm(sam, cache);
+            ssrm = await samsungSsrm(sam, cache, rules);
             ssrm.errors.forEach(function (msg) { input.warnings.push('SSRM: ' + msg); });
         }
+        var withTimes = sam.battery.map(function (e) { return { name: e.name, mtimeMs: ExtractionCore.entryTimes(e).modifiedMs }; });
+        var zones = S.batteryZones(withTimes, ssrm && ssrm.parsed ? ssrm.parsed.offsets : [], rules);
         var picked = [];
         if (sam.battery.length) {
             progress('Läser batterihistoriken (app, skärm, kamera)…');
             var wanted = S.pickBattery(sam.battery, wins);
-            for (var i = 0; i < wanted.length; i++) picked.push(await samsungBattery(wanted[i], cache));
+            for (var i = 0; i < wanted.length; i++) picked.push(await samsungBattery(wanted[i], cache, zones));
             picked.forEach(function (b) {
                 var name = ExtractionCore.baseName(b.entry.name);
                 if (b.error) input.warnings.push('Batterihistoriken: ' + name + ' kunde inte läsas: ' + b.error);
@@ -1422,30 +1461,28 @@
             // Starten och första upplåsningen kan ligga långt från fönstret. De filerna behövs bara för telefonens läge.
             if (err && err.parsed) {
                 var forPower = S.pickBattery(sam.battery, S.powerRange(err.parsed, wins));
-                for (var k = 0; k < forPower.length; k++) await samsungBattery(forPower[k], cache);
+                for (var k = 0; k < forPower.length; k++) await samsungBattery(forPower[k], cache, zones);
             }
         }
         var battery = picked.filter(function (b) { return b.parsed && b.parsed.format; }).map(function (b) { return b.parsed; });
-        var withTimes = sam.battery.map(function (e) { return { name: e.name, mtimeMs: ExtractionCore.entryTimes(e).modifiedMs }; });
-        var zones = S.batteryZones(withTimes, ssrm && ssrm.parsed ? ssrm.parsed.offsets : []);
         // Telefonens egen logg går först för app och skärm där den räcker.
         var primary = [];
         var us = input.coverage.usagestats, wb = input.coverage.wellbeing;
         if (us && us.rows) primary.push({ startMs: us.firstMs, endMs: us.lastMs });
         if (wb && wb.rows) primary.push({ startMs: wb.firstMs, endMs: wb.lastMs });
-        var got = S.collect({ windows: wins, ssrm: ssrm && ssrm.parsed, battery: battery, zones: zones, primary: primary });
+        var got = S.collect({ windows: wins, ssrm: ssrm && ssrm.parsed, battery: battery, zones: zones, primary: primary, rules: rules });
         var readSoFar = {};
         var bCov = null;
         if (sam.battery.length) {
-            await samsungBattery(sam.battery[0], cache);
+            await samsungBattery(sam.battery[0], cache, zones);
             Object.keys(cache.battery).forEach(function (n) { if (cache.battery[n].parsed) readSoFar[n] = cache.battery[n].parsed; });
             bCov = S.batteryCoverage(sam.battery, zones, readSoFar);
         }
         if (err && err.parsed) {
             var ssrmParsed = ssrm && ssrm.parsed;
-            var evidence = S.powerEvidence({ err: err.parsed, battery: Object.keys(readSoFar).map(function (n) { return readSoFar[n]; }), zones: zones, ssrm: ssrmParsed });
+            var evidence = S.powerEvidence({ err: err.parsed, battery: Object.keys(readSoFar).map(function (n) { return readSoFar[n]; }), zones: zones, ssrm: ssrmParsed, rules: rules });
             input.power = S.collectPower({ err: err.parsed, boots: evidence.boots, unlocks: evidence.unlocks, windows: wins,
-                covered: function (a, b) { return S.batteryCovers(bCov, a, b); }, ssrmSpans: ssrmParsed ? S.spansUtc(ssrmParsed.spans, ssrmParsed.offsets) : [] });
+                covered: function (a, b) { return S.batteryCovers(bCov, a, b); }, ssrmSpans: ssrmParsed ? S.spansUtc(ssrmParsed.spans, ssrmParsed.offsets, S.ssrmRules(ssrmParsed, rules)) : [] });
             input.lock = (input.lock || []).concat(input.power.locks);
             got.apps = S.dropFallbackHome(got.apps, input.power.spans);
             got.unsure = S.dropFallbackHome(got.unsure, input.power.spans);
@@ -1455,14 +1492,17 @@
             meta.coverage.push(['eRR.p (' + err.parsed.rows.length + ' rader' + (err.parsed.clockLost ? ', ' + err.parsed.clockLost + ' med fel klocka' : '') + ')', good.length ? fmtU(good[0].ms) : '', good.length ? fmtU(good[good.length - 1].ms) : '', err.parsed.rows.length]);
             logSource(meta, err.entry, 'eRR.p', err.read, 'Text');
             var nearRows = input.power.rows.map(function (r) { return r.source.table + ': ' + r.source.column; });
-            run.queries.push({ id: 'err-p', db: 'eRR.p', title: 'Härkomst: eRR.p (text, ingen SQL)',
+            run.queries.push({ id: 'err-p', db: 'eRR.p', title: 'Härkomst: eRR.p (text, i Queries som tabellen err)',
                 sql: '-- ' + err.entry.name + ' (' + err.entry.size + ' byte, CRC32 ' + ExtractionCore.hex(err.entry.crc32) + ') ur ' + Z() + '. Varje rad har tid med zon och vad som hände: ON, REBOOT, SHUTDOWN, LPM eller PLATFORM. En rad med en tid före raden innan har fel klocka och räknas inte.' +
                     '\n-- Avstängd: från REBOOT eller SHUTDOWN till nästa tecken på att telefonen var igång, batterihistorikens första TIME: efter START eller ON-raden. ON-raden kan komma efter starten, så ordet avstängd kräver att batterihistoriken täcker tiden.' +
                     '\n-- Inte upplåst sedan start: från starten till första appen överst utom com.android.settings i batterihistoriken, eller SSRM:s [VER] … START.' +
                     '\n-- Låst: 72 timmar före en REBOOT med device_locked_3days.' +
                     (nearRows.length ? '\n-- Råraderna i fönstret:\n-- ' + nearRows.join('\n-- ') : '\n-- Inga rader i fönstret.') +
                     (input.power.spans.length ? '\n-- Läget i fönstret:\n-- ' + input.power.spans.map(function (sp) { return sp.kind + (sp.why ? ' (' + sp.why + ')' : '') + ': ' + fmtU(sp.startMs) + ' (' + sp.startText + ') till ' + (sp.endMs != null ? fmtU(sp.endMs) + ' (' + sp.endText + ')' : 'okänt'); }).join('\n-- ') : '') +
-                    (err.parsed.clockLost ? '\n-- Rader med fel klocka:\n-- ' + err.parsed.rows.filter(function (r) { return r.clockLost; }).map(function (r) { return 'rad ' + r.line + ': ' + r.raw; }).join('\n-- ') : '') });
+                    (err.parsed.clockLost ? '\n-- Rader med fel klocka:\n-- ' + err.parsed.rows.filter(function (r) { return r.clockLost; }).map(function (r) { return 'rad ' + r.line + ': ' + r.raw; }).join('\n-- ') : '') +
+                    // I Queries läses filen in som tabellen err, med samma tolkning. unix_ms markerar raden för en händelse.
+                    '\nSELECT rad, tid, unix_ms, utc, vad, kod, orsak, orsak_i_ord, krasch, fel_klocka, text\nFROM err\nORDER BY rad;',
+                path: err.entry.name, walPath: null, timeColumns: [{ col: 'unix_ms', epoch: 'unixMs' }] });
         }
         input.appIntervals = input.appIntervals.concat(got.apps);
         input.screen = input.screen.concat(got.screen);
@@ -1474,13 +1514,15 @@
             if (input.extraNotes.indexOf(camNote) < 0) input.extraNotes.push(camNote);
         }
         if (got.noZone) input.warnings.push('Samsungs loggar: ' + got.noZone + ' rader saknar tidszon, varken SSRM eller filernas tider säger vilken, så de används inte.');
+        var zoneLine = samsungZoneLine(zone, rules, err && err.parsed, ssrm && ssrm.parsed, withTimes, zones);
+        if (zone && zone.read) logSource(meta, zone.entry, 'Telefonens zon (persist.sys.timezone)', zone.read, 'Protobuf');
         if (ssrm && ssrm.parsed) {
-            var sCov = S.ssrmCoverage(ssrm.parsed);
+            var sCov = S.ssrmCoverage(ssrm.parsed, rules);
             input.coverage[S.SSRM] = sCov;
             meta.coverage.push(['SSRM (' + sam.ssrm.length + ' filer)', sCov.firstMs ? fmtU(sCov.firstMs) : '', sCov.lastMs ? fmtU(sCov.lastMs) : '', sCov.rows]);
             Object.keys(got.usedSsrm).sort().forEach(function (name) { var f = ssrm.files[name]; if (f) logSource(meta, f.entry, 'SSRM ' + name, f.read, 'Text'); });
             run.queries.push({ id: 'ssrm-heating', db: 'SSRM', title: 'Härkomst: SSRM-loggen (text, ingen SQL)',
-                sql: '-- ' + sam.ssrm.length + ' textfiler ur ' + Z() + ' under com.sec.android.sdhms/. Raderna har lokal tid utan zon; zonen kommer ur raderna [RTC], som har både lokal tid och unixtid.\n-- ' +
+                sql: '-- ' + sam.ssrm.length + ' textfiler ur ' + Z() + ' under com.sec.android.sdhms/. Raderna har lokal tid utan zon; zonen kommer ur raderna [RTC], som har både lokal tid och unixtid.' + (zoneLine ? '\n-- ' + zoneLine : '') + '\n-- ' +
                     Object.keys(ssrm.files).sort().map(function (n) { var f = ssrm.files[n]; return f.entry.name + ' (' + f.entry.size + ' byte, CRC32 ' + ExtractionCore.hex(f.entry.crc32) + ')'; }).join('\n-- ') +
                     '\n-- App: [PKG] <paket>, till nästa [PKG], [LCD] OFF, omstart eller ett uppehåll på mer än en timme. Skärm: [SET] … [LCD] ON/OFF. Kamera: [SET] … camera running :: true/false  client : <paket>.' +
                     (got.ssrmRows.length ? '\n-- Råraderna i fönstret:\n-- ' + samsungRows(got.ssrmRows).join('\n-- ') : '\n-- Inga rader om app, skärm eller kamera i fönstret.') });
@@ -1501,13 +1543,24 @@
                 });
             });
             run.queries.push({ id: 'batterystats-history', db: 'batterihistoriken', title: 'Härkomst: batterihistoriken (text, ingen SQL)',
-                sql: '-- ' + picked.length + ' av ' + sam.battery.length + ' textfiler ur ' + Z() + ' under log/batterystats/. Filen täcker tiden från förra filens namn till sitt eget. Raderna har lokal tid utan zon; zonen är filnamnets tid mot filens ändringstid i UTC.\n-- ' +
+                sql: '-- ' + picked.length + ' av ' + sam.battery.length + ' textfiler ur ' + Z() + ' under log/batterystats/. Filen täcker tiden från förra filens namn till sitt eget. Raderna har lokal tid utan zon; zonen är filnamnets tid mot filens ändringstid i UTC.' + (zoneLine ? '\n-- ' + zoneLine : '') + '\n-- ' +
                     picked.map(function (b) { return b.entry.name + ' (' + b.entry.size + ' byte, CRC32 ' + ExtractionCore.hex(b.entry.crc32) + ')'; }).join('\n-- ') +
                     '\n-- App: +top=<uid>:"<paket>" till -top eller -screen. Skärm: +screen/-screen. Kamera: +camera/-camera. Har raden +state=<uid>:"camera" är appen den som har den uid:n enligt raderna med top=, annars den som var i förgrunden.' +
                     '\n-- Tiden räknas fram från senaste raden med TIME:. Ett steg i klockan vid den raden gör raderna intill osäkra: sådana rader räknas inte i bedömningen.' +
                     (clockSteps.length ? '\n-- Avsnitt med osäker klocka i de lästa filerna:\n-- ' + clockSteps.slice(0, 40).join('\n-- ') + (clockSteps.length > 40 ? '\n-- … och ' + (clockSteps.length - 40) + ' till.' : '') : '') +
                     (got.batteryRows.length ? '\n-- Råraderna i fönstret:\n-- ' + samsungRows(got.batteryRows, picked).join('\n-- ') : '\n-- Inga rader om app, skärm eller kamera i fönstret.') });
         }
+    }
+
+    // Vad telefonens zon betyder för Samsungs loggar, som en rad i bilagan. Tom utan persistent_properties.
+    function samsungZoneLine(zone, rules, errParsed, ssrmParsed, withTimes, zones) {
+        if (!zone || !zone.name) return zone ? 'persistent_properties har ingen persist.sys.timezone, så zonen kommer ur loggarnas egna rader.' : '';
+        if (!rules) return 'Telefonens zon ' + zone.name + ' (persist.sys.timezone) är okänd här, så zonen kommer ur loggarnas egna rader.';
+        var chk = ProvenanceSamsungLogs.zoneCheck(rules, { err: errParsed, ssrm: ssrmParsed, battery: withTimes });
+        var files = Object.keys(zones).filter(function (n) { return zones[n].rules; }).length;
+        return 'Telefonens zon: ' + zone.name + ' (persist.sys.timezone). ' + chk.agree + ' av ' + chk.total + ' zoner i loggarna stämmer med den' +
+            (chk.differ.length ? ' (inte: ' + chk.differ.join('; ') + ')' : '') + '. Batterihistorikens rader räknas om med förskjutningen vid sin tid, sommar- eller vintertid, i ' + files + ' av ' + Object.keys(zones).length + ' filer: de där zonen när filen skrevs stämmer med telefonens. ' +
+            'SSRM:s rader räknas om så när [RTC] före och efter stämmer med zonen. Timmen som går två gånger när sommartiden slutar är osäker, utom där raderna visar vilket varv det är.';
     }
 
     // Råraderna i fönstret, i filens ordning och en gång var. Batterihistorikens äldre form saknar klockslag, så ankaret står med.

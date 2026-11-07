@@ -802,3 +802,154 @@ test('täckningen: ett byte av zon mellan två filer är inget hål', () => {
     const late = logs.parseBattery('  10-09 09:30:00.000 RESET:TIME: 2026-10-09-09-30-00-000', 'newbatterystats261106145528');
     assert.strictEqual(logs.batteryCoverage(list, zones, { newbatterystats261009082142: before, newbatterystats261106145528: late }).gaps.length, 1);
 });
+
+// ---------- Telefonens zon ----------
+
+// persistent_properties: en post per egenskap (fält 1) med namnet i fält 1 och värdet i fält 2.
+const props = (records) => {
+    const varint = (n) => { const out = []; do { let b = n & 0x7f; n = Math.floor(n / 128); if (n) b |= 0x80; out.push(b); } while (n); return out; };
+    const str = (no, s) => [(no << 3) | 2, ...varint(Buffer.byteLength(s)), ...Buffer.from(s)];
+    const bytes = [];
+    records.forEach(([k, v]) => { const inner = [...str(1, k), ...str(2, v)]; bytes.push((1 << 3) | 2, ...varint(inner.length), ...inner); });
+    return Uint8Array.from(bytes);
+};
+const STHLM = logs.zoneRules('Europe/Stockholm');
+
+test('telefonens zon: persist.sys.timezone ur persistent_properties, och filen hittas', () => {
+    assert.strictEqual(logs.readZoneProperty(props([['persist.sys.locale', 'sv-SE'], ['persist.sys.timezone', 'Europe/Stockholm'], ['persist.sys.usb.config', 'mtp']])), 'Europe/Stockholm');
+    assert.strictEqual(logs.readZoneProperty(props([['persist.sys.locale', 'sv-SE']])), null);
+    assert.strictEqual(logs.readZoneProperty(props([['persist.sys.timezone', '<b>x</b>']])), null, 'inget zonnamn');
+    assert.strictEqual(logs.readZoneProperty(Uint8Array.from([0x0a, 0xff, 0xff, 0x01, 0x02])), null, 'trasig fil');
+    assert.strictEqual(logs.readZoneProperty(new Uint8Array(0)), null);
+    assert.ok(logs.keeper()('data/property/persistent_properties'));
+    assert.strictEqual(logs.sortEntries([{ name: 'Dump/data/property/persistent_properties' }]).props.name, 'Dump/data/property/persistent_properties');
+});
+
+test('telefonens zon: skiftena, timmen som går två gånger och timmen som hoppas över', () => {
+    const in2026 = STHLM.shifts.filter((s) => s.utcMs >= L(2026, 1, 1) && s.utcMs < L(2027, 1, 1)).map((s) => [s.utcMs, s.before, s.after]);
+    assert.deepStrictEqual(in2026, [[L(2026, 3, 29, 1), 60, 120], [L(2026, 10, 25, 1), 120, 60]]);
+    assert.deepStrictEqual(STHLM.candidates(L(2026, 7, 1, 12)), [L(2026, 7, 1, 10)]);
+    assert.deepStrictEqual(STHLM.candidates(L(2026, 12, 1, 12)), [L(2026, 12, 1, 11)]);
+    assert.deepStrictEqual(STHLM.candidates(L(2026, 10, 25, 2, 30)), [L(2026, 10, 25, 0, 30), L(2026, 10, 25, 1, 30)]);
+    assert.deepStrictEqual(STHLM.candidates(L(2026, 3, 29, 2, 30)), []);
+    assert.strictEqual(logs.zoneRules('Mars/Olympus_Mons'), null);
+    assert.strictEqual(logs.zoneRules(null), null);
+    // Raderna i skrivordning: tiden går bakåt in i timmen, och då är det andra varvet.
+    const read = logs.clockReader(STHLM);
+    const got = [L(2026, 10, 25, 1, 59), L(2026, 10, 25, 2, 58), L(2026, 10, 25, 2, 59, 50), L(2026, 10, 25, 2, 0, 10), L(2026, 10, 25, 2, 30), L(2026, 10, 25, 3, 10)].map(read).map((r) => [r.ms, r.twice]);
+    assert.deepStrictEqual(got, [
+        [L(2026, 10, 24, 23, 59), false], [L(2026, 10, 25, 0, 58), true], [L(2026, 10, 25, 0, 59, 50), true],
+        [L(2026, 10, 25, 1, 0, 10), false], [L(2026, 10, 25, 1, 30), false], [L(2026, 10, 25, 2, 10), false],
+    ]);
+});
+
+// Den nyare formen skriver varje rad med förskjutningen vid sin tid: 02:59:50 följs av 02:00:10 när sommartiden slutar.
+const FALL_NAME = 'newbatterystats261026120000';
+const FALL = [
+    '  10-25 01:30:00.000 RESET:TIME: 2026-10-25-01-30-00-000',
+    '  10-25 01:30:01.000 100 c0 +screen',
+    '  10-25 02:58:00.000 100 c0 +top=u0a1:"com.example.one"',
+    '  10-25 02:59:50.000 100 c0 -top=u0a1:"com.example.one"',
+    '  10-25 02:00:10.000 100 c0 +top=u0a2:"com.example.two"',
+    '  10-25 02:30:00.000 100 c0 -top=u0a2:"com.example.two"',
+    '  10-25 03:10:00.000 100 c0 -screen',
+].join('\n');
+const FALL_FILES = [
+    { name: 'data/log/batterystats/newbatterystats261020120000', mtimeMs: L(2026, 10, 20, 10) },
+    { name: 'data/log/batterystats/' + FALL_NAME, mtimeMs: L(2026, 10, 26, 11) },
+];
+
+test('batterihistoriken med telefonens zon: raderna över sommartidens slut får rätt UTC', () => {
+    const p = logs.parseBattery(FALL, FALL_NAME, { rules: STHLM });
+    assert.strictEqual(p.rules, 'Europe/Stockholm');
+    assert.deepStrictEqual(p.apps.map((a) => [a.app, a.startUtc, a.endUtc, !!(a.startTwice || a.endTwice)]), [
+        ['com.example.one', L(2026, 10, 25, 0, 58), L(2026, 10, 25, 0, 59, 50), true],
+        ['com.example.two', L(2026, 10, 25, 1, 0, 10), L(2026, 10, 25, 1, 30), false],
+    ]);
+    const lit = p.screen.filter((s) => s.on);
+    assert.deepStrictEqual(lit.map((s) => [s.startUtc, s.endUtc]), [[L(2026, 10, 24, 23, 30, 1), L(2026, 10, 25, 2, 10)]], 'två timmar och fyrtio minuter, fast klockan bara visar en timme och fyrtio');
+    // I fönstret: med zonen är bara raden i första varvet osäker. Utan den är hela filen det, eftersom den spänner över bytet.
+    const w = [{ startMs: L(2026, 10, 24), endMs: L(2026, 10, 26) }];
+    const zones = logs.batteryZones(FALL_FILES, [], STHLM);
+    assert.ok(zones[FALL_NAME].rules && zones.newbatterystats261020120000.rules);
+    const got = logs.collect({ windows: w, battery: [p], zones, primary: [], rules: STHLM });
+    assert.deepStrictEqual(got.apps.map((a) => [a.app, a.startMs]), [['com.example.two', L(2026, 10, 25, 1, 0, 10)]]);
+    assert.deepStrictEqual(got.unsure.map((u) => [u.app, u.zoneMs]), [['com.example.one', 3600000]]);
+    assert.deepStrictEqual(got.screen.filter((s) => s.on).map((s) => [s.startMs, s.endMs]), [[L(2026, 10, 24, 23, 30, 1), L(2026, 10, 25, 2, 10)]]);
+    const old = logs.collect({ windows: w, battery: [logs.parseBattery(FALL, FALL_NAME)], zones: logs.batteryZones(FALL_FILES, []), primary: [] });
+    assert.strictEqual(old.apps.length + old.screen.length, 0);
+    assert.ok(old.unsure.length >= 3 && old.unsure.every((u) => u.zoneMs === 3600000));
+});
+
+test('batterihistoriken med telefonens zon: i den äldre formen räknas raderna från ankarets UTC, och bytet är inget steg', () => {
+    const text = [
+        '                    0 (19) RESET:TIME: 2026-10-25-01-30-00',
+        '          +1h00m00s000ms (1) 100 c0 +screen',
+        '          +2h00m00s000ms (1) 100 c0 -screen',
+        '          +2h30m00s000ms (19) TIME: 2026-10-25-03-00-00',
+        '          +2h40m00s000ms (1) 100 c0 +screen',
+    ].join('\n');
+    const p = logs.parseBattery(text, FALL_NAME, { rules: STHLM });
+    // Räknat från ankaret, 01:30 sommartid (23:30 UTC): skärmen tänds 00:30 UTC och släcks 01:30 UTC, när sommartiden slutat.
+    assert.deepStrictEqual(p.screen.filter((s) => s.on).map((s) => [s.startUtc, s.endUtc, s.clockMs]), [[L(2026, 10, 25, 0, 30), L(2026, 10, 25, 1, 30), 0]]);
+    assert.deepStrictEqual(p.segments.map((s) => [s.startUtc, s.endStep, s.clockMs]), [[L(2026, 10, 24, 23, 30), 0, 0], [L(2026, 10, 25, 2), null, 0]]);
+    // Utan zonen ser ankaret ut att stega en timme bakåt, och avsnittet före blir osäkert.
+    assert.strictEqual(logs.parseBattery(text, FALL_NAME).segments[0].clockMs, 3600000);
+});
+
+test('batterihistoriken med telefonens zon: vårens hopp vid ett ankare är ett uppehåll, inte en klocka som ställdes', () => {
+    const text = [
+        '  03-29 01:50:00.000 RESET:TIME: 2026-03-29-01-50-00-000',
+        '  03-29 01:55:00.000 100 c0 +screen',
+        '  03-29 03:05:00.000 TIME: 2026-03-29-03-05-00-000',
+        '  03-29 03:05:00.100 100 c0 +running',
+        '  03-29 03:06:00.000 100 c0 -screen',
+    ].join('\n');
+    const p = logs.parseBattery(text, 'newbatterystats260330120000', { rules: STHLM });
+    assert.deepStrictEqual(p.segments.map((s) => [s.startStep, s.clockMs]), [[null, 0], [600000, 0]]);
+    assert.deepStrictEqual(p.screen.filter((s) => s.on).map((s) => [s.startUtc, s.endUtc, s.clockMs]), [[L(2026, 3, 29, 0, 55), L(2026, 3, 29, 1, 6), 0]]);
+    const old = logs.parseBattery(text, 'newbatterystats260330120000');
+    assert.strictEqual(old.segments[0].clockMs, 4200000, 'utan zonen: 70 minuter, som en klocka som ställdes');
+});
+
+test('SSRM med telefonens zon: vårens hopp är inget hål, och zonen i [RTC] före och efter avgör', () => {
+    const text = [
+        rtc('2026-03-29 01:00:00', '2026-03-29 00:00:00'),
+        '2026-03-29 01:58:00 [PKG] com.example.night',
+        '2026-03-29 03:01:00 [PKG] com.example.morning',
+        rtc('2026-03-29 03:02:00', '2026-03-29 01:02:00'),
+        lcd('2026-03-29 03:05:00', 'OFF'),
+    ].join('\n');
+    const p = logs.parseSsrm([{ name: 'ssrm_heating_0.log', text }], { rules: STHLM });
+    assert.deepStrictEqual(p.apps.map((a) => [a.app, a.startUtc, a.endUtc, !!a.openEnded]), [
+        ['com.example.night', L(2026, 3, 29, 0, 58), L(2026, 3, 29, 1, 1), false],
+        ['com.example.morning', L(2026, 3, 29, 1, 1), L(2026, 3, 29, 1, 5), false],
+    ]);
+    const w = [{ startMs: L(2026, 3, 28), endMs: L(2026, 3, 30) }];
+    const got = logs.collect({ windows: w, ssrm: p, battery: [], zones: {}, primary: [], rules: STHLM });
+    assert.deepStrictEqual(got.apps.map((a) => [a.app, a.startMs, a.endMs]), [
+        ['com.example.night', L(2026, 3, 29, 0, 58), L(2026, 3, 29, 1, 1)], ['com.example.morning', L(2026, 3, 29, 1, 1), L(2026, 3, 29, 1, 5)],
+    ]);
+    assert.strictEqual(got.unsure.length, 0);
+    assert.deepStrictEqual(logs.ssrmCoverage(p, STHLM).gaps, []);
+    // Utan zonen: en timme och tre minuter mellan raderna är ett hål i loggen, och zonen däremellan är osäker.
+    const old = logs.parseSsrm([{ name: 'ssrm_heating_0.log', text }]);
+    assert.ok(old.apps[0].openEnded && old.apps[0].endLocal === old.apps[0].startLocal);
+    assert.ok(logs.collect({ windows: w, ssrm: old, battery: [], zones: {}, primary: [] }).unsure.some((u) => u.zoneMs === 3600000));
+});
+
+test('telefonens zon: en zon i loggarna som inte stämmer gör att loggens egen zon gäller, och det sägs', () => {
+    // En fil skriven i en annan zon, till exempel på en resa: zonens regler gäller inte den filen.
+    const files = [{ name: 'data/log/batterystats/newbatterystats261201120000', mtimeMs: L(2026, 12, 1, 12) }, ...FALL_FILES];
+    const zones = logs.batteryZones(files, [], STHLM);
+    assert.strictEqual(zones.newbatterystats261201120000.rules, null);
+    assert.strictEqual(zones.newbatterystats261201120000.offsetMinutes, 0);
+    // SSRM: [RTC] säger UTC+00:00 under sommaren. Där gäller [RTC], som förut.
+    const offsets = [{ localMs: L(2026, 7, 1, 10), offsetMinutes: 0 }, { localMs: L(2026, 7, 2, 10), offsetMinutes: 0 }];
+    assert.deepStrictEqual(logs.ssrmZone(offsets, STHLM, L(2026, 7, 1, 12), L(2026, 7, 1, 10), false), { ms: L(2026, 7, 1, 12), unsureMs: 0 });
+    const e = logs.parseErr(['2026-07-03 10:00:00+0200 | ON | RP |', '2026-07-04 10:00:00+0100 | ON | RP |'].join('\n'), 'eRR.p');
+    const chk = logs.zoneCheck(STHLM, { err: e, ssrm: { offsets }, battery: files });
+    assert.deepStrictEqual([chk.agree, chk.total], [3, 7]);
+    assert.ok(chk.differ.some((t) => /^newbatterystats261201120000 säger UTC\+00:00, zonen UTC\+01:00$/.test(t)), chk.differ.join(' | '));
+    assert.ok(chk.differ.some((t) => /^eRR\.p rad 2 säger UTC\+01:00, zonen UTC\+02:00$/.test(t)), chk.differ.join(' | '));
+});

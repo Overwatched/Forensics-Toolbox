@@ -1,5 +1,24 @@
 Automatiskt byggd från commit `{{SHA}}`.
 
+## Nytt i 1.55
+
+Samsungs loggar räknas nu om med telefonens egen zon, så att sommar- och vintertid inte längre gör tider osäkra. `eRR.p` går att läsa som en tabell i Queries. En skärmdump från Samsung säger själv vilken app den visar, och det jämförs med loggarna. Releaserna här visar bara sina egna nyheter, så att filerna syns direkt.
+
+- **Sommar- och vintertid i Samsungs loggar:** telefonens zon läses ur `persist.sys.timezone` (`/data/property/persistent_properties`). SSRM och batterihistoriken räknas om med zonens regler, varje rad med den förskjutning som gällde då.
+  - Förut märktes en hel fil i batterihistoriken "tiden osäker" om den spände över ett byte, och två olika zoner i SSRM gjorde tiden mellan dem osäker. På labbtelefonen var 38 intervall, ungefär 2 500 timmar, osäkra bara av det skälet. Nu är de 0, och alla 344 zoner i loggarna stämmer med telefonens zon.
+  - Vårens hopp på en timme är inte längre ett hål i SSRM. Ett byte vid en tidsrad i batterihistoriken ser inte längre ut som en klocka som ställts.
+  - I timmen som går två gånger i oktober är en rad säker när raderna visar vilket varv det är. Annars märks den osäker.
+  - Zonen gäller bara där loggarnas egna zoner stämmer med den. En fil som skrevs i en annan zon, till exempel på en resa, räknas som förut. Bilagan säger hur många zoner som stämmer, och filen med zonen står bland källorna.
+- **eRR.p i Queries:** filen läses in som tabellen `err` i minnet, med samma tolkning som i Härkomst: radnummer, tiden som den står och i UTC, vad som hände, orsaken i klartext, krasch och fel klocka. Fyra queries: alla rader, nedstängningar och omstarter, de tre låsta dygnen före en omstart, och rader med fel klocka. En rad ur eRR.p i Härkomst öppnar Queries med raden markerad. Filen ändras inte, och summorna gäller filen som den står i extraktionen.
+- **Skärmdumpar som säger sin app:** en skärmdump från en nyare Samsung har appen som syntes i en bilaga sist i filen (`Captured_App_Info`). En äldre har appens namn sist i filnamnet. Faktorn "App på skärmen" jämför den med appen på skärmen enligt loggarna vid T: samma app är Förenligt, en annan Inte förenligt. Förut var faktorn alltid en upplysning. Bilagan står på filkortet och i protokollet. På labbtelefonen anger fyra skärmdumpar Solflare, och SSRM har Solflare överst när de togs.
+- **Samsungs tagningstid i filen:** kamerabilder från Samsung har tagningstiden i UTC i bilagan sist i filen (`Image_UTC_Data`). Den står nu i tabellen under Skapandetid och jämförs med tiden i EXIF.
+  - Samma sekund är en upplysning, eftersom kameran skriver båda.
+  - Saknar EXIF zon och skiljer de sig jämnt på kvarten, är det zonen som är fel antagen.
+  - Annars går tiderna isär: bilagan följer inte med när tiden i EXIF ändras i efterhand.
+  - På labbtelefonen låg den inom en sekund från EXIF på alla tre kamerabilder.
+- **Kortare releaser:** varje release på GitHub visar bara sin egen versions nyheter och nedladdningen, inte hela historiken. De äldre releaserna är kortade på samma sätt.
+- **Inte provat:** en telefon som rest till en annan zon, och timmen som går två gånger med riktiga rader där något hände. En bild vars tid har ändrats i galleriet, så att tiderna går isär. En Pixel 9 och iPhone sparar inte appen i skärmdumpen, så där jämför du själv bildens innehåll med appen på skärmen. Skärmdumpen med appens namn i filnamnet har ingen logg att jämföra med på labbtelefonen.
+
 ## Nytt i 1.54
 
 Härkomst läser nu Samsungs `eRR.p`. Där skriver telefonen en rad vid varje start, omstart och nedstängning, med tid, zon och ofta skälet. Det svarar på en fråga som de andra loggarna är tysta om: var telefonen igång, och hade den låsts upp sedan start, när filen fick sin tid? Två fel som gav fel besked i 1.52 och 1.53 är rättade.

@@ -255,3 +255,57 @@ test('kortet har filens tider: samma rader som tabellen, T märkt, och det som s
     assert.strictEqual(media.timesGroup([], iso, 'UTC'), null);
     assert.strictEqual(media.timesGroup(null, iso, 'UTC'), null);
 });
+
+// Samsungs bilaga (SEF) efter bilden: posterna, sedan katalogen SEFH och sist storleken och SEFT. Påhittade värden.
+function withTrailer(entries) {
+    const u16 = (n) => [n & 255, (n >> 8) & 255];
+    const u32 = (n) => [n & 255, (n >> 8) & 255, (n >> 16) & 255, (n >>> 24) & 255];
+    const image = [0xff, 0xd8, 0xff, 0xd9];
+    const blocks = [];
+    let pos = image.length;
+    const dir = [];
+    entries.forEach(([type, name, data]) => {
+        const body = [0, 0, ...u16(type), ...u32(name.length), ...Buffer.from(name, 'latin1'), ...Buffer.from(data, 'latin1')];
+        dir.push({ type, start: pos, len: body.length });
+        blocks.push(...body);
+        pos += body.length;
+    });
+    const head = pos;
+    const sefh = [...Buffer.from('SEFH'), ...u32(106), ...u32(entries.length)];
+    dir.forEach((d) => sefh.push(0, 0, ...u16(d.type), ...u32(head - d.start), ...u32(d.len)));
+    return Uint8Array.from([...image, ...blocks, ...sefh, ...u32(sefh.length), ...Buffer.from('SEFT')]);
+}
+const APP_INFO = Buffer.from('{"comp":"org.example.wallet\\/.MainActivity"}').toString('base64');
+
+test('Samsungs bilaga: posterna, och appen som en skärmdump visar', () => {
+    const b = withTrailer([[0x0c51, 'Samsung_Capture_Info', 'Screenshot'], [0x0da1, 'Captured_App_Info', APP_INFO], [0x0a01, 'Image_UTC_Data', '1790000000000']]);
+    assert.deepStrictEqual(media.samsungTrailer(b).map((e) => [e.type, e.name]), [[0x0c51, 'Samsung_Capture_Info'], [0x0da1, 'Captured_App_Info'], [0x0a01, 'Image_UTC_Data']]);
+    assert.deepStrictEqual(media.screenshotApp(b, 'Screenshot_20260930_094637.jpg'), { package: 'org.example.wallet', component: 'org.example.wallet/.MainActivity', where: 'Captured_App_Info i Samsungs bilaga sist i filen' });
+    const rows = media.trailerRows(b, (p) => (p === 'org.example.wallet' ? 'Plånboken' : null));
+    assert.deepStrictEqual(rows, [['Samsung_Capture_Info', 'Screenshot'], ['Captured_App_Info', 'org.example.wallet/.MainActivity (Plånboken), base64 i filen'], ['Image_UTC_Data', '1790000000000 (2026-09-21 14:13:20.000 UTC)']]);
+    // Binärt innehåll står som storlek.
+    assert.deepStrictEqual(media.trailerRows(withTrailer([[0x0b40, 'Video', '\x00\x01\x02']]), null), [['Video', '3 byte']]);
+    assert.deepStrictEqual(media.cardGroups({ path: 'a/x.jpg', size: 1, trailerRows: rows }, []).map((g) => g.title).slice(-1), ['Samsungs bilaga sist i filen']);
+});
+
+test('Samsungs bilaga: äldre skärmdumpar har appens namn i filnamnet, och en trasig bilaga ger ingenting', () => {
+    const plain = Uint8Array.from([0xff, 0xd8, 0xff, 0xd9]);
+    assert.deepStrictEqual(media.screenshotApp(plain, 'DCIM/Screenshots/Screenshot_20251113-074800_Instagram.jpg'), { label: 'Instagram', where: 'filnamnet, där Samsung skriver appens namn' });
+    assert.deepStrictEqual(media.screenshotApp(plain, 'Screenshot_20240101_120000_Samsung_Internet.png'), { label: 'Samsung Internet', where: 'filnamnet, där Samsung skriver appens namn' });
+    assert.strictEqual(media.screenshotApp(plain, 'Screenshot_20260930_094637.jpg'), null, 'nyare namn utan app');
+    assert.strictEqual(media.screenshotApp(plain, 'Screenshot_20260930_094637_1.jpg'), null, 'en siffra är inget appnamn');
+    assert.strictEqual(media.screenshotApp(plain, 'IMG_0001.PNG'), null);
+    assert.strictEqual(media.samsungTrailer(plain), null);
+    // SEFT utan en katalog som går ihop, och en post som pekar utanför filen.
+    const broken = withTrailer([[0x0da1, 'Captured_App_Info', APP_INFO]]);
+    broken[broken.length - 8] = 200;
+    assert.strictEqual(media.samsungTrailer(broken), null);
+    assert.strictEqual(media.capturedApp([{ name: 'Captured_App_Info', data: Buffer.from('inte base64!') }]), null);
+    assert.strictEqual(media.capturedApp([{ name: 'Captured_App_Info', data: Buffer.from(Buffer.from('{"comp":"<b>"}').toString('base64')) }]), null);
+});
+
+test('Samsungs bilaga: tagningstiden i UTC ur Image_UTC_Data', () => {
+    assert.strictEqual(media.trailerUtc(withTrailer([[0x0a01, 'Image_UTC_Data', '1773318671726'], [0x0a30, 'Camera_Capture_Mode_Info', '1']])), 1773318671726);
+    assert.strictEqual(media.trailerUtc(withTrailer([[0x0a01, 'Image_UTC_Data', '17733']])), null, 'inte millisekunder');
+    assert.strictEqual(media.trailerUtc(Uint8Array.from([0xff, 0xd8, 0xff, 0xd9])), null);
+});

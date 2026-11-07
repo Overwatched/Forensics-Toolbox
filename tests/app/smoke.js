@@ -845,7 +845,27 @@ const scenarios = [
         await c.ev(PROV, `document.getElementById('save-protocol').click(), 1`);
         const nearHtml = await download(downloads, /^harkomst-20261010_080020-protokoll-.*\.html$/);
         expect(nearHtml.includes('Telefonen igång') && nearHtml.includes('Nära en omstart') && nearHtml.includes('eRR.p rad 11') && !nearHtml.includes('<b>1</b>'), 'Protokollet saknar raden, eller skriver den som HTML');
-        return 'batterihistoriken, SSRM, en flyttad klocka och eRR.p';
+
+        // Raden ur eRR.p öppnas i Queries: filen läses in som tabellen err, och raden markeras och skrivs som text.
+        const toQ = await c.ev(PROV, `(function(){
+            const e = ProvenanceApp.model().events.find((x) => x.kind === 'power' && x.source && x.source.queryId === 'err-p');
+            if (!e) return null;
+            document.getElementById('details-events').open = true;
+            const b = document.querySelector('#events .to-queries[data-event="' + e.id + '"]');
+            if (!b) return { label: '' };
+            b.click();
+            return { label: b.textContent };
+        })()`);
+        expect(toQ && toQ.label, 'Ingen länk till Queries för eRR.p: ' + JSON.stringify(toQ));
+        const inQ = await c.waitFor(QUER, `(function(){
+            const row = document.querySelector('#run-result tr.row-hit');
+            return row && { row: row.innerText, html: row.innerHTML, src: document.getElementById('run-file-list').innerText, status: document.getElementById('run-status').innerText, hits: document.querySelectorAll('#run-result tr.row-hit').length };
+        })()`, 30000, 'raden ur eRR.p i Queries');
+        expect(/^eRR\.p ur Testextraktion-Samsung\.zip/.test(inQ.src) && /Filen är text/.test(inQ.src), 'Källan i Queries: ' + inQ.src);
+        expect(inQ.hits === 1 && inQ.row.includes('<b>1</b>') && !inQ.html.includes('<b>1</b>'), 'Raden: ' + inQ.row);
+        expect(/eRR\.p är text: \d+ rader, 1 med fel klocka lästes in i tabellen err i minnet/.test(inQ.status), 'Raden om filen: ' + inQ.status);
+        await c.nav('Härkomst');
+        return 'batterihistoriken, SSRM, en flyttad klocka och eRR.p, också i Queries';
     }],
 ];
 

@@ -111,8 +111,8 @@
 
     // Källan på en rad: filerna och var de kom ifrån.
     function updateState() {
-        // Ett packat arkiv (PowerLogs dagsarkiv) är en stängd databas utan -wal.
-        var closed = !!(files.db && files.db.archive);
+        // Ett packat arkiv (PowerLogs dagsarkiv) är en stängd databas utan -wal, liksom en textfil som läses in som tabell.
+        var closed = !!(files.db && (files.db.archive || files.db.convert));
         var ready = !!files.db && (!!files.wal || noWal.checked || closed);
         runButton.disabled = !ready;
         preview.classList.toggle('can-run', ready);
@@ -124,7 +124,8 @@
             html = name(files.db) + (files.wal ? ' och ' + name(files.wal) : '') + (files.zip ? ' ur ' + escapeHtml(files.zip) : ' från disk');
             if (files.cipher && files.cipher.passphrase && !keyInput.value.trim()) html += ', nyckeln ur ' + escapeHtml(files.cipher.source);
             html += '.';
-            if (closed) html += ' Arkivet är gzip-komprimerat och packas upp i minnet. Ett arkiv har ingen -wal.';
+            if (files.db.convert) html += ' Filen är text: raderna läses in i en tabell i minnet, med samma tolkning som i Härkomst. Filen ändras inte.';
+            else if (closed) html += ' Arkivet är gzip-komprimerat och packas upp i minnet. Ett arkiv har ingen -wal.';
             else if (!files.wal && files.zip) html += ' <span class="run-warn">Extraktionen har ingen -wal för databasen: allt som finns i databasfilen kommer med.</span>';
             else if (!files.wal && !noWal.checked) html += ' <span class="run-warn">Ingen -wal vald: poster som bara finns i -wal kommer att saknas.</span>';
             if (files.mismatch) html += ' <span class="run-warn">-wal har inte samma namn som databasen. Kontrollera att de hör ihop.</span>';
@@ -216,6 +217,14 @@
         var walBytes = walRead ? walRead.bytes : new Uint8Array(0);
         var merged;
         var origin = dbRead.lines.concat(walRead ? walRead.lines : []);
+        // En textfil (eRR.p) blir en tabell i minnet. Summorna gäller filen som den står i extraktionen.
+        if (src.db.convert) {
+            var conv = QueryTextLogs.toSqlite(SQL, src.db.convert, dbRead.bytes, src.db.name);
+            return {
+                SQL: SQL, dbFile: src.db, walFile: null, stats: { converted: conv.line }, hashes: hashes, bytes: conv.bytes,
+                origin: origin, passphrase: null, encrypted: false,
+            };
+        }
         var encrypted = dbRead.bytes.length >= 16 && SqlCipher.isEncrypted(dbRead.bytes, cipher.profile);
         if (encrypted) {
             if (!cipher.passphrase) {
@@ -322,6 +331,7 @@
     }
 
     function walSummary(o) {
+        if (o.stats && o.stats.converted) return o.stats.converted;
         if (!o.walFile) return 'Utan -wal.';
         var s = o.stats;
         if (s.error) return '-wal lades inte på: ' + s.error + '. Databasen lästes utan den, som SQLite gör med en sådan fil, så poster som bara finns i -wal saknas.';

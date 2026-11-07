@@ -151,6 +151,7 @@
             <p class="shared">Filkortet i Härkomst visar sökväg, storlek, CRC32, MD5, SHA-256 och EXIF i korthet. HEIC och video visas via telefonens egen tumnagel, märkt och med egen hash.</p>
             <ul>
                 <li>EXIF: DateTimeOriginal, Make/Model/Software, GPS. Saknad kamera-EXIF talar för skärmdump eller sparad bild.</li>
+                <li>Skärmdump från Samsung: nyare har appen som syntes i en bilaga sist i filen (<code>Captured_App_Info</code>), äldre har appens namn sist i filnamnet. Härkomst jämför den med appen på skärmen enligt loggarna vid T. Bilagan står på filkortet. Andra telefoner sparar inte appen, så där jämför du själv bildens innehåll med appen på skärmen.</li>
                 <li>Tabellen under Skapandetid visar filens alla tider i tidsordning med källa: tiden i filen, bibliotekets tider och filsystemets tider, som extraktionsverktyget har sparat i zippen. Bibliotekets Skapad är ofta hämtad ur tiden i filen eller ur filsystemet, så att de stämmer visar inte att tiden är sann.</li>
                 <li><strong>Var finns filen?</strong> listar alla kopior i zippen via storlek och CRC32, bekräftade med SHA-256: bildbiblioteket, en apps lagring, en bilaga.</li>
             </ul>
@@ -219,7 +220,8 @@
                         <li>usagestats: <code>/data/system_ce/0/usagestats/daily/&lt;ms&gt;</code>, protobuf (Android 9+), med <code>mappings</code> på nyare versioner. App i förgrunden, skärm och låsskärm</li>
                         <li>appops: <code>/data/system/appops/discrete/</code>, binär XML. Op 26 är kameran, per app med start och längd</li>
                         <li>Samsung: SSRM (<code>com.sec.android.sdhms/ssrm_heating_N.log</code>) och batterihistoriken (<code>/data/log/batterystats/newbatterystats&lt;tid&gt;</code>), text, med app, skärm och kamera långt bakåt. Kontrollera råraden: batterihistorikens tid kan ligga minuter fel, och kameran där säger bara på nyare rader vilken app som använde den</li>
-                        <li>Samsung: <code>/data/system/users/service/data/eRR.p</code>, text, med varje start och nedstängning och orsaken. Säger om telefonen var avstängd eller inte upplåst sedan start när loggarna är tysta</li>
+                        <li>Samsung: <code>/data/system/users/service/data/eRR.p</code>, text, med varje start och nedstängning och orsaken. Säger om telefonen var avstängd eller inte upplåst sedan start när loggarna är tysta. Går att läsa som tabell i Queries</li>
+                        <li>Telefonens zon: <code>persist.sys.timezone</code> i <code>/data/property/persistent_properties</code>. Härkomst räknar om Samsungs loggar med zonens sommar- och vintertid när loggarnas egna zoner stämmer med den</li>
                         <li>Digital Wellbeing (<code>app_usage</code>) är reserv, och loggar inte alltid skärmen</li>
                     </ul>
                     <p class="tools"><a href="../tools/provenance/index.html" data-tool="tools/provenance/index.html">Härkomst</a> avkodar usagestats och appops och läser Samsungs loggar · <a href="../tools/db-queries/queries.html?db=wellbeing" data-tool="tools/db-queries/queries.html?db=wellbeing">Queries</a></p>

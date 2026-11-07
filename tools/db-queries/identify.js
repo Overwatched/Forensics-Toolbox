@@ -19,9 +19,10 @@
     }
 
     // Filens första byte (minst 16, helst 108) och namn: 'zip', 'wal', 'companion' (-shm, -journal),
-    // 'sqlite' eller 'other' (en krypterad databas, eller något helt annat). En tom -wal känns igen på
-    // namnet. En SQLCipher-fil med okrypterat huvud (Signal på iOS) börjar som SQLite, men har reserv
-    // för IV och HMAC i byte 20 och en krypterad sida efter huvudet: den räknas som krypterad.
+    // 'text' (en textfil som läses in som tabell), 'sqlite' eller 'other' (en krypterad databas, eller
+    // något helt annat). En tom -wal känns igen på namnet. En SQLCipher-fil med okrypterat huvud (Signal
+    // på iOS) börjar som SQLite, men har reserv för IV och HMAC i byte 20 och en krypterad sida efter
+    // huvudet: den räknas som krypterad.
     function kindOf(head, name) {
         var b = head || [];
         var n = String(name || '');
@@ -30,6 +31,8 @@
         if (b[0] === 0x1f && b[1] === 0x8b) return 'gzip';
         if (/-wal$/i.test(n) || (b[0] === 0x37 && b[1] === 0x7f && b[2] === 0x06 && (b[3] === 0x82 || b[3] === 0x83))) return 'wal';
         if (/-(shm|journal)$/i.test(n)) return 'companion';
+        // Samsungs eRR.p: LOGM och antalet rader, sedan text. Queries läser in den som en tabell.
+        if (b[0] === 0x4c && b[1] === 0x4f && b[2] === 0x47 && b[3] === 0x4d) return 'text';
         var plain = b.length >= 16;
         for (var i = 0; plain && i < 16; i++) if (b[i] !== SQLITE.charCodeAt(i)) plain = false;
         if (plain && b.length >= 108 && b[20] >= 32 && !btreeHead(b)) return 'other';

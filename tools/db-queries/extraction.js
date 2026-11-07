@@ -280,7 +280,8 @@
         // en nyckelfil som valts (nyckelringen bredvid zippen på iOS), om den finns.
         var cipher = cipherFor(db);
         window.QueriesRun.useSources({
-            db: ExtractionCore.zipSource(c.read, f.db, [zipLine]),
+            // En textfil (eRR.p) läses in som en tabell enligt katalogens databas.
+            db: Object.assign(ExtractionCore.zipSource(c.read, f.db, [zipLine]), db.convert ? { convert: db.convert } : {}),
             wal: f.wal ? ExtractionCore.zipSource(c.read, f.wal) : null,
             zip: c.file.name,
             cipher: cipher,
@@ -292,7 +293,9 @@
     // Databasen från disk blir källan för dbId. Queryn står kvar om den finns i databasen.
     function useLoose(dbId) {
         window.QueriesApp.selectDb(dbId, { source: { file: loose.db.name }, keepQuery: true });
-        window.QueriesRun.useSources({ db: loose.src.db, wal: loose.src.wal, mismatch: loose.mismatch, opened: loose.opened });
+        var d = dbById(dbId);
+        var db = d && d.convert ? Object.assign({}, loose.src.db, { convert: d.convert }) : loose.src.db;
+        window.QueriesRun.useSources({ db: db, wal: loose.src.wal, mismatch: loose.mismatch, opened: loose.opened });
         render();
         layout();
     }
@@ -485,6 +488,9 @@
                 opened = await run.load(src);
                 found = DbIdentify.conclude(DbIdentify.rank(opened.SQL, opened.bytes, app.databases(), opts))
                     || DbIdentify.fromName(dbFile.name, app.databases(), opts);
+            } else if (kind === 'text') {
+                // En textfil som Queries kan läsa in som tabell (eRR.p) känns igen på namnet.
+                found = DbIdentify.fromName(dbFile.name, app.databases().filter(function (d) { return !!d.convert; }), opts);
             } else {
                 found = DbIdentify.fromName(dbFile.name, app.databases(), Object.assign({ encrypted: true }, opts));
             }
@@ -492,7 +498,8 @@
             say('<span class="run-warn">' + escapeHtml(dbFile.name + ': ' + (err && err.message ? err.message : String(err))) + '</span>');
             return;
         }
-        say(kind === 'sqlite' || found ? '' : escapeHtml(dbFile.name) + ' är varken en zip eller en vanlig SQLite-databas. Är den krypterad, välj vilken databas det är till vänster och klistra in nyckeln.');
+        say(kind === 'sqlite' || found ? '' : kind === 'text' ? escapeHtml(dbFile.name) + ' är en textfil som Queries inte känner igen. Queries läser eRR.p från Samsung, med det namnet.'
+            : escapeHtml(dbFile.name) + ' är varken en zip eller en vanlig SQLite-databas. Är den krypterad, välj vilken databas det är till vänster och klistra in nyckeln.');
         loose = {
             db: dbFile, wal: walFile || null, journal: journalFile || null, kind: kind, src: src, opened: opened, found: found,
             mismatch: !!walFile && walFile.name.replace(/-wal$/i, '') !== dbFile.name,

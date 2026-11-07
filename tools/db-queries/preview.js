@@ -198,6 +198,18 @@
         }],
     ];
 
+    // eRR.p (Samsung) som tabellen err: en omstart och starten efter den, påhittade i samma form som på en labbtelefon.
+    var ERR_ROWS = [
+        { rad: '99', tid: '2026-10-03 16:15:08+0200', unix_ms: '1791036908000', utc: '2026-10-03 14:15:08', zon: '+02:00', vad: 'REBOOT', kod: '', orsak: 'device_locked_3days',
+            orsak_i_ord: 'låst i tre dygn', krasch: '0', fel_klocka: '0', text: '2026-10-03 16:15:08+0200 | REBOOT | | REASON: device_locked_3days [0]',
+            last_fran_utc: '2026-09-30 14:15:08', omstart_utc: '2026-10-03 14:15:08' },
+        { rad: '100', tid: '2026-10-03 16:15:59+0200', unix_ms: '1791036959000', utc: '2026-10-03 14:15:59', zon: '+02:00', vad: 'ON', kod: 'RP', orsak: 'NULL',
+            orsak_i_ord: 'NULL', krasch: '0', fel_klocka: '0', text: '2026-10-03 16:15:59+0200 | ON | RP | A000XXU1 [1]' },
+        { rad: '101', tid: '2026-10-09 08:34:12+0200', unix_ms: '1791527652000', utc: '2026-10-09 06:34:12', zon: '+02:00', vad: 'REBOOT', kod: '', orsak: 'recovery',
+            orsak_i_ord: 'till recovery, till exempel en uppdatering', krasch: '0', fel_klocka: '0', text: '2026-10-09 08:34:12+0200 | REBOOT | | REASON: recovery [1]',
+            last_fran_utc: '2026-10-06 06:34:12', omstart_utc: '2026-10-09 06:34:12' },
+    ];
+
     function exampleRows(cols, opts) {
         opts = opts || {};
         var ios = /ios/i.test(opts.platform || '');
@@ -217,9 +229,11 @@
         };
         var count = opts.rows || 3;
         var rows = [];
+        var err = /\bFROM\s+err\b/i.test(stripComments(sql));
         for (var i = 0; i < count; i++) {
             rows.push(cols.map(function (col) {
                 if (Object.prototype.hasOwnProperty.call(literals, col)) return literals[col];
+                if (err && Object.prototype.hasOwnProperty.call(ERR_ROWS[i % 3], col)) return ERR_ROWS[i % 3][col];
                 var name = col.replace(/^(ext|cloud)_/i, '');
                 for (var r = 0; r < RULES.length; r++) {
                     if (RULES[r][0].test(name)) return RULES[r][1](i, ctx);

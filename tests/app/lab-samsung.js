@@ -50,6 +50,8 @@ function sharedScenarios() {
         expect(/newbatterystats260317080553 rad 2699–2718/.test(cam.source) && /\+camera/.test(cam.source) && /-camera/.test(cam.source), 'Råraden: ' + cam.source);
         expect(r.sources.some((s) => /newbatterystats260317080553/.test(s)), 'Källan: ' + r.sources.join(', '));
         expect(!r.events.some((e) => e.kind === 'log-unsure'), 'Osäkra rader: ' + JSON.stringify(r.events.filter((e) => e.kind === 'log-unsure')));
+        // Samsungs bilaga sist i filen har tagningstiden i UTC, på millisekunden samma som T.
+        expect(/Samsungs bilaga sist i filen har tagningstiden 2026-03-12 12:31:11(\.726)? UTC \(Image_UTC_Data\), samma sekund som tiden i EXIF/.test(r.factors.time.text), 'Skapandetid: ' + r.factors.time.text);
         return 'kameran ' + iso(cam.ms) + '–' + iso(cam.endMs) + ' UTC';
     }];
     const gap = ['Kamerabilden från december: batterihistoriken har ett hål där, och faktorn säger det', async ({ c }) => {
@@ -67,10 +69,10 @@ function sharedScenarios() {
 
 function scenarios(report) {
     const { camera, gap } = sharedScenarios();
-    const shot = ['Skärmdumpen från september: usagestats går först, batterihistorikens flyttade klocka räknas inte', async ({ c }) => {
+    const shot = ['Skärmdumpen från september: appen i filen var på skärmen enligt usagestats, och batterihistorikens flyttade klocka räknas inte', async ({ c }) => {
         const r = await assess(c, 'Screenshot_20260930_094637.jpg');
         expect(r.type === 'screenshot', 'Typ: ' + r.type);
-        expect(r.factors.app.state === 'info' && /Solflare \(usagestats\)/.test(r.factors.app.text), 'App: ' + r.factors.app.text);
+        expect(r.factors.app.state === 'support' && /Captured_App_Info/.test(r.factors.app.text) && /Solflare var på skärmen vid tidpunkten \(usagestats\)/.test(r.factors.app.text), 'App: ' + r.factors.app.text);
         expect(r.factors.screen.state === 'support' && /usagestats/.test(r.factors.screen.text), 'Skärm: ' + r.factors.screen.text);
         expect(!/räknas inte/.test(r.factors.screen.text), 'Noten när en säker källa svarar: ' + r.factors.screen.text);
         const unsure = r.events.filter((e) => e.kind === 'log-unsure');
@@ -153,7 +155,8 @@ function zipScenarios(zip, facit) {
         expect(r.factors.app.state === 'support' && r.factors.camera.state === 'support' && r.factors.screen.state === 'support', 'Faktorerna: ' + JSON.stringify(r.factors));
         ['SSRM', 'batterihistoriken', 'appops'].forEach((s) => expect(cams(r, s, 'com.sec.android.app.camera').some((e) => e.ms <= r.T && r.T <= e.endMs), s + ' täcker inte T: ' + JSON.stringify(cams(r, s, 'com.sec.android.app.camera'))));
         expect(/SSRM, camera running/.test(r.factors.camera.text) && /appops/.test(r.factors.camera.text) && /usagestats/.test(r.factors.camera.text) && /batterihistoriken, \+camera, med appens uid/.test(r.factors.camera.text), 'Källorna: ' + r.factors.camera.text);
-        // Telefonen låg på laddning med skärmen tänd i 28 dagar över sommartidens slut. Den raden är osäker, men den slutar före T.
+        // Telefonen låg på laddning med skärmen tänd i 28 dagar över sommartidens slut. Klockan flyttades under den tiden, så raden
+        // är osäker, men den slutar före T.
         const unsure = r.events.filter((e) => e.kind === 'log-unsure' && e.ms <= r.T && r.T <= e.endMs);
         expect(!unsure.length, 'Osäkra rader vid T: ' + JSON.stringify(unsure));
         expect(r.events.some((e) => e.kind === 'screen' && e.stream === 'SSRM' && e.on && e.ms <= r.T && r.T <= e.endMs), 'SSRM:s skärmrad räknas inte');
@@ -213,7 +216,36 @@ function zipScenarios(zip, facit) {
         expect(!r.events.some((e) => e.cameraOp && e.app === 'com.google.android.permissioncontroller'), 'Behörighetsfrågan ska inte stå som appen bakom kameran');
         return 'T ' + iso(r.T) + ' UTC';
     }];
-    return [openIn(zip, 'Zippen'), photo, sessions, fore, signalCam, signalRoll, snap, camera, gap, statusErr, bfu, maybe, three];
+    const shots = ['Skärmdumparna säger själva vilken app de visar: bilagan i den nyare, filnamnet i den äldre', async ({ c }) => {
+        const f = facit.screenshots;
+        const r = await assess(c, f.trailer.name);
+        expect(r.type === 'screenshot' && r.factors.app.state === 'support', 'App: ' + JSON.stringify(r.factors.app));
+        expect(r.factors.app.text.includes('Skärmdumpen säger själv att den visar Solflare (' + f.trailer.component + '), enligt Captured_App_Info i Samsungs bilaga sist i filen.') && /Solflare var på skärmen vid tidpunkten \(SSRM\)/.test(r.factors.app.text), 'Texten: ' + r.factors.app.text);
+        const rows = await c.ev(PROV, `JSON.stringify(ProvenanceApp.meta().fileEntry.trailerRows)`);
+        expect(rows.includes('Samsung_Capture_Info') && rows.includes(f.trailer.component), 'Bilagan på kortet: ' + rows);
+        const card = await c.ev(PROV, `document.getElementById('result').textContent`);
+        expect(/Samsungs bilaga sist i filen/.test(card), 'Kortet visar inte bilagan');
+        const old = await assess(c, f.label.name);
+        expect(old.factors.app.state === 'missing' && old.factors.app.text.includes('Skärmdumpen säger själv att den visar Instagram, enligt filnamnet'), 'Den äldre: ' + JSON.stringify(old.factors.app));
+        return 'Solflare ur bilagan, Instagram ur namnet';
+    }];
+    const z = facit.zone;
+    const zone = ['Telefonens zon: alla zoner i loggarna stämmer, och filen över sommartidens slut räknas med den', async ({ c }) => {
+        const r = await assess(c, z.file.name);
+        expect(Math.abs(r.T - at(z.file.T)) <= 1000, 'T: ' + new Date(r.T).toISOString());
+        expect(r.sources.includes('Telefonens zon (persist.sys.timezone)'), 'Källan: ' + r.sources.join(', '));
+        const sql = await c.ev(PROV, `[...document.querySelectorAll('#sources pre.sql')].map(p => p.textContent).join(' ')`);
+        const line = 'Telefonens zon: ' + z.name + ' (persist.sys.timezone). ' + z.observations + ' av ' + z.observations + ' zoner i loggarna stämmer med den.';
+        expect(sql.includes(line) && sql.includes('i ' + z.files + ' av ' + z.files + ' filer'), 'Bilagan: ' + (sql.match(/Telefonens zon[^\n]*/) || [''])[0]);
+        const lock = r.events.find((e) => e.kind === 'lock' && e.notUnlocked);
+        near(lock && lock.ms, z.file.boot, 'Starten');
+        // Förut var skärmraden över bytet osäker på zonen. Nu är den bara osäker på klockan, som flyttades under tiden.
+        const unsure = r.events.filter((e) => e.kind === 'log-unsure');
+        expect(!unsure.some((e) => e.zoneMs > 0), 'Rader osäkra på zonen: ' + JSON.stringify(unsure.filter((e) => e.zoneMs > 0)));
+        expect(unsure.some((e) => e.stream === 'batterihistoriken' && e.clockMs > 0), 'Skärmraden: ' + JSON.stringify(unsure));
+        return z.observations + ' zoner, ' + z.files + ' filer';
+    }];
+    return [openIn(zip, 'Zippen'), photo, sessions, fore, signalCam, signalRoll, snap, camera, gap, statusErr, bfu, maybe, three, zone, shots];
 }
 
 module.exports = { scenarios, zipScenarios, assess };

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Kör alla enhetstester under tools/.
+// Kör alla enhetstester under tools/ och scripts/.
 //
 // `node --test "tools/**/*.test.js"` fungerar inte överallt: Node 20 tolkar mönstret
 // som en literal sökväg och Node 26 tolkar en katalog som en fil att köra. Därför
@@ -29,7 +29,8 @@ function findTests(dir) {
     return found;
 }
 
-const tests = findTests(TOOLS_DIR).sort();
+// Skripten under scripts/ har också tester (release-notes.test.js).
+const tests = findTests(TOOLS_DIR).concat(findTests(path.join(ROOT, 'scripts'))).sort();
 
 if (!tests.length) {
     console.error('run-tests: hittade inga *.test.js under tools/');

@@ -139,6 +139,7 @@
             // Bilden bara när undersökaren bett om det (meta.previewPng), förminskad.
             if (meta.previewPng) out += imageHtml(meta.previewPng, 'Bilden', 360) + p('<i>' + esc(meta.previewNote || '') + '</i>');
             if (meta.exifRows && meta.exifRows.length) out += table(['EXIF-tagg i filen', 'Värde'], meta.exifRows);
+            if (fe.trailerRows && fe.trailerRows.length) out += table(['Samsungs bilaga sist i filen', 'Värde'], fe.trailerRows);
         } else if (meta.fileMissingReason) {
             out += p('<b>Bildfilen:</b> ' + esc(meta.fileMissingReason));
         }

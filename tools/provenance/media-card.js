@@ -162,8 +162,102 @@
         return out;
     }
 
+    // ---------- Samsungs bilaga sist i filen ----------
+
+    function u16le(b, i) { return b[i] | (b[i + 1] << 8); }
+    function u32le(b, i) { return (b[i] | (b[i + 1] << 8) | (b[i + 2] << 16)) + b[i + 3] * 16777216; }
+    function latin(b, from, to) { var s = ''; for (var i = from; i < to; i++) s += String.fromCharCode(b[i]); return s; }
+
+    // Samsung lägger en bilaga (SEF) efter bilden i JPEG-filer: filen slutar på SEFT, och före det står en katalog (SEFH)
+    // med en post per uppgift: utfyllnad (2 byte), typ (2), avstånd bakåt från SEFH (4) och längd (4), allt minst värd först.
+    // Varje post börjar med utfyllnad, typ, namnets längd och namnet. [{ type, name, data }] eller null utan bilaga.
+    function samsungTrailer(bytes) {
+        var b = bytes, n = b ? b.length : 0;
+        if (n < 24 || latin(b, n - 4, n) !== 'SEFT') return null;
+        var size = u32le(b, n - 8);
+        var head = n - 8 - size;
+        if (size < 12 || head < 0 || latin(b, head, head + 4) !== 'SEFH') return null;
+        var count = u32le(b, head + 8);
+        if (count > 500 || head + 12 + count * 12 > n - 8) return null;
+        var out = [];
+        for (var k = 0; k < count; k++) {
+            var at = head + 12 + k * 12;
+            var back = u32le(b, at + 4), len = u32le(b, at + 8);
+            var start = head - back;
+            if (start < 0 || len < 8 || start + len > head) continue;
+            var nameLen = u32le(b, start + 4);
+            if (nameLen > len - 8 || nameLen > 200) continue;
+            out.push({ type: u16le(b, at + 2), name: latin(b, start + 8, start + 8 + nameLen), data: b.slice(start + 8 + nameLen, start + len) });
+        }
+        return out;
+    }
+
+    function base64Text(text) {
+        try {
+            if (typeof atob === 'function') {
+                var bin = atob(text);
+                var bytes = new Uint8Array(bin.length);
+                for (var i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+                return new TextDecoder('utf-8').decode(bytes);
+            }
+        } catch (e) { /* inte base64 */ }
+        return null;
+    }
+
+    // Captured_App_Info: base64 av {"comp":"<paket>/<aktivitet>"}, appen överst när skärmdumpen togs. null när den saknas.
+    function capturedApp(entries) {
+        var e = (entries || []).filter(function (x) { return x.name === 'Captured_App_Info'; })[0];
+        if (!e) return null;
+        var raw = latin(e.data, 0, e.data.length).trim();
+        var text = /^[A-Za-z0-9+/=\s]+$/.test(raw) ? base64Text(raw.replace(/\s+/g, '')) : null;
+        var json = null;
+        try { json = JSON.parse(text); } catch (err) { /* inte JSON */ }
+        var comp = json && typeof json.comp === 'string' ? json.comp : '';
+        var pkg = comp.split('/')[0];
+        return /^[A-Za-z][\w]*(\.[\w]+)+$/.test(pkg) ? { package: pkg, component: comp, raw: text } : null;
+    }
+
+    // Appen som skärmdumpen visar, ur filen själv: nyare Samsung skriver den i bilagan (Captured_App_Info), äldre sist i
+    // filnamnet (Screenshot_20251113-074800_Instagram.jpg är appens namn på skärmen). { package, component } eller
+    // { label }, med where som säger varifrån. null när filen inte säger det.
+    function screenshotApp(bytes, filename) {
+        var cap = capturedApp(samsungTrailer(bytes));
+        if (cap) return { package: cap.package, component: cap.component, where: 'Captured_App_Info i Samsungs bilaga sist i filen' };
+        var m = /^Screenshot_\d{8}[-_]\d{6}_(.+?)\.(jpe?g|png|webp)$/i.exec(baseName(filename || ''));
+        if (m && /[A-Za-zÅÄÖåäö]/.test(m[1])) return { label: m[1].replace(/_/g, ' '), where: 'filnamnet, där Samsung skriver appens namn' };
+        return null;
+    }
+
+    // Image_UTC_Data: tagningstiden i UTC i millisekunder, som kameran skriver när bilden tas. null utan den.
+    function trailerUtc(bytes) {
+        var e = (samsungTrailer(bytes) || []).filter(function (x) { return x.name === 'Image_UTC_Data'; })[0];
+        var text = e ? latin(e.data, 0, e.data.length).trim() : '';
+        return /^\d{13}$/.test(text) ? Number(text) : null;
+    }
+
+    // Bilagans poster som rader till kortet och protokollet: text som den står, Captured_App_Info avkodad, annat som storlek.
+    // names(paket) -> appens namn eller null.
+    function trailerRows(bytes, names) {
+        var entries = samsungTrailer(bytes);
+        if (!entries || !entries.length) return [];
+        return entries.map(function (e) {
+            if (e.name === 'Captured_App_Info') {
+                var cap = capturedApp([e]);
+                if (cap) {
+                    var nm = names ? names(cap.package) : null;
+                    return [e.name, cap.component + (nm ? ' (' + nm + ')' : '') + ', base64 i filen'];
+                }
+            }
+            var text = latin(e.data, 0, Math.min(e.data.length, 200));
+            // Image_UTC_Data är tagningstiden i UTC i millisekunder.
+            if (e.name === 'Image_UTC_Data' && /^\d{13}$/.test(text)) return [e.name, text + ' (' + new Date(Number(text)).toISOString().replace('T', ' ').replace('Z', '') + ' UTC)'];
+            if (e.data.length <= 120 && /^[\x20-\x7e]+$/.test(text)) return [e.name, text];
+            return [e.name, e.data.length + ' byte'];
+        });
+    }
+
     // Kortets rader i grupper efter var uppgifterna kommer ifrån: [{ title, rows }], utan tomma grupper.
-    // fileEntry: { path, size, crc32, crcOk, md5, sha256, reportRows }. opts.sizeText(byte) -> text, opts.word: zippen eller rapporten.
+    // fileEntry: { path, size, crc32, crcOk, md5, sha256, reportRows, trailerRows }. opts.sizeText(byte) -> text, opts.word: zippen eller rapporten.
     function cardGroups(fileEntry, exifRows, opts) {
         opts = opts || {};
         if (!fileEntry) return [];
@@ -182,6 +276,7 @@
             { title: 'Filen i extraktionen', rows: rows },
             { title: 'I rapporten (rapportverktygets uppgifter och tolkning)', rows: fileEntry.reportRows || [] },
             { title: 'Inuti filen (EXIF eller QuickTime)', rows: exifSummary(exifRows) },
+            { title: 'Samsungs bilaga sist i filen', rows: fileEntry.trailerRows || [] },
         ].filter(function (g) { return g.rows.length; });
     }
 
@@ -369,7 +464,7 @@
     }
 
     var api = {
-        decodeUserComment: decodeUserComment,
+        decodeUserComment: decodeUserComment, samsungTrailer: samsungTrailer, capturedApp: capturedApp, screenshotApp: screenshotApp, trailerRows: trailerRows, trailerUtc: trailerUtc,
         kindOf: kindOf, mimeOf: mimeOf, baseName: baseName, thumbnailSuffix: thumbnailSuffix, suffixKeeper: suffixKeeper, pickBySuffix: pickBySuffix,
         previewPlan: previewPlan, exifSummary: exifSummary, cardGroups: cardGroups, timesGroup: timesGroup, reportRows: reportRows, parseLocal: parseLocal, parseWhen: parseWhen, dateText: dateText, timeText: timeText, dayRange: dayRange, zoneOffsetAt: zoneOffsetAt, toUtcMs: toUtcMs, exifTakenMs: exifTakenMs, exifZone: exifZone,
         nearestFirst: nearestFirst, deltaText: deltaText, mediaKeeper: mediaKeeper, entryMs: entryMs, dataUrl: dataUrl, THUMB_FILE: THUMB_FILE,

@@ -494,8 +494,9 @@ function visibleQueries(list) {
     return (list || []).filter((q) => !q.hidden);
 }
 
-function buildDatabases(photos, android, appUsage, routined, snapchat, snapchatAndroid, signalAndroid, signalIos, whatsappIos, telegramIos) {
+function buildDatabases(photos, android, appUsage, routined, snapchat, snapchatAndroid, signalAndroid, signalIos, whatsappIos, telegramIos, samsungAndroid) {
     routined = routined || {};
+    samsungAndroid = samsungAndroid || {};
     snapchat = snapchat || {};
     snapchatAndroid = snapchatAndroid || {};
     signalAndroid = signalAndroid || {};
@@ -517,7 +518,8 @@ function buildDatabases(photos, android, appUsage, routined, snapchat, snapchatA
         signalAndroid.paramLabels || {},
         signalIos.paramLabels || {},
         whatsappIos.paramLabels || {},
-        telegramIos.paramLabels || {}
+        telegramIos.paramLabels || {},
+        samsungAndroid.paramLabels || {}
     );
     paramDefaults = Object.assign({}, routined.paramDefaults || {});
 
@@ -689,6 +691,35 @@ function buildDatabases(photos, android, appUsage, routined, snapchat, snapchatA
         });
     });
 
+    // Samsungs textfiler (eRR.p): filen tolkas som i Härkomst och läses in som en tabell i minnet (text-logs.js, convert).
+    (samsungAndroid.databases || []).forEach((db) => {
+        out.push({
+            id: db.id,
+            os: 'Android',
+            category: 'samsung',
+            family: db.id,
+            familyTitle: db.label,
+            label: db.label,
+            blurb: db.blurb || '',
+            dbPathHint: db.dbPathHint,
+            paths: db.paths || [],
+            source: db.source,
+            note: samsungAndroid.sourceNote,
+            convert: db.convert || null,
+            runnable: true,
+            queries: visibleQueries(db.queries).map((q) => ({
+                id: q.id,
+                title: q.title,
+                subtitle: q.subtitle || '',
+                recommended: !!q.recommended,
+                group: q.group,
+                returns: q.returns || '',
+                params: q.params || [],
+                sql: q.sql,
+            })),
+        });
+    });
+
     (android.categories || []).forEach((cat) => {
         const queries = visibleQueries(cat.queries).map((q) => ({
             id: q.id,
@@ -740,6 +771,12 @@ const CATEGORIES = {
             Android: 'Androids egna databaser: MediaStore, kamerans filer och appanvändning.',
         },
     },
+    samsung: {
+        title: 'Samsung',
+        intro: {
+            Android: 'Samsungs egna textfiler, inlästa som tabeller i minnet med samma tolkning som i Härkomst: eRR.p med telefonens starter och nedstängningar.',
+        },
+    },
     snapchat: {
         title: 'Snapchat',
         beta: true,
@@ -771,7 +808,7 @@ const CATEGORIES = {
         },
     },
 };
-const CATEGORY_ORDER = ['system', 'snapchat', 'signal', 'whatsapp', 'telegram'];
+const CATEGORY_ORDER = ['system', 'samsung', 'snapchat', 'signal', 'whatsapp', 'telegram'];
 
 function categoryOf(d) {
     return d.category || 'system';
@@ -1037,7 +1074,7 @@ function applyDeepLink() {
 
 async function init() {
     try {
-        const [photos, android, appUsage, routined, snapchat, snapchatAndroid, signalAndroid, signalIos, whatsappIos, telegramIos] = await Promise.all([
+        const [photos, android, appUsage, routined, snapchat, snapchatAndroid, signalAndroid, signalIos, whatsappIos, telegramIos, samsungAndroid] = await Promise.all([
             loadLocalJson('../../queries/ios/photos-sqlite/catalog.json', 'PHOTOS_SQLITE_CATALOG'),
             loadLocalJson('../../queries/android/catalog.json', 'ANDROID_QUERIES_CATALOG'),
             loadLocalJson('../../queries/app-usage/catalog.json', 'APP_USAGE_CATALOG'),
@@ -1048,8 +1085,9 @@ async function init() {
             loadLocalJson('../../queries/ios/signal/catalog.json', 'SIGNAL_IOS_CATALOG'),
             loadLocalJson('../../queries/ios/whatsapp/catalog.json', 'WHATSAPP_IOS_CATALOG'),
             loadLocalJson('../../queries/ios/telegram/catalog.json', 'TELEGRAM_IOS_CATALOG'),
+            loadLocalJson('../../queries/android/samsung/catalog.json', 'SAMSUNG_ANDROID_CATALOG'),
         ]);
-        databases = buildDatabases(photos, android, appUsage, routined, snapchat, snapchatAndroid, signalAndroid, signalIos, whatsappIos, telegramIos);
+        databases = buildDatabases(photos, android, appUsage, routined, snapchat, snapchatAndroid, signalAndroid, signalIos, whatsappIos, telegramIos, samsungAndroid);
         renderSide();
         applyDeepLink();
         readyResolve();

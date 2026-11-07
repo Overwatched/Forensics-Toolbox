@@ -1,0 +1,49 @@
+{
+  "id": "samsung-android",
+  "title": "Samsung (Android)",
+  "sourceNote": "Samsungs egna textfiler. Filen tolkas som i Härkomst och raderna läggs i en tabell i minnet; filen i extraktionen ändras inte. Formatet är inte beskrivet av Samsung, utan kontrollerat mot en telefon (SM-A336B).",
+  "paramLabels": {},
+  "databases": [
+    {
+      "id": "samsung-err-p",
+      "label": "eRR.p: starter och nedstängningar",
+      "convert": "err-p",
+      "blurb": "Varje start, omstart och nedstängning med tid, zon och ofta orsaken (batteriet tog slut, vald på telefonen, uppdatering, kommando från en dator, låst i tre dygn). Ofta år bakåt.",
+      "dbPathHint": "/data/system/users/service/data/eRR.p",
+      "paths": ["data/system/users/service/data/eRR.p"],
+      "source": "Tolkningen i Härkomst (tools/provenance/samsung-logs.js)",
+      "queries": [
+        {
+          "id": "err-all",
+          "title": "Alla rader",
+          "recommended": true,
+          "subtitle": "Visar varje rad i filens ordning: tiden som den står och i UTC, vad som hände, koden, orsaken i klartext, om det var en krasch och om klockan var fel.",
+          "returns": "rad, tid, UTC, vad, kod, orsak, orsak i ord, krasch, fel klocka, raden",
+          "sql": "-- En rad per start (ON), omstart (REBOOT) och nedstängning (SHUTDOWN), i den ordning telefonen skrev dem.\n-- tid står som i filen, med zon. utc är räknad med radens egen zon.\n-- fel_klocka = 1: raden har en tid före raden innan, så klockan gick fel när den skrevs.\nSELECT rad, tid, utc, vad, kod, orsak, orsak_i_ord, krasch, fel_klocka, text\nFROM err\nORDER BY rad;"
+        },
+        {
+          "id": "err-downs",
+          "title": "Nedstängningar och omstarter med orsak",
+          "subtitle": "Visar bara REBOOT och SHUTDOWN, med orsaken i klartext och om det var en krasch.",
+          "returns": "rad, tid, UTC, vad, orsak, orsak i ord, krasch",
+          "sql": "SELECT rad, tid, utc, vad, orsak, orsak_i_ord, krasch\nFROM err\nWHERE vad IN ('REBOOT', 'SHUTDOWN') AND fel_klocka = 0\nORDER BY rad;"
+        },
+        {
+          "id": "err-locked",
+          "title": "Låst i tre dygn före omstarten",
+          "subtitle": "Omstarterna med orsaken device_locked_3days, och de 72 timmarna före då telefonen var låst.",
+          "returns": "rad, låst från (UTC), omstart (UTC), tid, orsak",
+          "sql": "-- Telefonen startar om sig själv efter tre dygn utan upplåsning. Tiden före omstarten var den låst.\nSELECT rad, datetime(unix_ms / 1000 - 259200, 'unixepoch') AS last_fran_utc, utc AS omstart_utc, tid, orsak\nFROM err\nWHERE orsak = 'device_locked_3days' AND fel_klocka = 0\nORDER BY rad;"
+        },
+        {
+          "id": "err-clock",
+          "title": "Hjälp: rader med fel klocka",
+          "group": "advanced",
+          "subtitle": "Raderna vars tid ligger före raden innan. De skrevs när telefonens klocka stod fel, till exempel efter att batteriet tagit helt slut.",
+          "returns": "rad, tid, vad, raden",
+          "sql": "SELECT rad, tid, vad, text\nFROM err\nWHERE fel_klocka = 1\nORDER BY rad;"
+        }
+      ]
+    }
+  ]
+}

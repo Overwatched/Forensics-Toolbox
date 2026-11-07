@@ -6,7 +6,7 @@ name: Bygg och publicera (Windows, Linux, macOS)
 # Med offlinekartan är varje plattformsfil runt 1,5 GB. Varje bygge laddar därför upp
 # sina filer direkt till releasen (som utkast) i stället för att samla allt i ett jobb,
 # och releasen publiceras när alla byggen är klara. Release-texten finns i
-# .github/release-notes.md.
+# .github/release-notes.md; releasen får bara sin egen versions avsnitt och nedladdningen.
 on:
   push:
     branches: [main]
@@ -139,7 +139,8 @@ jobs:
         run: |
           TAG="v$VERSION"
           MAPS=$(node -p "require('./maps/kartdata.json').release")
-          sed -e "s/{{VERSION}}/$VERSION/g" -e "s/{{SHA}}/$GITHUB_SHA/g" -e "s/{{MAPS}}/$MAPS/g" .github/release-notes.md > notes.md
+          # Bara den här versionens avsnitt och nedladdningen, inte hela historiken (scripts/release-notes.js).
+          node scripts/release-notes.js "$VERSION" "$GITHUB_SHA" "$MAPS" > notes.md
           if gh release view "$TAG" >/dev/null 2>&1; then
             if [ "$(gh release view "$TAG" --json isDraft --jq '.isDraft')" != "true" ]; then
               echo "::notice::$TAG är redan publicerad och lämnas orörd. Höj versionen för en ny release."

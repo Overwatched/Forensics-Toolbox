@@ -247,7 +247,17 @@
                 <tr>
                     <td>Starter och nedstängningar (Samsung)</td>
                     <td><code>/data/system/users/service/data/eRR.p</code></td>
-                    <td>Varje start, omstart och nedstängning med orsak och zon, ofta år bakåt. Text. Omstartsorsaken <code>device_locked_3days</code> betyder tre dygn utan upplåsning. ON-raden kan komma efter själva starten på äldre programvara. Härkomst läser den och säger om telefonen var avstängd eller inte upplåst sedan start.</td>
+                    <td>Varje start, omstart och nedstängning med orsak och zon, ofta år bakåt. Text. Omstartsorsaken <code>device_locked_3days</code> betyder tre dygn utan upplåsning. ON-raden kan komma efter själva starten på äldre programvara. Härkomst läser den och säger om telefonen var avstängd eller inte upplåst sedan start. Queries läser in den som tabellen <code>err</code>.</td>
+                </tr>
+                <tr>
+                    <td>Telefonens zon (Android)</td>
+                    <td><code>/data/property/persistent_properties</code></td>
+                    <td>Egenskapen <code>persist.sys.timezone</code>, till exempel <code>Europe/Stockholm</code>. Protobuf. Zonen när extraktionen gjordes, inte nödvändigtvis när en logg skrevs. Härkomst räknar om Samsungs loggar med zonens sommar- och vintertid där loggarnas egna zoner stämmer med den.</td>
+                </tr>
+                <tr>
+                    <td>Skärmdump på Samsung</td>
+                    <td><code>DCIM/Screenshots/Screenshot_*.jpg</code></td>
+                    <td>Nyare: appen överst när bilden togs i en bilaga sist i filen (<code>SEFH</code>/<code>SEFT</code>, posten <code>Captured_App_Info</code>, base64 av <code>{"comp":"paket/aktivitet"}</code>). Äldre: appens namn sist i filnamnet. Härkomst jämför den med appen på skärmen enligt loggarna.</td>
                 </tr>
                 <tr>
                     <td>Digital Wellbeing</td>
