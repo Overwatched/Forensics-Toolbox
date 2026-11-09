@@ -3,7 +3,8 @@
   "title": "WhatsApp iOS Queries",
   "sourceNote": "Betafunktion. WhatsApps databas på iOS, ChatStorage.sqlite i appgruppen group.net.whatsapp.WhatsApp.shared. Den är inte krypterad. Tiderna är Cocoa-sekunder (från 2001-01-01) och visas här med datetime(… + 978307200, 'unixepoch', 'localtime'). Tabeller och kolumner är kontrollerade mot en labbtelefon (iOS 26.4.1, 2026-11-03). Strukturen kan skilja sig mellan WhatsApp-versioner, så kontrollera alltid mot databasen. WhatsApp Business har en egen ChatStorage.sqlite i group.net.whatsapp.WhatsAppSMB.shared med samma tabeller.",
   "paramLabels": {
-    "sha256b64": "SHA-256 i base64 (44 tecken, som i databasen)"
+    "sha256b64": "SHA-256 i base64 (44 tecken, som i databasen)",
+    "threadId": "Chattens id (Z_PK i ZWACHATSESSION)"
   },
   "databases": [
     {
@@ -27,7 +28,11 @@
           ],
           "subtitle": "Visar meddelandena i tidsspannet: när de skrevs eller togs emot och när de skickades, riktning, typ, chatt, avsändare, text och mediefilen.",
           "returns": "tid, skickad, riktning, typ, chatt, från, text, mediefil, status, id, chatt-id, UTC",
-          "sql": "SELECT\n  datetime(m.ZMESSAGEDATE + 978307200, 'unixepoch', 'localtime') AS tid_lokal,\n  CASE WHEN m.ZSENTDATE > 0 THEN datetime(m.ZSENTDATE + 978307200, 'unixepoch', 'localtime') END AS skickad_lokal,\n  CASE WHEN m.ZISFROMME = 1 THEN 'skickat' ELSE 'mottaget' END AS riktning,\n  CASE m.ZMESSAGETYPE WHEN 0 THEN 'text' WHEN 1 THEN 'bild' WHEN 2 THEN 'video' WHEN 3 THEN 'ljud' WHEN 4 THEN 'kontaktkort'\n    WHEN 5 THEN 'plats' WHEN 8 THEN 'dokument' WHEN 10 THEN 'systemmeddelande' WHEN 38 THEN 'bild (engångsvisning)' WHEN 39 THEN 'video (engångsvisning)' ELSE 'typ ' || m.ZMESSAGETYPE END AS typ,\n  COALESCE(NULLIF(s.ZPARTNERNAME, ''), s.ZCONTACTJID, '#' || s.Z_PK) AS chatt,\n  CASE WHEN m.ZISFROMME = 1 THEN 'den här telefonen'\n    ELSE COALESCE(NULLIF(gm.ZCONTACTNAME, ''), (SELECT NULLIF(pn.ZPUSHNAME, '') FROM ZWAPROFILEPUSHNAME pn WHERE pn.ZJID = COALESCE(gm.ZMEMBERJID, m.ZFROMJID)), NULLIF(s.ZPARTNERNAME, ''), gm.ZMEMBERJID, m.ZFROMJID) END AS fran,\n  m.ZTEXT AS text,\n  CASE WHEN i.ZMEDIALOCALPATH IS NOT NULL THEN 'Message/' || i.ZMEDIALOCALPATH END AS mediefil,\n  m.ZMESSAGESTATUS AS status,\n  m.Z_PK AS meddelande_id,\n  s.Z_PK AS chatt_id,\n  datetime(m.ZMESSAGEDATE + 978307200, 'unixepoch') AS tid_utc\nFROM ZWAMESSAGE m\nLEFT JOIN ZWACHATSESSION s ON s.Z_PK = m.ZCHATSESSION\nLEFT JOIN ZWAGROUPMEMBER gm ON gm.Z_PK = m.ZGROUPMEMBER\nLEFT JOIN ZWAMEDIAITEM i ON i.Z_PK = m.ZMEDIAITEM\nWHERE m.ZMESSAGEDATE BETWEEN {{cocoaStart}} AND {{cocoaEnd}}\n   OR m.ZSENTDATE BETWEEN {{cocoaStart}} AND {{cocoaEnd}}\nORDER BY m.ZMESSAGEDATE, m.Z_PK;"
+          "sql": "SELECT\n  datetime(m.ZMESSAGEDATE + 978307200, 'unixepoch', 'localtime') AS tid_lokal,\n  CASE WHEN m.ZSENTDATE > 0 THEN datetime(m.ZSENTDATE + 978307200, 'unixepoch', 'localtime') END AS skickad_lokal,\n  CASE WHEN m.ZISFROMME = 1 THEN 'skickat' ELSE 'mottaget' END AS riktning,\n  CASE m.ZMESSAGETYPE WHEN 0 THEN 'text' WHEN 1 THEN 'bild' WHEN 2 THEN 'video' WHEN 3 THEN 'ljud' WHEN 4 THEN 'kontaktkort'\n    WHEN 5 THEN 'plats' WHEN 8 THEN 'dokument' WHEN 10 THEN 'systemmeddelande' WHEN 38 THEN 'bild (engångsvisning)' WHEN 39 THEN 'video (engångsvisning)' ELSE 'typ ' || m.ZMESSAGETYPE END AS typ,\n  COALESCE(NULLIF(s.ZPARTNERNAME, ''), s.ZCONTACTJID, '#' || s.Z_PK) AS chatt,\n  CASE WHEN m.ZISFROMME = 1 THEN 'den här telefonen'\n    ELSE COALESCE(NULLIF(gm.ZCONTACTNAME, ''), (SELECT NULLIF(pn.ZPUSHNAME, '') FROM ZWAPROFILEPUSHNAME pn WHERE pn.ZJID = COALESCE(gm.ZMEMBERJID, m.ZFROMJID)), NULLIF(s.ZPARTNERNAME, ''), gm.ZMEMBERJID, m.ZFROMJID) END AS fran,\n  m.ZTEXT AS text,\n  CASE WHEN i.ZMEDIALOCALPATH IS NOT NULL THEN 'Message/' || i.ZMEDIALOCALPATH END AS mediefil,\n  m.ZMESSAGESTATUS AS status,\n  m.Z_PK AS meddelande_id,\n  s.Z_PK AS chatt_id,\n  datetime(m.ZMESSAGEDATE + 978307200, 'unixepoch') AS tid_utc\nFROM ZWAMESSAGE m\nLEFT JOIN ZWACHATSESSION s ON s.Z_PK = m.ZCHATSESSION\nLEFT JOIN ZWAGROUPMEMBER gm ON gm.Z_PK = m.ZGROUPMEMBER\nLEFT JOIN ZWAMEDIAITEM i ON i.Z_PK = m.ZMEDIAITEM\nWHERE m.ZMESSAGEDATE BETWEEN {{cocoaStart}} AND {{cocoaEnd}}\n   OR m.ZSENTDATE BETWEEN {{cocoaStart}} AND {{cocoaEnd}}\nORDER BY m.ZMESSAGEDATE, m.Z_PK;",
+          "chat": {
+            "thread": "chatt_id",
+            "message": "meddelande_id"
+          }
         },
         {
           "id": "media",
@@ -170,8 +175,143 @@
             "rows": "n_rows"
           },
           "sql": "SELECT\n  MIN(ZMESSAGEDATE) AS first_date,\n  MAX(ZMESSAGEDATE) AS last_date,\n  COUNT(*) AS n_rows\nFROM ZWAMESSAGE\nWHERE ZMESSAGEDATE > 0;"
+        },
+        {
+          "id": "chat-threads",
+          "hidden": true,
+          "role": "chat-threads",
+          "title": "Chattar: konversationer",
+          "description": "Används av Chattar. Alla chattar med namn, slag (efter JID:ens domän), antal meddelanden och första och senaste meddelandets råa tid.",
+          "params": [],
+          "epoch": "cocoa",
+          "fields": {
+            "id": "chat_id",
+            "name": "chat_name",
+            "kind": "chat_kind",
+            "address": "ZCONTACTJID",
+            "kindRaw": "ZSESSIONTYPE",
+            "messages": "message_count",
+            "first": "first_date",
+            "last": "last_date",
+            "archived": "ZARCHIVED",
+            "removed": "ZREMOVED"
+          },
+          "sql": "SELECT\n  s.Z_PK AS chat_id,\n  COALESCE(NULLIF(s.ZPARTNERNAME, ''), s.ZCONTACTJID, '#' || s.Z_PK) AS chat_name,\n  CASE WHEN s.ZCONTACTJID LIKE '%@g.us' THEN 'group' WHEN s.ZCONTACTJID LIKE '%@newsletter' THEN 'channel'\n    WHEN s.ZCONTACTJID LIKE '%@broadcast' OR s.ZCONTACTJID LIKE '%@status' THEN 'status'\n    WHEN s.ZSESSIONTYPE = 1 THEN 'group' WHEN s.ZSESSIONTYPE = 0 THEN 'person' ELSE 'other' END AS chat_kind,\n  s.ZCONTACTJID, s.ZSESSIONTYPE,\n  (SELECT count(*) FROM ZWAMESSAGE m WHERE m.ZCHATSESSION = s.Z_PK) AS message_count,\n  (SELECT min(m.ZMESSAGEDATE) FROM ZWAMESSAGE m WHERE m.ZCHATSESSION = s.Z_PK) AS first_date,\n  (SELECT max(m.ZMESSAGEDATE) FROM ZWAMESSAGE m WHERE m.ZCHATSESSION = s.Z_PK) AS last_date,\n  s.ZARCHIVED, s.ZREMOVED\nFROM ZWACHATSESSION s\nORDER BY last_date DESC, s.Z_PK;"
+        },
+        {
+          "id": "chat-members",
+          "hidden": true,
+          "role": "chat-members",
+          "title": "Chattar: deltagare",
+          "description": "Används av Chattar. Gruppmedlemmarna (ZWAGROUPMEMBER) och motparten i en enskild chatt, med JID och namn. Den här telefonens eget konto står inte i ChatStorage.sqlite.",
+          "params": [],
+          "epoch": "cocoa",
+          "fields": {
+            "threadId": "chat_id",
+            "id": "member_jid",
+            "name": "member_name",
+            "address": "member_address",
+            "admin": "ZISADMIN",
+            "active": "ZISACTIVE"
+          },
+          "sql": "SELECT\n  gm.ZCHATSESSION AS chat_id, gm.ZMEMBERJID AS member_jid,\n  COALESCE(NULLIF(gm.ZCONTACTNAME, ''), NULLIF(gm.ZFIRSTNAME, ''), (SELECT NULLIF(pn.ZPUSHNAME, '') FROM ZWAPROFILEPUSHNAME pn WHERE pn.ZJID = gm.ZMEMBERJID), gm.ZMEMBERJID) AS member_name,\n  gm.ZMEMBERJID AS member_address, gm.ZISADMIN, gm.ZISACTIVE\nFROM ZWAGROUPMEMBER gm\nUNION ALL\nSELECT\n  s.Z_PK, s.ZCONTACTJID,\n  COALESCE(NULLIF(s.ZPARTNERNAME, ''), (SELECT NULLIF(pn.ZPUSHNAME, '') FROM ZWAPROFILEPUSHNAME pn WHERE pn.ZJID = s.ZCONTACTJID), s.ZCONTACTJID),\n  s.ZCONTACTJID, NULL, NULL\nFROM ZWACHATSESSION s\nWHERE s.ZSESSIONTYPE = 0 AND s.ZCONTACTJID IS NOT NULL\nORDER BY 1, 3;"
+        },
+        {
+          "id": "chat-messages",
+          "hidden": true,
+          "role": "chat-messages",
+          "title": "Chattar: meddelandena i en chatt",
+          "description": "Används av Chattar. Alla meddelanden i chatten med råa tider, riktning, avsändare, text och typ. Typerna tolkas som i queryn Meddelanden i tidsspann.",
+          "params": [
+            "threadId"
+          ],
+          "epoch": "cocoa",
+          "times": [
+            {
+              "key": "date",
+              "label": "Skrivet eller mottaget",
+              "note": "ZMESSAGEDATE: när meddelandet skrevs på telefonen eller togs emot."
+            },
+            {
+              "key": "sent",
+              "label": "Skickat",
+              "note": "ZSENTDATE: när meddelandet skickades. 0 betyder att tiden saknas."
+            }
+          ],
+          "sortTime": "date",
+          "details": [
+            {
+              "key": "status",
+              "label": "Status (ZMESSAGESTATUS, rått värde)"
+            },
+            {
+              "key": "typeRaw",
+              "label": "Typ (ZMESSAGETYPE)"
+            },
+            {
+              "key": "stanza",
+              "label": "Meddelandets id hos WhatsApp (ZSTANZAID)"
+            },
+            {
+              "key": "starred",
+              "label": "Stjärnmärkt (ZSTARRED)"
+            },
+            {
+              "key": "event",
+              "label": "Händelsetyp (ZGROUPEVENTTYPE, rått värde)"
+            }
+          ],
+          "fields": {
+            "id": "message_id",
+            "threadId": "chat_id",
+            "fromMe": "ZISFROMME",
+            "senderId": "sender_jid",
+            "senderName": "sender_name",
+            "text": "ZTEXT",
+            "kind": "kind",
+            "kindLabel": "kind_label",
+            "typeRaw": "ZMESSAGETYPE",
+            "viewOnce": "view_once",
+            "status": "ZMESSAGESTATUS",
+            "starred": "ZSTARRED",
+            "date": "ZMESSAGEDATE",
+            "sent": "ZSENTDATE",
+            "stanza": "ZSTANZAID",
+            "event": "ZGROUPEVENTTYPE"
+          },
+          "sql": "SELECT\n  m.Z_PK AS message_id, m.ZCHATSESSION AS chat_id, m.ZISFROMME,\n  CASE WHEN m.ZISFROMME = 1 THEN NULL ELSE COALESCE(gm.ZMEMBERJID, m.ZFROMJID) END AS sender_jid,\n  CASE WHEN m.ZISFROMME = 1 THEN NULL ELSE COALESCE(NULLIF(gm.ZCONTACTNAME, ''), (SELECT NULLIF(pn.ZPUSHNAME, '') FROM ZWAPROFILEPUSHNAME pn WHERE pn.ZJID = COALESCE(gm.ZMEMBERJID, m.ZFROMJID)), NULLIF(s.ZPARTNERNAME, ''), gm.ZMEMBERJID, m.ZFROMJID) END AS sender_name,\n  m.ZTEXT,\n  CASE m.ZMESSAGETYPE WHEN 0 THEN 'text' WHEN 1 THEN 'image' WHEN 2 THEN 'video' WHEN 3 THEN 'audio' WHEN 4 THEN 'contact'\n    WHEN 5 THEN 'location' WHEN 8 THEN 'file' WHEN 10 THEN 'system' WHEN 38 THEN 'image' WHEN 39 THEN 'video' ELSE 'other' END AS kind,\n  CASE m.ZMESSAGETYPE WHEN 0 THEN 'text' WHEN 1 THEN 'bild' WHEN 2 THEN 'video' WHEN 3 THEN 'ljud' WHEN 4 THEN 'kontaktkort'\n    WHEN 5 THEN 'plats' WHEN 8 THEN 'dokument' WHEN 10 THEN 'systemmeddelande' WHEN 38 THEN 'bild (engångsvisning)' WHEN 39 THEN 'video (engångsvisning)' ELSE 'typ ' || m.ZMESSAGETYPE END AS kind_label,\n  m.ZMESSAGETYPE, CASE WHEN m.ZMESSAGETYPE IN (38, 39) THEN 1 ELSE 0 END AS view_once,\n  m.ZMESSAGESTATUS, m.ZSTARRED, m.ZMESSAGEDATE, m.ZSENTDATE, m.ZSTANZAID, m.ZGROUPEVENTTYPE\nFROM ZWAMESSAGE m\nLEFT JOIN ZWACHATSESSION s ON s.Z_PK = m.ZCHATSESSION\nLEFT JOIN ZWAGROUPMEMBER gm ON gm.Z_PK = m.ZGROUPMEMBER\nWHERE m.ZCHATSESSION = '{{threadId}}'\nORDER BY m.ZMESSAGEDATE, m.Z_PK;"
+        },
+        {
+          "id": "chat-attachments",
+          "hidden": true,
+          "role": "chat-attachments",
+          "title": "Chattar: mediefilerna i en chatt",
+          "description": "Används av Chattar. Mediefilerna i chatten med sökvägen under appgruppen, MIME-typ, storlek, längd, SHA-256 (base64) och kontaktkort. En mediepost utan fil, storlek, adress, kontaktkort eller plats tas inte med (i labbet hade ett textmeddelande och typ 59 sådana).",
+          "params": [
+            "threadId"
+          ],
+          "epoch": "cocoa",
+          "fileRoot": ".",
+          "fields": {
+            "messageId": "message_id",
+            "id": "media_id",
+            "path": "file_path",
+            "thumbPath": "thumb_path",
+            "mime": "mime",
+            "size": "ZFILESIZE",
+            "duration": "duration_s",
+            "sha256b64": "sha256_b64",
+            "cardName": "card_name",
+            "card": "card_text",
+            "title": "title",
+            "lat": "lat",
+            "lon": "lon",
+            "uploaded": "ZMEDIAURLDATE"
+          },
+          "sql": "SELECT\n  i.ZMESSAGE AS message_id, i.Z_PK AS media_id,\n  CASE WHEN i.ZMEDIALOCALPATH IS NOT NULL THEN 'Message/' || i.ZMEDIALOCALPATH END AS file_path,\n  CASE WHEN i.ZTHUMBNAILLOCALPATH IS NOT NULL THEN 'Message/' || i.ZTHUMBNAILLOCALPATH END AS thumb_path,\n  CASE WHEN i.ZVCARDSTRING LIKE '%/%' AND i.ZVCARDSTRING NOT LIKE 'BEGIN:%' THEN i.ZVCARDSTRING END AS mime,\n  i.ZFILESIZE,\n  CASE WHEN i.ZMOVIEDURATION > 0 THEN i.ZMOVIEDURATION END AS duration_s,\n  CASE WHEN i.ZVCARDSTRING LIKE '%/%' AND i.ZVCARDSTRING NOT LIKE 'BEGIN:%' AND length(i.ZVCARDNAME) = 44 THEN i.ZVCARDNAME END AS sha256_b64,\n  CASE WHEN i.ZVCARDSTRING LIKE 'BEGIN:%' THEN i.ZVCARDNAME END AS card_name,\n  CASE WHEN i.ZVCARDSTRING LIKE 'BEGIN:%' THEN i.ZVCARDSTRING END AS card_text,\n  NULLIF(i.ZTITLE, '') AS title,\n  CASE WHEN m.ZMESSAGETYPE = 5 THEN i.ZLATITUDE END AS lat,\n  CASE WHEN m.ZMESSAGETYPE = 5 THEN i.ZLONGITUDE END AS lon,\n  i.ZMEDIAURLDATE\nFROM ZWAMEDIAITEM i\nJOIN ZWAMESSAGE m ON m.Z_PK = i.ZMESSAGE\nWHERE m.ZCHATSESSION = '{{threadId}}'\n  AND (i.ZMEDIALOCALPATH IS NOT NULL OR i.ZFILESIZE > 0 OR i.ZMEDIAURL IS NOT NULL OR i.ZVCARDSTRING IS NOT NULL OR m.ZMESSAGETYPE = 5)\nORDER BY i.ZMESSAGE, i.Z_PK;"
         }
-      ]
+      ],
+      "chatApp": "WhatsApp"
     }
   ]
 }

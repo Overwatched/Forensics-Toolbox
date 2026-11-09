@@ -190,9 +190,29 @@ function whatsappDb(SQL, mediaSha) {
     insert(db, 'ZWAMEDIAITEM', { Z_PK: 1, ZMESSAGE: 1, ZMEDIALOCALPATH: 'Media/1@lid/a/b/skickad.jpg', ZFILESIZE: 900, ZVCARDNAME: crypto.createHash('sha256').update('omkodad').digest('base64'), ZVCARDSTRING: 'image/jpeg', ZMETADATA: meta });
     insert(db, 'ZWAMESSAGE', { Z_PK: 2, ZISFROMME: 0, ZMESSAGETYPE: 1, ZMESSAGEDATE: cocoa(70), ZSENTDATE: cocoa(69), ZCHATSESSION: 1, ZMEDIAITEM: 2, ZMESSAGESTATUS: 8, ZFROMJID: '1@lid' });
     insert(db, 'ZWAMEDIAITEM', { Z_PK: 2, ZMESSAGE: 2, ZMEDIALOCALPATH: 'Media/1@lid/c/d/mottagen.jpg', ZFILESIZE: 1000, ZVCARDNAME: mediaSha.toString('base64'), ZVCARDSTRING: 'image/jpeg' });
+    longChat(db);
     const bytes = db.export();
     db.close();
     return bytes;
+}
+
+// En lång chatt i WhatsApp för Chattars block, sökning och datum: 3 000 meddelanden var femte minut med start
+// 40 dagar före T2, och ett uppehåll på två dygn efter meddelande 1 500. Ordet "nålen" står i tre av dem.
+// Långt från T och T2, så att inget annat test ser raderna.
+const LONG = { count: 3000, start: T2 - 40 * 86400, step: 300, gapAfter: 1500, gap: 2 * 86400, needles: [100, 1500, 2900] };
+function longTime(i) { return LONG.start + i * LONG.step + (i >= LONG.gapAfter ? LONG.gap : 0); }
+function longChat(db) {
+    insert(db, 'ZWACHATSESSION', { Z_PK: 2, ZSESSIONTYPE: 0, ZCONTACTJID: '2@lid', ZPARTNERNAME: 'Långa chatten', ZLASTMESSAGEDATE: longTime(LONG.count - 1) - COCOA });
+    const words = 'hej då kanske imorgon middag klockan sju tåget är sent jag ringer sen okej bra tack ses vi där'.split(' ');
+    db.run('BEGIN');
+    const st = db.prepare('INSERT INTO ZWAMESSAGE (Z_PK, ZCHATSESSION, ZISFROMME, ZMESSAGETYPE, ZTEXT, ZMESSAGEDATE, ZSENTDATE, ZFROMJID, ZMESSAGESTATUS) VALUES (?, 2, ?, 0, ?, ?, ?, ?, 6)');
+    for (let i = 0; i < LONG.count; i++) {
+        const text = (LONG.needles.includes(i) ? 'nålen ' : '') + Array.from({ length: 3 + (i * 7) % 20 }, (_, k) => words[(i + k * 3) % words.length]).join(' ');
+        const t = longTime(i) - COCOA;
+        st.run([1000 + i, i % 3 === 0 ? 1 : 0, text, t, t, i % 3 === 0 ? null : '2@lid']);
+    }
+    st.free();
+    db.run('COMMIT');
 }
 
 // Telegrams meddelandedatabas och lagringsdatabas: IMG_0007 vald ur bildbiblioteket och skickad
@@ -494,7 +514,8 @@ async function build() {
     fs.writeFileSync(files.knowledge, knowledge);
     fs.writeFileSync(files.powerlogArchive, require('node:zlib').gzipSync(powerlog(SQL)));
     fs.writeFileSync(files.samsung, buildZip(samsungEntries(SQL, jpeg)));
-    return { files, T: T * 1000, imageName: 'IMG_0001.JPG', T2: T2 * 1000, waMedia: 'mottagen.jpg', T3: T3 * 1000, tgMedia: TG_MEDIA, TS: TS * 1000, TS2: TS2 * 1000, TS3: TS3 * 1000 };
+    return { files, T: T * 1000, imageName: 'IMG_0001.JPG', T2: T2 * 1000, waMedia: 'mottagen.jpg', T3: T3 * 1000, tgMedia: TG_MEDIA, TS: TS * 1000, TS2: TS2 * 1000, TS3: TS3 * 1000,
+        longChat: { count: LONG.count, needles: LONG.needles, gapAfter: LONG.gapAfter, timeMs: (i) => longTime(i) * 1000 } };
 }
 
 module.exports = { build, loadSql, T: T * 1000 };

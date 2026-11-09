@@ -71,8 +71,8 @@ test('Signal på Android (beta): krypterade databaser, en rekommenderad query pe
             for (const p of q.params || []) if (!/^time(Start|End)$/.test(p)) assert.ok(signalAndroid.paramLabels[p], db.id + '/' + q.id + ': etikett för ' + p);
         }
     }
-    const roles = (id) => signalAndroid.databases.find((d) => d.id === id).queries.filter((q) => q.hidden).map((q) => q.role).sort();
-    assert.deepStrictEqual(roles('signal-android-main'), ['attachments', 'coverage', 'messages', 'recipients']);
+    const roles = (id) => signalAndroid.databases.find((d) => d.id === id).queries.filter((q) => q.hidden && !/^chat-/.test(q.role)).map((q) => q.role).sort();
+    assert.deepStrictEqual(roles('signal-android-main').filter((r) => !/^chat-/.test(r)), ['attachments', 'coverage', 'messages', 'recipients']);
     assert.deepStrictEqual(roles('signal-android-logs'), ['coverage', 'log']);
     // Fälten som signal.js läser.
     const att = signalAndroid.databases[0].queries.find((q) => q.role === 'attachments');
@@ -90,7 +90,7 @@ test('snapchat på Android (beta): en rekommenderad query per databas, undertext
             if (q.hidden) { assert.strictEqual(q.epoch, 'unixMs', db.id + '/' + q.id + ': epoch'); assert.ok(q.fields, db.id + '/' + q.id + ': fields'); }
         }
     }
-    const roles = (id) => snapchatAndroid.databases.find((d) => d.id === id).queries.filter((q) => q.hidden).map((q) => q.role).sort();
+    const roles = (id) => snapchatAndroid.databases.find((d) => d.id === id).queries.filter((q) => q.hidden && !/^chat-/.test(q.role)).map((q) => q.role).sort();
     assert.deepStrictEqual(roles('snapchat-android-cache'), ['cache-key', 'cache-window', 'coverage']);
     assert.deepStrictEqual(roles('snapchat-android-arroyo'), ['coverage', 'messages']);
     assert.deepStrictEqual(roles('snapchat-android-memories'), ['coverage', 'memories']);
@@ -163,7 +163,7 @@ test('rollqueryer för Härkomst: dolda, med epoch och fältkarta som stämmer m
         }
         assert.doesNotMatch(q.sql, /localtime/, name + ': rollqueryer returnerar råa tider, inte localtime');
     }
-    const roles = (list) => list.filter((q) => q.hidden).map((q) => q.role).sort();
+    const roles = (list) => list.filter((q) => q.hidden && !/^chat-/.test(q.role)).map((q) => q.role).sort();
     for (const band of photos.bands) {
         const ids = new Set(band.queries.map((q) => q.id));
         assert.deepStrictEqual(photos.questions.filter((q) => q.hidden && ids.has(q.id)).map((q) => q.role).sort(), ['file', 'neighbours', 'sequence'], 'photos-' + band.id);
@@ -241,7 +241,7 @@ test('Signal på iOS (beta): krypterad med iOS-profilen, en rekommenderad query,
         if (q.hidden) { assert.strictEqual(q.epoch, 'unixMs'); assert.ok(q.fields, q.id + ': fields'); }
         for (const p of q.params || []) if (!/^time(Start|End)$/.test(p)) assert.ok(signalIos.paramLabels[p], q.id + ': etikett för ' + p);
     }
-    assert.deepStrictEqual(db.queries.filter((q) => q.hidden).map((q) => q.role).sort(), ['attachments', 'coverage', 'messages', 'recipients', 'stories']);
+    assert.deepStrictEqual(db.queries.filter((q) => q.hidden && !/^chat-/.test(q.role)).map((q) => q.role).sort(), ['attachments', 'coverage', 'messages', 'recipients', 'stories']);
     const att = db.queries.find((q) => q.role === 'attachments');
     for (const f of ['id', 'messageId', 'ownerType', 'sha256', 'fileName', 'sent', 'received', 'type', 'threadName', 'isGroup', 'authorId']) assert.ok(att.fields[f], 'attachments.' + f);
     assert.deepStrictEqual(await prepareAll(signalIos, SCHEMAS['signal-ios']), []);
@@ -258,7 +258,7 @@ test('WhatsApp på iOS (beta): okrypterad, Cocoa-tider, SHA-256 och bildbibliote
         if (q.hidden) { assert.strictEqual(q.epoch, 'cocoa'); assert.ok(q.fields, q.id + ': fields'); }
         for (const p of q.params || []) if (!/^time(Start|End)$/.test(p)) assert.ok(whatsappIos.paramLabels[p], q.id + ': etikett för ' + p);
     }
-    assert.deepStrictEqual(db.queries.filter((q) => q.hidden).map((q) => q.role).sort(), ['coverage', 'media', 'messages', 'stanzas']);
+    assert.deepStrictEqual(db.queries.filter((q) => q.hidden && !/^chat-/.test(q.role)).map((q) => q.role).sort(), ['coverage', 'media', 'messages', 'stanzas']);
     const media = db.queries.find((q) => q.role === 'media');
     assert.match(media.sql, /instr\(i\.ZMETADATA, CAST\('\/L0\/001' AS BLOB\)\)/, 'bildbibliotekets id ur ZMETADATA');
     assert.match(media.sql, /length\(i\.ZVCARDNAME\) = 44/, 'SHA-256 i base64 ur ZVCARDNAME');
@@ -303,7 +303,7 @@ test('Telegram på iOS (beta): två databaser som avkodas i minnet, unixsekunder
             for (const p of q.params || []) if (!/^time(Start|End)$/.test(p)) assert.ok(telegramIos.paramLabels[p], q.id + ': etikett för ' + p);
         }
     }
-    assert.deepStrictEqual(telegramIos.databases[0].queries.filter((q) => q.hidden).map((q) => q.role).sort(), ['coverage', 'messages', 'resources']);
+    assert.deepStrictEqual(telegramIos.databases[0].queries.filter((q) => q.hidden && !/^chat-/.test(q.role)).map((q) => q.role).sort(), ['coverage', 'messages', 'resources']);
     assert.deepStrictEqual(telegramIos.databases[1].queries.filter((q) => q.hidden).map((q) => q.role), ['storage']);
 });
 
@@ -335,6 +335,7 @@ test('Telegram: varje query körs mot påhittade databaser i labbets form, och n
         const db = new S.Database(dbs[d.id]);
         assert.ok(PB.attach(db), d.id + ': avkodas');
         for (const q of d.queries) {
+            if (/^chat-/.test(q.role || '')) continue;
             const sql = q.sql.replace(/\{\{unixStart\}\}/g, '0').replace(/\{\{unixEnd\}\}/g, '4102444800').replace(/\{\{resourceId\}\}/g, 'telegram-cloud-photo-size-4-601-y_partial');
             let res;
             try { res = db.exec(sql); } catch (e) { assert.fail(d.id + '/' + q.id + ': ' + e.message); }
@@ -349,6 +350,18 @@ test('Telegram: varje query körs mot påhittade databaser i labbets form, och n
         'telegram-ios-storage/storage': 2, 'telegram-ios-storage/library-picks': 1, 'telegram-ios-storage/storage-resource': 1,
         'telegram-ios-storage/tables': 8, 'telegram-ios-storage/role-storage': 2,
     });
+    // Chattrollerna på samma databas: chattarna med meddelanden, och meddelandena och den största resursen i den första.
+    const chatDb = new S.Database(dbs['telegram-ios-postbox']);
+    PB.attach(chatDb);
+    const role = (r) => telegramIos.databases[0].queries.find((q) => q.role === r);
+    const chatThreads = chatDb.exec(role('chat-threads').sql)[0];
+    assert.ok(chatThreads && chatThreads.values.length >= 1, 'chattarna');
+    const tid = chatThreads.values[0][chatThreads.columns.indexOf('thread_id')];
+    const chatMsgs = chatDb.exec(role('chat-messages').sql.split('{{threadId}}').join(tid))[0];
+    assert.ok(chatMsgs && chatMsgs.values.length >= 1, 'meddelandena i ' + tid);
+    const chatAtts = chatDb.exec(role('chat-attachments').sql.split('{{threadId}}').join(tid));
+    for (const row of chatAtts.length ? chatAtts[0].values : []) assert.match(row[chatAtts[0].columns.indexOf('file_path')], /^media\//);
+    chatDb.close();
     // Kontrollen av nycklarna ger samma tid, id och peer som avkodningen, utan den.
     const db = new S.Database(dbs['telegram-ios-postbox']);
     const keys = db.exec(telegramIos.databases[0].queries.find((q) => q.id === 'message-keys').sql)[0];
@@ -445,4 +458,125 @@ test('Samsung: eRR.p läses in som tabellen err, och varje query körs mot påhi
         db.close();
     }
     assert.throws(() => textLogs.toSqlite(S, 'okänd', bytes, 'x'), /Okänd textfil/);
+});
+
+// ---------- Chattar ----------
+// Chattar har ingen egen SQL. En databas med chattroller ger konversationer, deltagare, meddelanden och bilagor med
+// fasta fältnamn, och bara de här rollerna läses. De synliga queryerna kan ändras fritt; ett meddelande-query som har
+// "chat" pekar ut kolumnerna med chattens och meddelandets id, så att raden kan öppnas i Chattar.
+const CHAT_ROLES = {
+    'chat-threads': ['id', 'name', 'kind'],
+    'chat-members': ['threadId', 'id', 'name'],
+    'chat-messages': ['id', 'threadId', 'fromMe', 'text', 'kind'],
+    'chat-attachments': ['messageId', 'path'],
+};
+const CHAT_KINDS = ['text', 'image', 'video', 'audio', 'voice', 'file', 'contact', 'location', 'sticker', 'gif', 'call', 'system', 'deleted', 'poll', 'other'];
+const THREAD_KINDS = ['person', 'group', 'status', 'channel', 'self', 'other'];
+
+function chatDatabases() {
+    const all = [photos, appUsage, routined, snapchat, snapchatAndroid, signalAndroid, signalIos, whatsappIos, telegramIos, samsungAndroid];
+    const out = [];
+    for (const cat of all) for (const db of cat.databases || []) if (db.queries.some((q) => q.role === 'chat-threads')) out.push([cat, db]);
+    return out;
+}
+
+test('Chattar: varje databas med chattroller har alla fyra med fälten Chattar läser, tider med förklaring och sökvägar till filerna', () => {
+    const dbs = chatDatabases();
+    assert.ok(dbs.some(([, db]) => db.id === 'whatsapp-ios-chat'), 'WhatsApp på iOS har chattroller');
+    for (const [cat, db] of dbs) {
+        assert.ok(db.chatApp, db.id + ': chatApp saknas');
+        // Bilagerollen är valfri: Snapchats medier ligger i cachen och kopplas inte till chatten.
+        const have = db.queries.filter((q) => /^chat-/.test(q.role || '')).map((q) => q.role).sort();
+        assert.deepStrictEqual(have.filter((r) => r !== 'chat-attachments'), ['chat-members', 'chat-messages', 'chat-threads'], db.id);
+        for (const [role, required] of Object.entries(CHAT_ROLES)) {
+            const q = db.queries.find((x) => x.role === role);
+            if (!q && role === 'chat-attachments') continue;
+            assert.ok(q.hidden, db.id + '/' + role + ': ska vara dold');
+            // Meddelandena och bilagorna läses i omgångar med en förberedd sats (ChatCore.readRows), som bara kör den
+            // första satsen. Ingen chattroll har därför mer än en.
+            assert.ok(!/;\s*\S/.test(q.sql.replace(/'(?:[^']|'')*'/g, "''").replace(/--[^\n]*/g, '')), db.id + '/' + role + ': en enda sats');
+            for (const f of required) assert.ok(q.fields[f], db.id + '/' + role + ': fältet ' + f + ' saknas');
+            if (role === 'chat-messages' || role === 'chat-attachments') {
+                assert.deepStrictEqual(q.params, ['threadId'], db.id + '/' + role + ': params');
+                assert.match(q.sql, /'\{\{threadId\}\}'/, db.id + '/' + role + ': chattens id inom citattecken');
+                assert.ok(cat.paramLabels && cat.paramLabels.threadId, db.id + ': etikett för threadId');
+            } else assert.deepStrictEqual(q.params, [], db.id + '/' + role + ': inga params');
+        }
+        const msg = db.queries.find((q) => q.role === 'chat-messages');
+        assert.ok(Array.isArray(msg.times) && msg.times.length, db.id + ': chat-messages.times');
+        for (const t of msg.times) {
+            assert.ok(msg.fields[t.key], db.id + ': tiden ' + t.key + ' finns inte i fälten');
+            assert.ok(t.label && t.note, db.id + ': tiden ' + t.key + ' saknar label eller note');
+            const col = typeof msg.fields[t.key] === 'string' ? msg.fields[t.key] : msg.fields[t.key].col;
+            assert.ok(t.note.indexOf(col) === 0 || t.note.indexOf(col) > 0, db.id + ': förklaringen till ' + t.key + ' nämner inte kolumnen ' + col);
+        }
+        assert.ok(msg.times.some((t) => t.key === msg.sortTime), db.id + ': sortTime är ingen av tiderna');
+        for (const d of msg.details || []) assert.ok(msg.fields[d.key] && d.label, db.id + ': detaljen ' + d.key);
+        const att = db.queries.find((q) => q.role === 'chat-attachments') || { fileRoot: '.' };
+        assert.match(att.fileRoot, /^(\.|\.\.(\/\.\.)*)$/, db.id + ': fileRoot är . eller .. uppåt');
+        for (const q of db.queries.filter((x) => x.chat)) {
+            assert.ok(!q.hidden, db.id + '/' + q.id + ': chat hör till synliga queryer');
+            for (const col of [q.chat.thread, q.chat.message]) assert.match(q.sql, new RegExp('\\b' + col + '\\b'), db.id + '/' + q.id + ': kolumnen ' + col + ' finns inte i SQL:en');
+        }
+        assert.ok(db.queries.some((q) => q.chat && q.recommended), db.id + ': den rekommenderade meddelandequeryn kan öppnas i Chattar');
+    }
+    // En databas med bara namn (chat-names) har id och namn eller en kolumn att läsa namnen ur, och samma app som chatten.
+    const all = [snapchat, snapchatAndroid, signalAndroid, signalIos, whatsappIos, telegramIos];
+    const named = [];
+    for (const cat of all) for (const db of cat.databases) {
+        const q = db.queries.find((x) => x.role === 'chat-names');
+        if (!q) continue;
+        named.push(db.id);
+        assert.ok(q.hidden && q.fields.id && (q.fields.name || q.nameFrom), db.id + ': chat-names');
+        assert.ok(cat.databases.some((d) => d.chatApp === db.chatApp && d.queries.some((x) => x.role === 'chat-messages')), db.id + ': ingen chatt i samma app');
+    }
+    assert.deepStrictEqual(named.sort(), ['snapchat-android-friends', 'snapchat-friends']);
+});
+
+test('Chattar: WhatsApps roller ger slag, avsändare, typer, sökvägar och kontaktkort ur en databas med labbtelefonens schema', async () => {
+    const S = await sqlJs();
+    const db = new S.Database();
+    Object.values(SCHEMAS['whatsapp-ios']).forEach((sql) => db.run(sql));
+    const ins = (t, row) => db.run('INSERT INTO ' + t + ' (' + Object.keys(row).join(', ') + ') VALUES (' + Object.keys(row).map(() => '?').join(', ') + ')', Object.values(row));
+    ins('ZWACHATSESSION', { Z_PK: 1, ZSESSIONTYPE: 0, ZCONTACTJID: '111@lid', ZPARTNERNAME: 'Kim' });
+    ins('ZWACHATSESSION', { Z_PK: 2, ZSESSIONTYPE: 1, ZCONTACTJID: '999-1@g.us', ZPARTNERNAME: 'Klubben' });
+    ins('ZWACHATSESSION', { Z_PK: 3, ZSESSIONTYPE: 3, ZCONTACTJID: '0@status' });
+    ins('ZWAGROUPMEMBER', { Z_PK: 5, ZCHATSESSION: 2, ZMEMBERJID: '222@lid', ZCONTACTNAME: 'Lo', ZISADMIN: 1, ZISACTIVE: 1 });
+    ins('ZWAPROFILEPUSHNAME', { Z_PK: 1, ZJID: '333@lid', ZPUSHNAME: 'Mo' });
+    ins('ZWAMESSAGE', { Z_PK: 10, ZCHATSESSION: 1, ZISFROMME: 1, ZMESSAGETYPE: 0, ZTEXT: 'Hej', ZMESSAGEDATE: 815000000, ZSENTDATE: 815000001 });
+    ins('ZWAMESSAGE', { Z_PK: 11, ZCHATSESSION: 1, ZISFROMME: 0, ZMESSAGETYPE: 38, ZFROMJID: '111@lid', ZMESSAGEDATE: 815000100, ZSENTDATE: 815000099, ZMEDIAITEM: 1 });
+    ins('ZWAMEDIAITEM', { Z_PK: 1, ZMESSAGE: 11, ZMEDIALOCALPATH: 'Media/111@lid/a/b/x.jpg', ZFILESIZE: 100, ZVCARDNAME: '07ZeqtAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=', ZVCARDSTRING: 'image/jpeg' });
+    ins('ZWAMESSAGE', { Z_PK: 12, ZCHATSESSION: 1, ZISFROMME: 0, ZMESSAGETYPE: 4, ZFROMJID: '111@lid', ZMESSAGEDATE: 815000200, ZMEDIAITEM: 2 });
+    ins('ZWAMEDIAITEM', { Z_PK: 2, ZMESSAGE: 12, ZVCARDNAME: 'Kim Kontakt', ZVCARDSTRING: 'BEGIN:VCARD\nFN:Kim Kontakt\nEND:VCARD' });
+    ins('ZWAMESSAGE', { Z_PK: 20, ZCHATSESSION: 2, ZISFROMME: 0, ZMESSAGETYPE: 0, ZGROUPMEMBER: 5, ZTEXT: 'Från Lo', ZMESSAGEDATE: 815000300 });
+    ins('ZWAMESSAGE', { Z_PK: 21, ZCHATSESSION: 2, ZISFROMME: 0, ZMESSAGETYPE: 59, ZFROMJID: '333@lid', ZMESSAGEDATE: 815000400 });
+    const wa = whatsappIos.databases[0];
+    const roles = require(path.join(ROOT, 'tools', 'provenance', 'roles.js'));
+    const run = (role, params) => {
+        const q = wa.queries.find((x) => x.role === role);
+        const res = db.exec(roles.fill(q.sql, params || {}))[0];
+        if (!res) return [];
+        return res.values.map((r) => Object.fromEntries(Object.entries(q.fields).map(([k, col]) => [k, r[res.columns.indexOf(typeof col === 'string' ? col : col.col)]])));
+    };
+    try {
+        const threads = run('chat-threads');
+        assert.deepStrictEqual(threads.map((t) => [t.id, t.name, t.kind, t.messages]).sort(), [[1, 'Kim', 'person', 3], [2, 'Klubben', 'group', 2], [3, '0@status', 'status', 0]]);
+        for (const t of threads) assert.ok(THREAD_KINDS.includes(t.kind));
+        const members = run('chat-members');
+        assert.deepStrictEqual(members.map((m) => [m.threadId, m.id, m.name, m.admin]), [[1, '111@lid', 'Kim', null], [2, '222@lid', 'Lo', 1]]);
+        const one = run('chat-messages', { threadId: 1 });
+        assert.deepStrictEqual(one.map((m) => [m.id, m.fromMe, m.kind, m.kindLabel, m.viewOnce, m.senderName]), [
+            [10, 1, 'text', 'text', 0, null], [11, 0, 'image', 'bild (engångsvisning)', 1, 'Kim'], [12, 0, 'contact', 'kontaktkort', 0, 'Kim']]);
+        assert.strictEqual(one[0].sent, 815000001);
+        const group = run('chat-messages', { threadId: 2 });
+        assert.deepStrictEqual(group.map((m) => [m.senderName, m.kind, m.kindLabel]), [['Lo', 'text', 'text'], ['Mo', 'other', 'typ 59']]);
+        for (const m of one.concat(group)) assert.ok(CHAT_KINDS.includes(m.kind), m.kind);
+        const att = run('chat-attachments', { threadId: 1 });
+        assert.deepStrictEqual(att.map((a) => [a.messageId, a.path, a.mime, a.sha256b64 ? a.sha256b64.length : null, a.cardName]), [
+            [11, 'Message/Media/111@lid/a/b/x.jpg', 'image/jpeg', 44, null], [12, null, null, null, 'Kim Kontakt']]);
+        assert.match(att[1].card, /^BEGIN:VCARD/);
+        assert.deepStrictEqual(run('chat-messages', { threadId: "1' OR '1'='1" }), [], 'ett id med citattecken ger inga rader');
+    } finally {
+        db.close();
+    }
 });

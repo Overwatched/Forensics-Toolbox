@@ -127,6 +127,7 @@
     function zipSource(read, entry, lead) {
         return {
             name: baseName(entry.name),
+            path: entry.name,
             size: entry.size,
             // Samma post i samma zip, så att Queries inte läser om en databas som redan är inläst.
             key: (lead || []).join('|') + '|' + entry.localOffset + '|' + entry.name,

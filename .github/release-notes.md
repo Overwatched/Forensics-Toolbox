@@ -1,5 +1,24 @@
 Automatiskt byggd från commit `{{SHA}}`.
 
+## Nytt i 1.56
+
+**Chattar (beta).** Ett nytt verktyg i listan till vänster visar konversationerna i chattapparnas databaser som i appen.
+- **Bubblorna:** egna meddelanden till höger, avsändarens namn i grupper, och bilder, video och ljud direkt i chatten. En bild förstoras med ett klick.
+- **Tiderna:** klockan vid ett meddelande visar alla dess tider med kolumn, rått värde och UTC. Tiderna visas i datorns zon eller i UTC, och zonen står alltid utskriven.
+- **Deltagarna** står överst.
+- **Export:** hela konversationen, valda meddelanden eller ett tidsspann sparas som HTML eller skrivs ut som PDF. Källan står överst, och sist kommer en tabell med varje meddelandes id, tider och bilagor.
+- **Queries:** raderna i WhatsApps meddelandefråga har knappen Chatt, som öppnar chatten vid meddelandet. Från chatten öppnas raden i Queries.
+- **Signals bilagor:** de är krypterade på telefonen. Chattar dekrypterar dem, och SHA-256 för innehållet jämförs med databasen. På labbtelefonen stämde alla.
+- **Stora chattar:** en chatt med hundratusentals meddelanden öppnas på ett par sekunder.
+  - Den läses i omgångar. En ruta visar stegen, hur många meddelanden som är lästa och tiden, och har Avbryt. Ett avbrott lämnar det som visades.
+  - Bara meddelandena runt det som syns ritas. Sök, Gå till datum, Första och Senaste når hela chatten, och träffarna märks i texten.
+  - När extraktionen öppnas visar listan varje app direkt och fyller i den när den är läst. Raden överst säger vad som läses och har Avbryt.
+  - Exporten byggs med förlopp och säger i förväg ungefär hur stor filen och utskriften blir. Före en mycket stor fil eller utskrift kommer en varning.
+  - Mätt med en påhittad chatt på 300 000 meddelanden: 1,4 s i stället för 16 s med sidan stilla, och 51 MB minne i stället för 468 MB. Inte provat på en riktig telefon med så stora chattar.
+- **Appar:** WhatsApp, Signal och Telegram på iOS, Signal på Android och Snapchat på iOS och Android.
+  - Snapchats text avkodas och namnen kommer ur kontodatabasen. Snaparna ligger i Snapchats cache och visas som en rad i chatten.
+  - Signals chattvy på Android är bara prövad med påhittade data. Chattar har ingen egen SQL utan läser dolda chattroller i samma kataloger som Queries, och ett test stoppar en ändring som skulle bryta chattvyn.
+
 ## Nytt i 1.55
 
 Samsungs loggar räknas nu om med telefonens egen zon, så att sommar- och vintertid inte längre gör tider osäkra. `eRR.p` går att läsa som en tabell i Queries. En skärmdump från Samsung säger själv vilken app den visar, och det jämförs med loggarna. Releaserna här visar bara sina egna nyheter, så att filerna syns direkt.

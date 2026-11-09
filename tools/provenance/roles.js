@@ -6,10 +6,11 @@
 
     var COCOA_EPOCH = 978307200;
 
+    // Chattrollerna (chat-…) hör till Chattar och tas inte med här.
     function roleMap(list, meta) {
         var out = {};
         (list || []).forEach(function (q) {
-            if (!q.hidden || !q.role) return;
+            if (!q.hidden || !q.role || /^chat-/.test(q.role)) return;
             out[q.role] = Object.assign({}, meta || {}, q);
         });
         return out;
@@ -177,19 +178,29 @@
 
     // Gör om ett resultat från sql.js ({ columns, values }) till objekt med fältkartans namn.
     // Tidsfält (de som anges i timeKeys) blir UTC-millisekunder under samma namn med suffixet Ms.
-    function mapRows(query, result, timeKeys) {
+    // Raden finns också som den är under _raw, utom med opts.raw === false (en stor chatt behöver den inte).
+    function mapRows(query, result, timeKeys, opts) {
         if (!result || !result.columns) return [];
         var index = {};
         result.columns.forEach(function (c, i) { index[c] = i; });
+        var keepRaw = !(opts && opts.raw === false);
+        // Fälten slås upp en gång, inte för varje rad.
+        var specs = Object.keys(query.fields || {}).map(function (key) {
+            var spec = fieldSpec(query, key);
+            return { key: key, at: index[spec.col], epoch: spec.epoch, time: !!(timeKeys && timeKeys.indexOf(key) >= 0) };
+        });
         return result.values.map(function (row) {
-            var o = { _raw: {} };
-            result.columns.forEach(function (c, i) { o._raw[c] = row[i]; });
-            Object.keys(query.fields || {}).forEach(function (key) {
-                var spec = fieldSpec(query, key);
-                var v = index[spec.col] === undefined ? null : row[index[spec.col]];
-                o[key] = v;
-                if (timeKeys && timeKeys.indexOf(key) >= 0) o[key + 'Ms'] = toMs(v, spec.epoch);
-            });
+            var o = {};
+            if (keepRaw) {
+                o._raw = {};
+                result.columns.forEach(function (c, i) { o._raw[c] = row[i]; });
+            }
+            for (var k = 0; k < specs.length; k++) {
+                var s = specs[k];
+                var v = s.at === undefined ? null : row[s.at];
+                o[s.key] = v;
+                if (s.time) o[s.key + 'Ms'] = toMs(v, s.epoch);
+            }
             return o;
         });
     }

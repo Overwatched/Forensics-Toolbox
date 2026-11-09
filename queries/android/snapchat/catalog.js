@@ -7,7 +7,8 @@ window.SNAPCHAT_ANDROID_CATALOG = {
     "timeStart": "Från (ÅÅÅÅ-MM-DD TT:MM)",
     "timeEnd": "Till (ÅÅÅÅ-MM-DD TT:MM)",
     "cacheKey": "Cachenyckel (filnamnet i native_content_manager-mappen)",
-    "conversationId": "Konversations-id (client_conversation_id)"
+    "conversationId": "Konversations-id (client_conversation_id)",
+    "threadId": "Konversationens id (client_conversation_id)"
   },
   "databases": [
     {
@@ -137,7 +138,11 @@ window.SNAPCHAT_ANDROID_CATALOG = {
             "timeEnd"
           ],
           "returns": "skickad, läst, konversation, meddelandenummer, avsändar-id, skapad på telefonen, innehållstyp, media, sparad, UTC",
-          "sql": "SELECT\n  datetime(creation_timestamp / 1000, 'unixepoch', 'localtime') AS skickad_lokal,\n  datetime(read_timestamp / 1000, 'unixepoch', 'localtime') AS last_lokal,\n  client_conversation_id,\n  server_message_id,\n  client_message_id,\n  sender_id,\n  created_on_device,\n  content_type,\n  remote_media_count,\n  is_saved,\n  message_state_type,\n  datetime(creation_timestamp / 1000, 'unixepoch') AS skickad_utc\nFROM conversation_message\nWHERE creation_timestamp BETWEEN {{unixMsStart}} AND {{unixMsEnd}}\nORDER BY creation_timestamp;"
+          "sql": "SELECT\n  datetime(creation_timestamp / 1000, 'unixepoch', 'localtime') AS skickad_lokal,\n  datetime(read_timestamp / 1000, 'unixepoch', 'localtime') AS last_lokal,\n  client_conversation_id,\n  server_message_id,\n  client_message_id,\n  sender_id,\n  created_on_device,\n  content_type,\n  remote_media_count,\n  is_saved,\n  message_state_type,\n  datetime(creation_timestamp / 1000, 'unixepoch') AS skickad_utc\nFROM conversation_message\nWHERE creation_timestamp BETWEEN {{unixMsStart}} AND {{unixMsEnd}}\nORDER BY creation_timestamp;",
+          "chat": {
+            "thread": "client_conversation_id",
+            "message": "client_message_id"
+          }
         },
         {
           "id": "conversation",
@@ -200,8 +205,110 @@ window.SNAPCHAT_ANDROID_CATALOG = {
             "rows": "n_rows"
           },
           "sql": "SELECT\n  MIN(creation_timestamp) AS first_start,\n  MAX(creation_timestamp) AS last_start,\n  COUNT(*) AS n_rows\nFROM conversation_message;"
+        },
+        {
+          "id": "chat-threads",
+          "hidden": true,
+          "role": "chat-threads",
+          "title": "Chattar: konversationer",
+          "description": "Används av Chattar. Konversationerna i conversation_message med antal meddelanden och första och senaste tid. Namnet sätts av Chattar ur deltagarnas namn; grupp när fler än en annan har skrivit.",
+          "params": [],
+          "epoch": "unixMs",
+          "nameFromMembers": true,
+          "fields": {
+            "id": "thread_id",
+            "name": "thread_name",
+            "kind": "thread_kind",
+            "address": "thread_address",
+            "messages": "message_count",
+            "first": "first_ms",
+            "last": "last_ms"
+          },
+          "sql": "SELECT\n  m.client_conversation_id AS thread_id, m.client_conversation_id AS thread_name, m.client_conversation_id AS thread_address,\n  CASE WHEN (SELECT count(DISTINCT CAST(x.sender_id AS TEXT)) FROM conversation_message x WHERE x.client_conversation_id = m.client_conversation_id AND CAST(x.sender_id AS TEXT) <> COALESCE((SELECT value FROM required_values WHERE key = 'USERID'), '')) > 1 THEN 'group' ELSE 'person' END AS thread_kind,\n  count(*) AS message_count, min(m.creation_timestamp) AS first_ms, max(m.creation_timestamp) AS last_ms\nFROM conversation_message m\nGROUP BY m.client_conversation_id\nORDER BY last_ms DESC;"
+        },
+        {
+          "id": "chat-members",
+          "hidden": true,
+          "role": "chat-members",
+          "title": "Chattar: deltagare",
+          "description": "Används av Chattar. Avsändarna i varje konversation utom telefonens eget konto (USERID i required_values). Namnen kommer ur kontodatabasens roll chat-names.",
+          "params": [],
+          "epoch": "unixMs",
+          "fields": {
+            "threadId": "thread_id",
+            "id": "member_id",
+            "name": "member_name",
+            "address": "member_address"
+          },
+          "sql": "SELECT DISTINCT m.client_conversation_id AS thread_id, CAST(m.sender_id AS TEXT) AS member_id, CAST(m.sender_id AS TEXT) AS member_name, CAST(m.sender_id AS TEXT) AS member_address\nFROM conversation_message m\nWHERE m.sender_id IS NOT NULL AND CAST(m.sender_id AS TEXT) <> COALESCE((SELECT value FROM required_values WHERE key = 'USERID'), '')\nORDER BY 1, 2;"
+        },
+        {
+          "id": "chat-messages",
+          "hidden": true,
+          "role": "chat-messages",
+          "title": "Chattar: meddelandena i en konversation",
+          "description": "Används av Chattar. Meddelandena med tid, läst, avsändare och innehållstyp. Skickat från telefonen när sender_id är USERID i required_values. Texten avkodas av Chattar ur message_content (fältet 4.4.2.1, kontrollerat mot labbtelefonerna). ",
+          "params": [
+            "threadId"
+          ],
+          "epoch": "unixMs",
+          "textFrom": "snapchat",
+          "times": [
+            {
+              "key": "created",
+              "label": "Skickat",
+              "note": "creation_timestamp: när meddelandet skapades."
+            },
+            {
+              "key": "read",
+              "label": "Läst",
+              "note": "read_timestamp: när meddelandet lästes enligt Snapchat. 0 betyder att tiden saknas."
+            }
+          ],
+          "sortTime": "created",
+          "details": [
+            {
+              "key": "contentType",
+              "label": "Innehållstyp (content_type: 1 text, 0 snap eller media)"
+            },
+            {
+              "key": "state",
+              "label": "Läge (message_state_type)"
+            },
+            {
+              "key": "serverId",
+              "label": "Meddelandets nummer hos servern (server_message_id)"
+            },
+            {
+              "key": "onDevice",
+              "label": "Skapat på telefonen (created_on_device)"
+            },
+            {
+              "key": "saved",
+              "label": "Sparat i chatten (is_saved)"
+            }
+          ],
+          "fields": {
+            "id": "message_id",
+            "threadId": "thread_id",
+            "fromMe": "from_me",
+            "senderId": "sender_text",
+            "text": "text_placeholder",
+            "content": "message_content",
+            "kind": "kind",
+            "kindLabel": "kind_label",
+            "created": "creation_timestamp",
+            "read": "read_timestamp",
+            "contentType": "content_type",
+            "state": "message_state_type",
+            "serverId": "server_message_id",
+            "onDevice": "created_on_device",
+            "saved": "is_saved"
+          },
+          "sql": "SELECT\n  m.client_message_id AS message_id, m.client_conversation_id AS thread_id,\n  CASE WHEN CAST(m.sender_id AS TEXT) = COALESCE((SELECT value FROM required_values WHERE key = 'USERID'), '') THEN 1 ELSE 0 END AS from_me,\n  CAST(m.sender_id AS TEXT) AS sender_text, NULL AS text_placeholder, m.message_content,\n  CASE m.content_type WHEN 1 THEN 'text' ELSE 'other' END AS kind,\n  CASE m.content_type WHEN 1 THEN NULL WHEN 0 THEN 'snap eller media; mediet ligger i Snapchats cache' ELSE 'innehållstyp ' || m.content_type END AS kind_label,\n  m.creation_timestamp, m.read_timestamp, m.content_type, m.message_state_type, m.server_message_id, m.created_on_device, m.is_saved\nFROM conversation_message m\nWHERE m.client_conversation_id = '{{threadId}}'\nORDER BY m.creation_timestamp, m.client_message_id;"
         }
-      ]
+      ],
+      "chatApp": "Snapchat"
     },
     {
       "id": "snapchat-android-friends",
@@ -247,8 +354,24 @@ window.SNAPCHAT_ANDROID_CATALOG = {
             "added": "addedTimestamp"
           },
           "sql": "SELECT\n  userId,\n  username,\n  displayName,\n  addedTimestamp\nFROM Friend\nLIMIT 5000;"
+        },
+        {
+          "id": "chat-names",
+          "hidden": true,
+          "role": "chat-names",
+          "title": "Chattar: kontonas namn",
+          "description": "Används av Chattar. Kontona i Friend med visningsnamn och användarnamn.",
+          "params": [],
+          "epoch": "unixMs",
+          "fields": {
+            "id": "userId",
+            "name": "display_name",
+            "username": "username"
+          },
+          "sql": "SELECT userId, COALESCE(NULLIF(displayName, ''), username) AS display_name, username\nFROM Friend;"
         }
-      ]
+      ],
+      "chatApp": "Snapchat"
     },
     {
       "id": "snapchat-android-notifications",

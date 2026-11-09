@@ -84,8 +84,9 @@ function initToolNav() {
         'tools/provenance/index.html': 'provenance',
         'tools/db-queries/queries.html': 'queries',
         'tools/exif-viewer/index.html': 'exif',
+        'tools/chats/index.html': 'chats',
     };
-    const TOOL_PATH = { provenance: 'tools/provenance/index.html', queries: 'tools/db-queries/queries.html', exif: 'tools/exif-viewer/index.html' };
+    const TOOL_PATH = { provenance: 'tools/provenance/index.html', queries: 'tools/db-queries/queries.html', exif: 'tools/exif-viewer/index.html', chats: 'tools/chats/index.html' };
     let activePath = '';
     // Filen man senast tittade på i Härkomst eller EXIF & karta: { name, path, place, owner, from }.
     // owner är verktygets sökväg; verktyget lämnar ut filen när någon vill visa den någon annanstans.
@@ -110,7 +111,7 @@ function initToolNav() {
         el.hidden = !f;
         el.textContent = f ? 'Extraktion: ' + f.name : '';
         el.title = f ? f.name + ', ' + sizeText(f.size) + (extraction.from ? '. Öppnad i ' + extraction.from : '') +
-            '. Härkomst och Queries använder samma extraktion.' : '';
+            '. Härkomst, Queries och Chattar använder samma extraktion.' : '';
     }
 
     // force: verktyget som visas följer alltid, när undersökaren själv bytt eller stängt i raden högst upp.
@@ -379,6 +380,11 @@ function initToolNav() {
             deliver(data.to, data.to === 'exif'
                 ? { source: 'forensics-toolbox', type: 'exif-files', files: data.files, open: data.files.length === 1 }
                 : { source: 'forensics-toolbox', type: 'provenance-files', files: data.files });
+            return;
+        }
+        // En rad i Queries öppnas som chatt: databasens sökväg i extraktionen, chattens och meddelandets id.
+        if (data.type === 'open-chat' && typeof data.path === 'string') {
+            deliver('chats', { source: 'forensics-toolbox', type: 'open-chat', path: data.path, db: data.db || '', thread: data.thread, message: data.message, zipName: data.zipName || '' });
             return;
         }
         // Filnamn ur ett resultat i Queries, att bedöma i Härkomst.

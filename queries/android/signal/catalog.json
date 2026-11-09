@@ -4,7 +4,7 @@
   "sourceNote": "Betafunktion. Signals egna databaser på Android, lästa ur appens datamapp data/data/org.thoughtcrime.securesms (data/user/0 är samma mapp). Databaserna är krypterade med SQLCipher. Queries och Härkomst dekrypterar dem i minnet med nyckeln ur extraktionen (extra/Secrets/secrets.json) eller en nyckel du klistrar in. Tiderna är Unix-millisekunder och visas här med datetime(…/1000, 'unixepoch', 'localtime'). SHA-256 för bilagorna står i base64 i databasen och visas här som hex. Tabeller och kolumner är kontrollerade mot en labbtelefon (Android 13, Signal 8.33, 2026-11-02) och en verklig extraktion (Signal 8.10). Strukturen kan skilja sig mellan Signal-versioner, så kontrollera alltid mot databasen.",
   "paramLabels": {
     "sha256": "SHA-256 (hex, 64 tecken)",
-    "threadId": "Tråd (thread._id)"
+    "threadId": "Trådens id (_id i thread)"
   },
   "databases": [
     {
@@ -29,7 +29,11 @@
           ],
           "subtitle": "Visar meddelandena i tidsspannet: när de skickades (avsändarens klocka), togs emot och nådde servern, riktning, konversation, avsändare och mottagare, text, antal bilagor, engångsvisning och om de raderats för alla.",
           "returns": "skickad, mottagen, server, riktning, konversation, från, till, text, bilagor, engångsvisning, raderat, försvinner, id, UTC",
-          "sql": "SELECT\n  datetime(m.date_sent / 1000, 'unixepoch', 'localtime') AS skickad_lokal,\n  datetime(m.date_received / 1000, 'unixepoch', 'localtime') AS mottagen_lokal,\n  CASE WHEN m.date_server > 0 THEN datetime(m.date_server / 1000, 'unixepoch', 'localtime') END AS server_lokal,\n  CASE m.type & 31 WHEN 20 THEN 'mottaget' WHEN 23 THEN 'skickat' WHEN 21 THEN 'skickas' WHEN 22 THEN 'skickas' WHEN 24 THEN 'misslyckades' WHEN 27 THEN 'utkast' ELSE 'typ ' || (m.type & 31) END AS riktning,\n  COALESCE(g.title, COALESCE(NULLIF(tr.nickname_joined_name, ''), NULLIF(tr.system_joined_name, ''), NULLIF(tr.profile_joined_name, ''), tr.username, tr.e164, '#' || tr._id)) AS konversation,\n  COALESCE(NULLIF(fr.nickname_joined_name, ''), NULLIF(fr.system_joined_name, ''), NULLIF(fr.profile_joined_name, ''), fr.username, fr.e164, '#' || fr._id) AS fran,\n  COALESCE(NULLIF(tor.nickname_joined_name, ''), NULLIF(tor.system_joined_name, ''), NULLIF(tor.profile_joined_name, ''), tor.username, tor.e164, '#' || tor._id) AS till,\n  m.body AS text,\n  (SELECT count(*) FROM attachment a WHERE a.message_id = m._id) AS bilagor,\n  m.view_once AS engangsvisning,\n  CASE WHEN m.deleted_by IS NOT NULL OR m.remote_deleted = 1 THEN 'raderat för alla' END AS raderat,\n  CASE WHEN m.expires_in > 0 THEN m.expires_in / 1000 || ' s' END AS forsvinner,\n  m._id AS meddelande_id,\n  m.thread_id AS trad_id,\n  datetime(m.date_sent / 1000, 'unixepoch') AS skickad_utc\nFROM message m\nLEFT JOIN thread t ON t._id = m.thread_id\nLEFT JOIN recipient tr ON tr._id = t.recipient_id\nLEFT JOIN groups g ON g.recipient_id = t.recipient_id\nLEFT JOIN recipient fr ON fr._id = m.from_recipient_id\nLEFT JOIN recipient tor ON tor._id = m.to_recipient_id\nWHERE m.date_sent BETWEEN {{unixMsStart}} AND {{unixMsEnd}}\n   OR m.date_received BETWEEN {{unixMsStart}} AND {{unixMsEnd}}\nORDER BY m.date_received;"
+          "sql": "SELECT\n  datetime(m.date_sent / 1000, 'unixepoch', 'localtime') AS skickad_lokal,\n  datetime(m.date_received / 1000, 'unixepoch', 'localtime') AS mottagen_lokal,\n  CASE WHEN m.date_server > 0 THEN datetime(m.date_server / 1000, 'unixepoch', 'localtime') END AS server_lokal,\n  CASE m.type & 31 WHEN 20 THEN 'mottaget' WHEN 23 THEN 'skickat' WHEN 21 THEN 'skickas' WHEN 22 THEN 'skickas' WHEN 24 THEN 'misslyckades' WHEN 27 THEN 'utkast' ELSE 'typ ' || (m.type & 31) END AS riktning,\n  COALESCE(g.title, COALESCE(NULLIF(tr.nickname_joined_name, ''), NULLIF(tr.system_joined_name, ''), NULLIF(tr.profile_joined_name, ''), tr.username, tr.e164, '#' || tr._id)) AS konversation,\n  COALESCE(NULLIF(fr.nickname_joined_name, ''), NULLIF(fr.system_joined_name, ''), NULLIF(fr.profile_joined_name, ''), fr.username, fr.e164, '#' || fr._id) AS fran,\n  COALESCE(NULLIF(tor.nickname_joined_name, ''), NULLIF(tor.system_joined_name, ''), NULLIF(tor.profile_joined_name, ''), tor.username, tor.e164, '#' || tor._id) AS till,\n  m.body AS text,\n  (SELECT count(*) FROM attachment a WHERE a.message_id = m._id) AS bilagor,\n  m.view_once AS engangsvisning,\n  CASE WHEN m.deleted_by IS NOT NULL OR m.remote_deleted = 1 THEN 'raderat för alla' END AS raderat,\n  CASE WHEN m.expires_in > 0 THEN m.expires_in / 1000 || ' s' END AS forsvinner,\n  m._id AS meddelande_id,\n  m.thread_id AS trad_id,\n  datetime(m.date_sent / 1000, 'unixepoch') AS skickad_utc\nFROM message m\nLEFT JOIN thread t ON t._id = m.thread_id\nLEFT JOIN recipient tr ON tr._id = t.recipient_id\nLEFT JOIN groups g ON g.recipient_id = t.recipient_id\nLEFT JOIN recipient fr ON fr._id = m.from_recipient_id\nLEFT JOIN recipient tor ON tor._id = m.to_recipient_id\nWHERE m.date_sent BETWEEN {{unixMsStart}} AND {{unixMsEnd}}\n   OR m.date_received BETWEEN {{unixMsStart}} AND {{unixMsEnd}}\nORDER BY m.date_received;",
+          "chat": {
+            "thread": "trad_id",
+            "message": "meddelande_id"
+          }
         },
         {
           "id": "attachments",
@@ -176,8 +180,132 @@
             "rows": "n_rows"
           },
           "sql": "SELECT\n  MIN(date_received) AS first_received,\n  MAX(date_received) AS last_received,\n  COUNT(*) AS n_rows\nFROM message;"
+        },
+        {
+          "id": "chat-threads",
+          "hidden": true,
+          "role": "chat-threads",
+          "title": "Chattar: konversationer",
+          "description": "Används av Chattar. Trådarna med namn som i queryn Konversationer, grupp eller enskild, antal meddelanden och första och senaste meddelandets tid på telefonen.",
+          "params": [],
+          "epoch": "unixMs",
+          "fields": {
+            "id": "thread_id",
+            "name": "thread_name",
+            "kind": "thread_kind",
+            "address": "thread_address",
+            "kindRaw": "recipient_type",
+            "messages": "message_count",
+            "first": "first_ms",
+            "last": "last_ms",
+            "archived": "archived"
+          },
+          "sql": "SELECT\n  t._id AS thread_id,\n  COALESCE(g.title, COALESCE(NULLIF(tr.nickname_joined_name, ''), NULLIF(tr.system_joined_name, ''), NULLIF(tr.profile_joined_name, ''), tr.username, tr.e164, '#' || tr._id)) AS thread_name,\n  CASE WHEN g.title IS NOT NULL OR tr.type IN (1, 2, 3) THEN 'group' WHEN tr._id IS NOT NULL THEN 'person' ELSE 'other' END AS thread_kind,\n  COALESCE(tr.e164, tr.username, tr.aci) AS thread_address, tr.type AS recipient_type,\n  (SELECT count(*) FROM message m WHERE m.thread_id = t._id) AS message_count,\n  (SELECT min(m.date_received) FROM message m WHERE m.thread_id = t._id) AS first_ms,\n  (SELECT max(m.date_received) FROM message m WHERE m.thread_id = t._id) AS last_ms,\n  t.archived\nFROM thread t\nLEFT JOIN recipient tr ON tr._id = t.recipient_id\nLEFT JOIN groups g ON g.recipient_id = t.recipient_id\nORDER BY last_ms DESC, t._id;"
+        },
+        {
+          "id": "chat-members",
+          "hidden": true,
+          "role": "chat-members",
+          "title": "Chattar: deltagare",
+          "description": "Används av Chattar. Motparten i en enskild tråd, och i en grupp de som skrivit i gruppen enligt meddelandena (inte gruppens medlemslista).",
+          "params": [],
+          "epoch": "unixMs",
+          "fields": {
+            "threadId": "thread_id",
+            "id": "member_id",
+            "name": "member_name",
+            "address": "member_address",
+            "note": "member_note"
+          },
+          "sql": "SELECT t._id AS thread_id, tr._id AS member_id, COALESCE(NULLIF(tr.nickname_joined_name, ''), NULLIF(tr.system_joined_name, ''), NULLIF(tr.profile_joined_name, ''), tr.username, tr.e164, '#' || tr._id) AS member_name, COALESCE(tr.e164, tr.username, tr.aci) AS member_address, NULL AS member_note\nFROM thread t JOIN recipient tr ON tr._id = t.recipient_id\nWHERE tr.type = 0\nUNION\nSELECT m.thread_id, fr._id, COALESCE(NULLIF(fr.nickname_joined_name, ''), NULLIF(fr.system_joined_name, ''), NULLIF(fr.profile_joined_name, ''), fr.username, fr.e164, '#' || fr._id), COALESCE(fr.e164, fr.username, fr.aci), 'skrev i gruppen'\nFROM message m\nJOIN thread t ON t._id = m.thread_id\nJOIN recipient tr ON tr._id = t.recipient_id\nJOIN recipient fr ON fr._id = m.from_recipient_id\nWHERE tr.type IN (1, 2, 3) AND m.type & 31 = 20\nORDER BY 1, 3;"
+        },
+        {
+          "id": "chat-messages",
+          "hidden": true,
+          "role": "chat-messages",
+          "title": "Chattar: meddelandena i en tråd",
+          "description": "Används av Chattar. Meddelandena i tråden med avsändarens, serverns och telefonens tid, riktning, typ och raderat.",
+          "params": [
+            "threadId"
+          ],
+          "epoch": "unixMs",
+          "times": [
+            {
+              "key": "received",
+              "label": "Skapat eller mottaget på telefonen",
+              "note": "date_received: den här telefonens klocka när meddelandet skapades eller togs emot."
+            },
+            {
+              "key": "sent",
+              "label": "Skickat (avsändarens klocka)",
+              "note": "date_sent: avsändarens klocka när meddelandet skickades."
+            },
+            {
+              "key": "server",
+              "label": "Serverns tid",
+              "note": "date_server: när Signals server tog emot meddelandet. 0 betyder att tiden saknas."
+            }
+          ],
+          "sortTime": "received",
+          "details": [
+            {
+              "key": "typeRaw",
+              "label": "Typ (message.type & 31: 20 mottaget, 23 skickat)"
+            },
+            {
+              "key": "readFlag",
+              "label": "Läst (read)"
+            }
+          ],
+          "fields": {
+            "id": "message_id",
+            "threadId": "thread_id",
+            "fromMe": "from_me",
+            "senderId": "sender_id",
+            "senderName": "sender_name",
+            "text": "body",
+            "kind": "kind",
+            "kindLabel": "kind_label",
+            "viewOnce": "view_once",
+            "deleted": "deleted_flag",
+            "expiresIn": "expires_s",
+            "received": "date_received",
+            "sent": "date_sent",
+            "server": "date_server",
+            "typeRaw": "base_type",
+            "readFlag": "read"
+          },
+          "sql": "SELECT\n  m._id AS message_id, m.thread_id,\n  CASE WHEN m.type & 31 IN (21, 22, 23, 24, 27) THEN 1 ELSE 0 END AS from_me,\n  CASE WHEN m.type & 31 = 20 THEN fr._id END AS sender_id,\n  CASE WHEN m.type & 31 = 20 THEN COALESCE(NULLIF(fr.nickname_joined_name, ''), NULLIF(fr.system_joined_name, ''), NULLIF(fr.profile_joined_name, ''), fr.username, fr.e164, '#' || fr._id) END AS sender_name,\n  m.body,\n  CASE WHEN m.deleted_by IS NOT NULL OR m.remote_deleted = 1 THEN 'deleted'\n    ELSE COALESCE((SELECT CASE WHEN a.content_type LIKE 'image/%' THEN 'image' WHEN a.content_type LIKE 'video/%' THEN 'video' WHEN a.content_type LIKE 'audio/%' THEN 'audio' ELSE 'file' END\n      FROM attachment a WHERE a.message_id = m._id ORDER BY a.display_order LIMIT 1), 'text') END AS kind,\n  CASE WHEN m.deleted_by IS NOT NULL OR m.remote_deleted = 1 THEN 'raderat för alla' WHEN m.type & 31 = 24 THEN 'misslyckades' WHEN m.type & 31 IN (21, 22) THEN 'skickas' END AS kind_label,\n  m.view_once, CASE WHEN m.deleted_by IS NOT NULL OR m.remote_deleted = 1 THEN 1 ELSE 0 END AS deleted_flag,\n  CASE WHEN m.expires_in > 0 THEN m.expires_in / 1000 END AS expires_s,\n  m.date_received, m.date_sent, m.date_server,\n  m.type & 31 AS base_type, m.read\nFROM message m\nLEFT JOIN recipient fr ON fr._id = m.from_recipient_id\nWHERE m.thread_id = '{{threadId}}'\nORDER BY m.date_received, m._id;"
+        },
+        {
+          "id": "chat-attachments",
+          "hidden": true,
+          "role": "chat-attachments",
+          "title": "Chattar: bilagorna i en tråd",
+          "description": "Används av Chattar. Bilagorna med filen i app_parts/, som är krypterad med bilagenyckeln (AES-256-CTR med nyckeln HMAC-SHA256(modernKey, data_random), som i Härkomst), typ, namn, storlek och mått.",
+          "params": [
+            "threadId"
+          ],
+          "epoch": "unixMs",
+          "fileRoot": "..",
+          "decrypt": "signal-android",
+          "fields": {
+            "messageId": "message_id",
+            "id": "attachment_id",
+            "path": "file_path",
+            "mime": "content_type",
+            "size": "data_size",
+            "name": "file_name",
+            "title": "caption",
+            "width": "width",
+            "height": "height",
+            "random": "random_hex",
+            "uploaded": "upload_timestamp"
+          },
+          "sql": "SELECT\n  a.message_id, a._id AS attachment_id,\n  CASE WHEN a.data_file IS NOT NULL THEN 'app_parts/' || replace(a.data_file, rtrim(a.data_file, replace(a.data_file, '/', '')), '') END AS file_path,\n  a.content_type, a.data_size, a.file_name, a.caption, a.width, a.height,\n  lower(hex(a.data_random)) AS random_hex, a.upload_timestamp\nFROM attachment a\nJOIN message m ON m._id = a.message_id\nWHERE m.thread_id = '{{threadId}}'\nORDER BY a.message_id, a.display_order;"
         }
-      ]
+      ],
+      "chatApp": "Signal"
     },
     {
       "id": "signal-android-logs",

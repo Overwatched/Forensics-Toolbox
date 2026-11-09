@@ -627,6 +627,117 @@ Plan och provkörning: [PLAN-harkomst.md](PLAN-harkomst.md).
   (200 000 meddelanden). `postbox.test.js` har ett hastighetstest för det.
 - **Kvar:** `TelegramPostbox.attach` körs i huvudtråden.
 
+### Chattar (`tools/chats/`)
+
+- Visar konversationerna i chattapparnas databaser som i appen. Följer extraktionen som Härkomst och Queries
+  (`CONTEXT_TOOLS` i `src/script.js`), hittar databaserna med `ExtractionCore.open` och läser dem som Härkomst:
+  nyckeln via `AppSecrets`, Telegrams format via `TelegramPostbox`. Ingen SQL finns i verktyget.
+- **Chattrollerna** är dolda queryer i katalogerna, som Härkomsts roller: `chat-threads`, `chat-members`,
+  `chat-messages` och `chat-attachments`. Databasen får `chatApp` (appens namn). Fälten (de första är obligatoriska):
+  - `chat-threads` (inga params): `id`, `name`, `kind` (`person`, `group`, `status`, `channel`, `self`, `other`);
+    gärna `address`, `messages`, `first`, `last`, `archived`, `removed`.
+  - `chat-members` (inga params): `threadId`, `id`, `name`; gärna `address`, `admin`, `active`, `isMe`.
+  - `chat-messages` (`threadId` inom citattecken i SQL:en): `id`, `threadId`, `fromMe`, `text`, `kind` (`text`,
+    `image`, `video`, `audio`, `voice`, `file`, `contact`, `location`, `sticker`, `gif`, `call`, `system`,
+    `deleted`, `poll`, `other`); gärna `senderId`, `senderName`, `kindLabel`, `viewOnce`, `deleted`, `edited`,
+    `expiresIn`, `device`, `replyTo`, `replyText`. Tiderna listas i `times` (`key`, `label` och `note`, som nämner
+    kolumnen), `sortTime` ordnar bubblorna, och `details` är fler råa fält i klockans ruta.
+  - `chat-names` (valfri, i en annan databas i samma app, inga params): `id` och `name` eller en kolumn som
+    `nameFrom` säger hur den läses (`snapchat-flatbuffer`: `ProvenanceSnapchat.friendNames`). Namnen läggs på
+    deltagare och avsändare som bara har ett id. `nameFromMembers` på `chat-threads` ger konversationen
+    deltagarnas namn. `textFrom` på `chat-messages` säger att texten avkodas ur fältet `content` (`snapchat`).
+  - `chat-attachments` (valfri, `threadId`): `messageId`, `path` (relativ `fileRoot`, som räknas från databasens mapp:
+    `.` eller `..` uppåt); gärna `thumbPath`, `mime`, `size`, `duration`, `sha256` (hex) eller `sha256b64`,
+    `name`, `title`, `cardName`, `card`, `lat`, `lon`, `uploaded`.
+- **Kontraktet testas** i `catalogs.test.js`.
+  - Varje databas med chattroller ska ha alla fyra roller med fälten ovan, tider med förklaring och en synlig
+    meddelande-query med `chat: { thread, message }`. Den anger kolumnerna med chattens och meddelandets id.
+  - Varje chattroll är en enda sats, eftersom meddelandena och bilagorna läses med en förberedd sats i omgångar.
+  - WhatsApps roller körs mot labbtelefonens schema (`fixtures/chat-schemas.json`), så en ändrad kolumn stoppas där.
+  - De synliga queryerna kan ändras fritt.
+  - En ny app får chattvyn genom att lägga till rollerna i sin katalog och sin katalog i `index.html`.
+- **Queries → Chattar**: en query med `chat` får knappen Chatt på varje rad när databasen kommer ur en extraktion.
+  Knappen skickar `{ type: 'open-chat', path, db, thread, message, zipName }`, och huvudfönstret lämnar över till
+  Chattar, som öppnar chatten och blinkar meddelandet. `ExtractionCore.zipSource` har därför `path`, postens
+  fulla namn. **Chattar → Queries**: klockans ruta har Visa raden i Queries. Den skickar `open-query` med rollens
+  SQL och meddelandets tid och id, som från Härkomst.
+- **Bilagorna** letas upp i extraktionen när konversationen öppnas och läses som blob-URL:er när de syns
+  (`IntersectionObserver`). En fil över 80 MB läses först efter ett klick. Fler än 300 lästa filer släpps när de
+  inte längre finns i sidan, så att minnet inte växer med chatten.
+- **Stora chattar** (mätt 2026-11-09 med påhittade WhatsApp-chattar i Electron):
+  - Före: 100 000 meddelanden tog 5,0 s att rita med sidan stilla, 1,1 miljoner element och 141 MB. Ett byte av zon ritade om
+    allt på 4,8 s. 300 000 tog 15,8 s och 468 MB. Läsningen ur databasen var aldrig problemet: SQL och modell tog 1,5 s för
+    300 000.
+  - Konversationen läses i omgångar (`ChatCore.readRows`: en förberedd sats, en paus för sidan var 40:e ms) och visas
+    först när den är klar. Rutan över chatten (`Job`) visar stegen, raderna hittills, tiden och Avbryt. Ett avbrott
+    lämnar det som visades. Rutan visas efter 250 ms, så att små chattar inte blinkar.
+  - Bubblorna ritas i block om 250 meddelanden. Ett nytt block ritas när kanten är närmare än 1 500 px, och block långt
+    bort tas bort, så att sidan har högst 1 500 meddelanden. Läget hålls när ett block läggs till eller tas bort ovanför.
+    Webbläsarens scroll anchoring får vara på, för bilder som laddas ovanför; `keepPlace` rättar bara när läget inte
+    redan stämmer. Datumen är `sticky` och anger då sin fastsatta plats, så hopp räknas från meddelandet, inte datumet.
+  - Sök letar i text, bildtext, filnamn och kontaktkort i hela konversationen (`searchIndex`, `findAll`), märker
+    träffarna i sidan och börjar vid det som syns. Gå till datum tar det tidigaste meddelandet från dagens början i
+    vald zon (`atOrAfter`, som inte litar på ordningen). Första och Senaste (och Home och End) ritar om runt dem.
+  - Modellen sparar inte raden en gång till (`mapRows` med `{ raw: false }`): tiderna har sina råa värden.
+  - Efter: 300 000 meddelanden öppnas på 1,4 s med förlopp, med 5 700 element och 51 MB. Ett block tar 66 ms, zonen
+    0,13 s, en sökning 0,13 s och Gå till datum 0,09 s. Avbryt tar 0,2 s.
+  - När extraktionen öppnas visar listan varje databas direkt och fyller i den när den är läst. Raden överst säger
+    vilken databas som läses och har Avbryt: resten lämnas olästa, med Läs in i listan. En rad från Queries väntar bara
+    på sin egen databas.
+  - Kvar: Telegrams avkodning och Signals dekryptering går i sidans tråd. En egen tråd (Web Worker) för sql.js, dekrypteringen
+    och avkodningen skulle hjälpa Queries och Härkomst lika mycket och är inte gjord.
+- **Tider** visas i datorns zon eller i UTC, med zonen utskriven. Klockans ruta visar varje tid med kolumn, rått värde och
+  UTC (`ChatCore.formatter`, `offsetText`; `parseLocal` läser tidsspannet i exporten, också över sommar- och vintertid).
+- **Export** (`chat-export.js`): hela konversationen, valda meddelanden eller ett tidsspann.
+  - Formatet är en fristående HTML-fil, med bilder upp till 25 MB per bild inbäddade, eller utskrift via en dold ram
+    (spara som PDF i utskriftsdialogen).
+  - Överst står källan. Sist kommer en spårbarhetstabell med varje meddelandes id, alla tider med kolumn och rått
+    värde, och bilagornas sökväg och SHA-256.
+  - Filen byggs i delar (`ChatExport.parts`, 1 000 meddelanden åt gången) med förlopp och Avbryt, och sparas som en Blob
+    av delarna, så att en stor chatt aldrig blir en enda text. 300 000 meddelanden blev 148 MB på 7,9 s.
+  - `ChatExport.estimate` säger i förväg ungefär hur stor filen och utskriften blir. Den är kalibrerad mot exporter
+    utskrivna till PDF på A4 i Electron, inom 10 %. Över 20 000 meddelanden eller 200 MB varnar Spara HTML, och över
+    300 sidor varnar utskriften. Ett andra klick bygger ändå.
+- **WhatsApp på iOS** är kontrollerat mot labbet `iPhone - Signal_Whatsapp` (2026-11-09).
+  - Slaget kommer ur JID:ens domän: `@g.us` är grupp, `@lid` och `@s.whatsapp.net` person, `@status` och
+    `@broadcast` status, `@newsletter` kanal.
+  - Kvittenserna i `ZWAMESSAGEINFO.ZRECEIPTINFO` hade inga tider i labbet, så läst och levererat visas inte.
+  - `ZMESSAGESTATUS` visas som rått värde.
+  - En mediepost utan fil, storlek, adress, kontaktkort eller plats tas inte med. I labbet hade ett textmeddelande
+    och typ 59 sådana.
+- **Bilagor som appen krypterar** dekrypteras i `chat-media.js` efter rollens `decrypt`. Innehållets SHA-256 jämförs
+  med databasens och syns under filen och i klockans ruta.
+  - `signal-ios`: filen är IV (16 byte), AES-256-CBC och HMAC-SHA256 (32 byte) över IV och chiffertext, med bilagans
+    `encryptionKey` (64 byte: AES, sedan HMAC). Klartexten kapas till `unencryptedByteCount`. Kontrollerat mot
+    labbets elva filer 2026-11-09: HMAC och SHA-256 stämmer för alla.
+  - `signal-android`: AES-256-CTR med noll-IV och nyckeln HMAC-SHA256(`modernKey`, `data_random`), samma kod som i
+    Härkomst (`SqlCipher.hmac`, `ctr`).
+- **Signal på iOS** är kontrollerat mot labbet 2026-11-09.
+  - Labbets tråd har bara skickade meddelanden, samtal och ett infomeddelande. Mottagna meddelanden, grupper och
+    `model_TSGroupMember` är bara prövade med påhittade rader på labbschemat.
+  - Bubblorna ordnas på `receivedAtTimestamp` (telefonens klocka). Klockans ruta har också avsändarens klocka,
+    serverns tid och, för ett mottaget meddelande med försvinnande tid, när det öppnades (`expireStartedAt`).
+  - Enheten för skickade meddelanden kommer ur `wasNotCreatedLocally` och står i klockans muspekartext och ruta.
+    `deprecated_sourceDeviceId` visas som rått värde, utan tolkning.
+- **Signal på Android** har roller ur samma tabeller och tolkningar som de synliga queryerna, som är kontrollerade
+  mot en labbtelefon och en verklig extraktion. Rollerna är inte körda mot en riktig databas här: Nord-labbets zip
+  finns inte på datorn, och nyckeln till A33:ans Signal saknas. I en grupp listas de som skrivit i gruppen enligt
+  meddelandena, inte gruppens medlemslista.
+- **Telegram på iOS** är kontrollerat mot labbet 2026-11-09 med 8 meddelanden, 5 bilder och en video. Rollerna läser
+  tabellerna som `postbox.js` avkodar i minnet.
+  - Chattarna är de som har meddelanden i t7.
+  - Varje meddelande får sin största resurs (`postbox/media/<resursens id>`) och den näst största som `thumbPath`.
+    Saknas den största visar Chattar den mindre och säger det, också i exporten.
+  - Meddelandets tid är tiden i nyckeln i t7, i hela sekunder.
+- **Snapchat på iOS och Android** är kontrollerat mot labben `iPhone - tidsstämplar` (14 meddelanden i tre
+  konversationer) och `Samsung A33 - Laboration` (2 meddelanden) 2026-11-09.
+  - Texten står i `message_content` i fältet 4.4.2.1 på båda plattformarna.
+  - Skickat från telefonen avgörs av att `sender_id` är `USERID` i `required_values`. `created_on_device` räcker
+    inte: i labbet var ett eget meddelande 0.
+  - Namnen kommer ur kontodatabasen (`snapchatter.p` på iOS, `Friend` på Android).
+  - Snapar och andra medier visas som text. Filerna ligger i Snapchats cache och kopplas inte till chatten i den här
+    versionen.
+
 ### Rapporter (UFDR, `tools/db-queries/ufdr.js`)
 
 En UFDR är rapporten som Cellebrite Physical Analyzer skriver. Namnen står bara här och i kodens kommentarer: programmets texter och protokoll säger rapportverktyget. Queries och Härkomst läser den som en extraktion:
@@ -1037,7 +1148,8 @@ i webbläsaren.
     knowledgeC.db med en trasig `-wal`, routined, bildfiler och poster med HTML i namnet) öppnas i Queries
     och Härkomst; en query med noll rader sägs ut; en fil från disk väljer raden i rätt mapp; en källa i Härkomst
     öppnar rätt databas och markerar raden; exempelraderna är märkta och resultatet når kartan; en inläst databas
-    läses inte om; en lista från disk bedöms; och HTML ur filnamn och databaser körs aldrig. Bara påhittade data. CI kör det i jobbet `apptest`, som inte stoppar
+    läses inte om; en lista från disk bedöms; Chattar visar WhatsApp-chatten och en lång chatt på 3 000 meddelanden i block,
+    med Första, sökning, ett datum i ett uppehåll och utskriftens varning; och HTML ur filnamn och databaser körs aldrig. Bara påhittade data. CI kör det i jobbet `apptest`, som inte stoppar
     releasen än.
   - **Facit** (`facit.js`, `facit/lab-android-nord.json`, `--facit`): Härkomst bedömer filerna i
     labbzippen och jämför T, Memories, förgrund, skärm, lås, kameran, Snapchats meddelande, Signals

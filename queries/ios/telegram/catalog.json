@@ -3,7 +3,8 @@
   "title": "Telegram iOS Queries",
   "sourceNote": "Betafunktion. Telegrams databaser på iOS ligger i appgruppen group.ph.telegra.Telegraph under telegram-data/account-<id>/. De är inte krypterade när ingen lösenkod är satt i Telegram. Telegram lagrar meddelanden och kontakter i ett eget format (Postbox) i tabellerna t0, t1, … med nyckel och värde som blobbar. Forensics Toolbox avkodar dem i minnet till tabeller som börjar med tg_; de finns inte i filen. Tiderna är unixsekunder. Formatet är kontrollerat mot en labbtelefon (iOS 26.4.1, Telegram 13.1.2, 2026-11-03) och kan skilja sig mellan Telegram-versioner, så kontrollera mot databasen.",
   "paramLabels": {
-    "resourceId": "Resursens id (filnamnet under postbox/media/)"
+    "resourceId": "Resursens id (filnamnet under postbox/media/)",
+    "threadId": "Chattens id (peer_id i tg_message)"
   },
   "databases": [
     {
@@ -28,7 +29,11 @@
           ],
           "subtitle": "Visar meddelandena i tidsspannet: tid, riktning, chatt, avsändare, text, media med storlek och mått, engångsvisning och samtal.",
           "returns": "tid, riktning, chatt, från, text, media, mime, storlek, mått, längd, engångsvisning, samtal, id, UTC",
-          "sql": "SELECT\n  datetime(m.timestamp, 'unixepoch', 'localtime') AS tid_lokal,\n  CASE WHEN m.incoming = 1 THEN 'mottaget' ELSE 'skickat' END AS riktning,\n  COALESCE(p.name, CASE m.peer_type WHEN 0 THEN 'användare' WHEN 1 THEN 'grupp' WHEN 2 THEN 'kanal' WHEN 3 THEN 'hemlig chatt' ELSE 'typ ' || m.peer_type END || ' ' || m.peer_tg_id) AS chatt,\n  CASE WHEN m.incoming = 1 THEN COALESCE(a.name, 'Telegram-id ' || m.author_tg_id) ELSE 'den här telefonen' END AS fran,\n  m.text,\n  m.media,\n  m.media_mime AS mime,\n  m.media_size AS storlek,\n  CASE WHEN m.media_width IS NOT NULL THEN m.media_width || '×' || m.media_height END AS matt,\n  m.media_duration AS langd_s,\n  CASE WHEN m.view_once = 1 THEN 'ja' END AS engangsvisning,\n  CASE WHEN m.media = 'samtal' THEN COALESCE(m.call_duration || ' s', 'ingen längd') || CASE WHEN m.call_video = 1 THEN ', video' ELSE '' END END AS samtal,\n  m.id AS meddelande_id,\n  m.peer_id,\n  m.decode_error AS avkodningsfel,\n  datetime(m.timestamp, 'unixepoch') AS tid_utc\nFROM tg_message m\nLEFT JOIN tg_peer p ON p.peer_id = m.peer_id\nLEFT JOIN tg_peer a ON a.peer_id = m.author_id\nWHERE m.timestamp BETWEEN {{unixStart}} AND {{unixEnd}}\nORDER BY m.timestamp, m.id;"
+          "sql": "SELECT\n  datetime(m.timestamp, 'unixepoch', 'localtime') AS tid_lokal,\n  CASE WHEN m.incoming = 1 THEN 'mottaget' ELSE 'skickat' END AS riktning,\n  COALESCE(p.name, CASE m.peer_type WHEN 0 THEN 'användare' WHEN 1 THEN 'grupp' WHEN 2 THEN 'kanal' WHEN 3 THEN 'hemlig chatt' ELSE 'typ ' || m.peer_type END || ' ' || m.peer_tg_id) AS chatt,\n  CASE WHEN m.incoming = 1 THEN COALESCE(a.name, 'Telegram-id ' || m.author_tg_id) ELSE 'den här telefonen' END AS fran,\n  m.text,\n  m.media,\n  m.media_mime AS mime,\n  m.media_size AS storlek,\n  CASE WHEN m.media_width IS NOT NULL THEN m.media_width || '×' || m.media_height END AS matt,\n  m.media_duration AS langd_s,\n  CASE WHEN m.view_once = 1 THEN 'ja' END AS engangsvisning,\n  CASE WHEN m.media = 'samtal' THEN COALESCE(m.call_duration || ' s', 'ingen längd') || CASE WHEN m.call_video = 1 THEN ', video' ELSE '' END END AS samtal,\n  m.id AS meddelande_id,\n  m.peer_id,\n  m.decode_error AS avkodningsfel,\n  datetime(m.timestamp, 'unixepoch') AS tid_utc\nFROM tg_message m\nLEFT JOIN tg_peer p ON p.peer_id = m.peer_id\nLEFT JOIN tg_peer a ON a.peer_id = m.author_id\nWHERE m.timestamp BETWEEN {{unixStart}} AND {{unixEnd}}\nORDER BY m.timestamp, m.id;",
+          "chat": {
+            "thread": "peer_id",
+            "message": "meddelande_id"
+          }
         },
         {
           "id": "media",
@@ -159,8 +164,126 @@
             "rows": "n_rows"
           },
           "sql": "SELECT\n  MIN(timestamp) AS first_date,\n  MAX(timestamp) AS last_date,\n  COUNT(*) AS n_rows\nFROM tg_message\nWHERE timestamp > 0;"
+        },
+        {
+          "id": "chat-threads",
+          "hidden": true,
+          "role": "chat-threads",
+          "title": "Chattar: konversationer",
+          "description": "Används av Chattar. Chattarna som har meddelanden i t7, med namn ur t2, slag efter peer-typen (0 användare, 1 grupp, 2 kanal, 3 hemlig chatt) och första och senaste meddelandets tid.",
+          "params": [],
+          "epoch": "unixS",
+          "fields": {
+            "id": "thread_id",
+            "name": "thread_name",
+            "kind": "thread_kind",
+            "address": "thread_address",
+            "kindRaw": "peer_type",
+            "messages": "message_count",
+            "first": "first_s",
+            "last": "last_s"
+          },
+          "sql": "SELECT\n  m.peer_id AS thread_id, COALESCE(p.name, CASE m.peer_type WHEN 0 THEN 'användare' WHEN 1 THEN 'grupp' WHEN 2 THEN 'kanal' WHEN 3 THEN 'hemlig chatt' ELSE 'typ ' || m.peer_type END || ' ' || m.peer_tg_id) AS thread_name,\n  CASE m.peer_type WHEN 0 THEN 'person' WHEN 3 THEN 'person' WHEN 1 THEN 'group' WHEN 2 THEN 'channel' ELSE 'other' END AS thread_kind,\n  CASE WHEN m.peer_type = 3 THEN 'hemlig chatt, ' ELSE '' END || COALESCE('@' || p.username, p.phone, 'Telegram-id ' || m.peer_tg_id) AS thread_address,\n  m.peer_type, count(*) AS message_count, min(m.timestamp) AS first_s, max(m.timestamp) AS last_s\nFROM tg_message m\nLEFT JOIN tg_peer p ON p.peer_id = m.peer_id\nGROUP BY m.peer_id\nORDER BY last_s DESC;"
+        },
+        {
+          "id": "chat-members",
+          "hidden": true,
+          "role": "chat-members",
+          "title": "Chattar: deltagare",
+          "description": "Används av Chattar. Avsändarna av mottagna meddelanden i varje chatt, med namn, användarnamn eller telefon ur t2. I en grupp är det de som skrivit, inte gruppens medlemslista.",
+          "params": [],
+          "epoch": "unixS",
+          "fields": {
+            "threadId": "thread_id",
+            "id": "member_id",
+            "name": "member_name",
+            "address": "member_address",
+            "note": "member_note"
+          },
+          "sql": "SELECT DISTINCT m.peer_id AS thread_id, m.author_id AS member_id,\n  COALESCE(a.name, 'Telegram-id ' || m.author_tg_id) AS member_name,\n  COALESCE('@' || a.username, a.phone, m.author_tg_id) AS member_address,\n  CASE WHEN m.peer_type IN (1, 2) THEN 'skrev i gruppen' END AS member_note\nFROM tg_message m\nLEFT JOIN tg_peer a ON a.peer_id = m.author_id\nWHERE m.incoming = 1 AND m.author_id IS NOT NULL\nORDER BY 1, 3;"
+        },
+        {
+          "id": "chat-messages",
+          "hidden": true,
+          "role": "chat-messages",
+          "title": "Chattar: meddelandena i en chatt",
+          "description": "Används av Chattar. Meddelandena i chatten ur t7 med tid, riktning, avsändare, text och media som i queryn Meddelanden i tidsspann.",
+          "params": [
+            "threadId"
+          ],
+          "epoch": "unixS",
+          "times": [
+            {
+              "key": "date",
+              "label": "Meddelandets tid",
+              "note": "timestamp: tiden i meddelandets nyckel i t7, Telegrams tid för meddelandet (hela sekunder)."
+            },
+            {
+              "key": "forwarded",
+              "label": "Först skickat (vidarebefordrat)",
+              "note": "forward_date: när ett vidarebefordrat meddelande först skickades."
+            }
+          ],
+          "sortTime": "date",
+          "details": [
+            {
+              "key": "namespace",
+              "label": "Namnrymd i t7 (namespace)"
+            },
+            {
+              "key": "flags",
+              "label": "Flaggor (flags, rått värde; 4 = mottaget)"
+            },
+            {
+              "key": "decodeError",
+              "label": "Avkodningsfel"
+            }
+          ],
+          "fields": {
+            "id": "message_id",
+            "threadId": "thread_id",
+            "fromMe": "from_me",
+            "senderId": "sender_id",
+            "senderName": "sender_name",
+            "text": "text",
+            "kind": "kind",
+            "kindLabel": "kind_label",
+            "viewOnce": "view_once",
+            "date": "timestamp",
+            "forwarded": "forward_date",
+            "namespace": "namespace",
+            "flags": "flags",
+            "decodeError": "decode_error"
+          },
+          "sql": "SELECT\n  m.id AS message_id, m.peer_id AS thread_id,\n  CASE WHEN m.incoming = 1 THEN 0 ELSE 1 END AS from_me,\n  CASE WHEN m.incoming = 1 THEN m.author_id END AS sender_id,\n  CASE WHEN m.incoming = 1 THEN COALESCE(a.name, 'Telegram-id ' || m.author_tg_id) END AS sender_name,\n  m.text,\n  CASE WHEN m.media = 'samtal' THEN 'call' WHEN m.media = 'tjänstemeddelande' THEN 'system' WHEN m.media IN ('bild', 'bild (fil)') THEN 'image'\n    WHEN m.media = 'video' THEN 'video' WHEN m.media = 'ljud' THEN 'audio' WHEN m.media = 'klistermärke' THEN 'sticker' WHEN m.media IS NOT NULL THEN 'file' ELSE 'text' END AS kind,\n  CASE WHEN m.media = 'samtal' THEN 'samtal' || COALESCE(', ' || m.call_duration || ' s', ', ingen längd') || CASE WHEN m.call_video = 1 THEN ', video' ELSE '' END ELSE m.media END AS kind_label,\n  m.view_once, m.timestamp, m.forward_date, m.namespace, m.flags, m.decode_error\nFROM tg_message m\nLEFT JOIN tg_peer a ON a.peer_id = m.author_id\nWHERE m.peer_id = '{{threadId}}'\nORDER BY m.timestamp, m.id;"
+        },
+        {
+          "id": "chat-attachments",
+          "hidden": true,
+          "role": "chat-attachments",
+          "title": "Chattar: medierna i en chatt",
+          "description": "Används av Chattar. Den största resursen i varje meddelande (filen postbox/media/<resursens id>), och den näst största som reserv när den största inte finns på telefonen.",
+          "params": [
+            "threadId"
+          ],
+          "epoch": "unixS",
+          "fileRoot": "..",
+          "fields": {
+            "messageId": "message_id",
+            "id": "resource_id",
+            "path": "file_path",
+            "thumbPath": "thumb_path",
+            "mime": "media_mime",
+            "size": "file_size",
+            "name": "media_file_name",
+            "width": "width",
+            "height": "height",
+            "duration": "media_duration"
+          },
+          "sql": "SELECT\n  m.id AS message_id, r.resource_id, 'media/' || r.resource_id AS file_path,\n  (SELECT 'media/' || r2.resource_id FROM tg_resource r2 WHERE r2.peer_id = m.peer_id AND r2.namespace = m.namespace AND r2.message_id = m.id AND r2.resource_id <> r.resource_id ORDER BY COALESCE(r2.width * r2.height, r2.size, 0) DESC LIMIT 1) AS thumb_path,\n  m.media_mime, COALESCE(r.size, m.media_size) AS file_size, m.media_file_name, r.width, r.height, m.media_duration\nFROM tg_message m\nJOIN tg_resource r ON r.peer_id = m.peer_id AND r.namespace = m.namespace AND r.message_id = m.id\nWHERE m.peer_id = '{{threadId}}' AND r.role <> 'miniatyr'\n  AND r.resource_id = (SELECT r3.resource_id FROM tg_resource r3 WHERE r3.peer_id = m.peer_id AND r3.namespace = m.namespace AND r3.message_id = m.id AND r3.role <> 'miniatyr' ORDER BY COALESCE(r3.width * r3.height, r3.size, 0) DESC LIMIT 1)\nORDER BY m.timestamp, m.id;"
         }
-      ]
+      ],
+      "chatApp": "Telegram"
     },
     {
       "id": "telegram-ios-storage",

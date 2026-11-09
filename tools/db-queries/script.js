@@ -686,6 +686,7 @@ function buildDatabases(photos, android, appUsage, routined, snapchat, snapchatA
                     returns: q.returns || '',
                     params: q.params || [],
                     sql: q.sql,
+                    chat: q.chat || null,
                 })),
             });
         });

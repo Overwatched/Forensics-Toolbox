@@ -352,15 +352,27 @@
 
     // hits: raderna som ska markeras (en händelse från Härkomst). Då står radnumret först, och raderna som
     // visas väljs runt den första markerade när resultatet är större än det som får plats.
+    // En meddelande-query med "chat" i katalogen får en knapp per rad som öppnar chatten i Chattar. Bara för en
+    // databas ur en extraktion i Forensics Toolbox, eftersom Chattar läser bilagorna ur extraktionen.
+    var chatCols = null;
+    function chatColumns(columns) {
+        var app = window.QueriesApp;
+        var q = app && app.currentQuery ? app.currentQuery() : null;
+        if (!q || !q.chat || !files.zip || !files.db || !files.db.path || window.parent === window) return null;
+        var t = columns.indexOf(q.chat.thread), m = columns.indexOf(q.chat.message);
+        return t >= 0 ? { thread: t, message: m } : null;
+    }
+
     function renderTable(res, hits) {
         var marked = {};
         (hits || []).forEach(function (n) { marked[n] = true; });
         var numbered = hits !== undefined && hits !== null;
         var win = QueryRunCore.rowWindow(res.values.length, hits, MAX_SHOWN);
+        chatCols = chatColumns(res.columns);
         // De markerade raderna ritas direkt, med raderna före dem.
         var lastHit = hits && hits.length ? hits[hits.length - 1] + 1 : win.start;
         var end = Math.min(win.end, Math.max(win.start, lastHit) + ROW_CHUNK);
-        setResult('<table><thead><tr>' + (numbered ? '<th class="row-no">Rad</th>' : '') +
+        setResult('<table><thead><tr>' + (numbered ? '<th class="row-no">Rad</th>' : '') + (chatCols ? '<th class="row-chat"><span class="sr-only">Chatt</span></th>' : '') +
             res.columns.map(function (c) { return '<th>' + escapeHtml(c) + '</th>'; }).join('') +
             '</tr></thead><tbody>' + rowsHtml(res.values, win.start, end, marked, numbered) + '</tbody></table>');
         pending = end < win.end ? { values: res.values, marked: marked, numbered: numbered, next: end, end: win.end } : null;
@@ -370,7 +382,9 @@
     function rowsHtml(values, from, to, marked, numbered) {
         return values.slice(from, to).map(function (r, i) {
             var n = from + i;
-            return '<tr' + (marked[n] ? ' class="row-hit"' : '') + '>' + (numbered ? '<td class="row-no">' + (n + 1) + '</td>' : '') + r.map(function (v) {
+            var chat = chatCols ? '<td class="row-chat">' + (r[chatCols.thread] === null || r[chatCols.thread] === undefined ? '' :
+                '<button type="button" class="chat-open" data-row="' + n + '" title="Öppna chatten i Chattar, vid det här meddelandet">Chatt</button>') + '</td>' : '';
+            return '<tr' + (marked[n] ? ' class="row-hit"' : '') + '>' + (numbered ? '<td class="row-no">' + (n + 1) + '</td>' : '') + chat + r.map(function (v) {
                 return '<td' + (v === null ? ' class="null"' : '') + '>' + escapeHtml(QueryRunCore.cellText(v)) + '</td>';
             }).join('') + '</tr>';
         }).join('');
@@ -387,6 +401,18 @@
     }
 
     result.addEventListener('scroll', drawMore);
+
+    // Chatten för raden öppnas i Chattar, som läser samma extraktion.
+    result.addEventListener('click', function (e) {
+        var b = e.target.closest('.chat-open');
+        if (!b || !last || !chatCols) return;
+        var row = last.rows[Number(b.dataset.row)];
+        var db = window.QueriesApp.currentDb();
+        window.parent.postMessage({
+            source: 'forensics-toolbox', type: 'open-chat', path: files.db.path, db: db ? db.id : '', zipName: files.zip || '',
+            thread: row[chatCols.thread], message: chatCols.message >= 0 ? row[chatCols.message] : null,
+        }, '*');
+    });
 
     // Den första markerade raden mitt i rutan. Ger false när ingen rad är markerad.
     function showHit() {

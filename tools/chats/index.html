@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="sv">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chattar</title>
+    <script src="../_shared/toolkit.js"></script>
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+    <div id="container">
+        <!-- Fristående: en egen knapp för extraktionen. I Forensics Toolbox finns den i raden högst upp. -->
+        <div class="c-bar standalone-only">
+            <span class="c-bar-label">Extraktion</span>
+            <span class="c-bar-value" id="bar-zip">Ingen öppen</span>
+            <button type="button" class="c-btn" id="open-pick">Öppna extraktion (zip eller UFDR)…</button>
+            <input type="file" id="open-input" accept=".zip,application/zip,.ufdr,.plist,.json" multiple hidden>
+        </div>
+        <div id="ex-status" class="c-status" role="status"></div>
+        <!-- Medan extraktionen öppnas: vad som läses, stapeln och tiden. -->
+        <div id="ex-progress" class="c-progress display-none">
+            <div class="c-progress-line">
+                <span id="ex-progress-text" role="status"></span>
+                <span id="ex-progress-time" class="muted"></span>
+                <button type="button" class="link-btn display-none" id="ex-stop">Avbryt</button>
+            </div>
+            <div class="c-progress-bar"><span id="ex-progress-fill"></span></div>
+        </div>
+
+        <div class="c-main">
+            <aside class="c-side" aria-label="Konversationer">
+                <input type="search" id="c-search" class="c-search" placeholder="Sök konversation…" aria-label="Sök konversation" spellcheck="false" autocomplete="off">
+                <div id="c-list" class="c-list"></div>
+            </aside>
+
+            <section class="c-chat" aria-label="Konversationen">
+                <div id="c-empty" class="c-empty">
+                    <h1>Chattar</h1>
+                    <p>Öppna en extraktion i raden högst upp. Chattar hittar databaserna för chattapparna i den och visar varje konversation som i appen, med bilder, video och ljud.
+                        Klockan vid ett meddelande visar alla dess tider och varifrån de kommer. Konversationen, valda meddelanden eller ett tidsspann kan sparas som HTML eller skrivas ut som PDF.</p>
+                    <p class="muted" id="c-apps"></p>
+                </div>
+
+                <div id="c-view" class="c-view display-none">
+                    <header class="c-head">
+                        <div class="c-head-text">
+                            <div class="c-eyebrow" id="c-eyebrow"></div>
+                            <h1 id="c-title"></h1>
+                            <div class="c-sub" id="c-sub"></div>
+                        </div>
+                        <div class="c-tools">
+                            <label class="c-zone">Tider i
+                                <select id="c-zone" aria-label="Tidszon"></select>
+                            </label>
+                            <button type="button" class="c-btn" id="c-people-toggle" aria-expanded="false" aria-controls="c-people"></button>
+                            <button type="button" class="c-btn" id="c-select-toggle" aria-pressed="false">Välj meddelanden</button>
+                            <button type="button" class="c-btn c-primary" id="c-export-open">Exportera…</button>
+                        </div>
+                    </header>
+                    <div id="c-people" class="c-people display-none"></div>
+                    <div id="c-select-bar" class="c-select-bar display-none">
+                        <span id="c-select-count">0 valda</span>
+                        <button type="button" class="link-btn" id="c-select-all">Välj alla</button>
+                        <button type="button" class="link-btn" id="c-select-none">Avmarkera</button>
+                        <span class="muted">Klicka på meddelandena som ska med, eller välj ett tidsspann under Exportera.</span>
+                    </div>
+                    <div id="c-note" class="c-note display-none"></div>
+                    <!-- Sök och gå till: når hela konversationen, också det som inte är ritat. -->
+                    <div class="c-find" role="search">
+                        <input type="search" id="c-find" class="c-find-input" placeholder="Sök i meddelandena" aria-label="Sök i meddelandena" title="Text, bildtext och filnamn. Enter: nästa träff, Skift+Enter: föregående." spellcheck="false" autocomplete="off">
+                        <span id="c-find-count" class="c-find-count" aria-live="polite"></span>
+                        <button type="button" class="c-btn c-icon" id="c-find-prev" aria-label="Föregående träff" title="Föregående träff (Skift+Enter)">↑</button>
+                        <button type="button" class="c-btn c-icon" id="c-find-next" aria-label="Nästa träff" title="Nästa träff (Enter)">↓</button>
+                        <span class="c-find-gap"></span>
+                        <label class="c-date">Gå till datum <input type="date" id="c-date"></label>
+                        <button type="button" class="c-btn" id="c-first" title="Det första meddelandet (Home)">Första</button>
+                        <button type="button" class="c-btn" id="c-last" title="Det senaste meddelandet (End)">Senaste</button>
+                    </div>
+                    <div id="c-msgs" class="c-msgs" tabindex="0" aria-label="Meddelanden"></div>
+                </div>
+
+                <!-- Medan en konversation läses: stegen, förloppet och Avbryt. -->
+                <div id="c-busy" class="c-busy c-job display-none"></div>
+            </section>
+        </div>
+    </div>
+
+    <!-- Exporten: urval och format. -->
+    <div id="c-export" class="c-modal display-none" role="dialog" aria-modal="true" aria-labelledby="c-export-title">
+        <div class="c-modal-box">
+            <h2 id="c-export-title">Exportera konversationen</h2>
+            <fieldset class="c-choice" id="c-export-scope">
+                <legend>Vilka meddelanden</legend>
+                <label><input type="radio" name="c-scope" value="all" checked> <span id="c-scope-all">Hela konversationen</span></label>
+                <label><input type="radio" name="c-scope" value="picked"> <span id="c-scope-picked">Valda meddelanden</span></label>
+                <label><input type="radio" name="c-scope" value="range"> Tidsspann</label>
+                <div class="c-range">
+                    <label>Från <input type="text" id="c-from" placeholder="ÅÅÅÅ-MM-DD TT:MM" spellcheck="false" autocomplete="off"></label>
+                    <label>Till <input type="text" id="c-to" placeholder="ÅÅÅÅ-MM-DD TT:MM" spellcheck="false" autocomplete="off"></label>
+                    <span class="muted" id="c-range-zone"></span>
+                </div>
+            </fieldset>
+            <p class="muted" id="c-export-note">Bilderna bäddas in i filen. Video och ljud står med namn, längd, storlek och SHA-256. Sist i exporten finns en tabell med varje meddelandes id, råa tider och bilagornas sökväg.</p>
+            <p class="c-export-estimate" id="c-export-estimate"></p>
+            <div id="c-export-progress" class="c-job c-job-inline display-none"></div>
+            <div id="c-export-status" class="c-status"></div>
+            <div class="c-modal-actions">
+                <button type="button" class="c-btn" id="c-export-cancel">Avbryt</button>
+                <button type="button" class="c-btn" id="c-export-print">Skriv ut / PDF…</button>
+                <button type="button" class="c-btn c-primary" id="c-export-html">Spara HTML</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- En bild i full storlek. -->
+    <div id="c-lightbox" class="c-lightbox display-none" role="dialog" aria-modal="true" aria-label="Bilden i full storlek">
+        <button type="button" class="c-lb-close" id="c-lb-close" aria-label="Stäng">×</button>
+        <button type="button" class="c-lb-nav c-lb-prev" id="c-lb-prev" aria-label="Föregående bild">‹</button>
+        <figure><img id="c-lb-img" alt=""><figcaption id="c-lb-cap"></figcaption></figure>
+        <button type="button" class="c-lb-nav c-lb-next" id="c-lb-next" aria-label="Nästa bild">›</button>
+    </div>
+
+    <!-- Tiderna för ett meddelande. -->
+    <div id="c-pop" class="c-pop display-none" role="dialog" aria-label="Meddelandets tider och källa"></div>
+
+    <iframe id="c-print" class="c-print" title="Utskrift" aria-hidden="true" tabindex="-1"></iframe>
+
+    <div id="toast" class="toast"></div>
+
+    <script src="../../queries/ios/whatsapp/catalog.js"></script>
+    <script src="../../queries/ios/signal/catalog.js"></script>
+    <script src="../../queries/android/signal/catalog.js"></script>
+    <script src="../../queries/ios/telegram/catalog.js"></script>
+    <script src="../../queries/ios/snapchat/catalog.js"></script>
+    <script src="../../queries/android/snapchat/catalog.js"></script>
+    <script src="../hash-calculator/hashing.js"></script>
+    <script src="../ios-keychain/lib/bplist.js"></script>
+    <script src="../ios-keychain/lib/asn1.js"></script>
+    <script src="../ios-keychain/vendor/sqljs/sql-wasm-binary.js"></script>
+    <script src="../ios-keychain/vendor/sqljs/sql-wasm.js"></script>
+    <script src="../db-queries/zip.js"></script>
+    <script src="../db-queries/ufdr.js"></script>
+    <script src="../db-queries/fs-times.js"></script>
+    <script src="../db-queries/locate.js"></script>
+    <script src="../db-queries/wal.js"></script>
+    <script src="../db-queries/sqlcipher.js"></script>
+    <script src="../db-queries/postbox.js"></script>
+    <script src="../db-queries/app-secrets.js"></script>
+    <script src="../db-queries/extraction-core.js"></script>
+    <script src="../provenance/roles.js"></script>
+    <script src="../provenance/snapchat.js"></script>
+    <script src="chat-core.js"></script>
+    <script src="chat-media.js"></script>
+    <script src="chat-export.js"></script>
+    <script src="script.js"></script>
+</body>
+
+</html>

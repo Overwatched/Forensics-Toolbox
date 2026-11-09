@@ -539,6 +539,106 @@ const scenarios = [
         return '1 meddelande, dekrypterad med nyckelringen';
     }],
 
+    ['Chattar: WhatsApp-chatten som bubblor med bilden, tiderna och källan, export med spårbarhet, och Queries öppnar chatten vid raden', async ({ c, fx, downloads }) => {
+        const CHAT = 'chats/index.html';
+        await c.nav('Chattar');
+        await c.waitFor(CHAT, `document.querySelectorAll('.c-item').length > 0`, 60000, 'konversationerna');
+        const list = await c.ev(CHAT, `[...document.querySelectorAll('.c-item')].map(b => b.innerText.replace(/\\s+/g, ' '))`);
+        const wa = list.findIndex((t) => /^Lo /.test(t));
+        expect(wa >= 0, 'WhatsApp-chatten saknas: ' + JSON.stringify(list));
+        await c.ev(CHAT, `document.querySelectorAll('.c-item')[${wa}].click(), 1`);
+        await c.waitFor(CHAT, `document.querySelectorAll('#c-msgs .m').length === 2`, 30000, 'bubblorna');
+        await c.waitFor(CHAT, `(document.querySelector('.att-img img') || {}).src && document.querySelector('.att-img img').src.startsWith('blob:') && document.querySelector('.att-img img').naturalWidth > 0`, 30000, 'bilden');
+        const v = await c.ev(CHAT, `({ me: document.querySelectorAll('#c-msgs .m.me').length, missing: (document.querySelector('.att-missing') || {}).textContent || '', title: document.getElementById('c-title').textContent, sub: document.getElementById('c-sub').textContent, note: document.getElementById('c-note').textContent })`);
+        expect(v.me === 1, 'Egna meddelanden: ' + v.me);
+        expect(/skickad\.jpg finns inte i zippen/.test(v.missing), 'Den saknade filen: ' + v.missing);
+        expect(v.title.startsWith('Lo <img'), 'Namnet skrivs som text: ' + v.title);
+        expect(/1 bilaga finns i databasen men inte i zippen/.test(v.note), 'Anteckningen: ' + v.note);
+        await c.ev(CHAT, `document.querySelectorAll('#c-msgs .clock')[1].click(), 1`);
+        const pop = await c.ev(CHAT, `document.getElementById('c-pop').innerText`);
+        const iso = new Date(fx.T2 + 70000).toISOString();
+        expect(pop.includes('Skrivet eller mottaget') && pop.includes('ZMESSAGEDATE') && pop.includes(iso), 'Tiderna: ' + pop);
+        expect(/Message\/Media\/1@lid\/c\/d\/mottagen\.jpg/.test(pop), 'Bilagans sökväg: ' + pop);
+        await c.ev(CHAT, `document.body.click(), 1`);
+        // Export av hela konversationen som HTML.
+        await c.ev(CHAT, `document.getElementById('c-export-open').click(), 1`);
+        await c.ev(CHAT, `document.getElementById('c-export-html').click(), 1`);
+        const html = await download(downloads, /^WhatsApp-.*\.html$/, 20000);
+        expect(html.includes('data:image/jpeg;base64,'), 'Bilden är inte inbäddad');
+        expect(html.includes('<h2>Spårbarhet</h2>') && html.includes('ChatStorage.sqlite') && html.includes('ZMESSAGEDATE'), 'Spårbarheten saknas');
+        expect(!html.includes('<img src=x onerror'), 'HTML ur databasen står oescapad i exporten');
+        expect(html.includes('Filen finns inte i extraktionen'), 'Den saknade filen sägs inte i exporten');
+        await noInjectedScript(c);
+        // Queries: raden i meddelandequeryn öppnar chatten vid meddelandet.
+        await c.nav('Queries');
+        await c.ev(QUER, `(function(){ const b = document.querySelector('.side-db[data-family="whatsapp-ios-chat"]'); if (b.getAttribute('aria-expanded') !== 'true') b.click(); return 1; })()`);
+        await c.ev(QUER, `document.querySelector('.side-q[data-db="whatsapp-ios-chat"][data-q="messages"]').click(), 1`);
+        await sleep(300);
+        const day = new Date(fx.T2).toISOString().slice(0, 10);
+        await c.ev(QUER, `(function(){ const s = document.querySelector('[data-param="timeStart"]'), e = document.querySelector('[data-param="timeEnd"]'); s.value = '${day} 00:00'; e.value = '${day} 23:59'; s.dispatchEvent(new Event('input')); e.dispatchEvent(new Event('input')); return 1; })()`);
+        await c.ev(QUER, `document.getElementById('run-button').click(), 1`);
+        await c.waitFor(QUER, `document.querySelectorAll('#run-result .chat-open').length === 2`, 30000, 'knapparna Chatt');
+        await c.ev(QUER, `document.querySelectorAll('#run-result .chat-open')[1].click(), 1`);
+        await c.waitFor(CHAT, `!!document.querySelector('#c-msgs .m.flash[data-key="2"]')`, 30000, 'meddelandet i Chattar');
+        return '2 bubblor, bilden visas, export med spårbarhet, raden i Queries öppnar chatten';
+    }],
+
+    ['Chattar: en lång chatt ritas i block, och Första, sökningen, datumet och exportens varning når hela chatten', async ({ c, fx }) => {
+        const CHAT = 'chats/index.html';
+        const L = fx.longChat;
+        const plain = (s) => String(s).replace(/\s+/g, ' ');
+        await c.nav('Chattar');
+        await c.waitFor(CHAT, `!ChatsApp.busy() && [...document.querySelectorAll('.c-item')].some(b => b.innerText.includes('Långa chatten'))`, 60000, 'den långa chatten i listan');
+        await c.ev(CHAT, `(function(){ const z = document.getElementById('c-zone'); z.value = 'UTC'; z.dispatchEvent(new Event('change')); [...document.querySelectorAll('.c-item')].find(b => b.innerText.includes('Långa chatten')).click(); return 1; })()`);
+        await c.waitFor(CHAT, `!ChatsApp.busy() && ChatsApp.view() && ChatsApp.view().n === ${L.count}`, 60000, 'den långa chatten');
+        let v = await c.ev(CHAT, `ChatsApp.view()`);
+        expect(v.drawn <= 500 && v.to === L.count, 'Sidan efter öppningen: ' + JSON.stringify(v));
+        expect(await c.ev(CHAT, `!!document.querySelector('#c-msgs .m[data-i="${L.count - 1}"]')`), 'Det senaste meddelandet är inte ritat');
+        // Från början och nedåt: nya block ritas och gamla tas bort, så att sidan aldrig har fler än 1 500 meddelanden.
+        await c.ev(CHAT, `document.getElementById('c-first').click(), 1`);
+        v = await c.ev(CHAT, `({ v: ChatsApp.view(), first: document.querySelector('#c-msgs .m').dataset.i })`);
+        expect(v.v.from === 0 && v.first === '0', 'Första: ' + JSON.stringify(v));
+        const blocks = await c.ev(CHAT, `(async function(){ const box = document.getElementById('c-msgs'); let most = 0; for (let k = 0; k < 10; k++) { box.scrollTop = box.scrollHeight; await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r))); most = Math.max(most, ChatsApp.view().drawn); } return { most, v: ChatsApp.view() }; })()`);
+        expect(blocks.most <= 1500 && blocks.v.from > 0 && blocks.v.to > 1500, 'Blocken: ' + JSON.stringify(blocks));
+        // Sökningen når hela chatten, också det som inte är ritat. Den första träffen är den första från det som syns.
+        await c.ev(CHAT, `document.getElementById('c-first').click(), 1`);
+        const find = (q) => c.ev(CHAT, `(function(){ const f = document.getElementById('c-find'); f.value = ${JSON.stringify(q)}; f.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); return 1; })()`);
+        const found = () => c.ev(CHAT, `({ count: document.getElementById('c-find-count').textContent, hit: (document.querySelector('#c-msgs .m.hit') || { dataset: {} }).dataset.i, marks: [...document.querySelectorAll('#c-msgs mark')].map(m => m.textContent) })`);
+        await find('NÅLEN');
+        let s = await found();
+        expect(plain(s.count) === '1 av 3' && s.hit === String(L.needles[0]) && s.marks.includes('nålen'), 'Sökningen: ' + JSON.stringify(s));
+        await c.ev(CHAT, `document.getElementById('c-find-next').click(), document.getElementById('c-find-next').click(), 1`);
+        s = await found();
+        expect(plain(s.count) === '3 av 3' && s.hit === String(L.needles[2]), 'Två träffar framåt: ' + JSON.stringify(s));
+        await c.ev(CHAT, `document.getElementById('c-find-next').click(), 1`);
+        expect(plain((await found()).count) === '1 av 3', 'Efter den sista kommer den första');
+        await find('finns inte i chatten');
+        expect((await found()).count === 'Inga träffar', 'Ingen träff');
+        await find('');
+        // Gå till datum: en dag i uppehållet visar det första meddelandet efter det och säger det.
+        const gapDay = new Date(L.timeMs(L.gapAfter - 1) + 86400000).toISOString().slice(0, 10);
+        const nextDay = new Date(L.timeMs(L.gapAfter)).toISOString().slice(0, 10);
+        await c.ev(CHAT, `(function(){ const d = document.getElementById('c-date'); d.value = '${gapDay}'; d.dispatchEvent(new Event('change')); return 1; })()`);
+        const day = await c.ev(CHAT, `(function(){ const box = document.getElementById('c-msgs'), el = box.querySelector('.m[data-i="${L.gapAfter}"]'); return { toast: document.getElementById('toast').textContent, y: el ? Math.round(el.getBoundingClientRect().top - box.getBoundingClientRect().top) : null }; })()`);
+        expect(day.toast.includes('Inga meddelanden ' + gapDay) && day.toast.includes('Närmast efter: ' + nextDay), 'Datumet i uppehållet: ' + day.toast);
+        expect(day.y !== null && day.y >= 0 && day.y < 120, 'Meddelandet efter uppehållet står inte överst: ' + JSON.stringify(day));
+        // Exporten: uppskattningen följer urvalet, och en utskrift av hela chatten varnar först.
+        await c.ev(CHAT, `document.getElementById('c-export-open').click(), 1`);
+        const est = plain(await c.ev(CHAT, `document.getElementById('c-export-estimate').textContent`));
+        expect(/^Urvalet: 3 000 meddelanden\. Filen blir omkring [\d,]+ (kB|MB), och en utskrift omkring [\d ]+ sidor\.$/.test(est), 'Uppskattningen: ' + est);
+        await c.ev(CHAT, `document.getElementById('c-export-print').click(), 1`);
+        await sleep(200);
+        const warn = await c.ev(CHAT, `({ text: document.getElementById('c-export-status').textContent, button: document.getElementById('c-export-print').textContent, frame: (document.getElementById('c-print').srcdoc || '').length })`);
+        expect(/sidor utskrivet/.test(warn.text) && warn.button === 'Skriv ut ändå' && warn.frame === 0, 'Utskriftens varning: ' + JSON.stringify(warn));
+        // Ett annat urval tar bort varningen.
+        await c.ev(CHAT, `(function(){ const r = document.querySelector('input[name="c-scope"][value="range"]'); r.checked = true; r.dispatchEvent(new Event('change', { bubbles: true })); return 1; })()`);
+        expect(await c.ev(CHAT, `document.getElementById('c-export-print').textContent`) === 'Skriv ut / PDF…', 'Varningen gäller bara urvalet den visades för');
+        await c.ev(CHAT, `document.getElementById('c-export-cancel').click(), 1`);
+        await c.ev(CHAT, `(function(){ const z = document.getElementById('c-zone'); z.value = 'local'; z.dispatchEvent(new Event('change')); return 1; })()`);
+        await noInjectedScript(c);
+        return 'block om högst 1 500 av 3 000, sökningen och datumet når hela chatten, utskriften varnar';
+    }],
+
     ['Härkomst: sökning på tid listar filerna, och HTML i namnen körs inte', async ({ c }) => {
         // Bytet av zon gör om bedömningen som visas: sökningen startas när den är klar.
         await c.ev(PROV, `(function(){ const z = document.getElementById('zone'); z.value = 'utc'; z.dispatchEvent(new Event('change')); document.getElementById('when-date').value = '2024-06-01'; document.getElementById('when-time').value = '12:35'; return 1; })()`);

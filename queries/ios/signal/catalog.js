@@ -4,7 +4,8 @@ window.SIGNAL_IOS_CATALOG = {
   "title": "Signal iOS Queries",
   "sourceNote": "Betafunktion. Signals databas på iOS, grdb/signal.sqlite i appgruppen group.org.whispersystems.signal.group. Databasen är krypterad med SQLCipher 4. Queries och Härkomst dekrypterar den i minnet med nyckeln ur nyckelringen (filen …_keychain.plist bredvid zippen) eller en nyckel du klistrar in. Tiderna är Unix-millisekunder och visas här med datetime(…/1000, 'unixepoch', 'localtime'). Bilagornas SHA-256 står som data i databasen och visas här som hex. Tabeller och kolumner är kontrollerade mot en labbtelefon (iOS 26.4.1, 2026-11-03). Strukturen kan skilja sig mellan Signal-versioner, så kontrollera alltid mot databasen.",
   "paramLabels": {
-    "sha256": "SHA-256 (hex, 64 tecken)"
+    "sha256": "SHA-256 (hex, 64 tecken)",
+    "threadId": "Trådens id (id i model_TSThread)"
   },
   "databases": [
     {
@@ -29,7 +30,11 @@ window.SIGNAL_IOS_CATALOG = {
           ],
           "subtitle": "Visar meddelandena i tidsspannet: när de skickades (avsändarens klocka), togs emot och nådde servern, riktning, konversation, avsändare, text, antal bilagor, engångsvisning, radering för alla och redigering. Samtal står med som riktning samtal.",
           "returns": "skickad, mottagen, server, riktning, konversation, från, text, bilagor, engångsvisning, raderat, redigerat, försvinner, id, UTC",
-          "sql": "SELECT\n  datetime(i.timestamp / 1000, 'unixepoch', 'localtime') AS skickad_lokal,\n  datetime(i.receivedAtTimestamp / 1000, 'unixepoch', 'localtime') AS mottagen_lokal,\n  CASE WHEN i.serverTimestamp > 0 THEN datetime(i.serverTimestamp / 1000, 'unixepoch', 'localtime') END AS server_lokal,\n  CASE i.recordType WHEN 19 THEN 'mottaget' WHEN 21 THEN 'skickat' WHEN 20 THEN 'samtal' WHEN 65 THEN 'gruppsamtal' WHEN 10 THEN 'info' WHEN 9 THEN 'fel' ELSE 'typ ' || i.recordType END AS riktning,\n  CASE WHEN t.groupModel IS NOT NULL THEN COALESCE(NULLIF(t.name, ''), 'grupp #' || t.id)\n    ELSE COALESCE(COALESCE(\n      (SELECT NULLIF(trim(COALESCE(n.givenName, '') || ' ' || COALESCE(n.familyName, '')), '') FROM NicknameRecord n JOIN model_SignalRecipient sr ON sr.id = n.recipientRowID WHERE sr.recipientUUID = t.contactUUID),\n      (SELECT NULLIF(sa.fullName, '') FROM model_SignalAccount sa WHERE sa.recipientUUID = t.contactUUID),\n      (SELECT NULLIF(trim(COALESCE(p.profileName, '') || ' ' || COALESCE(p.familyName, '')), '') FROM model_OWSUserProfile p WHERE p.recipientUUID = t.contactUUID),\n      (SELECT sr.recipientPhoneNumber FROM model_SignalRecipient sr WHERE sr.recipientUUID = t.contactUUID),\n      t.contactUUID), t.contactPhoneNumber, '#' || t.id) END AS konversation,\n  CASE WHEN i.recordType = 21 THEN 'den här telefonen' WHEN i.authorUUID IS NOT NULL THEN COALESCE(\n      (SELECT NULLIF(trim(COALESCE(n.givenName, '') || ' ' || COALESCE(n.familyName, '')), '') FROM NicknameRecord n JOIN model_SignalRecipient sr ON sr.id = n.recipientRowID WHERE sr.recipientUUID = i.authorUUID),\n      (SELECT NULLIF(sa.fullName, '') FROM model_SignalAccount sa WHERE sa.recipientUUID = i.authorUUID),\n      (SELECT NULLIF(trim(COALESCE(p.profileName, '') || ' ' || COALESCE(p.familyName, '')), '') FROM model_OWSUserProfile p WHERE p.recipientUUID = i.authorUUID),\n      (SELECT sr.recipientPhoneNumber FROM model_SignalRecipient sr WHERE sr.recipientUUID = i.authorUUID),\n      i.authorUUID) ELSE i.authorPhoneNumber END AS fran,\n  i.body AS text,\n  (SELECT count(*) FROM MessageAttachmentReference r WHERE r.ownerRowId = i.id AND r.ownerType = 0) AS bilagor,\n  CASE WHEN i.isViewOnceMessage = 1 THEN 'ja' END AS engangsvisning,\n  CASE WHEN i.wasRemotelyDeleted = 1 THEN 'raderat för alla' END AS raderat,\n  CASE WHEN EXISTS (SELECT 1 FROM EditRecord e WHERE e.latestRevisionId = i.id) THEN 'redigerat'\n       WHEN EXISTS (SELECT 1 FROM EditRecord e WHERE e.pastRevisionId = i.id) THEN 'tidigare version' END AS redigerat,\n  CASE WHEN i.expiresInSeconds > 0 THEN i.expiresInSeconds || ' s' END AS forsvinner,\n  CASE WHEN i.recordType = 21 AND i.wasNotCreatedLocally = 1 THEN 'länkad enhet' WHEN i.recordType = 21 THEN 'den här telefonen' END AS skickat_fran,\n  CASE WHEN i.recordType = 19 AND i.expiresInSeconds > 0 AND i.expireStartedAt > 0 THEN datetime(i.expireStartedAt / 1000, 'unixepoch', 'localtime') END AS oppnad_lokal,\n  i.id AS meddelande_id,\n  t.id AS trad_id,\n  datetime(i.timestamp / 1000, 'unixepoch') AS skickad_utc\nFROM model_TSInteraction i\nLEFT JOIN model_TSThread t ON t.uniqueId = i.uniqueThreadId\nWHERE i.timestamp BETWEEN {{unixMsStart}} AND {{unixMsEnd}}\n   OR i.receivedAtTimestamp BETWEEN {{unixMsStart}} AND {{unixMsEnd}}\nORDER BY i.receivedAtTimestamp, i.id;"
+          "sql": "SELECT\n  datetime(i.timestamp / 1000, 'unixepoch', 'localtime') AS skickad_lokal,\n  datetime(i.receivedAtTimestamp / 1000, 'unixepoch', 'localtime') AS mottagen_lokal,\n  CASE WHEN i.serverTimestamp > 0 THEN datetime(i.serverTimestamp / 1000, 'unixepoch', 'localtime') END AS server_lokal,\n  CASE i.recordType WHEN 19 THEN 'mottaget' WHEN 21 THEN 'skickat' WHEN 20 THEN 'samtal' WHEN 65 THEN 'gruppsamtal' WHEN 10 THEN 'info' WHEN 9 THEN 'fel' ELSE 'typ ' || i.recordType END AS riktning,\n  CASE WHEN t.groupModel IS NOT NULL THEN COALESCE(NULLIF(t.name, ''), 'grupp #' || t.id)\n    ELSE COALESCE(COALESCE(\n      (SELECT NULLIF(trim(COALESCE(n.givenName, '') || ' ' || COALESCE(n.familyName, '')), '') FROM NicknameRecord n JOIN model_SignalRecipient sr ON sr.id = n.recipientRowID WHERE sr.recipientUUID = t.contactUUID),\n      (SELECT NULLIF(sa.fullName, '') FROM model_SignalAccount sa WHERE sa.recipientUUID = t.contactUUID),\n      (SELECT NULLIF(trim(COALESCE(p.profileName, '') || ' ' || COALESCE(p.familyName, '')), '') FROM model_OWSUserProfile p WHERE p.recipientUUID = t.contactUUID),\n      (SELECT sr.recipientPhoneNumber FROM model_SignalRecipient sr WHERE sr.recipientUUID = t.contactUUID),\n      t.contactUUID), t.contactPhoneNumber, '#' || t.id) END AS konversation,\n  CASE WHEN i.recordType = 21 THEN 'den här telefonen' WHEN i.authorUUID IS NOT NULL THEN COALESCE(\n      (SELECT NULLIF(trim(COALESCE(n.givenName, '') || ' ' || COALESCE(n.familyName, '')), '') FROM NicknameRecord n JOIN model_SignalRecipient sr ON sr.id = n.recipientRowID WHERE sr.recipientUUID = i.authorUUID),\n      (SELECT NULLIF(sa.fullName, '') FROM model_SignalAccount sa WHERE sa.recipientUUID = i.authorUUID),\n      (SELECT NULLIF(trim(COALESCE(p.profileName, '') || ' ' || COALESCE(p.familyName, '')), '') FROM model_OWSUserProfile p WHERE p.recipientUUID = i.authorUUID),\n      (SELECT sr.recipientPhoneNumber FROM model_SignalRecipient sr WHERE sr.recipientUUID = i.authorUUID),\n      i.authorUUID) ELSE i.authorPhoneNumber END AS fran,\n  i.body AS text,\n  (SELECT count(*) FROM MessageAttachmentReference r WHERE r.ownerRowId = i.id AND r.ownerType = 0) AS bilagor,\n  CASE WHEN i.isViewOnceMessage = 1 THEN 'ja' END AS engangsvisning,\n  CASE WHEN i.wasRemotelyDeleted = 1 THEN 'raderat för alla' END AS raderat,\n  CASE WHEN EXISTS (SELECT 1 FROM EditRecord e WHERE e.latestRevisionId = i.id) THEN 'redigerat'\n       WHEN EXISTS (SELECT 1 FROM EditRecord e WHERE e.pastRevisionId = i.id) THEN 'tidigare version' END AS redigerat,\n  CASE WHEN i.expiresInSeconds > 0 THEN i.expiresInSeconds || ' s' END AS forsvinner,\n  CASE WHEN i.recordType = 21 AND i.wasNotCreatedLocally = 1 THEN 'länkad enhet' WHEN i.recordType = 21 THEN 'den här telefonen' END AS skickat_fran,\n  CASE WHEN i.recordType = 19 AND i.expiresInSeconds > 0 AND i.expireStartedAt > 0 THEN datetime(i.expireStartedAt / 1000, 'unixepoch', 'localtime') END AS oppnad_lokal,\n  i.id AS meddelande_id,\n  t.id AS trad_id,\n  datetime(i.timestamp / 1000, 'unixepoch') AS skickad_utc\nFROM model_TSInteraction i\nLEFT JOIN model_TSThread t ON t.uniqueId = i.uniqueThreadId\nWHERE i.timestamp BETWEEN {{unixMsStart}} AND {{unixMsEnd}}\n   OR i.receivedAtTimestamp BETWEEN {{unixMsStart}} AND {{unixMsEnd}}\nORDER BY i.receivedAtTimestamp, i.id;",
+          "chat": {
+            "thread": "trad_id",
+            "message": "meddelande_id"
+          }
         },
         {
           "id": "attachments",
@@ -230,8 +235,156 @@ window.SIGNAL_IOS_CATALOG = {
             "rows": "n_rows"
           },
           "sql": "SELECT\n  MIN(receivedAtTimestamp) AS first_received,\n  MAX(receivedAtTimestamp) AS last_received,\n  COUNT(*) AS n_rows\nFROM model_TSInteraction\nWHERE recordType IN (19, 21);"
+        },
+        {
+          "id": "chat-threads",
+          "hidden": true,
+          "role": "chat-threads",
+          "title": "Chattar: konversationer",
+          "description": "Används av Chattar. Trådarna med namn som i queryn Konversationer, slag, antal meddelanden och första och senaste meddelandets tid på telefonen.",
+          "params": [],
+          "epoch": "unixMs",
+          "fields": {
+            "id": "thread_id",
+            "name": "thread_name",
+            "kind": "thread_kind",
+            "address": "thread_address",
+            "kindRaw": "thread_type",
+            "messages": "message_count",
+            "first": "first_ms",
+            "last": "last_ms",
+            "archived": "isArchived"
+          },
+          "sql": "SELECT\n  t.id AS thread_id,\n  CASE WHEN t.groupModel IS NOT NULL THEN COALESCE(NULLIF(t.name, ''), 'grupp #' || t.id) ELSE COALESCE(COALESCE((SELECT NULLIF(trim(COALESCE(n.givenName, '') || ' ' || COALESCE(n.familyName, '')), '') FROM NicknameRecord n JOIN model_SignalRecipient sr ON sr.id = n.recipientRowID WHERE sr.recipientUUID = t.contactUUID), (SELECT NULLIF(sa.fullName, '') FROM model_SignalAccount sa WHERE sa.recipientUUID = t.contactUUID), (SELECT NULLIF(trim(COALESCE(p.profileName, '') || ' ' || COALESCE(p.familyName, '')), '') FROM model_OWSUserProfile p WHERE p.recipientUUID = t.contactUUID), (SELECT sr.recipientPhoneNumber FROM model_SignalRecipient sr WHERE sr.recipientUUID = t.contactUUID)), t.contactUUID, t.contactPhoneNumber, '#' || t.id) END AS thread_name,\n  CASE WHEN t.groupModel IS NOT NULL THEN 'group' WHEN t.contactUUID IS NOT NULL OR t.contactPhoneNumber IS NOT NULL THEN 'person' ELSE 'other' END AS thread_kind,\n  COALESCE(t.contactPhoneNumber, t.contactUUID) AS thread_address, t.recordType AS thread_type,\n  (SELECT count(*) FROM model_TSInteraction i WHERE i.uniqueThreadId = t.uniqueId) AS message_count,\n  (SELECT min(i.receivedAtTimestamp) FROM model_TSInteraction i WHERE i.uniqueThreadId = t.uniqueId) AS first_ms,\n  (SELECT max(i.receivedAtTimestamp) FROM model_TSInteraction i WHERE i.uniqueThreadId = t.uniqueId) AS last_ms,\n  t.isArchived\nFROM model_TSThread t\nORDER BY last_ms DESC, t.id;"
+        },
+        {
+          "id": "chat-members",
+          "hidden": true,
+          "role": "chat-members",
+          "title": "Chattar: deltagare",
+          "description": "Används av Chattar. Gruppmedlemmarna (model_TSGroupMember) och motparten i en enskild chatt, med telefonnummer eller ACI.",
+          "params": [],
+          "epoch": "unixMs",
+          "fields": {
+            "threadId": "thread_id",
+            "id": "member_id",
+            "name": "member_name",
+            "address": "member_address"
+          },
+          "sql": "SELECT t.id AS thread_id, COALESCE(gm.uuidString, gm.phoneNumber) AS member_id,\n  COALESCE(COALESCE((SELECT NULLIF(trim(COALESCE(n.givenName, '') || ' ' || COALESCE(n.familyName, '')), '') FROM NicknameRecord n JOIN model_SignalRecipient sr ON sr.id = n.recipientRowID WHERE sr.recipientUUID = gm.uuidString), (SELECT NULLIF(sa.fullName, '') FROM model_SignalAccount sa WHERE sa.recipientUUID = gm.uuidString), (SELECT NULLIF(trim(COALESCE(p.profileName, '') || ' ' || COALESCE(p.familyName, '')), '') FROM model_OWSUserProfile p WHERE p.recipientUUID = gm.uuidString), (SELECT sr.recipientPhoneNumber FROM model_SignalRecipient sr WHERE sr.recipientUUID = gm.uuidString)), gm.phoneNumber, gm.uuidString) AS member_name,\n  COALESCE(gm.phoneNumber, gm.uuidString) AS member_address\nFROM model_TSGroupMember gm JOIN model_TSThread t ON t.uniqueId = gm.groupThreadId\nUNION ALL\nSELECT t.id, COALESCE(t.contactUUID, t.contactPhoneNumber), COALESCE(COALESCE((SELECT NULLIF(trim(COALESCE(n.givenName, '') || ' ' || COALESCE(n.familyName, '')), '') FROM NicknameRecord n JOIN model_SignalRecipient sr ON sr.id = n.recipientRowID WHERE sr.recipientUUID = t.contactUUID), (SELECT NULLIF(sa.fullName, '') FROM model_SignalAccount sa WHERE sa.recipientUUID = t.contactUUID), (SELECT NULLIF(trim(COALESCE(p.profileName, '') || ' ' || COALESCE(p.familyName, '')), '') FROM model_OWSUserProfile p WHERE p.recipientUUID = t.contactUUID), (SELECT sr.recipientPhoneNumber FROM model_SignalRecipient sr WHERE sr.recipientUUID = t.contactUUID)), t.contactPhoneNumber, t.contactUUID), COALESCE(t.contactPhoneNumber, t.contactUUID)\nFROM model_TSThread t\nWHERE t.groupModel IS NULL AND (t.contactUUID IS NOT NULL OR t.contactPhoneNumber IS NOT NULL)\nORDER BY 1, 3;"
+        },
+        {
+          "id": "chat-messages",
+          "hidden": true,
+          "role": "chat-messages",
+          "title": "Chattar: meddelandena i en tråd",
+          "description": "Används av Chattar. Interaktionerna i tråden med avsändarens, serverns och telefonens tid, typ, enhet för skickade meddelanden och redigering.",
+          "params": [
+            "threadId"
+          ],
+          "epoch": "unixMs",
+          "times": [
+            {
+              "key": "received",
+              "label": "Skapat eller mottaget på telefonen",
+              "note": "receivedAtTimestamp: den här telefonens klocka när meddelandet skapades eller togs emot."
+            },
+            {
+              "key": "sent",
+              "label": "Skickat (avsändarens klocka)",
+              "note": "timestamp: avsändarens klocka när meddelandet skickades."
+            },
+            {
+              "key": "server",
+              "label": "Serverns tid",
+              "note": "serverTimestamp: när Signals server tog emot meddelandet. Finns för mottagna meddelanden."
+            },
+            {
+              "key": "opened",
+              "label": "Öppnat",
+              "note": "expireStartedAt: när ett mottaget meddelande med försvinnande tid öppnades och nedräkningen började. Visas bara för mottagna meddelanden."
+            }
+          ],
+          "sortTime": "received",
+          "details": [
+            {
+              "key": "recordType",
+              "label": "Posttyp (recordType: 19 mottaget, 21 skickat, 20 samtal, 10 info)"
+            },
+            {
+              "key": "callType",
+              "label": "Samtalstyp (callType, rått värde)"
+            },
+            {
+              "key": "sourceDevice",
+              "label": "Avsändarens enhet (deprecated_sourceDeviceId, rått värde)"
+            },
+            {
+              "key": "readFlag",
+              "label": "Markerat som läst (read)"
+            },
+            {
+              "key": "uniqueId",
+              "label": "Meddelandets id hos Signal (uniqueId)"
+            }
+          ],
+          "fields": {
+            "id": "message_id",
+            "threadId": "thread_id",
+            "fromMe": "from_me",
+            "senderId": "sender_id",
+            "senderName": "sender_name",
+            "text": "body",
+            "kind": "kind",
+            "kindLabel": "kind_label",
+            "viewOnce": "isViewOnceMessage",
+            "deleted": "wasRemotelyDeleted",
+            "edited": "edited",
+            "expiresIn": "expires_s",
+            "device": "device",
+            "received": "receivedAtTimestamp",
+            "sent": "timestamp",
+            "server": "serverTimestamp",
+            "opened": "expireStartedAt",
+            "recordType": "recordType",
+            "callType": "callType",
+            "sourceDevice": "deprecated_sourceDeviceId",
+            "readFlag": "read",
+            "uniqueId": "uniqueId"
+          },
+          "sql": "SELECT\n  i.id AS message_id, t.id AS thread_id,\n  CASE WHEN i.recordType = 21 THEN 1 ELSE 0 END AS from_me,\n  CASE WHEN i.recordType = 21 THEN NULL ELSE COALESCE(i.authorUUID, i.authorPhoneNumber) END AS sender_id,\n  CASE WHEN i.recordType = 21 THEN NULL WHEN i.authorUUID IS NOT NULL THEN COALESCE(COALESCE((SELECT NULLIF(trim(COALESCE(n.givenName, '') || ' ' || COALESCE(n.familyName, '')), '') FROM NicknameRecord n JOIN model_SignalRecipient sr ON sr.id = n.recipientRowID WHERE sr.recipientUUID = i.authorUUID), (SELECT NULLIF(sa.fullName, '') FROM model_SignalAccount sa WHERE sa.recipientUUID = i.authorUUID), (SELECT NULLIF(trim(COALESCE(p.profileName, '') || ' ' || COALESCE(p.familyName, '')), '') FROM model_OWSUserProfile p WHERE p.recipientUUID = i.authorUUID), (SELECT sr.recipientPhoneNumber FROM model_SignalRecipient sr WHERE sr.recipientUUID = i.authorUUID)), i.authorUUID) ELSE i.authorPhoneNumber END AS sender_name,\n  i.body,\n  CASE WHEN i.wasRemotelyDeleted = 1 THEN 'deleted' WHEN i.recordType IN (20, 65) THEN 'call' WHEN i.recordType IN (9, 10) THEN 'system'\n    WHEN i.isVoiceMessage = 1 THEN 'voice' WHEN i.messageSticker IS NOT NULL THEN 'sticker' WHEN i.contactShare IS NOT NULL THEN 'contact'\n    ELSE COALESCE((SELECT CASE WHEN COALESCE(a.mimeType, r.mimeType) LIKE 'image/%' THEN 'image' WHEN COALESCE(a.mimeType, r.mimeType) LIKE 'video/%' THEN 'video' WHEN COALESCE(a.mimeType, r.mimeType) LIKE 'audio/%' THEN 'audio' ELSE 'file' END\n      FROM MessageAttachmentReference r JOIN Attachment a ON a.id = r.attachmentRowId WHERE r.ownerRowId = i.id AND r.ownerType = 0 ORDER BY r.orderInMessage LIMIT 1), 'text') END AS kind,\n  CASE WHEN i.recordType = 20 THEN 'samtal' WHEN i.recordType = 65 THEN 'gruppsamtal' WHEN i.recordType = 10 THEN 'infomeddelande' WHEN i.recordType = 9 THEN 'felmeddelande'\n    WHEN i.wasRemotelyDeleted = 1 THEN 'raderat för alla' WHEN i.contactShare IS NOT NULL THEN 'kontaktkort' WHEN i.messageSticker IS NOT NULL THEN 'klistermärke' END AS kind_label,\n  i.isViewOnceMessage, i.wasRemotelyDeleted,\n  CASE WHEN EXISTS (SELECT 1 FROM EditRecord e WHERE e.latestRevisionId = i.id) THEN 'redigerat' WHEN EXISTS (SELECT 1 FROM EditRecord e WHERE e.pastRevisionId = i.id) THEN 'tidigare version' END AS edited,\n  CASE WHEN i.expiresInSeconds > 0 THEN i.expiresInSeconds END AS expires_s,\n  CASE WHEN i.recordType = 21 AND i.wasNotCreatedLocally = 1 THEN 'skickat från en länkad enhet' WHEN i.recordType = 21 THEN 'skickat från telefonen' END AS device,\n  i.receivedAtTimestamp, i.timestamp, i.serverTimestamp,\n  CASE WHEN i.recordType = 19 AND i.expiresInSeconds > 0 THEN i.expireStartedAt END AS expireStartedAt,\n  i.recordType, i.callType, i.deprecated_sourceDeviceId, i.read, i.uniqueId\nFROM model_TSInteraction i\nJOIN model_TSThread t ON t.uniqueId = i.uniqueThreadId\nWHERE t.id = '{{threadId}}'\nORDER BY i.receivedAtTimestamp, i.id;"
+        },
+        {
+          "id": "chat-attachments",
+          "hidden": true,
+          "role": "chat-attachments",
+          "title": "Chattar: bilagorna i en tråd",
+          "description": "Används av Chattar. Bilagorna med filen under attachment_files/, som är krypterad med bilagans egen nyckel (encryptionKey: AES-256-CBC och HMAC-SHA256, kontrollerat mot labbtelefonens elva filer), storlek, SHA-256 och bildtext.",
+          "params": [
+            "threadId"
+          ],
+          "epoch": "unixMs",
+          "fileRoot": "..",
+          "decrypt": "signal-ios",
+          "fields": {
+            "messageId": "message_id",
+            "id": "attachment_id",
+            "path": "file_path",
+            "mime": "mime",
+            "size": "unencryptedByteCount",
+            "name": "sourceFilename",
+            "title": "caption",
+            "sha256": "sha256",
+            "width": "cachedMediaWidthPixels",
+            "height": "cachedMediaHeightPixels",
+            "duration": "duration_s",
+            "key": "file_key",
+            "uploaded": "transitUploadTimestamp"
+          },
+          "sql": "SELECT\n  r.ownerRowId AS message_id, a.id AS attachment_id,\n  CASE WHEN a.localRelativeFilePath IS NOT NULL THEN 'attachment_files/' || a.localRelativeFilePath END AS file_path,\n  COALESCE(a.mimeType, r.mimeType) AS mime, a.unencryptedByteCount, r.sourceFilename, r.caption,\n  lower(hex(a.sha256ContentHash)) AS sha256, a.cachedMediaWidthPixels, a.cachedMediaHeightPixels,\n  COALESCE(a.cachedVideoDurationSeconds, a.cachedAudioDurationSeconds) AS duration_s,\n  lower(hex(a.encryptionKey)) AS file_key, a.transitUploadTimestamp\nFROM MessageAttachmentReference r\nJOIN Attachment a ON a.id = r.attachmentRowId\nWHERE r.threadRowId = '{{threadId}}' AND r.ownerType = 0\nORDER BY r.ownerRowId, r.orderInMessage;"
         }
-      ]
+      ],
+      "chatApp": "Signal"
     }
   ]
 };
