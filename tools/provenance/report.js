@@ -228,6 +228,7 @@
             rows.push(['WAL', s.walSummary]);
             if (s.cipher) rows.push(['Kryptering', s.cipher]);
             if (s.derived) rows.push(['Avkodning', s.derived]);
+            if (s.shared) rows.push(['Läsning', s.shared]);
             if (s.warnings && s.warnings.length) rows.push(['Varningar', s.warnings.join(' ')]);
             out += kv(rows);
         });

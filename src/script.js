@@ -122,7 +122,12 @@ function initToolNav() {
 
     // Nyckelfiler som undersökaren valt till extraktionen (nyckelringen, secrets.json, android_keystore).
     // Det verktygen hittar själva går inte hit. Verktygen tolkar filerna; de läses bara.
+    // Ett verktyg får samma val en gång: med nya nycklar läser det in sina krypterade databaser igen, och det
+    // ska inte hända bara för att verktyget visas.
+    const keysSent = new WeakMap();
     function sendKeys(frame) {
+        if (keysSent.get(frame) === extraction.keys) return;
+        keysSent.set(frame, extraction.keys);
         postToFrame(frame, { source: 'forensics-toolbox', type: 'extraction-keys', files: extraction.keys, file: extraction.file });
     }
 
@@ -135,6 +140,7 @@ function initToolNav() {
     // Nya nyckelfiler till alla laddade verktyg utom det som valde dem.
     function setKeys(files, source) {
         extraction.keys = files.slice();
+        if (source) keysSent.set(source, extraction.keys);
         frames.forEach((frame, path) => {
             if (!frame.dataset.ready || frame === source || !CONTEXT_TOOLS[path] || CONTEXT_TOOLS[path] === 'exif') return;
             sendKeys(frame);
@@ -219,6 +225,15 @@ function initToolNav() {
         }
     }
 
+    // Inlästa databaser delas mellan verktygen (tools/_shared/db-share.js): ett verktyg som behöver en databas
+    // som ett annat redan har läst får en kopia av den i minnet, i stället för att läsa, kontrollera och
+    // dekryptera den igen. Här förmedlas bara meddelandena; kopian överlåts och stannar inte i huvudfönstret.
+    const dbShare = window.DbShare ? window.DbShare.registry({
+        // Kastar när meddelandet inte går att skicka, så att den som frågade får läsa själv i stället för att vänta.
+        send: (frame, payload, transfer) => { frame.contentWindow.postMessage(payload, '*', transfer || []); },
+        name: (frame) => frame.title,
+    }) : null;
+
     // Meddelanden tas bara emot från verktygens egna ramar, inte från sidor de kan ha öppnat.
     function fromToolFrame(event) {
         for (const frame of frames.values()) {
@@ -250,6 +265,9 @@ function initToolNav() {
         frame.src = src + separator + 'theme=' + theme + '&version=' + encodeURIComponent(version);
         frame.addEventListener('load', () => {
             frame.dataset.ready = '1';
+            // Laddas ramen om finns inget kvar av det verktyget hade läst in eller fått.
+            if (dbShare) dbShare.forget(frame);
+            keysSent.delete(frame);
             postToFrame(frame, { source: 'forensics-toolbox', type: 'theme', theme: currentTheme() });
             sendExtraction(frame);
         });
@@ -310,6 +328,7 @@ function initToolNav() {
         if (!fromToolFrame(event)) return;
         const data = event.data;
         if (!data || (data.source !== 'forensics-toolbox' && data.source !== 'verktygslada')) return;
+        if (dbShare && dbShare.handle(frameOf(event.source), data)) return;
         if (data.type === 'positions' && Array.isArray(data.points)) {
             openTool('tools/positions/index.html');
             const frame = frames.get('tools/positions/index.html');

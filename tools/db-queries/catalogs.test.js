@@ -580,3 +580,120 @@ test('Chattar: WhatsApps roller ger slag, avsändare, typer, sökvägar och kont
         db.close();
     }
 });
+
+// En databas med labbtelefonens schema för Signal på iOS: fem kontakter med var sitt slags namn och fyra trådar.
+async function signalIosSample() {
+    const S = await sqlJs();
+    const db = new S.Database();
+    Object.values(SCHEMAS['signal-ios']).forEach((sql) => db.run(sql));
+    const ins = (t, row) => db.run('INSERT INTO ' + t + ' (' + Object.keys(row).join(', ') + ') VALUES (' + Object.keys(row).map(() => '?').join(', ') + ')', Object.values(row));
+    const T = 1717504496000;
+    const recipient = (id, aci, phone) => ins('model_SignalRecipient', { id, recordType: 31, uniqueId: 'r-' + id, devices: new Uint8Array(0), recipientUUID: aci, recipientPhoneNumber: phone });
+    // Telefonens ägare står först och har ett nummer. Kim har smeknamn och profilnamn, Lo bara profilnamn.
+    recipient(1, 'ACI-AGAREN', '+46700000001');
+    recipient(2, 'ACI-KIM', '+46700000002');
+    recipient(3, 'ACI-LO', '+46700000003');
+    recipient(4, 'ACI-NUMMER', '+46700000004');
+    recipient(5, 'ACI-BARA', null);
+    recipient(6, null, '+46700000006');
+    ins('model_SignalAccount', { id: 1, recordType: 30, uniqueId: 'a-1', multipleAccountLabelText: '', recipientUUID: 'ACI-AGAREN', fullName: 'Ägaren Själv' });
+    ins('NicknameRecord', { recipientRowID: 2, givenName: 'Kimmen' });
+    ins('model_OWSUserProfile', { id: 1, recordType: 41, uniqueId: 'p-1', recipientUUID: 'ACI-KIM', profileName: 'Kim', familyName: 'Karlsson' });
+    ins('model_OWSUserProfile', { id: 2, recordType: 41, uniqueId: 'p-2', recipientUUID: 'ACI-LO', profileName: 'Lo' });
+    const thread = (id, extra) => ins('model_TSThread', Object.assign({ id, recordType: 14, uniqueId: 'tråd-' + id, conversationColorName: '', isArchived: 0, lastInteractionRowId: 0, shouldThreadBeVisible: 1 }, extra));
+    thread(1, { contactUUID: 'ACI-KIM' });
+    thread(2, { recordType: 26, groupModel: new Uint8Array([1]), name: 'Klubben' });
+    thread(3, { contactUUID: 'ACI-NUMMER', isArchived: 1 });
+    thread(4, { contactPhoneNumber: '+46700000006' });
+    // Tråd 5: en kontakt som bara har ACI, också i kontakterna.
+    thread(5, { contactUUID: 'ACI-BARA' });
+    // Gruppens medlemmar har oftast bara ACI. Lo har sitt nummer i kontakterna, ACI-BARA har inget, och en har bara nummer.
+    const member = (id, extra) => ins('model_TSGroupMember', Object.assign({ id, recordType: 1, uniqueId: 'g-' + id, groupThreadId: 'tråd-2', lastInteractionTimestamp: 0 }, extra));
+    member(1, { uuidString: 'ACI-LO' });
+    member(2, { uuidString: 'ACI-BARA' });
+    member(3, { phoneNumber: '+46700000009' });
+    const message =(id, threadKey, received) => ins('model_TSInteraction', { id, recordType: 19, uniqueId: 'm-' + id, receivedAtTimestamp: received, timestamp: received - 500, uniqueThreadId: threadKey });
+    // Tråd 1: det äldsta meddelandet har det högsta id:t, så första och senaste tiden följer inte id:t.
+    message(10, 'tråd-1', T + 3000); message(11, 'tråd-1', T + 9000); message(12, 'tråd-1', T + 1000);
+    message(20, 'tråd-2', T + 5000); message(21, 'tråd-2', T + 6000);
+    // Tråd 4 slutar samma millisekund som tråd 1, och tråd 3 har inga meddelanden.
+    message(30, 'tråd-4', T + 9000);
+    // Ett meddelande vars tråd inte finns kvar.
+    message(40, 'tråd-borta', T + 20000);
+    return { db, T };
+}
+
+test('Signal på iOS: varje kontakt får sitt eget namn, också när någon annan har ett smeknamn', async () => {
+    const { db } = await signalIosSample();
+    const main = signalIos.databases[0];
+    try {
+        const own = { 'ACI-AGAREN': 'Ägaren Själv', 'ACI-KIM': 'Kimmen', 'ACI-LO': 'Lo', 'ACI-NUMMER': '+46700000004', 'ACI-BARA': 'ACI-BARA' };
+        const role = db.exec(main.queries.find((q) => q.role === 'recipients').sql)[0];
+        assert.deepStrictEqual(Object.fromEntries(role.values.map((r) => [r[role.columns.indexOf('aci')], r[role.columns.indexOf('name')]])), own, 'rollen Härkomst namnger avsändaren med');
+        assert.deepStrictEqual(role.values.map((r) => r[role.columns.indexOf('phone')]), ['+46700000001', '+46700000002', '+46700000003', '+46700000004', null]);
+        const shown = db.exec(main.queries.find((q) => q.id === 'recipients').sql)[0];
+        assert.deepStrictEqual(shown.values.map((r) => [r[shown.columns.indexOf('mottagare_id')], r[shown.columns.indexOf('namn')]]),
+            [[1, 'Ägaren Själv'], [2, 'Kimmen'], [3, 'Lo'], [4, '+46700000004'], [5, 'ACI-BARA'], [6, '+46700000006']], 'queryn Kontakter');
+        // Ett alias som används två gånger i samma delfråga jämför raden med sig själv, och då får alla samma namn.
+        for (const q of main.queries) assert.doesNotMatch(q.sql, /\b(\w+)\.(\w+)\s*=\s*\1\.\2\b/, q.id + ': en kolumn jämförs med sig själv');
+    } finally {
+        db.close();
+    }
+});
+
+test('Chattar: Signals trådar på iOS har antal, första och senaste tid, ordnade efter det senaste', async () => {
+    const { db, T } = await signalIosSample();
+    const q = signalIos.databases[0].queries.find((x) => x.role === 'chat-threads');
+    try {
+        const res = db.exec(q.sql)[0];
+        const rows = res.values.map((r) => Object.fromEntries(Object.entries(q.fields).map(([k, col]) => [k, r[res.columns.indexOf(col)]])));
+        assert.deepStrictEqual(rows.map((t) => [t.id, t.name, t.kind, t.messages, t.first, t.last, t.archived]), [
+            [1, 'Kimmen', 'person', 3, T + 1000, T + 9000, 0],
+            [4, '+46700000006', 'person', 1, T + 9000, T + 9000, 0],
+            [2, 'Klubben', 'group', 2, T + 5000, T + 6000, 0],
+            [3, '+46700000004', 'person', 0, null, null, 1],
+            [5, 'ACI-BARA', 'person', 0, null, null, 0],
+        ]);
+        // Meddelandetabellen läses en gång. Inget index har både tråden och tiden, så en fråga per tråd får slå upp
+        // varje meddelande för sig: tre gånger så långsamt i en databas med 600 000 meddelanden.
+        assert.strictEqual(q.sql.split('model_TSInteraction').length - 1, 1, 'meddelandetabellen ska nämnas en gång');
+        assert.match(q.sql, /model_TSInteraction\s+(AS\s+)?\w+\s+NOT INDEXED|model_TSInteraction\s+NOT INDEXED/);
+    } finally {
+        db.close();
+    }
+});
+
+test('Chattar: Signal på iOS har numret ur kontakterna som adress när tråden eller gruppmedlemmen bara har ACI', async () => {
+    const { db } = await signalIosSample();
+    const main = signalIos.databases[0];
+    const rows = (role) => {
+        const q = main.queries.find((x) => x.role === role);
+        const res = db.exec(q.sql)[0];
+        return res.values.map((r) => Object.fromEntries(Object.entries(q.fields).map(([k, col]) => [k, r[res.columns.indexOf(col)]])));
+    };
+    try {
+        const threads = rows('chat-threads');
+        // Tråd 1 och 3 har bara ACI, och numret står i kontakterna. Tråd 4 har numret själv, och tråd 5 har inget nummer.
+        assert.deepStrictEqual(Object.fromEntries(threads.map((t) => [t.id, t.address])),
+            { 1: '+46700000002', 2: null, 3: '+46700000004', 4: '+46700000006', 5: 'ACI-BARA' });
+        const members = rows('chat-members');
+        assert.deepStrictEqual(members.map((m) => [m.threadId, m.id, m.name, m.address]), [
+            [1, 'ACI-KIM', 'Kimmen', '+46700000002'],
+            [2, '+46700000009', '+46700000009', '+46700000009'], [2, 'ACI-BARA', 'ACI-BARA', 'ACI-BARA'], [2, 'ACI-LO', 'Lo', '+46700000003'],
+            [3, 'ACI-NUMMER', '+46700000004', '+46700000004'],
+            [4, '+46700000006', '+46700000006', '+46700000006'],
+            [5, 'ACI-BARA', 'ACI-BARA', 'ACI-BARA'],
+        ]);
+        // Listan i Chattar hittar då Kim på numret och gruppen genom Los nummer, fast raderna bara har ACI.
+        const core = require(path.join(ROOT, 'tools', 'chats', 'chat-core.js'));
+        const list = threads.map((t) => ({ key: String(t.id), name: t.name, address: t.address }));
+        const people = {};
+        members.forEach((m) => (people[m.threadId] = people[m.threadId] || []).push({ id: m.id, name: m.name, address: m.address }));
+        const index = core.listIndex(list, people);
+        const hits = (query) => list.map((t, i) => [t.key, core.listMatch(index[i], core.searchTerms(query))]).filter((h) => h[1]);
+        assert.deepStrictEqual(hits('070-000 00 02'), [['1', []]]);
+        assert.deepStrictEqual(hits('070-000 00 03'), [['2', ['Lo']]]);
+    } finally {
+        db.close();
+    }
+});

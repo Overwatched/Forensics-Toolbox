@@ -1,5 +1,28 @@
 Automatiskt byggd från commit `{{SHA}}`.
 
+## Nytt i 1.57
+
+Chattar har fått val i listan och en telefonvy. Chattar, Härkomst och Queries läser och dekrypterar en databas en gång i stället för var för sig. Ett fel som gav fel namn på kontakter i Signal på iOS sedan 1.41 är rättat.
+
+- **Rättat: fel namn på kontakter i Signal på iOS (1.41–1.56).** Fanns det minst ett smeknamn i Signals databas fick varje kontakt det smeknamnet, också telefonens ägare. Fanns inget smeknamn fick en kontakt utan eget namn numret från en annan rad, i testet telefonens ägares.
+  - Det syntes där Härkomst namnger avsändaren av ett mottaget Signal-meddelande (tidslinjen, kopplingen till en bilaga och hashsökningen) och i kolumnen `namn` i queryn Kontakter.
+  - Kolumnerna `telefon` och `aci` var rätt. Chattar och queryerna för meddelanden och konversationer hade inte felet.
+  - Gör om bedömningen eller queryn i ett äldre protokoll om namnet på en Signal-kontakt spelar roll.
+- **Listan i Chattar:** knappar för app och slag med antalet vid varje, tre ordningar och Dölj tomma. Listan ritar 200 rader åt gången per databas.
+  - Sökrutan letar i namn, nummer och deltagare, inte i meddelandenas text. Ett nummer hittas hur det än är skrivet: "070-000 01 25" hittar +46700000125. En grupp hittas genom en deltagare, och raden säger vem.
+  - Ett nummer hittas bara om databasen har det, så ingen träff betyder inte att numret saknas i appen. Har Signal på iOS bara kontaktens id (ACI) hämtas numret ur Signals kontakter. En WhatsApp-konversation med bara ett id (@lid) hittas på namnet: på labbtelefonen står numret i WhatsApps LID.sqlite, som inte läses än.
+- **Databaserna läses en gång:** nästa verktyg får en kopia ur minnet av det som läste och dekrypterade databasen först.
+  - Protokollet och spårbarheten säger vilket verktyg som läste databasen och när. Ett verktyg med en annan nyckel, eller utan, får aldrig ett annat verktygs dekryptering.
+  - Med en påhittad extraktion (314 MB krypterad Signal på iOS, 600 000 meddelanden) och Chattar öppnat först tog första bedömningen i Härkomst 1,7 s i stället för 3,8–4,0 s och första queryn i Queries 0,2 s i stället för 2,3–2,4 s. Chattar räknar Signals konversationer på 0,3 s i stället för 1,0 s.
+- **Härkomst som såg ut att fastna på Signal:** raden stod kvar på "Dekrypterar signal.sqlite (Signal)… 99 %" medan frågorna mot databasen gick. Nu säger raden varje skede: läser, dekrypterar, söker eller väntar på ett annat verktyg.
+  - Med nyckelfilen vald för hand släppte Härkomst den dekrypterade databasen vid varje besök. Samma bedömning efter ett besök i Chattar tar nu 1,1 s i stället för 3,4 s.
+  - Om det var hela orsaken till det en användare mötte i 1.56 går inte att säga. Händer det igen säger raden vilket skede det står i.
+- **Telefonvyn i Chattar:** Lista och Telefon över chatten byter utseende. Telefon ställer samma bubblor i en ram med en telefons bredd, på skärmen och i exporten, med två spalter per A4-sida i utskriften. Ramen följer plattformen: iOS, Android eller ingen särskild.
+  - Vyn är en rekonstruktion ur databasen, inte en skärmbild, och det står i ramens fot. Ingen klocka, mottagning, batterinivå eller modell ritas: databasen säger inte vilken modell, textstorlek eller vilket tema telefonen hade.
+- **Provat på labbtelefonen** (iOS, fyra chattappar, tio konversationer): sex bedömningar i Härkomst och nio queryer gav samma svar med databaserna lästa av Chattar som med egen läsning. Knapparnas antal stämde, två nummer hittades skrivna på tre sätt, och telefonvyn visade alla meddelanden i en chatt per app.
+  - Felet med namnen syns inte där: Signals två kontakter får samma namn med den gamla queryn. Det är bara visat med påhittade kontakter.
+- **Inte provat:** hundratals riktiga konversationer och en riktig grupp. Tiderna är mätta med påhittade data: labbtelefonens databaser är för små för att visa skillnad. Verktygen delar fortfarande en tråd, så sidan står still medan ett av dem läser, dekrypterar eller kör en stor fråga. Telefonvyns sidfot i utskrift kräver Chromium (appen eller Edge). Firefox och Safari är inte provade.
+
 ## Nytt i 1.56
 
 **Chattar (beta).** Ett nytt verktyg i listan till vänster visar konversationerna i chattapparnas databaser som i appen.

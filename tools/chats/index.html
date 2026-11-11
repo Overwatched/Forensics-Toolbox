@@ -31,7 +31,17 @@
 
         <div class="c-main">
             <aside class="c-side" aria-label="Konversationer">
-                <input type="search" id="c-search" class="c-search" placeholder="Sök konversation…" aria-label="Sök konversation" spellcheck="false" autocomplete="off">
+                <input type="search" id="c-search" class="c-search" placeholder="Sök namn, nummer eller deltagare…" aria-label="Sök konversation" title="Namn, nummer och deltagare, inte meddelandenas text. Ett nummer hittas hur det än är skrivet, om databasen har det. Flera ord: alla ska finnas. Pil ned går till listan." spellcheck="false" autocomplete="off">
+                <!-- Urvalet i listan: app, slag, ordning och tomma konversationer. Visas när det finns något att välja på. -->
+                <div id="c-filters" class="c-filters display-none">
+                    <div id="c-app-chips" class="c-chips" role="group" aria-label="App"></div>
+                    <div id="c-kind-chips" class="c-chips" role="group" aria-label="Slag av konversation"></div>
+                    <div class="c-filter-row">
+                        <select id="c-sort" class="c-sort" aria-label="Ordning i listan" title="Ordningen inom varje databas"></select>
+                        <label class="c-check" id="c-hide-empty-row" title="Konversationer utan meddelanden i databasen"><input type="checkbox" id="c-hide-empty"> <span id="c-hide-empty-text">Dölj tomma</span></label>
+                    </div>
+                    <div id="c-count" class="c-count" role="status"></div>
+                </div>
                 <div id="c-list" class="c-list"></div>
             </aside>
 
@@ -54,6 +64,10 @@
                             <label class="c-zone">Tider i
                                 <select id="c-zone" aria-label="Tidszon"></select>
                             </label>
+                            <span class="c-seg" role="group" aria-label="Utseende">
+                                <button type="button" class="c-btn" id="c-look-list" aria-pressed="true" title="Bubblorna över hela bredden">Lista</button>
+                                <button type="button" class="c-btn" id="c-look-phone" aria-pressed="false" title="Bubblorna i en ram med en telefons bredd. En rekonstruktion ur databasen: telefonens textstorlek, tema och appversion är inte kända.">Telefon</button>
+                            </span>
                             <button type="button" class="c-btn" id="c-people-toggle" aria-expanded="false" aria-controls="c-people"></button>
                             <button type="button" class="c-btn" id="c-select-toggle" aria-pressed="false">Välj meddelanden</button>
                             <button type="button" class="c-btn c-primary" id="c-export-open">Exportera…</button>
@@ -78,7 +92,17 @@
                         <button type="button" class="c-btn" id="c-first" title="Det första meddelandet (Home)">Första</button>
                         <button type="button" class="c-btn" id="c-last" title="Det senaste meddelandet (End)">Senaste</button>
                     </div>
-                    <div id="c-msgs" class="c-msgs" tabindex="0" aria-label="Meddelanden"></div>
+                    <!-- Telefonvyn: samma meddelanden i en ram med en telefons bredd. I listvyn syns bara meddelandena. -->
+                    <div id="c-stage" class="c-stage">
+                        <div id="c-phone" class="c-phone">
+                            <div class="c-phone-head">
+                                <span class="c-avatar" id="c-phone-avatar" aria-hidden="true"></span>
+                                <span class="c-phone-names"><b id="c-phone-name"></b><small id="c-phone-sub"></small></span>
+                            </div>
+                            <div id="c-msgs" class="c-msgs" tabindex="0" aria-label="Meddelanden"></div>
+                            <div class="c-phone-foot" id="c-phone-foot"></div>
+                        </div>
+                    </div>
                 </div>
 
                 <!-- Medan en konversation läses: stegen, förloppet och Avbryt. -->
@@ -101,6 +125,12 @@
                     <label>Till <input type="text" id="c-to" placeholder="ÅÅÅÅ-MM-DD TT:MM" spellcheck="false" autocomplete="off"></label>
                     <span class="muted" id="c-range-zone"></span>
                 </div>
+            </fieldset>
+            <fieldset class="c-choice" id="c-export-look">
+                <legend>Utseende</legend>
+                <label><input type="radio" name="c-look" value="list" checked> Lista</label>
+                <label><input type="radio" name="c-look" value="phone"> Telefon</label>
+                <span class="muted c-choice-note">Telefon ställer bubblorna i en ram med en telefons bredd, märkt som rekonstruktion: det är ingen skärmbild. Tabellen sist är densamma.</span>
             </fieldset>
             <p class="muted" id="c-export-note">Bilderna bäddas in i filen. Video och ljud står med namn, längd, storlek och SHA-256. Sist i exporten finns en tabell med varje meddelandes id, råa tider och bilagornas sökväg.</p>
             <p class="c-export-estimate" id="c-export-estimate"></p>
@@ -148,6 +178,7 @@
     <script src="../db-queries/sqlcipher.js"></script>
     <script src="../db-queries/postbox.js"></script>
     <script src="../db-queries/app-secrets.js"></script>
+    <script src="../_shared/db-share.js"></script>
     <script src="../db-queries/extraction-core.js"></script>
     <script src="../provenance/roles.js"></script>
     <script src="../provenance/snapchat.js"></script>

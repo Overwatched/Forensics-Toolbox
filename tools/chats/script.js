@@ -21,6 +21,10 @@
     var MAX_DRAWN = 1500;
     // Så nära kanten (px) ritas nästa block.
     var EDGE = 1500;
+    // Listan ritar så många konversationer åt gången i varje databas; resten kommer när den rullas dit.
+    var LIST_STEP = 200;
+    // Raden när sökningen i listan inte träffar något. Ingen träff på ett nummer betyder inte att numret saknas i appen.
+    var NO_MATCH = 'Ingen konversation matchar sökningen. Den letar i namn, nummer och deltagare, inte i meddelandenas text. Ett nummer hittas bara om databasen har det.';
     // Fler inlästa bilagor än så släpps när de inte längre finns i sidan, så att minnet inte växer med chatten.
     var MAX_URLS = 300;
     // Exporten varnar över så många meddelanden eller byte, och utskriften över så många sidor.
@@ -33,6 +37,10 @@
         zip: null, dbs: [], keyFiles: [], current: null, zone: 'local', f: ChatCore.formatter('local'), picked: {}, selecting: false,
         urls: {}, entries: {}, checks: {}, attByPath: {}, names: {}, ready: Promise.resolve(), opened: Promise.resolve(),
         opening: null, job: null, exporting: null, view: null, find: null, observer: null,
+        // Urvalet i listan: app och slag ('' är alla), ordningen och Dölj tomma. shown är listan som den visas.
+        list: { app: '', kind: '', sort: 'recent', hideEmpty: false }, shown: null,
+        // 'list' eller 'phone': bubblorna över hela bredden, eller i en ram med en telefons bredd.
+        look: 'list',
     };
 
     function esc(s) { return ChatExport.esc(s); }
@@ -196,8 +204,15 @@
         state.dbs.forEach(function (d) { if (d.loaded && d.loaded.sqlDb) d.loaded.sqlDb.close(); });
         state.dbs = [];
         state.zip = null;
+        // De andra verktygen ska inte fråga här efter databaser som är stängda.
+        if (window.DbShare && window.DbShare.client) window.DbShare.client.gone();
         closeThread();
         $('bar-zip').textContent = 'Ingen öppen';
+        // En annan extraktion har andra appar och namn, så sökningen och valet av app och slag börjar om.
+        // Ordningen och Dölj tomma står kvar.
+        state.list.app = '';
+        state.list.kind = '';
+        $('c-search').value = '';
         renderList();
     }
 
@@ -237,7 +252,7 @@
             }
             var zip = state.zip;
             var all = found.found.map(function (hit) {
-                return { hit: hit, src: sourceOf(hit.key), zip: zip, loaded: null, threads: [], members: {}, error: null, state: 'wait', note: '', loading: null };
+                return { hit: hit, src: sourceOf(hit.key), zip: zip, loaded: null, threads: [], members: {}, index: null, error: null, state: 'wait', note: '', loading: null, collapsed: false, limit: LIST_STEP };
             }).filter(function (d) { return d.src; });
             state.dbs = all.filter(function (d) { return !d.src.namesOnly; });
             state.names = {};
@@ -335,10 +350,16 @@
             throw new Error(AppSecrets.missingKeyText({ profile: cipher.profile, word: Z(), search: state.zip.keySearch }));
         }
         var label = d.src.app + ' (' + baseName(d.hit.db.name) + ')';
-        note('läser filen' + (d.hit.db.size ? ' (' + ChatCore.sizeText(d.hit.db.size) + ')' : '') + '…', null);
-        var loaded = await ExtractionCore.loadDatabase(state.zip.read, d.hit, [state.zip.line], cipher ? { cipher: cipher, onProgress: function (done, total) {
-            note('dekrypterar… ' + Math.round(100 * done / total) + ' %', done / total);
-        } } : undefined);
+        var size = d.hit.db.size ? ' (' + ChatCore.sizeText(d.hit.db.size) + ')' : '';
+        var loaded = await ExtractionCore.loadDatabase(d.zip.read, d.hit, [d.zip.line], {
+            cipher: cipher,
+            // Har ett annat verktyg redan läst databasen ur samma extraktion hämtas den därifrån, utan ny läsning
+            // och dekryptering.
+            share: { file: d.zip.file },
+            onStage: function (stage, frac, by, inner) {
+                note(stage === 'read' ? 'läser filen' + size + '…' : ExtractionCore.stageText(stage, frac, by, '', inner), typeof frac === 'number' ? frac : null);
+            },
+        });
         loaded.keySource = cipher ? cipher.source : null;
         loaded.modernKey = cipher ? cipher.modernKey : null;
         try { loaded.sqlDb = new SQL.Database(ExtractionCore.noCopy(loaded.bytes)); }
@@ -348,10 +369,13 @@
         if (d.zip !== state.zip) { loaded.sqlDb.close(); throw cancelError(); }
         if (d.src.derive && window.TelegramPostbox) {
             note('avkodar Telegrams meddelanden…', null);
-            await pause();
+            // Avkodningen går utan paus: raden ska hinna visas först.
+            await ZipRead.painted();
             try { loaded.derived = window.TelegramPostbox.attach(loaded.sqlDb); }
             catch (e) { loaded.warnings.push(label + ': Telegrams format kunde inte avkodas: ' + e.message); }
         }
+        // Bara läsning efter det: avbilden förblir som den lästes, också för verktygen som får en kopia av den.
+        loaded.sqlDb.run('PRAGMA query_only = ON');
         d.loaded = loaded;
         return loaded;
     }
@@ -402,10 +426,12 @@
                 var loaded = await loadDb(d, function (note, frac) { dbNote(d, note.charAt(0).toUpperCase() + note.slice(1)); if (onNote) onNote(note, frac); });
                 dbNote(d, 'Läser konversationerna…');
                 if (onNote) onNote('läser konversationerna…', null);
-                await pause();
+                // Frågan går utan paus och tar en stund i en stor databas: raden ska hinna visas först.
+                await ZipRead.painted();
                 d.threads = ChatCore.threads(d.src, query(loaded, d.src.roles.threads));
                 d.members = d.src.roles.members ? ChatCore.members(d.src, query(loaded, d.src.roles.members)) : {};
                 ChatCore.applyNames(d.src, d.threads, d.members, state.names[d.src.app]);
+                d.index = ChatCore.listIndex(d.threads, d.members);
                 d.state = 'ready';
             } catch (err) {
                 d.error = errText(err);
@@ -433,29 +459,182 @@
         if (el) el.innerHTML = dbStateHtml(d, di);
     }
 
-    function renderList() {
-        var q = $('c-search').value.trim().toLowerCase();
-        var f = fmt();
-        var html = state.dbs.map(function (d, di) {
-            var head = '<div class="c-group">' + esc(d.src.app + (d.src.platform ? ' · ' + d.src.platform : '')) + '<small title="' + esc(d.hit.db.name) + '">' + esc(d.hit.db.name) + '</small></div>';
-            if (d.error) return head + '<div class="c-list-empty warn">' + esc(d.error) + '</div>';
-            if (d.state !== 'ready') return head + '<div class="c-list-empty c-db-state" data-state-for="' + di + '">' + dbStateHtml(d, di) + '</div>';
-            var items = d.threads.filter(function (t) {
-                return !q || (t.name + ' ' + t.address).toLowerCase().indexOf(q) >= 0;
-            }).map(function (t) {
-                var cur = state.current && state.current.db === d && state.current.thread.key === t.key;
-                var sub = [t.messages !== null ? many(t.messages, 'meddelande', 'meddelanden') : '', t.lastMs ? 'senast ' + f(t.lastMs).slice(0, 10) : ''].filter(Boolean).join(' · ');
-                return '<button type="button" class="c-item" data-db="' + di + '" data-thread="' + esc(t.key) + '"' + (cur ? ' aria-current="true"' : '') + ' title="' + esc(t.address || t.name) + '">' +
-                    '<span class="c-item-name"><span>' + esc(t.name) + '</span><span class="c-kind">' + esc(t.kindText) + '</span></span>' +
-                    '<span class="c-item-sub">' + esc(sub) + '</span></button>';
-            }).join('');
-            return head + (items || '<div class="c-list-empty">' + (q ? 'Ingen konversation matchar sökningen.' : 'Inga konversationer.') + '</div>');
-        }).join('');
-        var opening = state.opening && !state.opening.done;
-        $('c-list').innerHTML = html || '<div class="c-list-empty">' + (state.zip ? (opening ? 'Letar efter chattdatabaser…' : 'Inga chattdatabaser i ' + Z() + '.') : opening ? 'Läser extraktionen…' : 'Ingen extraktion öppen.') + '</div>';
+    function chip(what, value, label, count, on) {
+        return '<button type="button" class="c-chip" data-' + what + '="' + esc(value) + '" aria-pressed="' + (on ? 'true' : 'false') + '">' + esc(label) +
+            (count === null ? '' : ' <span>' + num(count) + '</span>') + '</button>';
     }
 
-    $('c-search').addEventListener('input', renderList);
+    // Skriver bara när något har ändrats, så att knappen som har fokus får stå kvar.
+    function setHtml(id, html) {
+        var el = $(id);
+        if (el.shownHtml === html) return;
+        el.shownHtml = html;
+        el.innerHTML = html;
+    }
+
+    // Valen ovanför listan. Talet vid en app eller ett slag är så många konversationer valet skulle visa.
+    function renderFilters(view) {
+        var L = state.list;
+        $('c-filters').classList.toggle('display-none', !view.total);
+        setHtml('c-app-chips', view.apps.length > 1 ? view.apps.map(function (a) { return chip('app', a.app, a.app, a.count, L.app === a.app); }).join('') : '');
+        setHtml('c-kind-chips', view.kinds.length > 1 ? view.kinds.map(function (k) { return chip('kind', k.kind, k.text, k.count, L.kind === k.kind); }).join('') : '');
+        $('c-sort').value = L.sort;
+        $('c-hide-empty').checked = L.hideEmpty;
+        $('c-hide-empty-row').classList.toggle('display-none', !view.empty && !L.hideEmpty);
+        $('c-hide-empty-text').textContent = 'Dölj tomma (' + num(view.empty) + ')';
+        setHtml('c-count', view.filtered ? 'Visar ' + num(view.shown) + ' av ' + many(view.total, 'konversation', 'konversationer') + '. <button type="button" class="link-btn" id="c-reset">Visa alla</button>' : '');
+    }
+
+    function itemHtml(d, di, item, f) {
+        var t = item.thread;
+        var cur = state.current && state.current.db === d && state.current.thread.key === t.key;
+        var sub = [t.messages !== null ? many(t.messages, 'meddelande', 'meddelanden') : '', t.lastMs ? 'senast ' + f(t.lastMs).slice(0, 10) : ''].filter(Boolean).join(' · ');
+        return '<button type="button" class="c-item" data-db="' + di + '" data-thread="' + esc(t.key) + '"' + (cur ? ' aria-current="true"' : '') + ' title="' + esc(t.address || t.name) + '">' +
+            '<span class="c-item-name"><span>' + esc(t.name) + '</span><span class="c-kind">' + esc(t.kindText) + '</span></span>' +
+            '<span class="c-item-sub">' + esc(sub) + '</span>' +
+            // Sökningen träffade en deltagare och inte konversationens eget namn.
+            (item.who.length ? '<span class="c-item-who">Deltagare: ' + esc(item.who.join(', ')) + '</span>' : '') + '</button>';
+    }
+
+    function moreHtml(di, left) {
+        return left > 0 ? '<button type="button" class="c-more" data-more="' + di + '">Visa fler (' + num(left) + ' kvar)</button>' : '';
+    }
+
+    // En databas i listan: rubriken med antalet, och under den konversationerna om den är utfälld.
+    function groupHtml(d, di, g, view, f) {
+        // Urvalet lämnar ingenting kvar här: bara rubriken står kvar, så att det syns att databasen är med.
+        var none = view.filtered && g.total !== null && !g.items.length;
+        var count = d.error ? '<span class="warn">Fel</span>' : g.total === null ? '' : view.filtered ? num(g.items.length) + ' av ' + num(g.total) : num(g.total);
+        var head = '<button type="button" class="c-group" data-group="' + di + '" aria-expanded="' + (d.collapsed ? 'false' : 'true') + '">' +
+            '<span class="c-group-name">' + esc(d.src.app + (d.src.platform ? ' · ' + d.src.platform : '')) + '</span><span class="c-group-count">' + count + '</span>' +
+            (none ? '' : '<small title="' + esc(d.hit.db.name) + '">' + esc(d.hit.db.name) + '</small>') + '</button>';
+        var body = '';
+        if (d.collapsed || none) body = '';
+        else if (d.error) body = '<div class="c-list-empty warn">' + esc(d.error) + '</div>';
+        else if (d.state !== 'ready') body = '<div class="c-list-empty c-db-state" data-state-for="' + di + '">' + dbStateHtml(d, di) + '</div>';
+        else if (!g.total) body = '<div class="c-list-empty">Inga konversationer.</div>';
+        else {
+            // Konversationen som är öppen ritas alltid, också långt ned i en lång lista.
+            var c = state.current;
+            if (c && c.db === d) for (var i = d.limit; i < g.items.length; i++) if (g.items[i].thread.key === c.thread.key) { d.limit = i + 1; break; }
+            g.drawn = Math.min(g.items.length, d.limit);
+            body = g.items.slice(0, g.drawn).map(function (item) { return itemHtml(d, di, item, f); }).join('') + moreHtml(di, g.items.length - g.drawn);
+        }
+        return '<div class="c-db' + (none ? ' c-db-none' : '') + '">' + head + body + '</div>';
+    }
+
+    // Knappen i listan som har fokus, så att samma knapp får det igen när listan har ritats om.
+    function focusedIn(list) {
+        var a = document.activeElement;
+        if (!a || !list.contains(a)) return null;
+        if (a.classList.contains('c-item')) return ['item', a.dataset.db, a.dataset.thread];
+        return a.dataset.group !== undefined ? ['group', a.dataset.group] : a.dataset.more !== undefined ? ['more', a.dataset.more] : null;
+    }
+
+    function itemEl(di, key) {
+        var all = $('c-list').querySelectorAll('.c-item[data-db="' + di + '"]');
+        for (var i = 0; i < all.length; i++) if (all[i].dataset.thread === key) return all[i];
+        return null;
+    }
+
+    function renderList() {
+        var L = state.list, list = $('c-list'), f = fmt();
+        var view = ChatCore.listView(state.dbs.map(function (d) {
+            return { app: d.src.app, threads: d.state === 'ready' ? d.threads : null, index: d.index };
+        }), { query: $('c-search').value, app: L.app, kind: L.kind, hideEmpty: L.hideEmpty, sort: L.sort });
+        state.shown = view;
+        renderFilters(view);
+        var had = focusedIn(list);
+        var html = state.dbs.map(function (d, di) { return view.groups[di].visible ? groupHtml(d, di, view.groups[di], view, f) : ''; }).join('');
+        var reading = state.dbs.some(function (d, di) { return view.groups[di].visible && d.state !== 'ready' && !d.error; });
+        if (html && view.filtered && !view.shown && !reading) html += '<div class="c-list-empty">' + ($('c-search').value.trim() ? NO_MATCH : 'Ingen konversation i urvalet.') + '</div>';
+        var opening = state.opening && !state.opening.done;
+        list.innerHTML = html || '<div class="c-list-empty">' + (state.zip ? (opening ? 'Letar efter chattdatabaser…' : 'Inga chattdatabaser i ' + Z() + '.') : opening ? 'Läser extraktionen…' : 'Ingen extraktion öppen.') + '</div>';
+        if (had) {
+            var again = had[0] === 'item' ? itemEl(had[1], had[2]) : list.querySelector('[data-' + had[0] + '="' + had[1] + '"]');
+            if (again) again.focus({ preventScroll: true });
+        }
+        watchMore();
+    }
+
+    // Resten av en lång lista ritas när raden Visa fler kommer nära det som syns.
+    var moreObserver = typeof IntersectionObserver === 'function' ? new IntersectionObserver(function (entries) {
+        entries.forEach(function (e) { if (e.isIntersecting) showMore(Number(e.target.dataset.more)); });
+    }, { root: $('c-list'), rootMargin: '400px 0px' }) : null;
+
+    function watchMore() {
+        if (!moreObserver) return;
+        moreObserver.disconnect();
+        Array.prototype.forEach.call($('c-list').querySelectorAll('.c-more'), function (b) { moreObserver.observe(b); });
+    }
+
+    // Nästa omgång konversationer i en databas, lagd efter dem som redan är ritade.
+    function showMore(di) {
+        var d = state.dbs[di], g = state.shown ? state.shown.groups[di] : null;
+        var more = $('c-list').querySelector('.c-more[data-more="' + di + '"]');
+        if (!d || !g || !more || !(g.drawn < g.items.length)) return;
+        var from = g.drawn, f = fmt();
+        g.drawn = d.limit = Math.min(g.items.length, from + LIST_STEP);
+        more.insertAdjacentHTML('beforebegin', g.items.slice(from, g.drawn).map(function (item) { return itemHtml(d, di, item, f); }).join(''));
+        // Den som gick hit med tangenterna fortsätter på den första nya raden.
+        var focused = document.activeElement === more;
+        var first = focused ? itemEl(di, g.items[from].thread.key) : null;
+        more.insertAdjacentHTML('afterend', moreHtml(di, g.items.length - g.drawn));
+        more.remove();
+        if (first) first.focus();
+        watchMore();
+    }
+
+    // Ett nytt urval börjar överst, med den första omgången i varje databas.
+    function listChanged() {
+        state.dbs.forEach(function (d) { d.limit = LIST_STEP; });
+        renderList();
+        $('c-list').scrollTop = 0;
+    }
+
+    $('c-sort').innerHTML = ChatCore.LIST_SORTS.map(function (s) { return '<option value="' + s[0] + '">' + esc(s[1]) + '</option>'; }).join('');
+    $('c-sort').addEventListener('change', function () { state.list.sort = this.value; listChanged(); });
+    $('c-hide-empty').addEventListener('change', function () { state.list.hideEmpty = this.checked; listChanged(); });
+    $('c-search').addEventListener('input', listChanged);
+    $('c-filters').addEventListener('click', function (e) {
+        var L = state.list, b = e.target.closest('.c-chip');
+        if (b) {
+            // Ett klick till på det valda tar bort valet.
+            var what = b.dataset.app !== undefined ? 'app' : 'kind', value = b.dataset[what];
+            L[what] = L[what] === value ? '' : value;
+            listChanged();
+            // Raden med valen ritades om: samma knapp ska ha fokus kvar.
+            var again = Array.prototype.filter.call($('c-' + what + '-chips').children, function (x) { return x.dataset[what] === value; })[0];
+            if (again) again.focus();
+            return;
+        }
+        if (!e.target.closest('#c-reset')) return;
+        L.app = '';
+        L.kind = '';
+        L.hideEmpty = false;
+        $('c-search').value = '';
+        listChanged();
+        $('c-search').focus();
+    });
+
+    // Pil ned i sökrutan går till listan, och pilarna, Home och End går mellan raderna i den.
+    $('c-search').addEventListener('keydown', function (e) {
+        var first = e.key === 'ArrowDown' ? $('c-list').querySelector('button') : null;
+        if (!first) return;
+        e.preventDefault();
+        first.focus();
+    });
+    $('c-list').addEventListener('keydown', function (e) {
+        if (['ArrowDown', 'ArrowUp', 'Home', 'End'].indexOf(e.key) < 0 || e.altKey || e.ctrlKey || e.metaKey) return;
+        var all = Array.prototype.slice.call($('c-list').querySelectorAll('button'));
+        var at = all.indexOf(document.activeElement);
+        if (at < 0) return;
+        e.preventDefault();
+        var to = e.key === 'Home' ? 0 : e.key === 'End' ? all.length - 1 : at + (e.key === 'ArrowDown' ? 1 : -1);
+        if (to < 0) $('c-search').focus();
+        else if (all[to]) all[to].focus();
+    });
+
     $('c-list').addEventListener('click', function (e) {
         var load = e.target.closest('[data-load]');
         if (load) {
@@ -464,11 +643,28 @@
             renderList();
             return;
         }
+        var more = e.target.closest('[data-more]');
+        if (more) { showMore(Number(more.dataset.more)); return; }
+        var group = e.target.closest('[data-group]');
+        if (group) {
+            var folded = state.dbs[Number(group.dataset.group)];
+            if (folded) { folded.collapsed = !folded.collapsed; renderList(); }
+            return;
+        }
         var b = e.target.closest('.c-item');
         if (!b) return;
         var d = state.dbs[Number(b.dataset.db)];
         if (d) openThread(d, b.dataset.thread).catch(showError);
     });
+
+    // Konversationen som är öppen visas i listan, om urvalet har den med: databasen fälls ut och raden rullas fram.
+    function revealCurrent() {
+        var c = state.current;
+        if (!c) return;
+        if (c.db.collapsed) { c.db.collapsed = false; renderList(); }
+        var el = itemEl(state.dbs.indexOf(c.db), c.thread.key);
+        if (el) el.scrollIntoView({ block: 'nearest' });
+    }
 
     function showError(err) { setStatus('ex-status', esc(errText(err)), 'err'); }
 
@@ -590,6 +786,13 @@
         $('c-sub').textContent = [t.kindText, t.address && t.address !== t.name ? t.address : '', many(m.messages.length, 'meddelande', 'meddelanden'),
             m.firstMs !== null ? f(m.firstMs) + ' – ' + f(m.lastMs) : ''].filter(Boolean).join(' · ');
         $('c-msgs').dataset.app = c.db.src.app;
+        // Telefonvyns ram: samma uppgifter som i exporten.
+        var ph = ChatExport.phone(m);
+        $('c-phone').dataset.frame = ph.frame;
+        $('c-phone-avatar').textContent = ph.initial;
+        $('c-phone-name').textContent = ph.name;
+        $('c-phone-sub').textContent = ph.sub;
+        $('c-phone-foot').textContent = ph.label;
         var people = m.members;
         $('c-people-toggle').textContent = 'Deltagare (' + (people.length + 1) + ')';
         $('c-people').innerHTML = '<ul>' + people.map(function (p) {
@@ -763,6 +966,26 @@
         var el = a ? msgEl(a.i) : null;
         if (el) box.scrollTop += el.getBoundingClientRect().top - box.getBoundingClientRect().top - a.top;
     }
+
+    // Listan eller telefonvyn. Bredden ändras och med den radbrytningarna, så läget hålls: stod chatten vid sitt
+    // slut gör den det efteråt också, annars står det översta meddelandet kvar där det stod.
+    function setLook(look) {
+        if (look === state.look) return;
+        var box = $('c-msgs'), drawn = !!(state.current && state.view);
+        var atEnd = drawn && state.view.to === state.current.model.messages.length && box.scrollHeight - box.scrollTop - box.clientHeight < 2;
+        var a = drawn ? anchor() : null;
+        closePop();
+        state.look = look;
+        $('c-stage').classList.toggle('phone', look === 'phone');
+        $('c-look-list').setAttribute('aria-pressed', String(look === 'list'));
+        $('c-look-phone').setAttribute('aria-pressed', String(look === 'phone'));
+        var el = a ? msgEl(a.i) : null;
+        if (atEnd) box.scrollTop = box.scrollHeight;
+        else if (el) box.scrollTop += el.getBoundingClientRect().top - box.getBoundingClientRect().top - a.top;
+        fill();
+    }
+    $('c-look-list').addEventListener('click', function () { setLook('list'); });
+    $('c-look-phone').addEventListener('click', function () { setLook('phone'); });
 
     // Nästa block ritas när kanten närmar sig, och block långt bort tas bort, så att sidan aldrig har fler än MAX_DRAWN.
     var filling = false;
@@ -1228,6 +1451,8 @@
         $('c-scope-picked').textContent = 'Valda meddelanden (' + num(n) + ')';
         document.querySelector('input[name="c-scope"][value="picked"]').disabled = !n;
         document.querySelector('input[name="c-scope"][value="' + (n ? 'picked' : 'all') + '"]').checked = true;
+        // Exporten föreslår utseendet som visas, och det går att välja ett annat.
+        document.querySelector('input[name="c-look"][value="' + state.look + '"]').checked = true;
         if (!$('c-from').value && c.model.firstMs !== null) $('c-from').value = f(c.model.firstMs);
         if (!$('c-to').value && c.model.lastMs !== null) $('c-to').value = f(c.model.lastMs);
         $('c-range-zone').textContent = 'i ' + ChatCore.zoneName(state.zone);
@@ -1256,6 +1481,7 @@
     $('c-export-cancel').addEventListener('click', closeExport);
     $('c-export-scope').addEventListener('change', urvalChanged);
     $('c-export-scope').addEventListener('input', urvalChanged);
+    $('c-export-look').addEventListener('change', urvalChanged);
     $('c-from').addEventListener('focus', function () { document.querySelector('input[name="c-scope"][value="range"]').checked = true; urvalChanged(); });
     $('c-to').addEventListener('focus', function () { document.querySelector('input[name="c-scope"][value="range"]').checked = true; urvalChanged(); });
 
@@ -1279,6 +1505,9 @@
         return { list: c.model.messages.slice(), text: 'Hela konversationen' };
     }
 
+    // Utseendet som är valt i exportrutan: 'list' eller 'phone'.
+    function exportLook() { return document.querySelector('input[name="c-look"]:checked').value; }
+
     // Bilderna i urvalet: filen i extraktionen (eller en mindre version) och storleken. count och bytes gäller
     // bilderna som bäddas in.
     function imagesOf(list) {
@@ -1301,7 +1530,7 @@
         if (!state.current) { el.textContent = ''; return; }
         var sel = selection();
         if (sel.error || !sel.list.length) { el.textContent = ''; return; }
-        var imgs = imagesOf(sel.list), est = ChatExport.estimate(sel.list, imgs.count, imgs.bytes);
+        var imgs = imagesOf(sel.list), est = ChatExport.estimate(sel.list, imgs.count, imgs.bytes, exportLook());
         el.textContent = 'Urvalet: ' + many(est.messages, 'meddelande', 'meddelanden') + (imgs.count ? ' och ' + many(imgs.count, 'bild', 'bilder') + ' (' + ChatCore.sizeText(imgs.bytes) + ')' : '') +
             '. Filen blir omkring ' + ChatCore.sizeText(est.bytes) + ', och en utskrift omkring ' + many(est.pages, 'sida', 'sidor') + '.';
     }
@@ -1330,6 +1559,7 @@
         $('c-export-html').disabled = on;
         $('c-export-print').disabled = on;
         $('c-export-scope').disabled = on;
+        $('c-export-look').disabled = on;
     }
 
     // Exporten i delar med förlopp i rutan. kind: 'html' eller 'print'. Ger delarna, eller null när inget ska sparas.
@@ -1338,8 +1568,8 @@
         var sel = selection();
         if (sel.error) { setStatus('c-export-status', esc(sel.error), 'warn'); return null; }
         if (!sel.list.length) { setStatus('c-export-status', 'Inga meddelanden i urvalet.', 'warn'); return null; }
-        var imgs = imagesOf(sel.list);
-        var warn = exportWarning(kind, ChatExport.estimate(sel.list, imgs.count, imgs.bytes));
+        var imgs = imagesOf(sel.list), look = exportLook();
+        var warn = exportWarning(kind, ChatExport.estimate(sel.list, imgs.count, imgs.bytes, look));
         if (warn && confirmed !== kind) {
             resetConfirm();
             confirmed = kind;
@@ -1368,7 +1598,7 @@
             }
             sel.list.forEach(function (m) { m.attachments.forEach(function (a) { if (a.entry && !entryOf(a.entry) && !media[a.entry]) media[a.entry] = { missing: true }; }); });
             return await ChatExport.parts({
-                model: c.model, messages: sel.list, zone: state.zone, selection: sel.text, media: media,
+                model: c.model, messages: sel.list, zone: state.zone, selection: sel.text, media: media, look: look,
                 meta: { tool: 'Forensics Toolbox', version: VERSION, extraction: state.zip.line, dbPath: c.db.hit.db.name, dbLabel: c.db.src.label, keySource: c.loaded.keySource, exportedMs: Date.now() },
             }, async function (stage, done, total) {
                 job.go(stage === 'trace' ? 2 : 1, num(done) + ' av ' + num(total), done / total);
@@ -1441,6 +1671,7 @@
         if (d.state !== 'ready' && d.state !== 'error') { await loadThreads(d); renderList(); }
         if (d.error) { setStatus('ex-status', esc(d.error), 'warn'); return; }
         await openThread(d, String(msg.thread), msg.message === null || msg.message === undefined ? null : String(msg.message));
+        revealCurrent();
     }
 
     window.addEventListener('message', function (event) {
@@ -1471,6 +1702,8 @@
         busy: function () { return !!state.job || !!state.exporting || !!(state.opening && !state.opening.done); },
         ready: function () { return state.ready; },
         state: function () { return state; },
+        list: function () { return state.shown; },
+        look: function () { return state.look; },
         view: function () { return state.current && state.view ? { from: state.view.from, to: state.view.to, n: state.current.model.messages.length, drawn: $('c-msgs').querySelectorAll('.m').length } : null; },
     };
 })();

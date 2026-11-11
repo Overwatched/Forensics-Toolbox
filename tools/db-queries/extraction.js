@@ -284,6 +284,7 @@
             db: Object.assign(ExtractionCore.zipSource(c.read, f.db, [zipLine]), db.convert ? { convert: db.convert } : {}),
             wal: f.wal ? ExtractionCore.zipSource(c.read, f.wal) : null,
             zip: c.file.name,
+            zipFile: c.file,
             cipher: cipher,
         });
         render();
@@ -328,6 +329,8 @@
         var src = app.source();
         current = null;
         window.QueriesRun.forgetKept();
+        // De andra verktygen ska inte fråga här efter databaser som är stängda.
+        if (window.DbShare && window.DbShare.client) window.DbShare.client.gone();
         list.innerHTML = '';
         status.textContent = '';
         announce();

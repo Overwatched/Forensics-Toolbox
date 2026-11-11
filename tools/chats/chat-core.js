@@ -385,6 +385,197 @@
         return best;
     }
 
+    // ---------- Listan med konversationer ----------
+
+    // Slagen i listans ordning, med namnet på valet, och ordningarna att välja mellan.
+    var THREAD_KINDS = { person: 'Enskilda', group: 'Grupper', status: 'Status', channel: 'Kanaler', self: 'Till mig själv', other: 'Andra' };
+    var LIST_SORTS = [['recent', 'Senaste först'], ['messages', 'Flest meddelanden'], ['name', 'Namn A–Ö']];
+
+    // Texten att jämföra: små bokstäver, utan osynliga riktningstecken, med vanliga streck och mellanrum. WhatsApp
+    // skriver ett okänt nummer som namn med sådana tecken runt och hårda mellanrum i.
+    function plain(v) {
+        return text(v).toLowerCase().replace(/[\u200b-\u200f\u202a-\u202e\u2060-\u2069\ufeff]/g, '').replace(/[\u2010-\u2015]/g, '-').replace(/\s+/g, ' ').trim();
+    }
+
+    // Ett id som appen har satt, och som ingen söker i med ett ord: ett UUID eller en lång rad hexsiffror.
+    function opaque(s) {
+        return /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-/.test(s) || /^[0-9a-f]{16,}$/.test(s);
+    }
+
+    // Telefonnumren i en text, som bara siffror: 5–15 siffror, skrivna med mellanrum, streck, parenteser eller punkter.
+    function numbersIn(s) {
+        var out = [];
+        function keep(part) {
+            var d = part.replace(/\D/g, '');
+            if (d.length >= 5 && d.length <= 15) out.push(d);
+        }
+        (s.match(/\+?\d[\d\-()./ ]*\d/g) || []).forEach(function (run) {
+            // Fler siffror än ett nummer har är flera nummer efter varandra, ett i varje ord.
+            if (run.replace(/\D/g, '').length > 15) run.split(' ').forEach(keep);
+            else keep(run);
+        });
+        return out;
+    }
+
+    function add(list, v) { if (v && list.indexOf(v) < 0) list.push(v); }
+
+    // Lägger det som går att söka på i ett värde till e: texts (ett ord hittas var som helst i dem), nums
+    // (telefonnummer som bara siffror) och ids (hela värdet, som hittas från sin början).
+    // shown: värdet står i listan och söks som det står, vad det än är.
+    function addValue(e, v, shown) {
+        var s = plain(v);
+        if (!s) return;
+        // Ett JID med siffror före @: numret hos en användare (46701234567@s.whatsapp.net) och annars ett id (grupp,
+        // lid). Det som står efter @ är detsamma i varje rad och ingenting att söka i.
+        var jid = /^([\d.:\-]+)@([a-z\d.\-]+)$/.exec(s);
+        if (jid || opaque(s)) {
+            add(e.ids, s);
+            if (jid && /^(s\.whatsapp\.net|c\.us)$/.test(jid[2])) numbersIn(jid[1]).forEach(function (d) { add(e.nums, d); });
+            if (shown) add(e.texts, jid ? jid[1] : s);
+            return;
+        }
+        numbersIn(s).forEach(function (d) { add(e.nums, d); });
+        // Ett nummer är ingen text: två siffror finns mitt i vart tionde nummer.
+        if (shown || /[^\d\s#+\-()./]/.test(s)) add(e.texts, s);
+        else add(e.ids, s);
+    }
+
+    // Det som går att söka på i varje konversation: det egna (namnet, som står i listan, och adressen) och varje
+    // deltagares namn och adress. Samma deltagare i flera konversationer delar på en post.
+    function listIndex(list, people) {
+        var known = Object.create(null);
+        function person(p) {
+            var key = JSON.stringify([p.name, p.address, p.id]);
+            if (!known[key]) {
+                var e = known[key] = { name: p.name, texts: [], nums: [], ids: [] };
+                // Deltagarens id är i en del appar bara ett radnummer: det hittas som id, och söks inte i. En
+                // deltagare utan namn heter som sitt id.
+                if (plain(p.name) !== plain(p.id)) addValue(e, p.name, false);
+                addValue(e, p.address, false);
+                add(e.ids, plain(p.id));
+            }
+            return known[key];
+        }
+        return list.map(function (t) {
+            var own = { texts: [], nums: [], ids: [] };
+            addValue(own, t.name, true);
+            addValue(own, t.address, false);
+            return { own: own, who: ((people && people[t.key]) || []).map(person) };
+        });
+    }
+
+    // Sökorden i en sökning: [{ text, digits, typed }]. Ord av siffror som står intill varandra är ett telefonnummer,
+    // skrivet hur som helst: siffrorna jämförs utan mellanrum och streck, så att 070-123 45 67 hittar +46701234567,
+    // och hela numret ska finnas på samma ställe. typed är siffrorna som de skrevs och digits desamma utan nollorna
+    // först. Fler siffror än ett nummer har (15) är flera tal, som söks vart för sig.
+    function searchTerms(query) {
+        var out = [], run = [];
+        function number(words) {
+            var typed = words.join('').replace(/\D/g, '');
+            out.push({ text: words.join(' '), digits: typed.replace(/^0+/, ''), typed: typed });
+        }
+        function flush() {
+            if (!run.length) return;
+            if (run.join('').replace(/\D/g, '').length > 15) run.forEach(function (w) { number([w]); });
+            else number(run);
+            run = [];
+        }
+        plain(query).split(' ').forEach(function (w) {
+            if (!w) return;
+            if (/^\+?[\d\-()./]*\d[\d\-()./]*$/.test(w)) { run.push(w); return; }
+            flush();
+            out.push({ text: w, digits: '', typed: '' });
+        });
+        flush();
+        return out;
+    }
+
+    // Finns talet i numret? Fyra siffror eller fler hittas var som helst i det, färre bara i dess början (efter
+    // landsnumret eller nollan): numret hittas medan det skrivs, utan att två siffror i ett gruppnamn träffar alla
+    // nummer de står mitt i. Nollorna som skrevs först är riktnumrets nolla (070 är 4670) eller siffror mitt i numret.
+    function inNumber(num, term) {
+        var at = term.digits ? num.indexOf(term.digits) : -1;
+        if (at >= 0 && (term.digits.length >= 4 || at <= 3)) return true;
+        return term.typed.length >= 4 && term.typed !== term.digits && num.indexOf(term.typed) >= 0;
+    }
+
+    // Finns sökordet i det som går att söka på (ur addValue)? Ett ord finns var som helst i en text, ett tal i ett
+    // telefonnummer hur numret än är skrivet. Ett id hittas från sin början, med minst åtta tecken: tre tecken ur ett
+    // UUID finns i de flesta.
+    function found(e, term) {
+        var i;
+        for (i = 0; i < e.texts.length; i++) if (e.texts[i].indexOf(term.text) >= 0) return true;
+        if (term.typed) for (i = 0; i < e.nums.length; i++) if (inNumber(e.nums[i], term)) return true;
+        if (term.text.length >= 8) for (i = 0; i < e.ids.length; i++) if (e.ids[i].lastIndexOf(term.text, 0) === 0) return true;
+        return false;
+    }
+
+    // Träffar sökorden konversationen? Varje ord ska finnas i dess eget namn eller adress, eller hos en deltagare.
+    // Ger null utan träff, annars namnen på deltagarna som stod för orden konversationen själv inte har.
+    function listMatch(entry, terms) {
+        var who = [];
+        for (var i = 0; i < terms.length; i++) {
+            if (found(entry.own, terms[i])) continue;
+            var p = null;
+            for (var k = 0; k < entry.who.length && !p; k++) if (found(entry.who[k], terms[i])) p = entry.who[k];
+            if (!p) return null;
+            if (who.indexOf(p.name) < 0) who.push(p.name);
+        }
+        return who;
+    }
+
+    var collator = typeof Intl !== 'undefined' && Intl.Collator ? new Intl.Collator('sv', { numeric: true, sensitivity: 'base' }) : null;
+    function lastOf(t) { return t.lastMs === null || t.lastMs === undefined ? -Infinity : t.lastMs; }
+
+    // Ordningen i listan. Lika värden, och två utan tid, står kvar i databasens ordning.
+    function listSort(items, sort) {
+        var order = sort === 'messages' ? function (a, b) { return (b.thread.messages || 0) - (a.thread.messages || 0); }
+            : sort === 'name' ? function (a, b) { return collator ? collator.compare(a.thread.name, b.thread.name) : a.thread.name < b.thread.name ? -1 : a.thread.name > b.thread.name ? 1 : 0; }
+            : function (a, b) { return lastOf(b.thread) - lastOf(a.thread); };
+        return items.sort(function (a, b) { return order(a, b) || a.at - b.at; });
+    }
+
+    // Listan efter sökning, app, slag, tomma och ordning.
+    // groups: databaserna i listans ordning, [{ app, threads, index }]. threads är null tills databasen är läst, och
+    // index kommer ur listIndex. opts: { query, app, kind, hideEmpty, sort }.
+    // Ger { groups: [{ visible, total, items: [{ thread, who, at }] }], apps: [{ app, count }],
+    // kinds: [{ kind, text, count }], empty, total, shown, filtered }.
+    // Talet vid en app eller ett slag räknar konversationerna som de andra valen lämnar kvar, alltså det valet skulle
+    // visa. empty är de tomma konversationerna som Dölj tomma tar bort. En app utan läst databas har count null.
+    function listView(groups, opts) {
+        opts = opts || {};
+        var terms = searchTerms(opts.query);
+        var apps = [], appAt = {}, present = {}, counts = {}, empty = 0, total = 0, shown = 0;
+        var out = (groups || []).map(function (g) {
+            if (appAt[g.app] === undefined) { appAt[g.app] = apps.length; apps.push({ app: g.app, count: null }); }
+            var app = apps[appAt[g.app]];
+            var inApp = !opts.app || opts.app === g.app;
+            if (!g.threads) return { visible: inApp, total: null, items: [] };
+            if (app.count === null) app.count = 0;
+            var items = [];
+            g.threads.forEach(function (t, at) {
+                total++;
+                present[t.kind] = true;
+                var who = listMatch(g.index[at], terms);
+                if (!who) return;
+                var isEmpty = t.messages === 0;
+                var kept = !(opts.hideEmpty && isEmpty);
+                var inKind = !opts.kind || opts.kind === t.kind;
+                if (inKind && kept) app.count++;
+                if (inApp && kept) counts[t.kind] = (counts[t.kind] || 0) + 1;
+                if (inApp && inKind && isEmpty) empty++;
+                if (inApp && inKind && kept) items.push({ thread: t, who: who, at: at });
+            });
+            shown += items.length;
+            return { visible: inApp, total: g.threads.length, items: listSort(items, opts.sort) };
+        });
+        return {
+            groups: out, apps: apps, empty: empty, total: total, shown: shown,
+            kinds: Object.keys(THREAD_KINDS).filter(function (k) { return present[k]; }).map(function (k) { return { kind: k, text: THREAD_KINDS[k], count: counts[k] || 0 }; }),
+            filtered: !!(terms.length || opts.app || opts.kind || opts.hideEmpty),
+        };
+    }
+
     // Avsändarens namn i texterna.
     function senderText(m) {
         if (m.fromMe) return 'Den här telefonen';
@@ -413,6 +604,7 @@
         zoneName: zoneName, formatter: formatter, offsetText: offsetText, parseLocal: parseLocal,
         pick: pick, senderText: senderText, sizeText: sizeText, durationText: durationText,
         readRows: readRows, searchIndex: searchIndex, findAll: findAll, marks: marks, atOrAfter: atOrAfter,
+        THREAD_KINDS: THREAD_KINDS, LIST_SORTS: LIST_SORTS, listIndex: listIndex, searchTerms: searchTerms, listMatch: listMatch, listView: listView,
     };
     if (typeof module !== 'undefined' && module.exports) module.exports = api;
     else root.ChatCore = api;

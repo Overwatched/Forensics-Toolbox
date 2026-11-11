@@ -148,7 +148,7 @@ npm test
   zippen, och bytet erbjuds i flikens notis; startsidan och nya flikar följer. Öppningarna i Queries
   görs i tur och ordning (`serial()` i `extraction.js`), så att läget och en query från Härkomst inte
   läser samma zip två gånger.
-- Raden högst upp (`#context-bar` i `Toolbox.html`) visas i Härkomst, Queries och EXIF & karta
+- Raden högst upp (`#context-bar` i `Toolbox.html`) visas i Härkomst, Queries, Chattar och EXIF & karta
   (`CONTEXT_TOOLS`). Där öppnas, byts och stängs extraktionen; ändringen skickas med `force` till verktyget
   som visas, som då byter även om det visar något. Inne i huvudfönstret döljer verktygen sina egna knappar
   för att öppna och stänga (`body.in-hub .standalone-only`). Verktygen rapporterar
@@ -162,6 +162,68 @@ npm test
   (Härkomst letar upp samma innehåll i extraktionen). Härkomst läser filen ur zippen först när den behövs
   (`entriesAsFiles()`, högst 1 GB åt gången). Queries skickar filnamnen i ett resultat med `ZFILENAME`,
   `_display_name` eller `filename` som `{ type: 'names-for', to: 'provenance', names, zipName }`.
+
+#### Databaserna läses en gång (`tools/_shared/db-share.js`)
+
+Varje verktyg är en egen ram med eget minne. Förut läste, kontrollerade, hashade och dekrypterade därför Chattar,
+Härkomst och Queries samma databas var för sig. Sedan 1.57 (2026-11-10) delar de på läsningen:
+
+- `ExtractionCore.loadDatabase` med `share: { file }` frågar huvudfönstret först. Har ett annat verktyg databasen får
+  frågaren en kopia av avbilden i minnet, med uppgifterna från den läsningen: CRC32, SHA-256, dekrypteringens siffror,
+  och när och av vilket verktyg den lästes. Läser ett annat verktyg just in den väntar frågaren på det. Annars läser
+  frågaren själv och säger till efteråt. Queries går samma väg för en databas ur extraktionen (`readEntries` i `run.js`).
+  En databas från disk och en textfil som görs om (`convert`) läses som förut.
+- Huvudfönstret (`DbShare.registry` i `src/script.js`) håller bara reda på vem som har vad och skickar vidare. Inga byte
+  stannar där. Verktygen (`DbShare.client`) håller avbilden med en svag referens (`WeakRef`), så delningen hindrar inte
+  att minnet lämnas tillbaka när databasen stängs. Meddelandena står överst i `db-share.js`.
+- Delningens nyckel (`keyOf`) är filens namn, storlek och ändringstid, posternas namn, plats, storlek och CRC32, och för
+  en krypterad databas profilen med en SHA-256 över nyckeln (`cipherTag`). Nyckeln själv skickas aldrig. Ett verktyg med
+  en annan nyckel, eller utan, får därför aldrig ett annat verktygs dekryptering.
+- En avbild lämnas bara ut om dess längd och första 100 byte (SQLites huvud, med ändringsräknaren) är som när den
+  lästes. Chattar och Härkomst öppnar avbilden med `PRAGMA query_only`, och Queries kör SQL som skriver mot en egen
+  kopia (se Databaser över 1,5 GB). Avbilden som tas emot används bara om den är en okrypterad SQLite-fil med
+  uppgifterna om läsningen (`usable`). Annars läser verktyget själv.
+- Protokollet och spårbarheten säger att läsningen är delad (`sharedLine`): "Läst ur zippen av Chattar 2026-11-10
+  12:00:00 UTC. Verktygen delar på läsningen: …". Härkomst visar raden också under Källor, som Läsning.
+- Lägesraden kommer ur `ExtractionCore.stageText`: läser, räknar SHA-256, dekrypterar med procent, lägger på `-wal`,
+  väntar på ett annat verktyg (med dess skede) eller hämtar en kopia.
+- Härkomsts lägesrad ritas före det som går utan paus i en databas från 8 MB (`PAINT_BYTES`): Telegrams avkodning
+  ("Avkodar Telegrams meddelanden i …") och frågorna efter läsningen ("Söker i …"). Förut stod raden kvar på
+  "Dekrypterar signal.sqlite (Signal)… 99 %" medan frågorna gick och sidan stod still. En databas där en fråga tar över
+  50 ms (`SLOW_QUERY_MS`) får raden ritad först också nästa gång, då med texten som källan har satt ("Läser Signals
+  databas (beta)…"). `ZipRead.painted()` väntar på en riktig ritning (en bildruta och en paus, i ett dolt fönster bara
+  pausen). Queries skriver "Kör queryn…" på samma sätt.
+- Kommer inget svar inom 10 s (`ACK_MS`), eller ingen kopia inom 30 s (`GIVE_MS`), läser verktyget själv. Väntan på ett
+  verktyg som läser in har ingen gräns. Därför säger det som läser alltid till (`sharedCore`): när det är klart, när
+  läsningen går fel och när avbilden inte går att dela. En fil under 100 byte, som en tom databas, delas inte: varje
+  verktyg läser den själv. Det sista rättades 2026-11-11, innan delningen var släppt: nästa verktyg väntade annars
+  för alltid på en sådan fil. Laddas en ram om glömmer huvudfönstret vad den hade (`forget`). Ett verktyg som öppnas
+  för sig, utan huvudfönster, läser som förut.
+- Navet skickar valda nyckelfiler till ett verktyg en gång per val (`keysSent`). Förut skickades de varje gång verktyget
+  visades, och Härkomst släppte då sin dekrypterade Signal-databas och läste och dekrypterade den igen.
+- Mätt 2026-11-10 i Electron med en påhittad extraktion (Signal på iOS: 314 MB krypterad, 451 konversationer och
+  600 000 meddelanden), med Chattar öppnat först:
+
+  | | Förut | Nu |
+  |---|---|---|
+  | Första bedömningen i Härkomst | 3,8–4,0 s | 1,7 s |
+  | Samma bedömning efter ett besök i Chattar, med nyckelfilen vald för hand | 3,4 s | 1,1 s |
+  | Första queryn i Queries mot samma databas | 2,3–2,4 s | 0,2 s |
+
+  Av de 1,7 sekunderna är 0,8 Härkomsts egna frågor mot databasen, och då står sidan still. Öppnas verktygen
+  samtidigt läses och dekrypteras databasen en gång, vilket av dem som än frågar först (provat i tre ordningar).
+- Tester: `db-share.test.js` (huvudfönstrets bokföring och verktygens del, med en klocka som testet vrider fram),
+  `extraction-share.test.js` (läsningen genom delningen, med en krypterad databas ur `fixtures/sqlcipher-builder.js`)
+  och röktestets del "Verktygen delar på läsningen".
+- Provat mot labbet `iPhone - Signal_Whatsapp` 2026-11-11 (zippen på 32,6 GB med nyckelringen bredvid): Chattar läste
+  WhatsApp, Signal, Telegram och Snapchat, och sedan bedömde Härkomst sex filer och Queries körde nio queryer mot
+  samma databaser. Svaren var desamma som när Härkomst och Queries läste själva: 48 faktorer, 1 761 händelser,
+  77 källor och 180 rader jämförda, och bara raden om vem som läste databasen skiljer. Fyra av varje fils tolv eller
+  tretton källor kom från Chattar. Någon tidsvinst syns inte där, eftersom databaserna är små: första bedömningen
+  tog 2,0 s på båda sätten. Kontrollen gjordes med skript utanför repot. Labbtesterna (`lab-ios.js`) har ingen del
+  för delningen eller för Chattar.
+- Kvar: verktygen delar en tråd, så medan ett verktyg läser, dekrypterar eller kör en fråga står de andra still. Varje
+  verktyg har också sin egen kopia av avbilden i minnet. Tiderna ovan är bara mätta med påhittade data.
 
 ### Queries: arbetsbänken, flikar och SQL från Härkomst (`tools/db-queries/`)
 
@@ -572,7 +634,8 @@ Plan och provkörning: [PLAN-harkomst.md](PLAN-harkomst.md).
   fil gäller extraktionen den valdes för (`forFile`), så att den inte följer med till nästa telefon. En zip som nyckelfil
   (`…_android_keystore.zip`, med JSON-filen `android_keystore`) packas upp i minnet (`ExtractionCore.readKeyFile`).
   Navet håller valda nyckelfiler med extraktionen (`extraction.keys`) och skickar dem till verktygen med
-  `extraction-keys`; ett verktyg som valt en nyckelfil skickar den till navet på samma sätt. Det som hittas
+  `extraction-keys`, en gång per val (`keysSent`): med nya nycklar läser verktyget in sina krypterade databaser
+  igen. Ett verktyg som valt en nyckelfil skickar den till navet på samma sätt. Det som hittas
   av sig självt går inte via navet: varje verktyg letar när det öppnar extraktionen. `AppSecrets.keysForProfile` väljer
   nyckeln efter profilen (64 hextecken för Android, 96 för iOS).
 - **Signals egna krypterade filer** (`app_parts/part….mms` på Android, `attachment_files/XX/…` på iOS): summan kan aldrig stämma med
@@ -661,6 +724,40 @@ Plan och provkörning: [PLAN-harkomst.md](PLAN-harkomst.md).
   Chattar, som öppnar chatten och blinkar meddelandet. `ExtractionCore.zipSource` har därför `path`, postens
   fulla namn. **Chattar → Queries**: klockans ruta har Visa raden i Queries. Den skickar `open-query` med rollens
   SQL och meddelandets tid och id, som från Härkomst.
+- **Listan** (1.57, 2026-11-10): en extraktion kan ha hundratals konversationer i flera appar, och då räcker det inte
+  att rulla.
+  - Över listan står knappar för app och för slag (Enskilda, Grupper, Status, Kanaler, Till mig själv, Andra), var och
+    en med antalet som valet skulle visa. Där finns också ordningen (Senaste först, Flest meddelanden, Namn A–Ö) och
+    Dölj tomma. Raden under säger till exempel "Visar 380 av 454 konversationer" och har Visa alla. Varje databas kan
+    fällas ihop. Urvalet räknas i `ChatCore.listView`, utan sidan, och testas i Node.
+  - Sökrutan letar i konversationens namn och adress och i deltagarnas (`listIndex`, `listMatch`). Varje ord ska
+    finnas, i konversationen eller hos en deltagare. En träff genom en deltagare säger vem: "Deltagare:
+    +46700000125".
+  - Ett nummer jämförs som siffror, hur det än är skrivet: "070-000 01 25" hittar +46700000125. Fyra siffror eller
+    fler hittas var som helst i numret, färre bara i dess början. Ett maskin-id (UUID eller lång hexsträng) hittas
+    bara från sin början och med minst åtta tecken, och domänen i en JID söks aldrig. Annars träffar "12" och "net"
+    nästan varje konversation.
+  - Raderna ritas 200 åt gången per databas (`LIST_STEP`). Nästa omgång ritas när listans slut närmar sig
+    (`IntersectionObserver`) eller med Visa fler. Den öppna konversationen ritas alltid.
+  - Mätt 2026-11-10 med 454 påhittade konversationer i tre databaser (380 grupper i Signal): listan ritade förut
+    alla 454 rader (2 276 element, 22 830 px) och ritar nu 203 först (1 031 element, 9 910 px). Ett tecken i
+    sökrutan räknar om listan och sidans layout på 1–6 ms. Listan är inte provad med en riktig extraktion med
+    hundratals konversationer.
+  - Sökningen letar inte i meddelandenas text, och ett nummer hittas bara om databasen har det för konversationen
+    eller deltagaren. Det säger sökrutans hjälptext och raden som visas när inget matchar: ingen träff på ett
+    nummer betyder inte att numret saknas i appen.
+    - WhatsApp på iOS: en konversation vars adress är ett id med `@lid` har inget nummer i `ChatStorage.sqlite`, i
+      labbet varken i raden eller hos deltagaren. Den hittas på namnet och inte på numret. I labbet står numret i
+      WhatsApps `LID.sqlite` i samma appgrupp, som inte läses än: tabellen `ZWAZACCOUNT` har adressen med `@lid` i
+      `ZIDENTIFIER` och numret i `ZPHONENUMBER` (två rader, varav en är konversationens), och
+      `ZWAPHONENUMBERLIDPAIR` (`ZLID`, `ZPHONENUMBER`) är tom. Det är sett 2026-11-11 i en enda extraktion, och
+      bara tabellernas namn, kolumner och antal rader är lästa. Ingen roll är skriven för databasen.
+    - Signal på iOS: se adressen under Signal på iOS nedan.
+  - Provat mot labbet `iPhone - Signal_Whatsapp` 2026-11-11: tio konversationer i fyra appar (sju enskilda, två
+    status och en annan, ingen grupp). Antalen vid knapparna stämde med raderna som visades. De två telefonnummer
+    som listan har hittades skrivna i sin helhet, som de sista sju siffrorna med ett mellanrum och nationellt med
+    bindestreck, med en rad kvar varje gång. En träff genom en deltagare i en grupp är bara provad med påhittade
+    data.
 - **Bilagorna** letas upp i extraktionen när konversationen öppnas och läses som blob-URL:er när de syns
   (`IntersectionObserver`). En fil över 80 MB läses först efter ett klick. Fler än 300 lästa filer släpps när de
   inte längre finns i sidan, så att minnet inte växer med chatten.
@@ -685,9 +782,36 @@ Plan och provkörning: [PLAN-harkomst.md](PLAN-harkomst.md).
     vilken databas som läses och har Avbryt: resten lämnas olästa, med Läs in i listan. En rad från Queries väntar bara
     på sin egen databas.
   - Kvar: Telegrams avkodning och Signals dekryptering går i sidans tråd. En egen tråd (Web Worker) för sql.js, dekrypteringen
-    och avkodningen skulle hjälpa Queries och Härkomst lika mycket och är inte gjord.
+    och avkodningen skulle hjälpa Queries och Härkomst lika mycket och är inte gjord. Sedan 2026-11-10 görs läsningen och
+    dekrypteringen i alla fall bara en gång för de tre verktygen (se Databaserna läses en gång).
 - **Tider** visas i datorns zon eller i UTC, med zonen utskriven. Klockans ruta visar varje tid med kolumn, rått värde och
   UTC (`ChatCore.formatter`, `offsetText`; `parseLocal` läser tidsspannet i exporten, också över sommar- och vintertid).
+- **Telefonvyn** (1.57, 2026-11-10): Lista och Telefon över chatten byter utseende. Telefon ställer samma bubblor i
+  en ram med en telefons bredd (25,9 em, 414 px vid 16 px text), med konversationens namn i ramens huvud.
+  - Vyn är en rekonstruktion ur databasen och ska inte kunna tas för en skärmbild. Därför ritas ingen klocka,
+    mottagning eller batterinivå, och inga modellnamn eller appars egna bilder används. Där appen har sin skrivrad
+    står "Rekonstruktion ur databasen – inte en skärmbild" (`PHONE_LABEL`). Telefonens textstorlek, tema och
+    appversion finns inte i databasen, så radbrytningar och färger kan ha sett annorlunda ut i telefonen. Det säger
+    knappens text och exportens ingress.
+  - Ramen följer plattformen (`ChatExport.phoneFrame`): en avlång urtagning för iOS, ett runt hål för Android och
+    ingen för en okänd plattform. Bredden är densamma för alla: databasen säger inte vilken modell telefonen är.
+    Bubblornas färger är samma som i listvyn: verktygets egna per app, inte lästa ur telefonen. På skärmen följer
+    vyn verktygets tema.
+  - Bytet håller platsen (`setLook`, `anchor`): stod chatten vid slutet står den kvar där, annars står det översta
+    meddelandet kvar. Sök, klockans ruta, Välj meddelanden och blocken fungerar som i listvyn. Valet gäller tills
+    verktyget laddas om och sparas inte.
+  - Exporten har samma val (Utseende i rutan, med det som visas förvalt) och är alltid ljus. Bubblorna står i en
+    remsa (`.strip` > `.phone`) med ett nummer utanför ramen, som är raden i spårbarhetstabellen. Tabellen är
+    densamma som i listan.
+  - I utskriften delas remsan i två spalter per A4-sida. Ramen är en `border-image` (en SVG ur `frameImage`) med
+    `box-decoration-break: clone`: en kant ritas om i varje spalt och på varje sida, vilket en bakgrundsbild inte
+    gör, och `position: sticky` fungerar inte i utskrift. Märkningen står därför i ramens fot i varje del.
+    Sidfoten på varje sida (`@page { @bottom-center }`) kräver en Chromium-baserad webbläsare, som appen och Edge.
+    Utskrift i Firefox och Safari är inte provad.
+  - Provad med påhittade chattar i Electron och i html-versionen. Mot labbet `iPhone - Signal_Whatsapp` 2026-11-11
+    visade vyn alla meddelanden i en chatt per app (12 i WhatsApp, 16 i Signal, 8 i Telegram och 9 i Snapchat) med
+    märkningen i ramen, och Lista gick tillbaka. Exporten och utskriften i telefonvyn är bara provade med påhittade
+    chattar.
 - **Export** (`chat-export.js`): hela konversationen, valda meddelanden eller ett tidsspann.
   - Formatet är en fristående HTML-fil, med bilder upp till 25 MB per bild inbäddade, eller utskrift via en dold ram
     (spara som PDF i utskriftsdialogen).
@@ -695,9 +819,14 @@ Plan och provkörning: [PLAN-harkomst.md](PLAN-harkomst.md).
     värde, och bilagornas sökväg och SHA-256.
   - Filen byggs i delar (`ChatExport.parts`, 1 000 meddelanden åt gången) med förlopp och Avbryt, och sparas som en Blob
     av delarna, så att en stor chatt aldrig blir en enda text. 300 000 meddelanden blev 148 MB på 7,9 s.
-  - `ChatExport.estimate` säger i förväg ungefär hur stor filen och utskriften blir. Den är kalibrerad mot exporter
-    utskrivna till PDF på A4 i Electron, inom 10 %. Över 20 000 meddelanden eller 200 MB varnar Spara HTML, och över
-    300 sidor varnar utskriften. Ett andra klick bygger ändå.
+  - `ChatExport.estimate` säger i förväg ungefär hur stor filen och utskriften blir, för utseendet som är valt. Den är
+    kalibrerad mot exporter utskrivna till PDF på A4 i Electron (2026-11-09 och 2026-11-10, 15 fall), inom 10 % utan
+    bilder och 15 % med. Över 20 000 meddelanden eller 200 MB varnar Spara HTML, och över 300 sidor varnar
+    utskriften. Ett andra klick bygger ändå.
+  - Sidorna i listan: en elftedels sida per bubbla, en sida per 4 300 tecken, en sextiondel per tid i spårbarheten och
+    en dryg halv per bild (1/1,9; förut 1/2,4, som räknade upp till 23 % för lågt för stående bilder i full
+    storlek). I telefonvyn: en artondel per bubbla, en sida per 3 700 tecken, en sextiofemtedel per tid och en
+    åttondel per bild. Den långa testchatten på 3 000 meddelanden blir 407 sidor som lista och 309 som telefon.
 - **WhatsApp på iOS** är kontrollerat mot labbet `iPhone - Signal_Whatsapp` (2026-11-09).
   - Slaget kommer ur JID:ens domän: `@g.us` är grupp, `@lid` och `@s.whatsapp.net` person, `@status` och
     `@broadcast` status, `@newsletter` kanal.
@@ -719,6 +848,42 @@ Plan och provkörning: [PLAN-harkomst.md](PLAN-harkomst.md).
     serverns tid och, för ett mottaget meddelande med försvinnande tid, när det öppnades (`expireStartedAt`).
   - Enheten för skickade meddelanden kommer ur `wasNotCreatedLocally` och står i klockans muspekartext och ruta.
     `deprecated_sourceDeviceId` visas som rått värde, utan tolkning.
+  - `chat-threads` räknar antal och första och senaste tid i en enda genomläsning av `model_TSInteraction`
+    (`NOT INDEXED`, `GROUP BY uniqueThreadId`). Inget index har både tråden och tiden, så en fråga per tråd fick slå
+    upp varje meddelande för sig. Med 600 000 påhittade meddelanden i 451 trådar: 991 ms förut, 310 ms nu
+    (2026-11-10).
+  - Adressen (`thread_address`, `member_address`) är numret när databasen har det (1.57, 2026-11-11). Har trådens
+    eller gruppmedlemmens rad bara ACI hämtas numret ur `model_SignalRecipient` på `recipientUUID`, och finns det
+    inte där står ACI kvar. Android-katalogen gör likadant (`COALESCE(tr.e164, tr.username, tr.aci)`).
+    - Förut var adressen ACI så fort raden saknade nummer. I labbet gäller det båda trådarna med en person: ingen
+      har `contactPhoneNumber`. Listans sökning hittade då inte en namngiven kontakt på numret, och inte en grupp
+      genom en deltagares nummer.
+    - Adressen används bara för visning och sökning (under namnet, i deltagarlistan och i exporten), aldrig för
+      att koppla meddelanden. Där 1.56 visade ACI under namnet står nu numret. Deltagarens `id` är fortfarande
+      ACI och hittas i listan från sin början, och ACI står i queryn Kontakter.
+    - I labbet har en av Signals två kontakter nummer i `model_SignalRecipient`, och den fick numret som adress.
+      Den andra, som har ett namn, har inget nummer i databasen och hittas bara på namnet. Att en namngiven
+      kontakt hittas på numret, och en grupp genom en deltagares nummer, är alltså bara visat med påhittade rader
+      (`catalogs.test.js`, som föll med de gamla uttrycken).
+    - Uppslaget har index i labbets databas (`index_signal_recipients_on_recipientUUID`) och kostar ingen mätbar
+      tid: med påhittade data tog `chat-threads` 297 ms med och utan, och `chat-members` 38 ms mot 37 för
+      12 505 rader (2026-11-11).
+  - **Rättat i 1.57 (2026-11-10): fel namn på kontakter.** Queryn Kontakter (`recipients`) och rollen `role-recipients`
+    använde aliaset `sr` också inne i två av sina delfrågor, så jämförelsen `sr.recipientUUID = sr.recipientUUID`
+    var alltid sann och delfrågan gav samma rad för varje kontakt. Felet kom med rollerna i 1.41 och fanns till och
+    med 1.56.
+    - Med minst ett smeknamn i `NicknameRecord` fick varje kontakt det smeknamnet, också telefonens ägare.
+    - Utan smeknamn fick en kontakt utan eget namn (inget i `model_SignalAccount` och inget profilnamn) numret
+      från den första raden med `recipientUUID` i `model_SignalRecipient`, i stället för sitt eget nummer eller id.
+      I testets databas är det telefonens ägare.
+    - Det syntes där Härkomst namnger avsändaren av ett mottaget meddelande (`counterpartIos`: händelserna i
+      tidslinjen, kopplingen till en bilaga och hashsökningens text) och i kolumnen `namn` i Kontakter. Kolumnerna
+      `telefon` och `aci` var rätt, och meddelandenas och trådarnas egna queryer hade inte felet.
+    - Det syntes inte i labbet: dess tråd har bara skickade meddelanden, och rollen namnger bara avsändaren av ett
+      mottaget. Queryn Kontakter ger också samma namn på labbets två kontakter som queryn från 1.56
+      (2026-11-11). Felet är alltså bara visat med påhittade kontakter.
+    - `catalogs.test.js` har nu kontakter med var sitt slags namn, och testet föll före rättningen. Det
+      kontrollerar också att ingen query i katalogen jämför en kolumn med sig själv.
 - **Signal på Android** har roller ur samma tabeller och tolkningar som de synliga queryerna, som är kontrollerade
   mot en labbtelefon och en verklig extraktion. Rollerna är inte körda mot en riktig databas här: Nord-labbets zip
   finns inte på datorn, och nyckeln till A33:ans Signal saknas. I en grupp listas de som skrivit i gruppen enligt
@@ -904,7 +1069,8 @@ Mätt 2026-11-04 i Edge 156 på en Windows-maskin i CI, med en slinga på 30 mil
   huvudfönstret `#browser-slow` (`wasmIsInterpreted()` i `src/script.js`: en slinga på 10 miljoner varv tar över 80 ms, två
   försök). På Mac tar `--jitless` bort WebAssembly: raden `#browser-notice` säger det direkt, och varje verktyg säger det när
   något ska läsas (`toolboxWasmProblem`). Med `--jitless --wasm-jitless` får Mac också en tolk. Rapporten om att
-  html-versionen slutat fungera i en låst Edge är inte förklarad av detta: se Kända begränsningar.
+  html-versionen slutat fungera i en låst Edge är avskriven (2026-11-10): med samma uppsättning som användarens
+  fungerade programmet, så problemet verkar ha funnits bara på den datorn.
 - **Edge på Mac:** paketet från Microsoft är x86_64 och körs under Rosetta. Därför är det flera gånger långsammare där än
   Chrome (17 verktyg 61 s mot 3–4 s). Det säger inget om Windows, där samma prov tar 5–7 s.
 - **Utan WebGL2** går bara kartan inte att rita. Chromium har aviserat att reservlösningen i programvara (SwiftShader)
@@ -1149,7 +1315,10 @@ i webbläsaren.
     och Härkomst; en query med noll rader sägs ut; en fil från disk väljer raden i rätt mapp; en källa i Härkomst
     öppnar rätt databas och markerar raden; exempelraderna är märkta och resultatet når kartan; en inläst databas
     läses inte om; en lista från disk bedöms; Chattar visar WhatsApp-chatten och en lång chatt på 3 000 meddelanden i block,
-    med Första, sökning, ett datum i ett uppehåll och utskriftens varning; och HTML ur filnamn och databaser körs aldrig. Bara påhittade data. CI kör det i jobbet `apptest`, som inte stoppar
+    med Första, sökning, ett datum i ett uppehåll och utskriftens varning; listan i Chattar väljs på app, slag och tomma, ett
+    nummer hittar gruppen genom deltagaren, och en databas fälls ihop; telefonvyn ställer chatten i ramen, håller platsen vid
+    bytet och ger exporten samma utseende; det Chattar har läst och dekrypterat läser Härkomst och Queries inte om; och HTML ur
+    filnamn och databaser körs aldrig. Bara påhittade data, 29 delar (2026-11-10). CI kör det i jobbet `apptest`, som inte stoppar
     releasen än.
   - **Facit** (`facit.js`, `facit/lab-android-nord.json`, `--facit`): Härkomst bedömer filerna i
     labbzippen och jämför T, Memories, förgrund, skärm, lås, kameran, Snapchats meddelande, Signals
@@ -1191,10 +1360,6 @@ i webbläsaren.
 - Offline för lokala verktyg; externa länkar/nedladdningar och onlinekartan kräver nät och bekräftelse
 - Windows-signing är avstängd (`signExecutable: false`). Ikon och metadata skrivs ändå in i exe-filen.
 - `npm audit`-varningar i Electron-kedjan är vanliga; åtgärda inte med `audit fix --force` utan översikt
-- **Html-versionen i en låst Edge:** en användare rapporterade att programmet inte längre gick att köra, troligen i en Edge
-  som bara når lokala filer och intranätet. Orsaken är inte hittad. Internet, JIT, förstärkt säkerhet och `URLBlocklist`
-  förklarar det inte (se Html-versionen). Inte provat: en äldre Edge, `AllowFileSelectionDialogs`, en spärr som också
-  gäller `file://`, IE-läget (`SendIntranetToInternetExplorer` eller en webbplatslista) och att köra från en nätverksresurs.
 - Härkomst: Android är provkört mot en labbtelefon (Android 13, LineageOS), inte mot en kommersiell extraktion; `usagestats` i XML (version 3, Android 9 och äldre) läses inte, den binära batterihistoriken (`battery-history/0.bin`) läses inte, ingen positionslogg läses på Android, bildfiler över 200 MB läses inte för EXIF, och inklistringen i Word är provkörd bara via urklippsstatus, inte i Word självt
 - **Rapporter (UFDR):** formatet är inte dokumenterat, och läsningen är provad mot fyra rapporter från en version av Physical Analyzer. Se Rapporter (UFDR). Programmets texter och protokoll nämner inte verktygets namn, utan säger rapportverktyget.
 - **Filens tider:** tolkningen av zippens tredje tid är härledd ur labbdata, och Apple dokumenterar inte Photos.sqlite. Inte
@@ -1213,3 +1378,11 @@ i webbläsaren.
   (`…_android_keystore.zip`) hittas bredvid zippen i skrivbordsappen, men formatet för Signal är inte sett: labbtelefonens fil har
   fem andra appar. Signals logg sparas bara några dagar. En bild som redigerats i
   Signal har den redigerade versionens summa som `data_hash_start`, så originalet kan inte kopplas.
+- **Chattar (beta):** urvalet i listan, telefonvyn och delningen av läsningen mellan verktygen är provade mot ett labb
+  med tio konversationer och ingen grupp (2026-11-11), och annars bara med påhittade data. Inte provat: hundratals
+  riktiga konversationer, en riktig grupp, och telefonvyns export ur en riktig extraktion. Listans sökning letar inte i
+  meddelandenas text, och ett nummer hittas bara om databasen har det: en WhatsApp-konversation med `@lid` (numret
+  står i `LID.sqlite`, som inte läses än) och en Signal-kontakt utan nummer i Signals kontakter hittas på namnet.
+  Telefonvyn är en rekonstruktion: telefonens
+  textstorlek, tema, modell och appversion finns inte i databasen. Verktygen delar en tråd, så medan ett av dem läser,
+  dekrypterar eller kör en fråga står de andra still.

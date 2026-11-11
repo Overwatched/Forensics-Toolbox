@@ -5,103 +5,10 @@
 const test = require('node:test');
 const assert = require('node:assert');
 const crypto = require('node:crypto');
-const fs = require('node:fs');
-const path = require('node:path');
 const sc = require('./sqlcipher');
 const wal = require('./wal');
-
-const SQLJS = path.join(__dirname, '..', 'ios-keychain', 'vendor', 'sqljs');
-let SQL = null;
-async function sqlJs() {
-    if (SQL) return SQL;
-    const ctx = {};
-    new Function('window', fs.readFileSync(path.join(SQLJS, 'sql-wasm-binary.js'), 'utf8'))(ctx);
-    SQL = await require(path.join(SQLJS, 'sql-wasm.js'))({ wasmBinary: ctx.SQL_WASM_BINARY });
-    return SQL;
-}
-
-const PAGE = 4096;
-const RESERVE = 48;
-
-// En tom databas med 48 byte reserv per sida, som SQLCipher kräver. sql.js fyller den sedan.
-function emptyDbWithReserve() {
-    const b = Buffer.alloc(PAGE);
-    b.write('SQLite format 3\0', 0, 'latin1');
-    b.writeUInt16BE(PAGE, 16);
-    b[18] = 1; b[19] = 1; b[20] = RESERVE; b[21] = 64; b[22] = 32; b[23] = 32;
-    b.writeUInt32BE(1, 24); b.writeUInt32BE(1, 28); b.writeUInt32BE(4, 44); b.writeUInt32BE(1, 56);
-    b.writeUInt32BE(1, 92); b.writeUInt32BE(3045000, 96);
-    b[100] = 0x0d; b.writeUInt16BE(PAGE - RESERVE, 105);
-    return new Uint8Array(b);
-}
-
-async function makeDb(rows) {
-    const S = await sqlJs();
-    const db = new S.Database(emptyDbWithReserve());
-    db.run('CREATE TABLE message (_id INTEGER PRIMARY KEY, date_sent INTEGER, body TEXT)');
-    for (let i = 1; i <= rows; i++) db.run('INSERT INTO message (date_sent, body) VALUES (?, ?)', [1793641670834 + i * 1000, 'meddelande ' + i + ' ' + 'x'.repeat(200)]);
-    const bytes = db.export();
-    db.close();
-    return bytes;
-}
-
-// Krypterar som SQLCipher: saltet först i filen, varje sida AES-256-CBC + IV + HMAC-SHA1(data, IV, sidnummer LE).
-function keys(passphrase, salt) {
-    const key = crypto.pbkdf2Sync(Buffer.from(passphrase, 'utf8'), salt, 1, 32, 'sha1');
-    const macKey = crypto.pbkdf2Sync(key, Buffer.from(salt.map((b) => b ^ 0x3a)), 2, 32, 'sha1');
-    return { key, macKey };
-}
-function encryptPage(k, page, pgno, salt) {
-    const start = pgno === 1 ? 16 : 0;
-    const iv = crypto.randomBytes(16);
-    const c = crypto.createCipheriv('aes-256-cbc', k.key, iv);
-    c.setAutoPadding(false);
-    const data = Buffer.concat([c.update(Buffer.from(page.subarray(start, PAGE - RESERVE))), c.final()]);
-    const pn = Buffer.alloc(4); pn.writeUInt32LE(pgno);
-    const mac = crypto.createHmac('sha1', k.macKey).update(data).update(iv).update(pn).digest();
-    const out = Buffer.alloc(PAGE);
-    if (pgno === 1) salt.copy(out, 0);
-    data.copy(out, start);
-    iv.copy(out, PAGE - RESERVE);
-    mac.copy(out, PAGE - RESERVE + 16);
-    return out;
-}
-function encryptDb(plain, passphrase, salt) {
-    const k = keys(passphrase, salt);
-    const pages = [];
-    for (let p = 1; p * PAGE <= plain.length; p++) pages.push(encryptPage(k, plain.subarray((p - 1) * PAGE, p * PAGE), p, salt));
-    return { bytes: new Uint8Array(Buffer.concat(pages)), k };
-}
-
-// En -wal med krypterade ramar: alla sidor i den nyare databasen, sista ramen är commit.
-function walChecksum(buf, s) {
-    let [s0, s1] = s;
-    for (let i = 0; i < buf.length; i += 8) {
-        s0 = (s0 + buf.readUInt32LE(i) + s1) >>> 0;
-        s1 = (s1 + buf.readUInt32LE(i + 4) + s0) >>> 0;
-    }
-    return [s0, s1];
-}
-function encryptedWal(k, newer, salt) {
-    const head = Buffer.alloc(32);
-    head.writeUInt32BE(0x377f0682, 0); head.writeUInt32BE(3007000, 4); head.writeUInt32BE(PAGE, 8);
-    head.writeUInt32BE(1, 12); head.writeUInt32BE(0x11223344, 16); head.writeUInt32BE(0x55667788, 20);
-    let sum = walChecksum(head.subarray(0, 24), [0, 0]);
-    head.writeUInt32BE(sum[0], 24); head.writeUInt32BE(sum[1], 28);
-    const frames = [head];
-    const count = newer.length / PAGE;
-    for (let p = 1; p <= count; p++) {
-        const data = encryptPage(k, newer.subarray((p - 1) * PAGE, p * PAGE), p, salt);
-        const fh = Buffer.alloc(24);
-        fh.writeUInt32BE(p, 0); fh.writeUInt32BE(p === count ? count : 0, 4);
-        fh.writeUInt32BE(0x11223344, 8); fh.writeUInt32BE(0x55667788, 12);
-        sum = walChecksum(fh.subarray(0, 8), sum);
-        sum = walChecksum(data, sum);
-        fh.writeUInt32BE(sum[0], 16); fh.writeUInt32BE(sum[1], 20);
-        frames.push(fh, data);
-    }
-    return new Uint8Array(Buffer.concat(frames));
-}
+// Databaserna krypteras i fixtures/sqlcipher-builder.js, med Nodes crypto.
+const { sqlJs, PAGE, makeDb, encryptDb, encryptedWal, makeDbIos, encryptDbIos, encryptedWalIos } = require('./fixtures/sqlcipher-builder');
 
 const PASS = 'a3f00d9478eb7753e39c5a41a670c93e0de07a916fc97f3a79fed11daa0ecc5a';
 
@@ -191,75 +98,6 @@ test('base64 utan utfyllnad och URL-säker, som i Signals nycklar', () => {
 });
 
 // ---------- Signal på iOS: SQLCipher 4, rå nyckel med salt, okrypterat huvud ----------
-
-const RESERVE_IOS = 80;
-const HEADER_IOS = 32;
-
-function emptyDbWithReserveIos() {
-    const b = Buffer.from(emptyDbWithReserve());
-    b[20] = RESERVE_IOS;
-    b.writeUInt16BE(PAGE - RESERVE_IOS, 105);
-    return new Uint8Array(b);
-}
-
-async function makeDbIos(rows) {
-    const S = await sqlJs();
-    const db = new S.Database(emptyDbWithReserveIos());
-    db.run('CREATE TABLE model_TSInteraction (id INTEGER PRIMARY KEY, recordType INTEGER, timestamp INTEGER, body TEXT)');
-    for (let i = 1; i <= rows; i++) db.run('INSERT INTO model_TSInteraction (recordType, timestamp, body) VALUES (21, ?, ?)', [1793703400000 + i * 1000, 'meddelande ' + i + ' ' + 'y'.repeat(200)]);
-    const bytes = db.export();
-    db.close();
-    return bytes;
-}
-
-// Krypterar som SQLCipher 4 med rå nyckel: de första 32 byten på sida 1 står kvar, resten av sidan
-// (utom reserven) blir AES-256-CBC, sedan IV och HMAC-SHA512(data, IV, sidnummer LE).
-function keysIos(raw) {
-    const key = raw.subarray(0, 32), salt = raw.subarray(32, 48);
-    const macKey = crypto.pbkdf2Sync(key, Buffer.from(salt.map((b) => b ^ 0x3a)), 2, 32, 'sha512');
-    return { key, macKey };
-}
-function encryptPageIos(k, page, pgno) {
-    const start = pgno === 1 ? HEADER_IOS : 0;
-    const iv = crypto.randomBytes(16);
-    const c = crypto.createCipheriv('aes-256-cbc', k.key, iv);
-    c.setAutoPadding(false);
-    const data = Buffer.concat([c.update(Buffer.from(page.subarray(start, PAGE - RESERVE_IOS))), c.final()]);
-    const pn = Buffer.alloc(4); pn.writeUInt32LE(pgno);
-    const mac = crypto.createHmac('sha512', k.macKey).update(data).update(iv).update(pn).digest();
-    const out = Buffer.alloc(PAGE);
-    if (pgno === 1) Buffer.from(page.subarray(0, HEADER_IOS)).copy(out, 0);
-    data.copy(out, start);
-    iv.copy(out, PAGE - RESERVE_IOS);
-    mac.copy(out, PAGE - RESERVE_IOS + 16);
-    return out;
-}
-function encryptDbIos(plain, raw) {
-    const k = keysIos(raw);
-    const pages = [];
-    for (let p = 1; p * PAGE <= plain.length; p++) pages.push(encryptPageIos(k, plain.subarray((p - 1) * PAGE, p * PAGE), p));
-    return { bytes: new Uint8Array(Buffer.concat(pages)), k };
-}
-function encryptedWalIos(k, newer) {
-    const head = Buffer.alloc(32);
-    head.writeUInt32BE(0x377f0682, 0); head.writeUInt32BE(3007000, 4); head.writeUInt32BE(PAGE, 8);
-    head.writeUInt32BE(1, 12); head.writeUInt32BE(0x0a0b0c0d, 16); head.writeUInt32BE(0x01020304, 20);
-    let sum = walChecksum(head.subarray(0, 24), [0, 0]);
-    head.writeUInt32BE(sum[0], 24); head.writeUInt32BE(sum[1], 28);
-    const frames = [head];
-    const count = newer.length / PAGE;
-    for (let p = 1; p <= count; p++) {
-        const data = encryptPageIos(k, newer.subarray((p - 1) * PAGE, p * PAGE), p);
-        const fh = Buffer.alloc(24);
-        fh.writeUInt32BE(p, 0); fh.writeUInt32BE(p === count ? count : 0, 4);
-        fh.writeUInt32BE(0x0a0b0c0d, 8); fh.writeUInt32BE(0x01020304, 12);
-        sum = walChecksum(fh.subarray(0, 8), sum);
-        sum = walChecksum(data, sum);
-        fh.writeUInt32BE(sum[0], 16); fh.writeUInt32BE(sum[1], 20);
-        frames.push(fh, data);
-    }
-    return new Uint8Array(Buffer.concat(frames));
-}
 
 test('HMAC och PBKDF2 med SHA-512 som Nodes crypto (block 128 byte)', () => {
     const data = crypto.randomBytes(500);
@@ -397,4 +235,47 @@ test('openAsync: rapporterar hur långt den kommit', async () => {
     await sc.openAsync(enc, new Uint8Array(0), PASS, 'signal', wal, { batchPages: 2, onProgress: (done, total) => seen.push([done, total]) });
     assert.deepStrictEqual(seen[seen.length - 1], [pages, pages]);
     assert.ok(seen.every((x, i) => !i || x[0] > seen[i - 1][0]));
+});
+
+test('openAsync: i ren JS går det i bitar med förlopp, och säger att det är den långsamma vägen', async () => {
+    const enc = encryptDb(await makeDb(40), PASS, crypto.randomBytes(16)).bytes;
+    const pages = enc.length / PAGE;
+    const want = sc.open(enc, new Uint8Array(0), PASS, 'signal', wal);
+    const seen = [];
+    const got = await sc.openAsync(enc, new Uint8Array(0), PASS, 'signal', wal, { subtle: null, slowPages: 2, onProgress: (done, total, how) => seen.push([done, total, !!(how && how.slow)]) });
+    assert.deepStrictEqual(Buffer.from(got.bytes), Buffer.from(want.bytes));
+    assert.deepStrictEqual(got.stats, want.stats);
+    assert.ok(seen.length >= Math.floor(pages / 2), 'ett förlopp per bit');
+    assert.deepStrictEqual(seen[seen.length - 1], [pages, pages, true]);
+    assert.ok(seen.every((x, i) => x[2] && (!i || x[0] > seen[i - 1][0])));
+});
+
+test('openAsync: WebCrypto som slutar svara mitt i databasen ger samma resultat, med resten i ren JS', async () => {
+    const enc = encryptDb(await makeDb(60), PASS, crypto.randomBytes(16)).bytes;
+    const broken = enc.slice();
+    broken[2 * PAGE + 100] ^= 1;
+    for (const bytes of [enc, broken]) {
+        const want = sc.open(bytes, new Uint8Array(0), PASS, 'signal', wal);
+        const s = countingSubtle();
+        const stops = Object.assign({}, s, { decrypt: (...a) => (s.calls.decrypt >= 1 ? Promise.reject(new Error('går inte längre')) : s.decrypt(...a)) });
+        const seen = [];
+        const got = await sc.openAsync(bytes, new Uint8Array(0), PASS, 'signal', wal, { subtle: stops, batchPages: 1, slowPages: 1, onProgress: (done, total, how) => seen.push(!!(how && how.slow)) });
+        assert.deepStrictEqual(Buffer.from(got.bytes), Buffer.from(want.bytes));
+        assert.deepStrictEqual(got.stats, want.stats);
+        assert.strictEqual(seen[0], false, 'första biten gick med WebCrypto');
+        assert.strictEqual(seen[seen.length - 1], true, 'resten i ren JS');
+    }
+});
+
+test('openAsync: slut på minne kastas vidare i stället för ett nytt försök', async () => {
+    const salt = crypto.randomBytes(16);
+    const { bytes: enc, k } = encryptDb(await makeDb(5), PASS, salt);
+    const oom = new RangeError('Array buffer allocation failed');
+    await assert.rejects(sc.openAsync(enc, new Uint8Array(0), PASS, 'signal', wal, { subtle: { importKey: () => Promise.reject(oom) } }), (e) => e === oom);
+    // Också när det tar slut först vid ramarna i -wal (nycklarna hämtas en gång för databasen och en gång för -wal).
+    const s = countingSubtle();
+    let imports = 0;
+    const later = Object.assign({}, s, { importKey: (...a) => (++imports > 2 ? Promise.reject(oom) : s.importKey(...a)) });
+    await assert.rejects(sc.openAsync(enc, encryptedWal(k, await makeDb(60), salt), PASS, 'signal', wal, { subtle: later }), (e) => e === oom);
+    assert.ok(imports > 2);
 });

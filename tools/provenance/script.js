@@ -15,6 +15,8 @@
     var MAX_ROW_THUMB = 8 * 1024 * 1024;  // originalbilder som får bli tumnagel i vallistan
     var MAX_ROW_VIDEO = 64 * 1024 * 1024; // videor som läses för en bildruta i vallistan
     var TIME_KEYS = ['created', 'added', 'modified', 'trashedAt', 'adjustedAt'];
+    var SLOW_QUERY_MS = 50;               // en fråga som tar längre än så räknas som långsam (se loadDb)
+    var PAINT_BYTES = 8 * 1024 * 1024;    // en databas från den storleken får lägesraden ritad före frågorna (se loadDb)
 
     var state = {
         sources: null, databases: null, targets: null, toolVersion: '',
@@ -260,6 +262,8 @@
         Object.keys(state.loaded).forEach(function (k) { if (state.loaded[k].sqlDb) state.loaded[k].sqlDb.close(); });
         state.loaded = {};
         state.zip = null;
+        // De andra verktygen ska inte fråga här efter databaser som är stängda.
+        if (window.DbShare && window.DbShare.client) window.DbShare.client.gone();
         state.model = null;
         state.signalManual = null;
         $('signal-key').value = '';
@@ -478,26 +482,46 @@
     }
 
     // cipher: { profile, passphrase, source } för en krypterad databas (Signal).
+    // Lägesraden säger vad som händer med databasen medan den läses. Det som går utan paus (Telegrams avkodning,
+    // och frågorna som den som anropar kör direkt efteråt) får sin rad ritad först i en stor databas, så att
+    // raden inte står kvar på ett steg som redan är klart, som dekrypteringen. I en liten databas är det klart
+    // innan raden hade hunnit visas, och ritningen kostar en bildruta.
     async function loadDb(hit, label, cipher) {
         var key = hit.db.name;
-        if (state.loaded[key]) return state.loaded[key];
+        var had = state.loaded[key];
+        if (had) {
+            if (had.slow) await ZipRead.painted();
+            return had;
+        }
         await loadSql();
-        var loaded = await ExtractionCore.loadDatabase(state.zip.read, hit, [state.zip.zipLine], cipher ? { cipher: cipher, onProgress: function (done, total) {
-            progress('Dekrypterar ' + escapeHtml(label) + '… ' + Math.round(100 * done / total) + ' %');
-        } } : undefined);
+        var zip = state.zip;
+        var loaded = await ExtractionCore.loadDatabase(zip.read, hit, [zip.zipLine], {
+            cipher: cipher || null,
+            // Har ett annat verktyg redan läst databasen ur samma extraktion hämtas den därifrån, utan ny läsning
+            // och dekryptering.
+            share: { file: zip.file },
+            onStage: function (stage, frac, by, inner) { progress(escapeHtml(ExtractionCore.stageText(stage, frac, by, label, inner))); },
+        });
         loaded.label = label;
         loaded.keySource = cipher ? cipher.source : null;
+        var big = loaded.bytes.length >= PAINT_BYTES;
         // Härkomst läser bara ur databasen, så arrayen lämnas över utan kopia.
         try { loaded.sqlDb = new SQL.Database(ExtractionCore.noCopy(loaded.bytes)); }
         catch (err) { throw ZipRead.friendlyMemory(err, label, loaded.bytes.length); }
         loaded.bytes = null;
         // Telegrams databaser: tabellerna tg_… avkodas i minnet ur Telegrams eget format (postbox.js).
-        if (window.TelegramPostbox) {
+        if (window.TelegramPostbox && window.TelegramPostbox.kindIn(loaded.sqlDb)) {
+            progress('Avkodar Telegrams meddelanden i ' + escapeHtml(label) + '…');
+            if (big) await ZipRead.painted();
             try { loaded.derived = window.TelegramPostbox.attach(loaded.sqlDb); }
             catch (e) { loaded.warnings.push(label + ': Telegrams format kunde inte avkodas: ' + e.message); }
             if (loaded.derived && loaded.derived.errors) loaded.warnings.push(loaded.derived.line);
         }
+        // Bara läsning efter det: avbilden förblir som den lästes, också för verktygen som får en kopia av den.
+        loaded.sqlDb.run('PRAGMA query_only = ON');
         state.loaded[key] = loaded;
+        progress('Söker i ' + escapeHtml(label) + '…');
+        if (big) await ZipRead.painted();
         return loaded;
     }
 
@@ -505,7 +529,10 @@
     function runRole(loaded, query, values, timeKeys, run) {
         var sql = ProvenanceRoles.fill(query.sql, values);
         var all;
+        var started = performance.now();
         try { all = loaded.sqlDb.exec(sql); } catch (err) { throw schemaError(err, loaded, query); }
+        // En databas vars frågor tar tid: nästa gång ritas lägesraden innan de körs (loadDb).
+        if (performance.now() - started > SLOW_QUERY_MS) loaded.slow = true;
         var res = all.length ? all[all.length - 1] : { columns: [], values: [] };
         // Sökvägen i zippen följer med, så att queryn kan öppnas och köras i Queries.
         var timeColumns = (timeKeys || []).map(function (k) { return ProvenanceRoles.fieldSpec(query, k); })
@@ -1228,6 +1255,8 @@
                 label: l.label, path: l.dbEntry.name, size: l.dbEntry.size, mtime: ExtractionCore.entryTime(l.dbEntry), crc32: ExtractionCore.hex(l.dbEntry.crc32), crcOk: l.crcOk, sha256: l.hashes.db,
                 walPath: l.walEntry ? l.walEntry.name : '', walCrc32: l.walEntry ? ExtractionCore.hex(l.walEntry.crc32) : '', walSha256: l.hashes.wal, walSummary: ExtractionCore.walSummary(l), warnings: l.warnings,
                 cipher: l.stats && l.stats.cipher ? SqlCipher.summary(l.stats, l.keySource) : '', derived: l.derived ? l.derived.line : '',
+                // Avbilden kom från ett annat verktygs läsning: raden säger vilket och när.
+                shared: l.sharedLine || '',
             });
         });
         meta.extraction = { name: z.file.name, size: z.file.size, lastModified: new Date(z.file.lastModified).toISOString() };
@@ -4134,7 +4163,7 @@
             return '<div class="source-block"><h4>' + escapeHtml(s.label) + '</h4><dl>' +
                 '<dt>Sökväg</dt><dd>' + escapeHtml(s.path) + '</dd><dt>CRC32</dt><dd>' + escapeHtml(s.crc32) + (s.crcOk === false ? ' <span class="err">STÄMMER INTE</span>' : '') + '</dd><dt>SHA-256</dt><dd>' + escapeHtml(s.sha256) + '</dd>' +
                 (s.walPath ? '<dt>-wal</dt><dd>' + escapeHtml(s.walPath) + '</dd><dt>-wal SHA-256</dt><dd>' + escapeHtml(s.walSha256) + '</dd>' : '') +
-                '<dt>WAL</dt><dd>' + escapeHtml(s.walSummary) + '</dd>' + (s.cipher ? '<dt>Kryptering</dt><dd>' + escapeHtml(s.cipher) + '</dd>' : '') + (s.derived ? '<dt>Avkodning</dt><dd>' + escapeHtml(s.derived) + '</dd>' : '') + (s.warnings.length ? '<dt>Varning</dt><dd class="warn">' + escapeHtml(s.warnings.join(' ')) + '</dd>' : '') + '</dl></div>';
+                '<dt>WAL</dt><dd>' + escapeHtml(s.walSummary) + '</dd>' + (s.cipher ? '<dt>Kryptering</dt><dd>' + escapeHtml(s.cipher) + '</dd>' : '') + (s.derived ? '<dt>Avkodning</dt><dd>' + escapeHtml(s.derived) + '</dd>' : '') + (s.shared ? '<dt>Läsning</dt><dd>' + escapeHtml(s.shared) + '</dd>' : '') + (s.warnings.length ? '<dt>Varning</dt><dd class="warn">' + escapeHtml(s.warnings.join(' ')) + '</dd>' : '') + '</dl></div>';
         }).join('') + (meta.fileEntry ? '<div class="source-block"><h4>Bildfilen</h4><dl><dt>Sökväg</dt><dd>' + escapeHtml(meta.fileEntry.path) + '</dd><dt>CRC32</dt><dd>' + escapeHtml(meta.fileEntry.crc32) + '</dd><dt>SHA-256</dt><dd>' + escapeHtml(meta.fileEntry.sha256) + '</dd></dl></div>' : '') +
             '<h4>SQL</h4>' + meta.queries.map(function (q) {
                 return '<div class="sql-head"><span><strong>' + escapeHtml(q.id) + '</strong> <span class="muted">' + escapeHtml(q.db) + '</span></span>' +
@@ -4145,7 +4174,7 @@
         $('result').classList.remove('display-none');
         if (!state.keepScroll) $('result').scrollIntoView({ block: 'start', behavior: 'smooth' });
         // Kartan kan ta en stund (eller ge upp efter 15 s utan kartfiler). Resultatet är redan klart.
-        if (/Letar efter kopior|Läser bildfilen|Hämtar registreringar/.test($('run-status').textContent)) setStatus('run-status', '');
+        if (/Letar efter kopior|Läser bildfilen|Hämtar registreringar|Söker i /.test($('run-status').textContent)) setStatus('run-status', '');
         await showMap(m, fmt);
     }
 

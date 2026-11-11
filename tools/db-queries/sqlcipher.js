@@ -476,11 +476,34 @@
         return bad;
     }
 
-    // Som decryptDatabase. Utan WebCrypto, eller om ett anrop misslyckas, går det i ren JS.
-    // opts: { onProgress(sidor, alla), subtle, batchPages }.
+    // Slut på minne blir inte bättre av ett försök till i ren JS: det felet ska fram som det är.
+    function isOutOfMemory(err) {
+        return err instanceof RangeError && /allocation|memory/i.test(String(err.message));
+    }
+
+    // Sidorna 2 och framåt i ren JS, som decryptRest: i bitar, med förlopp och en paus efter varje bit, så att
+    // sidan ritar och svarar under tiden. Omkring 30 MB i sekunden, mot flera hundra med WebCrypto.
+    var SLOW_PAGES = 256;
+    async function decryptRestSlow(keys, profile, db, out, opts) {
+        var size = profile.pageSize;
+        var pages = db.length / size;
+        var batch = opts && opts.slowPages || SLOW_PAGES;
+        var bad = 0;
+        for (var p = 2; p <= pages; p++) {
+            var r = decryptPage(keys, profile, db.subarray((p - 1) * size, p * size), p);
+            if (!r.hmacOk) bad++;
+            out.set(r.bytes, (p - 1) * size);
+            if (p % batch === 0 || p === pages) {
+                if (opts && opts.onProgress) opts.onProgress(p, pages, { slow: true });
+                await yieldToApp();
+            }
+        }
+        return bad;
+    }
+
+    // Som decryptDatabase. Utan WebCrypto, eller om ett anrop misslyckas, går det i ren JS i samma array, i bitar.
+    // opts: { onProgress(sidor, alla, { slow } när det går i ren JS), subtle, batchPages, slowPages }.
     async function decryptDatabaseAsync(db, passphrase, profileName, opts) {
-        var subtle = subtleOf(opts);
-        if (!subtle) return decryptDatabase(db, passphrase, profileName);
         var profile = profileOf(profileName);
         db = db instanceof Uint8Array ? db : new Uint8Array(db);
         checkDatabase(db, profile);
@@ -490,9 +513,13 @@
         var first = decryptPage(keys, profile, db.subarray(0, profile.pageSize), 1);
         if (!first.hmacOk) throw wrongKey(profile);
         out.set(first.bytes, 0);
-        var bad;
-        try { bad = await decryptRest(subtle, keys, profile, db, out, opts); }
-        catch (e) { return decryptDatabase(db, passphrase, profileName); }
+        var subtle = subtleOf(opts);
+        var bad = null;
+        if (subtle) {
+            try { bad = await decryptRest(subtle, keys, profile, db, out, opts); }
+            catch (e) { if (isOutOfMemory(e)) throw e; }
+        }
+        if (bad === null) bad = await decryptRestSlow(keys, profile, db, out, opts);
         return { bytes: out, keys: keys, profile: profile, stats: { pages: pages, badHmac: bad } };
     }
 
@@ -516,7 +543,10 @@
                 part.forEach(function (f, j) { done[f.at] = { bytes: dest.subarray((i + j) * size, (i + j + 1) * size), hmacOk: ok[j] }; });
                 await yieldToApp();
             }
-        } catch (e) { return {}; }
+        } catch (e) {
+            if (isOutOfMemory(e)) throw e;
+            return {};
+        }
         return done;
     }
 

@@ -208,9 +208,39 @@
         catch (err) { throw ZipRead.friendlyMemory(err, src.db.name, src.db.size || 0); }
     }
 
+    function encryptedError(src, cipher) {
+        var err = new Error(src.db.name + ' är krypterad (SQLCipher). ' + 'Välj ' + AppSecrets.keyHint(cipher.profile) + ' med Nyckelfil…, eller klistra in nyckeln i rutan Nyckel under Källa.');
+        err.code = 'ENCRYPTED';
+        return err;
+    }
+
+    // En databas ur extraktionen läses som i Härkomst och Chattar (ExtractionCore.loadDatabase), så att verktygen
+    // delar på läsningen: har ett av dem redan läst databasen kommer en kopia av avbilden därifrån, utan ny
+    // läsning, kontroll och dekryptering. Raden under queryn säger vad som händer under tiden.
+    async function readEntries(src, cipher, SQL) {
+        var hit = { db: src.db.entry, wal: src.wal ? src.wal.entry : null };
+        var loaded;
+        try {
+            loaded = await ExtractionCore.loadDatabase(src.db.zipRead, hit, src.db.lead, {
+                cipher: cipher,
+                share: src.zipFile ? { file: src.zipFile } : null,
+                onStage: function (stage, frac, by, inner) { status.textContent = ExtractionCore.stageText(stage, frac, by, src.db.name, inner); },
+            });
+        } catch (err) {
+            throw err && err.code === 'ENCRYPTED' ? encryptedError(src, cipher) : err;
+        }
+        var origin = src.db.lead.concat([ExtractionCore.entryLine(hit.db, loaded.dbCrcOk)]).concat(hit.wal ? [ExtractionCore.entryLine(hit.wal, loaded.walCrcOk)] : []);
+        if (loaded.cipherLine) origin.push(loaded.cipherLine);
+        return {
+            SQL: SQL, dbFile: src.db, walFile: src.wal || null, stats: loaded.stats, hashes: [loaded.hashes.db, loaded.hashes.wal], bytes: loaded.bytes,
+            origin: origin, shared: loaded.sharedLine, passphrase: cipher.passphrase, encrypted: !!loaded.stats.cipher,
+        };
+    }
+
     async function readSources(src, cipher) {
         cipher = cipher || { profile: null, passphrase: null, source: null };
         var SQL = await loadSqlJs();
+        if (src.db.entry && !src.db.convert && (!src.wal || src.wal.entry)) return readEntries(src, cipher, SQL);
         var dbRead = await src.db.read();
         var walRead = src.wal ? await src.wal.read() : null;
         var hashes = await Promise.all([ExtractionCore.sha256(dbRead.bytes), walRead ? ExtractionCore.sha256(walRead.bytes) : Promise.resolve('')]);
@@ -227,11 +257,7 @@
         }
         var encrypted = dbRead.bytes.length >= 16 && SqlCipher.isEncrypted(dbRead.bytes, cipher.profile);
         if (encrypted) {
-            if (!cipher.passphrase) {
-                var err = new Error(src.db.name + ' är krypterad (SQLCipher). ' + 'Välj ' + AppSecrets.keyHint(cipher.profile) + ' med Nyckelfil…, eller klistra in nyckeln i rutan Nyckel under Källa.');
-                err.code = 'ENCRYPTED';
-                throw err;
-            }
+            if (!cipher.passphrase) throw encryptedError(src, cipher);
             merged = await SqlCipher.openAsync(dbRead.bytes, walBytes, cipher.passphrase, cipher.profile, SqliteWal);
             origin.push(SqlCipher.summary(merged.stats, cipher.source));
         } else {
@@ -347,6 +373,8 @@
         var out = o.origin.slice();
         if (o.hashes[0]) out.push('SHA-256 ' + o.dbFile.name + ': ' + o.hashes[0]);
         if (o.hashes[1]) out.push('SHA-256 ' + o.walFile.name + ': ' + o.hashes[1]);
+        // Läst av ett annat verktyg: raden säger att kontrollerna ovan är från den läsningen.
+        if (o.shared) out.push(o.shared);
         return out;
     }
 
@@ -468,6 +496,10 @@
         preview.classList.add('display-none');
         try {
             var o = await open();
+            // Queryn går utan paus, och före den Telegrams avkodning. Raden ritas först, så att den säger det och
+            // inte står kvar på läsningen eller dekrypteringen.
+            status.textContent = 'Kör queryn…';
+            await ZipRead.painted();
             var shared = QueryRunCore.readsOnly(sql);
             var h = shared ? openForReading(o) : openCopy(o);
             var started = performance.now();
@@ -596,9 +628,10 @@
 
     // Databasen och -wal ur en zip (src.zip) eller från disk. Anropas efter att rätt databas valts,
     // eftersom bytet av databas tömmer rutan. Ur zippen finns ingen -wal att välja; från disk måste
-    // undersökaren bocka i att det inte finns någon. src.opened: filerna är redan inlästa.
+    // undersökaren bocka i att det inte finns någon. src.opened: filerna är redan inlästa. src.zipFile:
+    // extraktionens fil, så att verktygen kan dela på läsningen av databasen.
     function useSources(src) {
-        files = { db: src.db, wal: src.wal || null, mismatch: !!src.mismatch, zip: src.zip, cipher: src.cipher || null };
+        files = { db: src.db, wal: src.wal || null, mismatch: !!src.mismatch, zip: src.zip, zipFile: src.zipFile || null, cipher: src.cipher || null };
         noWal.checked = !!src.zip && !src.wal;
         closeOpened();
         if (src.opened && src.opened.dbFile === files.db && src.opened.walFile === files.wal) opened = src.opened;

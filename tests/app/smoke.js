@@ -639,6 +639,188 @@ const scenarios = [
         return 'block om högst 1 500 av 3 000, sökningen och datumet når hela chatten, utskriften varnar';
     }],
 
+    ['Chattar: listan väljs på app, slag och tomma, ett nummer hittar gruppen genom deltagaren, och en databas fälls ihop', async ({ c }) => {
+        const CHAT = 'chats/index.html';
+        await c.nav('Chattar');
+        await c.waitFor(CHAT, `!ChatsApp.busy() && ChatsApp.state().dbs.length > 0 && ChatsApp.state().dbs.every(d => d.state === 'ready')`, 60000, 'databaserna i Chattar');
+        // Det sidan visar, bredvid det listan räknade fram.
+        const read = () => c.ev(CHAT, `(function(){
+            const text = (el) => el ? el.innerText.replace(/\\s+/g, ' ').trim() : '';
+            const chips = (id) => [...document.querySelectorAll('#' + id + ' .c-chip')].map(b => text(b) + (b.getAttribute('aria-pressed') === 'true' ? '*' : ''));
+            const v = ChatsApp.list();
+            return {
+                apps: chips('c-app-chips'), kinds: chips('c-kind-chips'), count: text(document.getElementById('c-count')),
+                empty: document.getElementById('c-hide-empty-row').classList.contains('display-none') ? '' : text(document.getElementById('c-hide-empty-text')),
+                // Rubriken visas med versaler: textContent har den som den är skriven.
+                groups: [...document.querySelectorAll('#c-list .c-group')].map(b => b.querySelector('.c-group-name').textContent + ' [' + b.querySelector('.c-group-count').textContent + ']' + (b.getAttribute('aria-expanded') === 'true' ? '' : ' hopfälld')),
+                items: [...document.querySelectorAll('#c-list .c-item')].map(text), none: text(document.querySelector('#c-list > .c-list-empty')),
+                query: document.getElementById('c-search').value, total: v.total, shown: v.shown, filtered: v.filtered,
+            };
+        })()`);
+        const press = (what, value) => c.ev(CHAT, `[...document.querySelectorAll('#c-${what}-chips .c-chip')].find(b => b.dataset.${what} === ${JSON.stringify(value)}).click(), 1`);
+        const search = (q) => c.ev(CHAT, `(function(){ const s = document.getElementById('c-search'); s.value = ${JSON.stringify(q)}; s.dispatchEvent(new Event('input', { bubbles: true })); return 1; })()`);
+        const names = (s) => s.items.map((t) => t.split(' ')[0]);
+
+        // Från början: allt visas, och varje app och slag säger hur många konversationer det har.
+        const all = await read();
+        expect(!all.filtered && all.count === '' && all.items.length === all.total && all.total === all.shown, 'Från början: ' + JSON.stringify(all));
+        expect(all.apps.length === 3 && all.apps.includes('WhatsApp 3'), 'Apparna: ' + all.apps);
+        expect(all.kinds.join(', ') === 'Enskilda ' + (all.total - 1) + ', Grupper 1', 'Slagen: ' + all.kinds);
+        expect(all.empty === 'Dölj tomma (1)', 'De tomma: ' + all.empty);
+
+        // En app: bara den står kvar, och raden under valen säger hur mycket som visas.
+        await press('app', 'WhatsApp');
+        const wa = await read();
+        expect(wa.apps.includes('WhatsApp 3*') && wa.groups.join() === 'WhatsApp · iOS [3 av 3]', 'Vald app: ' + JSON.stringify(wa));
+        expect(wa.count === 'Visar 3 av ' + all.total + ' konversationer. Visa alla' && wa.items.length === 3, 'Raden under valen: ' + wa.count);
+        expect(wa.kinds.join(', ') === 'Enskilda 2, Grupper 1', 'Slagen i appen: ' + wa.kinds);
+        // Appen och slaget tillsammans, och sedan utan de tomma.
+        await press('kind', 'group');
+        const groups = await read();
+        expect(groups.items.join() === 'Klubben Grupp 0 meddelanden' && groups.kinds.includes('Grupper 1*'), 'Gruppen: ' + JSON.stringify(groups));
+        await c.ev(CHAT, `document.getElementById('c-hide-empty').click(), 1`);
+        const hidden = await read();
+        expect(hidden.items.length === 0 && hidden.none === 'Ingen konversation i urvalet.' && hidden.count.startsWith('Visar 0 av '), 'Utan de tomma: ' + JSON.stringify(hidden));
+        // Visa alla tar bort varje val.
+        await c.ev(CHAT, `document.getElementById('c-reset').click(), 1`);
+        const reset = await read();
+        expect(JSON.stringify(reset) === JSON.stringify(all), 'Efter Visa alla: ' + JSON.stringify(reset));
+
+        // Numret står hos en deltagare, skrivet på ett annat sätt än i databasen (46701234567@s.whatsapp.net).
+        await search('070-123 45 67');
+        const byNumber = await read();
+        expect(byNumber.items.join() === 'Klubben Grupp 0 meddelanden Deltagare: Mo Månsson', 'Numret: ' + JSON.stringify(byNumber.items));
+        expect(byNumber.count === 'Visar 1 av ' + all.total + ' konversationer. Visa alla', 'Raden under valen: ' + byNumber.count);
+        // Två ord: båda ska finnas, i namnet eller hos en deltagare.
+        await search('klubb månsson');
+        expect(names(await read()).join() === 'Klubben', 'Namn och deltagare');
+        await search('långa månsson');
+        const nothing = await read();
+        expect(nothing.items.length === 0 && nothing.none === 'Ingen konversation matchar sökningen. Den letar i namn, nummer och deltagare, inte i meddelandenas text. Ett nummer hittas bara om databasen har det.', 'Utan träff: ' + JSON.stringify(nothing));
+        // Pil ned i sökrutan går till listan.
+        await search('');
+        const focus = await c.ev(CHAT, `(function(){ const s = document.getElementById('c-search'); s.focus(); s.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true, cancelable: true })); return document.activeElement.className; })()`);
+        expect(focus === 'c-group', 'Pil ned gav fokus till ' + focus);
+
+        // Namn A–Ö i svensk ordning, och en databas som fälls ihop tar sina rader med sig.
+        const sort = (value) => c.ev(CHAT, `(function(){ const s = document.getElementById('c-sort'); s.value = ${JSON.stringify(value)}; s.dispatchEvent(new Event('change', { bubbles: true })); return 1; })()`);
+        await sort('name');
+        expect(names(await read()).slice(0, 3).join() === 'Klubben,Lo,Långa', 'Namn A–Ö: ' + names(await read()));
+        await sort('recent');
+        await c.ev(CHAT, `document.querySelector('#c-list .c-group[data-group="0"]').click(), 1`);
+        const folded = await read();
+        expect(folded.groups[0] === 'WhatsApp · iOS [3] hopfälld' && folded.items.length === all.total - 3, 'Hopfälld: ' + JSON.stringify(folded.groups) + ', ' + folded.items.length + ' rader');
+        await c.ev(CHAT, `document.querySelector('#c-list .c-group[data-group="0"]').click(), 1`);
+        expect(JSON.stringify(await read()) === JSON.stringify(all), 'Utfälld igen');
+        await noInjectedScript(c);
+        return all.total + ' konversationer i ' + all.apps.length + ' appar, numret hittar gruppen genom deltagaren';
+    }],
+
+    ['Chattar: telefonvyn ställer chatten i en ram märkt som rekonstruktion, platsen står kvar vid bytet, och exporten får samma utseende', async ({ c, fx, downloads }) => {
+        const CHAT = 'chats/index.html';
+        const L = fx.longChat;
+        const LABEL = 'Rekonstruktion ur databasen – inte en skärmbild';
+        await c.nav('Chattar');
+        await c.waitFor(CHAT, `!ChatsApp.busy() && [...document.querySelectorAll('.c-item')].some(b => b.innerText.includes('Långa chatten'))`, 60000, 'den långa chatten i listan');
+        const open = async (start, n) => {
+            await c.ev(CHAT, `[...document.querySelectorAll('.c-item')].find(b => b.innerText.startsWith(${JSON.stringify(start)})).click(), 1`);
+            await c.waitFor(CHAT, `!ChatsApp.busy() && ChatsApp.view() && ChatsApp.view().n === ${n} && document.getElementById('c-title').textContent.startsWith(${JSON.stringify(start)})`, 60000, 'chatten ' + start);
+        };
+        // Klicket, och två ritade bilder efter det, så att det som sidan gör efter klicket har hunnit ske.
+        const click = (id) => c.ev(CHAT, `(async function(){ document.getElementById(${JSON.stringify(id)}).click(); await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r))); return 1; })()`);
+        // Ramen, huvudet och foten som de visas, och var i chatten sidan står.
+        const read = () => c.ev(CHAT, `(function(){
+            const box = document.getElementById('c-msgs'), phone = document.getElementById('c-phone'), foot = document.getElementById('c-phone-foot'), b = box.getBoundingClientRect();
+            const shown = (el) => getComputedStyle(el).display !== 'none';
+            const list = [...box.querySelectorAll('.m')], top = list.find(m => m.getBoundingClientRect().bottom > b.top), last = list[list.length - 1];
+            return {
+                look: ChatsApp.look(), stage: document.getElementById('c-stage').classList.contains('phone'), frame: phone.dataset.frame, width: phone.getBoundingClientRect().width,
+                pressed: ['c-look-list', 'c-look-phone'].map(id => document.getElementById(id).getAttribute('aria-pressed')).join(),
+                head: shown(phone.querySelector('.c-phone-head')), foot: shown(foot) ? foot.textContent : '',
+                avatar: document.getElementById('c-phone-avatar').textContent, name: document.getElementById('c-phone-name').textContent, tags: document.getElementById('c-phone-name').children.length, sub: document.getElementById('c-phone-sub').textContent,
+                atEnd: box.scrollHeight - box.scrollTop - box.clientHeight < 2, lastShown: !!last && Number(last.dataset.i) === ChatsApp.view().n - 1 && last.getBoundingClientRect().bottom <= b.bottom + 1,
+                top: top ? { i: Number(top.dataset.i), y: Math.round(top.getBoundingClientRect().top - b.top) } : null,
+            };
+        })()`);
+
+        // Listan från början: ingen ram, och chatten står vid sitt slut.
+        await open('Långa chatten', L.count);
+        await click('c-last');
+        await c.waitFor(CHAT, `ChatsApp.view().to === ${L.count}`, 30000, 'slutet av chatten');
+        const before = await read();
+        expect(before.look === 'list' && !before.stage && !before.head && before.foot === '' && before.pressed === 'true,false', 'Listan från början: ' + JSON.stringify(before));
+        expect(before.atEnd && before.lastShown, 'Chatten står inte vid sitt slut: ' + JSON.stringify(before));
+
+        // Telefon: ramen har en telefons bredd, huvudet säger vem chatten är med och foten vad vyn är.
+        // Chatten står kvar vid sitt slut.
+        await click('c-look-phone');
+        const phone = await read();
+        expect(phone.look === 'phone' && phone.stage && phone.pressed === 'false,true', 'Efter Telefon: ' + JSON.stringify(phone));
+        expect(phone.frame === 'ios' && Math.abs(phone.width - 414.4) < 1, 'Ramen: ' + phone.frame + ', ' + phone.width + ' px');
+        expect(phone.head && phone.avatar === 'L' && phone.name === 'Långa chatten' && phone.sub === '2@lid', 'Huvudet: ' + JSON.stringify(phone));
+        expect(phone.foot === LABEL, 'Foten: ' + phone.foot);
+        expect(phone.atEnd && phone.lastShown, 'Chatten står inte kvar vid slutet: ' + JSON.stringify(phone));
+
+        // Mitt i chatten: meddelandet som står överst gör det i båda utseendena, fast raderna bryts olika.
+        await c.ev(CHAT, `(async function(){ const box = document.getElementById('c-msgs'); box.scrollTop = Math.round(box.scrollHeight / 2) + 7; for (let k = 0; k < 3; k++) await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r))); return 1; })()`);
+        const mid = await read();
+        await click('c-look-list');
+        const midList = await read();
+        await click('c-look-phone');
+        const midPhone = await read();
+        expect(mid.top && midList.top && midPhone.top && !mid.atEnd && midList.look === 'list' && midPhone.look === 'phone', 'Bytet mitt i chatten: ' + JSON.stringify([mid, midList, midPhone]));
+        expect(midList.top.i === mid.top.i && midPhone.top.i === mid.top.i && Math.abs(midList.top.y - mid.top.y) <= 2 && Math.abs(midPhone.top.y - mid.top.y) <= 2, 'Det översta meddelandet flyttade sig: ' + JSON.stringify([mid.top, midList.top, midPhone.top]));
+
+        // Exportrutan föreslår utseendet som visas, och uppskattningen följer valet: två smala remsor på sidan ger
+        // färre sidor än listan. Valet i rutan ändrar inte det som visas.
+        const estimate = async () => {
+            const v = await c.ev(CHAT, `({ look: document.querySelector('input[name="c-look"]:checked').value, text: document.getElementById('c-export-estimate').textContent })`);
+            const m = /^Urvalet: 3 000 meddelanden\. Filen blir omkring [\d,]+ (?:kB|MB), och en utskrift omkring ([\d ]+) sidor\.$/.exec(v.text.replace(/\s+/g, ' '));
+            expect(m, 'Uppskattningen: ' + v.text);
+            return { look: v.look, pages: Number(m[1].replace(/ /g, '')), text: v.text };
+        };
+        await click('c-export-open');
+        const asPhone = await estimate();
+        await c.ev(CHAT, `document.querySelector('input[name="c-look"][value="list"]').click(), 1`);
+        await c.waitFor(CHAT, `document.getElementById('c-export-estimate').textContent !== ${JSON.stringify(asPhone.text)}`, 5000, 'uppskattningen för listan');
+        const asList = await estimate();
+        expect(asPhone.look === 'phone' && asList.look === 'list' && asPhone.pages < asList.pages, 'Sidorna: telefon ' + asPhone.pages + ', lista ' + asList.pages);
+        await click('c-export-cancel');
+        expect(await c.ev(CHAT, `ChatsApp.look()`) === 'phone', 'Valet i exportrutan ändrade utseendet på skärmen');
+
+        // En annan chatt öppnas i samma utseende. Namnet ur databasen skrivs som text, och bubblorna med bilden
+        // håller sig inom ramen.
+        await open('Lo ', 2);
+        await c.waitFor(CHAT, `(document.querySelector('.att-img img') || {}).naturalWidth > 0`, 30000, 'bilden i telefonvyn');
+        const lo = await read();
+        expect(lo.look === 'phone' && lo.frame === 'ios' && lo.avatar === 'L' && lo.name.startsWith('Lo <img') && lo.tags === 0 && lo.sub === '1@lid', 'Huvudet för chatten med Lo: ' + JSON.stringify(lo));
+        const fits = await c.ev(CHAT, `(function(){ const p = document.getElementById('c-msgs').getBoundingClientRect(); return [...document.querySelectorAll('#c-msgs .b')].map(b => b.getBoundingClientRect()).filter(r => r.left < p.left || r.right > p.right).length; })()`);
+        expect(fits === 0, fits + ' bubblor sticker ut ur ramen');
+
+        // Exporten: samma ram i filen, märkt som rekonstruktion, och numren som leder till tabellen Spårbarhet.
+        // Den förra exporten av samma chatt tas bort först, så att det är den nya filen som läses.
+        for (const n of fs.readdirSync(downloads)) if (/^WhatsApp-.*\.html$/.test(n)) fs.unlinkSync(path.join(downloads, n));
+        await click('c-export-open');
+        expect(await c.ev(CHAT, `document.querySelector('input[name="c-look"]:checked').value`) === 'phone', 'Exportrutan föreslår inte utseendet som visas');
+        await c.ev(CHAT, `document.getElementById('c-export-html').click(), 1`);
+        const html = await download(downloads, /^WhatsApp-.*\.html$/, 20000);
+        await c.waitFor(CHAT, `!ChatsApp.busy()`, 20000, 'exporten');
+        expect(html.includes('<div class="phone ios" data-app="WhatsApp">') && html.includes('<span class="avatar">L</span>'), 'Ramen saknas i exporten');
+        expect(html.includes('<div class="phone-foot"><span>' + LABEL + '</span></div>'), 'Märkningen som rekonstruktion saknas i exporten');
+        expect(html.includes('<tr><th>Utseende</th><td>Telefon: en rekonstruktion ur databasen, ingen skärmbild</td></tr>'), 'Raden Utseende saknas i exporten');
+        expect((html.match(/<span class="no">#\d+<\/span>/g) || []).join() === '<span class="no">#1</span>,<span class="no">#2</span>', 'Numren vid bubblorna i exporten');
+        expect(html.includes('<h2>Spårbarhet</h2>') && html.includes('data:image/jpeg;base64,') && html.includes('ZMESSAGEDATE'), 'Spårbarheten eller bilden saknas i exporten');
+        expect(!html.includes('<img src=x onerror'), 'HTML ur databasen står oescapad i exporten');
+        expect(await c.ev(CHAT, `ChatsApp.look()`) === 'phone', 'Exporten ändrade utseendet på skärmen');
+
+        // Tillbaka till listan: ramen, huvudet och foten är borta.
+        await click('c-look-list');
+        const after = await read();
+        expect(after.look === 'list' && !after.stage && !after.head && after.foot === '' && after.pressed === 'true,false', 'Tillbaka i listan: ' + JSON.stringify(after));
+        await noInjectedScript(c);
+        return 'ramen ' + Math.round(phone.width) + ' px, platsen står kvar vid bytet, ' + asPhone.pages + ' sidor som telefon mot ' + asList.pages + ' som lista, exporten har ramen och numren';
+    }],
+
     ['Härkomst: sökning på tid listar filerna, och HTML i namnen körs inte', async ({ c }) => {
         // Bytet av zon gör om bedömningen som visas: sökningen startas när den är klar.
         await c.ev(PROV, `(function(){ const z = document.getElementById('zone'); z.value = 'utc'; z.dispatchEvent(new Event('change')); document.getElementById('when-date').value = '2024-06-01'; document.getElementById('when-time').value = '12:35'; return 1; })()`);
@@ -858,6 +1040,52 @@ const scenarios = [
         await c.nav('Härkomst');
         await noInjectedScript(c);
         return desktop ? 'under extra/, bredvid zippen, flera, och reserven' : 'under extra/ och reserven, i webbläsaren utan mappen';
+    }],
+
+    ['Verktygen delar på läsningen: det Chattar har läst och dekrypterat läser Härkomst och Queries inte om', async ({ c, fx }) => {
+        const CHAT = 'chats/index.html';
+        // En zip som inget verktyg har läst förut, vald med Chattar framme: Chattar läser databaserna genast,
+        // Härkomst först när en fil bedöms och Queries när en query körs.
+        const name = 'Delad-läsning.zip';
+        const zip = path.join(fx.files.dir, name);
+        fs.writeFileSync(zip, fs.readFileSync(fx.files.ufed));
+        await c.nav('Chattar');
+        await c.setFiles(null, '#cb-input', [zip]);
+        await c.ev(null, `document.getElementById('cb-input').dispatchEvent(new Event('change')), 1`);
+        await c.waitFor(CHAT, `!ChatsApp.busy() && ChatsApp.state().zip && ChatsApp.state().zip.file.name === ${JSON.stringify(name)} && ChatsApp.state().dbs.length > 0 && ChatsApp.state().dbs.every(d => d.state === 'ready')`, 60000, 'zippen i Chattar');
+        const first = await c.ev(CHAT, `ChatsApp.state().dbs.map(d => ({ app: d.src.app, by: d.loaded ? d.loaded.sharedBy : null, cipher: !!(d.loaded && d.loaded.stats.cipher) }))`);
+        const signal = first.find((d) => d.app === 'Signal');
+        expect(signal && signal.cipher && signal.by === '', 'Chattar läste inte Signals databas själv: ' + JSON.stringify(first));
+
+        // Härkomst: bedömningen får samma svar, och protokollets källa säger vem som läste databasen och när.
+        await c.nav('Härkomst');
+        await c.waitFor(PROV, `!ProvenanceApp.busy() && document.getElementById('ex-status').textContent.includes(${JSON.stringify(name)}) && /Nyckeln läses ur/.test(document.getElementById('signal-key-note').textContent)`, 60000, 'zippen i Härkomst');
+        const sig = await assessNamed(c, 'IMG_0006.JPG');
+        expect(sig.f.signal && sig.f.signal.state === 'support' && /Mottagen i Signal/.test(sig.f.signal.verdict), 'Signal: ' + JSON.stringify(sig.f.signal));
+        const sources = await c.ev(PROV, `ProvenanceApp.meta().sources.map(s => ({ path: s.path, shared: s.shared, cipher: s.cipher, sha256: s.sha256, crcOk: s.crcOk }))`);
+        const src = sources.find((s) => /signal\.sqlite$/.test(s.path));
+        expect(src && /^Läst ur zippen av Chattar \d{4}-\d\d-\d\d \d\d:\d\d:\d\d UTC\. Verktygen delar på läsningen: /.test(src.shared), 'Signals källa i Härkomst: ' + JSON.stringify(src));
+        expect(src.cipher && /^[0-9a-f]{64}$/.test(src.sha256) && src.crcOk === true, 'Kontrollerna följer inte med: ' + JSON.stringify(src));
+        const shown = await c.ev(PROV, `[...document.querySelectorAll('#sources dt')].filter(dt => dt.textContent === 'Läsning').map(dt => dt.nextElementSibling.textContent)`);
+        expect(shown.some((t) => /^Läst ur zippen av Chattar /.test(t)), 'Raden Läsning syns inte bland källorna: ' + JSON.stringify(shown));
+
+        // Queries: samma databas en tredje gång, utan ny läsning. Spårbarheten säger det.
+        await c.nav('Queries');
+        await c.ev(QUER, `document.getElementById('tab-new').click(), 1`);
+        await c.waitFor(QUER, `/databaser hittades/.test(document.getElementById('ex-status').textContent) && document.getElementById('bar-zip').textContent === ${JSON.stringify(name)}`, 60000, 'zippen i Queries');
+        await c.ev(QUER, `(function(){ const b = document.querySelector('.side-db[data-family="signal-ios-main"]'); if (b.getAttribute('aria-expanded') !== 'true') b.click(); return 1; })()`);
+        await c.ev(QUER, `document.querySelector('.side-q[data-db="signal-ios-main"][data-q="messages"]').click(), 1`);
+        await sleep(300);
+        const day = new Date(fx.T2).toISOString().slice(0, 10);
+        await c.ev(QUER, `(function(){ const s = document.querySelector('[data-param="timeStart"]'), e = document.querySelector('[data-param="timeEnd"]'); s.value = '${day} 00:00'; e.value = '${day} 23:59'; s.dispatchEvent(new Event('input', { bubbles: true })); e.dispatchEvent(new Event('input', { bubbles: true })); return 1; })()`);
+        await c.ev(QUER, `document.getElementById('run-button').click(), 1`);
+        await c.waitFor(QUER, `/rad(er)? på/.test(document.getElementById('run-status').textContent) || /run-warn/.test(document.getElementById('run-status').innerHTML)`, 30000, 'körningen i Queries');
+        const q = await c.ev(QUER, `({ rows: document.querySelectorAll('#run-result tbody tr').length, status: document.getElementById('run-status').innerText, trace: document.getElementById('run-trace') ? document.getElementById('run-trace').innerText : '' })`);
+        expect(q.rows === 1, 'Signals meddelanden: ' + q.rows + ' rader. ' + q.status);
+        expect(/Läst ur zippen av Chattar \d{4}-\d\d-\d\d \d\d:\d\d:\d\d UTC\. Verktygen delar på läsningen/.test(q.trace), 'Spårbarheten i Queries: ' + q.trace.slice(0, 600));
+        await c.nav('Härkomst');
+        await noInjectedScript(c);
+        return 'Signals databas lästes och dekrypterades en gång, av Chattar';
     }],
 
     ['Samsung: batterihistoriken och SSRM ger app, kamera och skärm, med råraderna, och en flyttad klocka räknas inte', async ({ c, fx, downloads }) => {

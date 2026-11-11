@@ -130,17 +130,47 @@ body {
 
 .c-side { display: flex; flex-direction: column; min-height: 0; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
 .c-search { font: inherit; margin: 10px; padding: 7px 10px; border-radius: 8px; border: 1px solid var(--border); background: var(--bg); color: var(--text); }
-.c-list { overflow-y: auto; flex: 1; padding: 0 6px 10px; }
-.c-group { font-size: 11.5px; color: var(--text-muted); text-transform: uppercase; letter-spacing: .04em; padding: 10px 8px 4px; }
-.c-group small { text-transform: none; letter-spacing: 0; display: block; font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Urvalet i listan: en rad med apparna, en med slagen, och ordningen. Talet är vad valet skulle visa. */
+.c-filters { display: flex; flex-direction: column; gap: 6px; padding: 0 10px 8px; border-bottom: 1px solid var(--border); font-size: 12px; }
+.c-chips { display: flex; flex-wrap: wrap; gap: 4px; }
+.c-chips:empty, .c-count:empty { display: none; }
+.c-chip { font: inherit; color: var(--text); background: none; border: 1px solid var(--border); border-radius: 999px; padding: 2px 9px; cursor: pointer; white-space: nowrap; }
+.c-chip span { color: var(--text-muted); font-variant-numeric: tabular-nums; margin-left: 2px; }
+.c-chip:hover { background: var(--surface-hover); border-color: var(--border-hover); }
+.c-chip[aria-pressed="true"] { background: var(--accent-soft); border-color: var(--accent); }
+.c-filter-row { display: flex; gap: 10px; align-items: center; justify-content: space-between; flex-wrap: wrap; }
+.c-sort { font: inherit; color: var(--text); background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 3px 6px; max-width: 100%; }
+.c-check { display: flex; gap: 5px; align-items: center; color: var(--text-muted); cursor: pointer; white-space: nowrap; }
+.c-count { color: var(--text-muted); }
+.c-count .link-btn { font-size: inherit; margin-left: 4px; }
+
+/* Rubriken för varje databas står kvar överst medan dess konversationer rullas, och fäller ihop dem. */
+.c-list { overflow-y: auto; flex: 1; padding: 0 6px 10px; scroll-padding-top: 52px; }
+.c-group {
+    position: sticky; top: 0; z-index: 1; display: grid; grid-template-columns: 1fr auto; column-gap: 8px; width: 100%; text-align: left;
+    font: inherit; font-size: 11.5px; color: var(--text-muted); text-transform: uppercase; letter-spacing: .04em;
+    background: var(--surface); border: none; padding: 10px 8px 5px; cursor: pointer;
+}
+.c-group:hover { color: var(--text); }
+.c-group-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.c-group-name::before { content: ""; display: inline-block; width: 5px; height: 5px; border-right: 1.5px solid currentColor; border-bottom: 1.5px solid currentColor; transform: rotate(45deg); margin: 0 8px 2px 2px; }
+.c-group[aria-expanded="false"] .c-group-name::before { transform: rotate(-45deg); margin-bottom: 1px; }
+.c-group-count { text-transform: none; letter-spacing: 0; font-variant-numeric: tabular-nums; }
+.c-group small { grid-column: 1 / -1; text-transform: none; letter-spacing: 0; display: block; font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding-left: 15px; }
+.c-db-none .c-group { opacity: .6; padding-bottom: 2px; }
 .c-item { display: block; width: 100%; text-align: left; font: inherit; color: var(--text); background: none; border: 1px solid transparent; border-radius: 8px; padding: 7px 8px; cursor: pointer; }
 .c-item:hover { background: var(--surface-hover); }
 .c-item[aria-current="true"] { background: var(--accent-soft); border-color: var(--accent); }
 .c-item-name { font-weight: 600; display: flex; gap: 6px; align-items: baseline; }
 .c-item-name span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.c-item-sub { font-size: 12px; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.c-item-sub, .c-item-who { display: block; font-size: 12px; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .c-kind { font-size: 10.5px; font-weight: 500; color: var(--text-muted); border: 1px solid var(--border); border-radius: 6px; padding: 0 5px; flex: none; }
+.c-more { display: block; width: 100%; font: inherit; font-size: 12.5px; color: var(--accent); background: none; border: 1px dashed var(--border); border-radius: 8px; padding: 6px 8px; margin-top: 4px; cursor: pointer; }
+.c-more:hover { background: var(--surface-hover); }
+.c-chip:focus-visible, .c-group:focus-visible, .c-item:focus-visible, .c-more:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .c-list-empty { color: var(--text-muted); font-size: 13px; padding: 12px 8px; }
+.c-list .warn { color: var(--warn); }
 
 .c-chat { position: relative; min-height: 0; display: flex; flex-direction: column; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
 .c-empty { padding: 28px; max-width: 720px; line-height: 1.55; }
@@ -148,13 +178,19 @@ body {
 .c-empty p { margin-bottom: 10px; }
 .c-view { display: flex; flex-direction: column; min-height: 0; flex: 1; }
 .c-head { display: flex; gap: 12px; align-items: flex-start; justify-content: space-between; padding: 12px 14px; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
-.c-head-text { min-width: 0; flex: 1; }
+/* Namnet behåller minst 320 px: får knapparna inte plats bredvid går de ned på en egen rad. */
+.c-head-text { min-width: 0; flex: 1 1 320px; }
 .c-eyebrow { font-size: 11.5px; color: var(--text-muted); text-transform: uppercase; letter-spacing: .04em; }
 .c-head h1 { font-size: 18px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .c-sub { font-size: 12.5px; color: var(--text-muted); }
 .c-tools { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .c-zone { font-size: 12.5px; color: var(--text-muted); display: flex; gap: 6px; align-items: center; }
 .c-zone select { font: inherit; font-size: 13px; color: var(--text); background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 4px 6px; }
+/* Två knappar som hör ihop: Lista och Telefon. */
+.c-seg { display: inline-flex; }
+.c-seg .c-btn:first-child { border-radius: 8px 0 0 8px; }
+.c-seg .c-btn:last-child { border-radius: 0 8px 8px 0; margin-left: -1px; }
+.c-seg .c-btn[aria-pressed="true"] { position: relative; z-index: 1; }
 
 .c-people { padding: 8px 14px 10px; border-bottom: 1px solid var(--border); font-size: 13px; }
 .c-people ul { list-style: none; display: flex; flex-wrap: wrap; gap: 6px 14px; }
@@ -215,6 +251,35 @@ body {
 .att-check:empty { display: none; }
 .att-check.bad { color: var(--warn); opacity: 1; font-weight: 600; }
 
+/* Telefonvyn: samma meddelanden i en ram med en telefons bredd, omkring 390 punkter vid 16 px text. Ramen följer
+   plattformen, och i den står bara det databasen har: ingen klocka, mottagning eller batterinivå. I listvyn syns
+   varken ram, huvud eller fot. */
+.c-stage, .c-phone { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.c-phone-head, .c-phone-foot { display: none; }
+.c-stage.phone { align-items: center; justify-content: center; padding: 14px; background: var(--bg); }
+.c-stage.phone .c-phone {
+    flex: 0 1 54em; width: 25.9em; max-width: 100%; font-size: 16px; overflow: hidden; background: var(--surface);
+    border: .65em solid #111114; border-radius: 3em; box-shadow: 0 0 0 1px var(--border-hover), 0 12px 30px rgba(0, 0, 0, .35);
+}
+.c-stage.phone .c-phone-head { display: flex; align-items: center; gap: .6em; position: relative; padding: 2.9em .9em .55em; background: var(--surface); border-bottom: 1px solid var(--border); }
+.c-stage.phone .c-phone-head::before { content: ""; position: absolute; top: .6em; left: 50%; margin-left: -3.2em; width: 6.4em; height: 1.75em; border-radius: 1em; background: #111114; }
+.c-stage.phone .c-phone[data-frame="android"] { border-width: .55em; border-radius: 2.2em; }
+.c-stage.phone .c-phone[data-frame="android"] .c-phone-head { padding-top: 2.2em; }
+.c-stage.phone .c-phone[data-frame="android"] .c-phone-head::before { top: .65em; margin-left: -.45em; width: .9em; height: .9em; border-radius: 50%; }
+.c-stage.phone .c-phone[data-frame="plain"] .c-phone-head { padding-top: 1.4em; }
+.c-stage.phone .c-phone[data-frame="plain"] .c-phone-head::before { display: none; }
+.c-avatar { flex: none; width: 2.25em; height: 2.25em; border-radius: 50%; background: var(--border-hover); display: flex; align-items: center; justify-content: center; font-weight: 600; }
+.c-phone-names { min-width: 0; display: flex; flex-direction: column; }
+.c-phone-names b, .c-phone-names small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.c-phone-names small { font-size: .75em; color: var(--text-muted); }
+.c-stage.phone .c-phone-foot { display: block; text-align: center; font-size: .75em; color: var(--text-muted); background: var(--surface); border-top: 1px solid var(--border); padding: .55em .8em .8em; }
+.c-stage.phone .c-msgs { font-size: 16px; padding: 4px .6em .7em; scrollbar-width: thin; }
+.c-stage.phone .c-day span { font-size: .75em; }
+.c-stage.phone .b { max-width: 78%; border-radius: 1.1em; padding: .4em .7em .3em; }
+.c-stage.phone .m.sys .b { max-width: 88%; font-size: .78em; }
+.c-stage.phone .who, .c-stage.phone .reply { font-size: .8em; }
+.c-stage.phone .foot { font-size: .7em; }
+
 .c-modal { position: fixed; inset: 0; background: rgba(0, 0, 0, .45); display: flex; align-items: center; justify-content: center; z-index: 20; }
 .c-modal-box { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 18px 20px; width: min(560px, 92vw); display: flex; flex-direction: column; gap: 12px; }
 .c-modal-box h2 { font-size: 17px; }
@@ -222,6 +287,7 @@ body {
 .c-choice legend { font-size: 12.5px; color: var(--text-muted); margin-bottom: 4px; }
 .c-range { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; padding-left: 22px; font-size: 13px; }
 .c-range input { font: inherit; font-size: 13px; width: 150px; color: var(--text); background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 4px 6px; }
+.c-choice-note { font-size: 12.5px; }
 .c-modal-actions { display: flex; gap: 8px; justify-content: flex-end; }
 .c-export-estimate { font-size: 13px; }
 .c-export-estimate:empty { display: none; }
@@ -250,5 +316,5 @@ body {
 .toast.show { opacity: 1; }
 
 @media (max-width: 760px) {
-    .c-main { grid-template-columns: 1fr; grid-template-rows: 200px 1fr; }
+    .c-main { grid-template-columns: 1fr; grid-template-rows: minmax(260px, 45vh) 1fr; }
 }

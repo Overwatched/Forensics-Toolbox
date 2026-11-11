@@ -445,12 +445,16 @@
         return { line: line, errors: errors.length };
     }
 
+    // Vilket av Telegrams format databasen har ('postbox' eller 'storage'), eller null för en annan databas.
+    function kindIn(db) {
+        try { return kindOf(tableNames(db)); } catch (e) { return null; }
+    }
+
     // Lägger Telegrams tabeller i en sql.js-databas när den är en av Telegrams. cache: ett objekt där de
     // avkodade raderna sparas, så att en ny kopia av samma databas inte avkodas igen. Returnerar
     // { kind, tables, line, errors } eller null.
     function attach(db, cache) {
-        var kind;
-        try { kind = kindOf(tableNames(db)); } catch (e) { return null; }
+        var kind = kindIn(db);
         if (!kind) return null;
         var data = cache && cache[kind];
         if (!data) {
@@ -463,7 +467,7 @@
     }
 
     var api = {
-        attach: attach, kindOf: kindOf, decodeKey: decodeKey, decodeMessage: decodeMessage, decodeRoot: decodeRoot, messageRows: messageRows,
+        attach: attach, kindOf: kindOf, kindIn: kindIn, decodeKey: decodeKey, decodeMessage: decodeMessage, decodeRoot: decodeRoot, messageRows: messageRows,
         peerRow: peerRow, storageRows: storageRows, peerParts: peerParts, resourceId: resourceId, mediaSummary: mediaSummary, libraryUuid: libraryUuid,
         murmur3: murmur3, classHash: classHash, className: className, SEED: SEED, VIEW_ONCE: VIEW_ONCE, CLASS_NAMES: CLASS_NAMES,
     };

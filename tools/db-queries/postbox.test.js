@@ -158,7 +158,18 @@ test('bara Telegrams databaser får tabellerna', async () => {
     const db = new SQL.Database();
     db.run('CREATE TABLE t7 (key BLOB, value BLOB)');
     assert.strictEqual(PB.attach(db), null);
+    // kindIn frågar databasen själv, utan att avkoda något: verktygen visar raden om avkodningen först när den behövs.
+    assert.strictEqual(PB.kindIn(db), null);
     db.close();
+    const postbox = new SQL.Database(E.postboxDb(SQL, { messages: [], peers: [] }));
+    assert.strictEqual(PB.kindIn(postbox), 'postbox');
+    assert.strictEqual(rows(postbox, "SELECT count(*) AS n FROM sqlite_temp_master WHERE name LIKE 'tg_%'")[0].n, 0);
+    postbox.close();
+    const storage = new SQL.Database(E.storageDb(SQL, { entries: [] }));
+    assert.strictEqual(PB.kindIn(storage), 'storage');
+    storage.close();
+    // En stängd databas är ingen av Telegrams, och ger inget undantag.
+    assert.strictEqual(PB.kindIn(storage), null);
 });
 
 test('avkodningen växer linjärt: 150 000 meddelanden med bilder går på några sekunder', async () => {

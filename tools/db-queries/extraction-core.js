@@ -5,7 +5,7 @@
 (function (root) {
     'use strict';
 
-    // ZipRead, ZipLocate, UfdrRead, FsTimes, SqliteWal och AppSecrets är globala i webbläsaren. I Node skickas de in med use().
+    // ZipRead, ZipLocate, UfdrRead, FsTimes, SqliteWal, AppSecrets och DbShare är globala i webbläsaren. I Node skickas de in med use().
     var deps = {};
     function dep(name) {
         if (deps[name]) return deps[name];
@@ -80,15 +80,20 @@
     // Vad källan heter i texterna. En rapport är också en zip, men det undersökaren valde är en rapport.
     function sourceWord(entry) { return entry && entry.report ? 'rapporten' : 'zippen'; }
 
-    // Läser ut en post och beskriver var den kom ifrån, med CRC32 kontrollerad mot zippen. I en rapport står
+    // Raden om en post: var den kom ifrån, och om CRC32 stämde mot zippen när den lästes. I en rapport står
     // telefonens sökväg först och rapportens egen post efter.
-    async function readEntry(read, entry) {
-        var out = await dep('ZipRead').extract(read, entry);
+    function entryLine(entry, crcOk) {
         var where = entry.report ? (entry.report.member ? 'posten ' + entry.report.member + ', ' : 'tom fil utan post i rapporten, ') : '';
         var line = 'Ur ' + sourceWord(entry) + ': ' + entry.name + ' (' + where + entry.size + ' byte, ändrad ' + entryTime(entry) +
-            ', CRC32 ' + hex(entry.crc32) + (out.crcOk ? ' stämmer' : ' STÄMMER INTE') + ')';
-        if (!out.crcOk) line += '. Varning: innehållet skiljer sig från det ' + sourceWord(entry) + ' anger.';
-        return { bytes: out.bytes, crcOk: out.crcOk, line: line };
+            ', CRC32 ' + hex(entry.crc32) + (crcOk ? ' stämmer' : ' STÄMMER INTE') + ')';
+        if (!crcOk) line += '. Varning: innehållet skiljer sig från det ' + sourceWord(entry) + ' anger.';
+        return line;
+    }
+
+    // Läser ut en post och beskriver var den kom ifrån, med CRC32 kontrollerad mot zippen.
+    async function readEntry(read, entry) {
+        var out = await dep('ZipRead').extract(read, entry);
+        return { bytes: out.bytes, crcOk: out.crcOk, line: entryLine(entry, out.crcOk) };
     }
 
     // Filens SHA-256 mot den report.xml anger. true, false, eller null när det inte går att jämföra.
@@ -123,7 +128,8 @@
     }
 
     // En källa i samma form som "Kör i appen" i Queries använder: { name, size, key, read() -> { bytes, lines } }.
-    // lead: rader som ska stå först, t.ex. vilken zip det gäller.
+    // lead: rader som ska stå först, t.ex. vilken zip det gäller. entry, lead och zipRead följer med, så att
+    // databasen och dess -wal kan läsas med loadDatabase.
     function zipSource(read, entry, lead) {
         return {
             name: baseName(entry.name),
@@ -131,6 +137,9 @@
             size: entry.size,
             // Samma post i samma zip, så att Queries inte läser om en databas som redan är inläst.
             key: (lead || []).join('|') + '|' + entry.localOffset + '|' + entry.name,
+            entry: entry,
+            lead: lead || [],
+            zipRead: read,
             read: async function () {
                 var r = await readEntry(read, entry);
                 return { bytes: r.bytes, lines: (lead || []).concat([r.line]) };
@@ -267,16 +276,28 @@
     // lägger WAL-ramarna på en kopia i minnet. hit är en träff från locate(): { db, wal, journal }.
     // opts.cipher: { profile, passphrase, source } för en SQLCipher-krypterad databas (Signal):
     // sidorna och WAL-ramarna dekrypteras då i minnet. Är databasen krypterad utan nyckel kastas
-    // ett fel med code 'ENCRYPTED'. opts.onProgress(sidor, alla) under dekrypteringen.
-    // Returnerar { bytes, stats, hashes: { db, wal }, lines, warnings, dbEntry, walEntry }.
+    // ett fel med code 'ENCRYPTED'.
+    // opts.share: { file } låter verktygen dela på läsningen (se sharedCore). file är extraktionens fil.
+    // opts.onStage(skede, andel, verktyg, dess skede): vad som händer, se stageText.
+    // opts.onProgress(sidor, alla) under dekrypteringen.
+    // Returnerar { bytes, stats, hashes: { db, wal }, lines, warnings, dbEntry, walEntry, crcOk, dbCrcOk, walCrcOk,
+    // sharedBy, sharedLine, cipherLine }.
     async function loadDatabase(read, hit, lead, opts) {
-        try { return await readDatabase(read, hit, lead, opts || {}); }
+        opts = opts || {};
+        try { return describe(await sharedCore(read, hit, opts), hit, lead, opts); }
         catch (err) { throw dep('ZipRead').friendlyMemory(err, baseName(hit.db.name), hit.db.size); }
     }
 
-    async function readDatabase(read, hit, lead, opts) {
-        var dbRead = await readEntry(read, hit.db);
-        var walRead = hit.wal ? await readEntry(read, hit.wal) : null;
+    // Själva läsningen: databasen och -wal ur extraktionen, CRC32, SHA-256, dekrypteringen och WAL-ramarna.
+    // Ger avbilden och det som räknades, utan texter. Texterna skrivs av verktyget som visar dem (describe),
+    // så en avbild som delas mellan verktygen har samma uppgifter hos alla.
+    // -> { bytes, stats, hashes: { db, wal }, dbCrcOk, walCrcOk (null utan -wal), encrypted, readAt, readBy }
+    async function readCore(read, hit, opts) {
+        var stage = opts.onStage || function () {};
+        stage('read', null);
+        var dbRead = await dep('ZipRead').extract(read, hit.db);
+        var walRead = hit.wal ? await dep('ZipRead').extract(read, hit.wal) : null;
+        stage('hash', null);
         var hashes = { db: await sha256(dbRead.bytes), wal: walRead ? await sha256(walRead.bytes) : '' };
         var walBytes = walRead ? walRead.bytes : new Uint8Array(0);
         // En SQLCipher-fil med okrypterat huvud (Signal på iOS) börjar som SQLite; SqlCipher känner igen den.
@@ -284,35 +305,145 @@
         var encrypted = dbRead.bytes.length >= 16 && (sc ? sc.isEncrypted(dbRead.bytes, opts.cipher && opts.cipher.profile) : !isPlainSqlite(dbRead.bytes));
         var merged;
         if (encrypted && opts.cipher && opts.cipher.passphrase) {
-            merged = await dep('SqlCipher').openAsync(dbRead.bytes, walBytes, opts.cipher.passphrase, opts.cipher.profile, dep('SqliteWal'), { onProgress: opts.onProgress });
+            stage('decrypt', 0);
+            merged = await dep('SqlCipher').openAsync(dbRead.bytes, walBytes, opts.cipher.passphrase, opts.cipher.profile, dep('SqliteWal'), {
+                onProgress: function (done, total, how) {
+                    if (opts.onProgress) opts.onProgress(done, total, how);
+                    stage(how && how.slow ? 'decrypt-slow' : 'decrypt', total ? done / total : null);
+                },
+            });
         } else if (encrypted && opts.cipher) {
             var err = new Error(baseName(hit.db.name) + ' är krypterad (SQLCipher), och ingen nyckel hittades: extraktionen saknar ' + (opts.cipher.hint || 'nyckelfilen') + '. Klistra in nyckeln för att läsa databasen.');
             err.code = 'ENCRYPTED';
             throw err;
         } else {
+            if (walRead && walRead.bytes.length) stage('wal', null);
             merged = dep('SqliteWal').apply(dbRead.bytes, walBytes, { owned: true });
         }
+        return {
+            bytes: merged.bytes, stats: merged.stats, hashes: hashes, dbCrcOk: dbRead.crcOk, walCrcOk: walRead ? walRead.crcOk : null,
+            encrypted: encrypted, readAt: Date.now(), readBy: '',
+        };
+    }
+
+    // Vilken dekryptering en delad avbild gäller: profilen och en SHA-256 över nyckeln, aldrig nyckeln själv.
+    // Tom för en databas som läses utan nyckel. null när summan inte går att räkna: då delas databasen inte.
+    async function cipherTag(cipher) {
+        if (!cipher || !cipher.passphrase) return '';
+        var profile = String(cipher.profile || '');
+        var sum = typeof TextEncoder === 'undefined' ? '' : await sha256(new TextEncoder().encode(profile + '\u0000' + String(cipher.passphrase)));
+        return sum ? profile + ':' + sum : null;
+    }
+
+    // Uppgifterna om läsningen som följer med en avbild till nästa verktyg.
+    function factsOf(core) {
+        return { stats: core.stats, hashes: core.hashes, dbCrcOk: core.dbCrcOk, walCrcOk: core.walCrcOk, encrypted: core.encrypted, readAt: core.readAt, readBy: core.readBy || '' };
+    }
+
+    // En avbild från ett annat verktyg används bara om den är läsbar som den är här: en okrypterad
+    // SQLite-fil med uppgifterna om läsningen. Annars läser verktyget databasen själv.
+    function usable(got, opts) {
+        if (!got.bytes || got.bytes.length < 100 || !got.stats || !got.hashes || typeof got.dbCrcOk !== 'boolean') return false;
+        var sc = deps.SqlCipher || root.SqlCipher;
+        return isPlainSqlite(got.bytes) && !(sc && sc.isEncrypted(got.bytes, opts.cipher && opts.cipher.profile));
+    }
+
+    // Läsningen genom delningen mellan verktygen (tools/_shared/db-share.js). Har ett annat verktyg redan läst
+    // samma databas ur samma fil, med samma nyckel, kommer en kopia av dess avbild därifrån: ingen ny läsning,
+    // kontroll eller dekryptering. Läser ett annat verktyg just nu in den, väntar det här på det i stället för
+    // att läsa samma fil samtidigt. Utan huvudfönster, och för ett verktyg som öppnats för sig, är det readCore.
+    async function sharedCore(read, hit, opts) {
+        var Share = deps.DbShare || root.DbShare;
+        // opts.share.client byts ut i testerna, där flera verktyg delar på en process.
+        var client = opts.share && opts.share.file && Share ? opts.share.client || Share.client : null;
+        var tag = client ? await cipherTag(opts.cipher) : null;
+        var key = tag === null ? '' : Share.keyOf(opts.share.file, hit.db, hit.wal, tag);
+        if (!key) return readCore(read, hit, opts);
+        var stage = opts.onStage || function () {};
+        var got = await client.want(key, function (w) { stage(w.why === 'copy' ? 'copy' : 'wait', w.frac, w.by, w.stage); });
+        if (got && usable(got, opts)) {
+            client.have(key, got.bytes, factsOf(got));
+            return got;
+        }
+        var core;
+        // De som väntar på den här läsningen får veta var den är, när skedet eller procenten har ändrats: en
+        // stor databas dekrypteras i över tusen omgångar, och ett meddelande för var och en säger inget nytt.
+        var told = '';
+        function tell(name, frac) {
+            var now = name + (typeof frac === 'number' ? ' ' + Math.round(100 * frac) : '');
+            if (now !== told) { told = now; client.progress(key, name, frac); }
+            stage(name, frac);
+        }
+        try {
+            core = await readCore(read, hit, Object.assign({}, opts, { onStage: tell }));
+        } catch (err) {
+            client.failed(key);
+            throw err;
+        }
+        // En databas som lästes utan nyckel och ändå är krypterad är ingenting att dela.
+        if (core.encrypted && !core.stats.cipher) client.failed(key);
+        else client.have(key, core.bytes, factsOf(core));
+        return core;
+    }
+
+    // Vad som händer medan en databas läses, som text. label är vad verktyget kallar databasen; utan den
+    // blir det en kort text med liten bokstav, för en rad som redan säger vilken databas det gäller.
+    // by och inner: verktyget som läser in databasen åt det här, och skedet det är i.
+    function stageText(stage, frac, by, label, inner) {
+        var pct = typeof frac === 'number' ? ' ' + Math.round(100 * frac) + ' %' : '';
+        var of = label ? ' ' + label : '';
+        var text;
+        if (stage === 'wait') {
+            var doing = inner && inner !== 'wait' && inner !== 'copy' ? stageText(inner, frac) : '';
+            text = 'väntar på ' + (label || 'databasen') + ', som ' + by + ' redan läser in' + (doing ? ' (' + doing + ')' : '…');
+        } else if (stage === 'copy') text = 'hämtar ' + (label || 'databasen') + ' från ' + by + ', som redan har läst den…';
+        else if (stage === 'hash') text = 'räknar SHA-256' + (label ? ' för ' + label : '') + '…';
+        else if (stage === 'decrypt') text = 'dekrypterar' + of + '…' + pct;
+        else if (stage === 'decrypt-slow') text = 'dekrypterar' + of + ' utan webbläsarens inbyggda kryptering, så det går långsammare…' + pct;
+        else if (stage === 'wal') text = 'lägger på -wal' + (label ? ' för ' + label : '') + '…';
+        else text = 'läser' + (of || ' filen') + '…';
+        return label ? text.charAt(0).toUpperCase() + text.slice(1) : text;
+    }
+
+    function utcText(ms) { return new Date(ms).toISOString().slice(0, 19).replace('T', ' ') + ' UTC'; }
+
+    // Det verktyget visar om en läsning: raderna till protokollet och varningarna. core kan komma från ett annat
+    // verktygs läsning; posterna, raderna före och nyckelns källa är verktygets egna.
+    function describe(core, hit, lead, opts) {
+        var dbName = baseName(hit.db.name);
+        var walName = hit.wal ? baseName(hit.wal.name) : '';
         var warnings = [];
         // En -wal som inte går att lägga på (trasigt huvud, fel sidstorlek) hoppar SQLite över. Här
         // läses databasen likadant utan den, och varningen säger det.
-        if (walRead && merged.stats.error) warnings.push(baseName(hit.wal.name) + ' lades inte på: ' + merged.stats.error + '. ' + baseName(hit.db.name) + ' lästes utan -wal, som SQLite gör med en sådan fil. Poster som bara finns i -wal saknas.');
-        if (!walRead) warnings.push(baseName(hit.db.name) + ' lästes utan -wal: ' + (hit.db.report ? 'rapporten har ingen, men den kan ha funnits på telefonen.' : 'extraktionen har ingen.') + ' Poster som bara fanns i -wal kan saknas.');
-        if (hit.journal && hit.journal.size) warnings.push(baseName(hit.db.name) + ' har en -journal: databasen kan vara mitt i en transaktion.');
-        if (!dbRead.crcOk) warnings.push('CRC32 för ' + baseName(hit.db.name) + ' stämmer inte med ' + sourceWord(hit.db) + '.');
-        if (walRead && !walRead.crcOk) warnings.push('CRC32 för ' + baseName(hit.wal.name) + ' stämmer inte med ' + sourceWord(hit.wal) + '.');
-        if (reportHashOk(hit.db, hashes.db) === false) warnings.push('SHA-256 för ' + baseName(hit.db.name) + ' stämmer inte med report.xml.');
-        if (walRead && reportHashOk(hit.wal, hashes.wal) === false) warnings.push('SHA-256 för ' + baseName(hit.wal.name) + ' stämmer inte med report.xml.');
-        var lines = (lead || []).concat([dbRead.line]).concat(walRead ? [walRead.line] : []);
-        if (hashes.db) lines.push('SHA-256 ' + baseName(hit.db.name) + ': ' + hashes.db);
-        if (hashes.wal) lines.push('SHA-256 ' + baseName(hit.wal.name) + ': ' + hashes.wal);
-        if (merged.stats.cipher) {
-            lines.push(dep('SqlCipher').summary(merged.stats, opts.cipher.source));
-            var bad = merged.stats.cipher.badHmac + merged.stats.cipher.walBadHmac;
-            if (bad) warnings.push(baseName(hit.db.name) + ': kontrollsumman (HMAC) stämde inte för ' + bad + ' sidor efter dekrypteringen. De sidorna kan vara skadade.');
+        if (hit.wal && core.stats.error) warnings.push(walName + ' lades inte på: ' + core.stats.error + '. ' + dbName + ' lästes utan -wal, som SQLite gör med en sådan fil. Poster som bara finns i -wal saknas.');
+        if (!hit.wal) warnings.push(dbName + ' lästes utan -wal: ' + (hit.db.report ? 'rapporten har ingen, men den kan ha funnits på telefonen.' : 'extraktionen har ingen.') + ' Poster som bara fanns i -wal kan saknas.');
+        if (hit.journal && hit.journal.size) warnings.push(dbName + ' har en -journal: databasen kan vara mitt i en transaktion.');
+        if (!core.dbCrcOk) warnings.push('CRC32 för ' + dbName + ' stämmer inte med ' + sourceWord(hit.db) + '.');
+        if (hit.wal && !core.walCrcOk) warnings.push('CRC32 för ' + walName + ' stämmer inte med ' + sourceWord(hit.wal) + '.');
+        if (reportHashOk(hit.db, core.hashes.db) === false) warnings.push('SHA-256 för ' + dbName + ' stämmer inte med report.xml.');
+        if (hit.wal && reportHashOk(hit.wal, core.hashes.wal) === false) warnings.push('SHA-256 för ' + walName + ' stämmer inte med report.xml.');
+        var lines = (lead || []).concat([entryLine(hit.db, core.dbCrcOk)]).concat(hit.wal ? [entryLine(hit.wal, core.walCrcOk)] : []);
+        if (core.hashes.db) lines.push('SHA-256 ' + dbName + ': ' + core.hashes.db);
+        if (core.hashes.wal) lines.push('SHA-256 ' + walName + ': ' + core.hashes.wal);
+        var cipherLine = '';
+        if (core.stats.cipher) {
+            cipherLine = dep('SqlCipher').summary(core.stats, opts.cipher && opts.cipher.source);
+            lines.push(cipherLine);
+            var bad = core.stats.cipher.badHmac + core.stats.cipher.walBadHmac;
+            if (bad) warnings.push(dbName + ': kontrollsumman (HMAC) stämde inte för ' + bad + ' sidor efter dekrypteringen. De sidorna kan vara skadade.');
+        }
+        // Läst av ett annat verktyg: det ska synas i protokollet, med när kontrollerna gjordes.
+        var sharedLine = '';
+        if (core.readBy) {
+            sharedLine = 'Läst ur ' + sourceWord(hit.db) + ' av ' + core.readBy + ' ' + utcText(core.readAt) + '. Verktygen delar på läsningen: här används en kopia av avbilden i minnet, och CRC32' +
+                (core.hashes.db ? (core.stats.cipher ? ', SHA-256 och dekrypteringen' : ' och SHA-256') : (core.stats.cipher ? ' och dekrypteringen' : '')) + ' ovan är från den läsningen.';
+            lines.push(sharedLine);
         }
         return {
-            bytes: merged.bytes, stats: merged.stats, hashes: hashes, lines: lines, warnings: warnings,
-            dbEntry: hit.db, walEntry: hit.wal || null, crcOk: dbRead.crcOk && (!walRead || walRead.crcOk),
+            bytes: core.bytes, stats: core.stats, hashes: core.hashes, lines: lines, warnings: warnings,
+            dbEntry: hit.db, walEntry: hit.wal || null, crcOk: core.dbCrcOk && (!hit.wal || !!core.walCrcOk),
+            dbCrcOk: core.dbCrcOk, walCrcOk: core.walCrcOk,
+            sharedBy: core.readBy || '', sharedLine: sharedLine, cipherLine: cipherLine,
         };
     }
 
@@ -332,7 +463,7 @@
     var api = {
         use: function (d) { Object.keys(d).forEach(function (k) { deps[k] = d[k]; }); },
         targets: targets, dbForVersion: dbForVersion, open: open, openSource: openSource, find: find, findKeys: findKeys, readKeyFile: readKeyFile, sourceWord: sourceWord, reportHashOk: reportHashOk,
-        readEntry: readEntry, zipSource: zipSource, loadDatabase: loadDatabase, walSummary: walSummary, entryTimes: entryTimes,
+        readEntry: readEntry, entryLine: entryLine, zipSource: zipSource, loadDatabase: loadDatabase, stageText: stageText, walSummary: walSummary, entryTimes: entryTimes,
         sha256: sha256, noCopy: noCopy, entryTime: entryTime, hex: hex, sizeText: sizeText, baseName: baseName,
     };
     if (typeof module !== 'undefined' && module.exports) module.exports = api;

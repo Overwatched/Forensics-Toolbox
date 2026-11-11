@@ -191,6 +191,9 @@ function whatsappDb(SQL, mediaSha) {
     insert(db, 'ZWAMESSAGE', { Z_PK: 2, ZISFROMME: 0, ZMESSAGETYPE: 1, ZMESSAGEDATE: cocoa(70), ZSENTDATE: cocoa(69), ZCHATSESSION: 1, ZMEDIAITEM: 2, ZMESSAGESTATUS: 8, ZFROMJID: '1@lid' });
     insert(db, 'ZWAMEDIAITEM', { Z_PK: 2, ZMESSAGE: 2, ZMEDIALOCALPATH: 'Media/1@lid/c/d/mottagen.jpg', ZFILESIZE: 1000, ZVCARDNAME: mediaSha.toString('base64'), ZVCARDSTRING: 'image/jpeg' });
     longChat(db);
+    // En grupp utan meddelanden, för Chattars lista: slaget Grupper, Dölj tomma och sökning på en deltagares nummer.
+    insert(db, 'ZWACHATSESSION', { Z_PK: 3, ZSESSIONTYPE: 1, ZCONTACTJID: '120363041234567890@g.us', ZPARTNERNAME: 'Klubben' });
+    insert(db, 'ZWAGROUPMEMBER', { Z_PK: 1, ZCHATSESSION: 3, ZMEMBERJID: '46701234567@s.whatsapp.net', ZCONTACTNAME: 'Mo Månsson', ZISADMIN: 1, ZISACTIVE: 1 });
     const bytes = db.export();
     db.close();
     return bytes;

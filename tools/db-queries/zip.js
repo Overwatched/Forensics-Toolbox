@@ -338,6 +338,21 @@
         });
     }
 
+    // Väntar tills sidan har ritat, så att en lägestext som just satts syns innan ett arbete utan pauser börjar
+    // (en fråga i sql.js, en avkodning). pause() släpper fram annat arbete men lovar ingen ritning: texten före
+    // står då kvar på skärmen fast arbetet har gått vidare. I ett dolt fönster ritas inget, och där räcker pause().
+    function painted() {
+        if (typeof requestAnimationFrame === 'undefined' || typeof document === 'undefined' || document.hidden) return pause();
+        return new Promise(function (resolve) {
+            var done = false;
+            function finish() { if (!done) { done = true; resolve(); } }
+            // Sidan ritar direkt efter requestAnimationFrame, och pausen efteråt väntar ut det.
+            requestAnimationFrame(function () { pause().then(finish); });
+            // Fönstret kan ha dolts under tiden. Då kommer ingen ritning, och arbetet ska inte vänta på den.
+            setTimeout(finish, 250);
+        });
+    }
+
     function sizeInGb(size) {
         return (size / 1073741824).toFixed(1).replace('.', ',') + ' GB';
     }
@@ -485,7 +500,7 @@
         return out;
     }
 
-    var api = { scan: scan, extract: extract, stream: stream, crc32: crc32, fileReader: fileReader, readFile: readFile, readDirectory: readDirectory, cacheDirectory: cacheDirectory, pause: pause, friendlyMemory: friendlyMemory, MAX_CACHED_DIRECTORY: MAX_CACHED_DIRECTORY };
+    var api = { scan: scan, extract: extract, stream: stream, crc32: crc32, fileReader: fileReader, readFile: readFile, readDirectory: readDirectory, cacheDirectory: cacheDirectory, pause: pause, painted: painted, friendlyMemory: friendlyMemory, MAX_CACHED_DIRECTORY: MAX_CACHED_DIRECTORY };
     if (typeof module !== 'undefined' && module.exports) module.exports = api;
     else root.ZipRead = api;
 })(typeof window !== 'undefined' ? window : this);
