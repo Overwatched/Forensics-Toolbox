@@ -81,6 +81,9 @@ avsnitt (`## Nytt i X.Y`) och nedladdningen sist i filen (`scripts/release-notes
 historiken, och filerna hamnade under tiotusentals tecken text. Saknas avsnittet för versionen stoppar bygget: skriv
 det innan versionen höjs. Releaserna till och med 1.54 är kortade på samma sätt, med sin egen nedladdningstext kvar.
 En release som redan är publicerad rörs inte: en push utan ny version bygger inget.
+Ett snabel-a följt av ett namn i releasetexten läser GitHub som ett konto, som får ett meddelande och visas som
+medverkande i releasen. 1.57 fick ett främmande konto så, av WhatsApps id `@lid`. Sätt sådant inom kodtecken:
+`scripts/release-notes.test.js` stoppar det annars. Skriv det så i commit-meddelanden också: dem läser inget test.
 Två körningar åt gången köas (`concurrency`).
 
 Versionen läses från texten `Version X.Y` i `Toolbox.html`.
@@ -798,8 +801,10 @@ Plan och provkörning: [PLAN-harkomst.md](PLAN-harkomst.md).
     Bubblornas färger är samma som i listvyn: verktygets egna per app, inte lästa ur telefonen. På skärmen följer
     vyn verktygets tema.
   - Bytet håller platsen (`setLook`, `anchor`): stod chatten vid slutet står den kvar där, annars står det översta
-    meddelandet kvar. Sök, klockans ruta, Välj meddelanden och blocken fungerar som i listvyn. Valet gäller tills
-    verktyget laddas om och sparas inte.
+    meddelandet kvar. Skär kanten meddelandet skärs det på samma ställe i sin nya höjd (`cut`): med överkanten på
+    samma avstånd som förut hamnar ett meddelande som blir kortare i det andra utseendet helt ovanför kanten. Sök,
+    klockans ruta, Välj meddelanden och blocken fungerar som i listvyn. Valet gäller tills verktyget laddas om och
+    sparas inte.
   - Exporten har samma val (Utseende i rutan, med det som visas förvalt) och är alltid ljus. Bubblorna står i en
     remsa (`.strip` > `.phone`) med ett nummer utanför ramen, som är raden i spårbarhetstabellen. Tabellen är
     densamma som i listan.

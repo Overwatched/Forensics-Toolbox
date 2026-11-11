@@ -1,5 +1,17 @@
 Automatiskt byggd från commit `{{SHA}}`.
 
+## Nytt i 1.58
+
+En rättning i Chattars telefonvy.
+
+- **Rättat: platsen i chatten vid bytet mellan Lista och Telefon.** Mitt i en chatt kunde meddelandet som fönstrets överkant skar hamna helt ovanför kanten vid bytet, så att vyn började ett meddelande senare. Nu skärs meddelandet på samma ställe i båda utseendena.
+  - Inget meddelande saknades eller visades fel, och exporten berördes inte.
+  - Felet fanns i 1.57 på alla plattformar: i den långa påhittade chatten i 50 av 160 prövade lägen. Med rättningen står samma meddelande kvar överst i 158 av 160, och i de två övriga syns mindre än en pixel av det.
+- **Därför var bygget av 1.57 rött:** testet av bytet prövade ett enda läge. Det gick bra med Macens typsnitt och föll med typsnitten på Linux och Windows, i de två testjobb som inte stoppar en release. Nu ställer testet kanten nära slutet av det högsta meddelandet som syns, och det faller med 1.57:s kod också på Macen.
+  - I bygget av 1.57 stannade testet vid felet, så resten av det (telefonvyns export) kördes bara på macOS.
+- **Releasetexten för 1.57** skrev WhatsApps id `@lid` utan kodtecken. GitHub läste det som ett konto och visar det som medverkande i den releasen. Kontot har inget med programmet att göra. Ett test stoppar nu ett sådant namn i releasetexten.
+- **Provat:** enhetstesterna, röktestet i appen och html-versionen i Chrome på macOS, och bytet med åtta typsnitt och storlekar. Windows och Linux provas först i bygget.
+
 ## Nytt i 1.57
 
 Chattar har fått val i listan och en telefonvy. Chattar, Härkomst och Queries läser och dekrypterar en databas en gång i stället för var för sig. Ett fel som gav fel namn på kontakter i Signal på iOS sedan 1.41 är rättat.
@@ -10,7 +22,7 @@ Chattar har fått val i listan och en telefonvy. Chattar, Härkomst och Queries 
   - Gör om bedömningen eller queryn i ett äldre protokoll om namnet på en Signal-kontakt spelar roll.
 - **Listan i Chattar:** knappar för app och slag med antalet vid varje, tre ordningar och Dölj tomma. Listan ritar 200 rader åt gången per databas.
   - Sökrutan letar i namn, nummer och deltagare, inte i meddelandenas text. Ett nummer hittas hur det än är skrivet: "070-000 01 25" hittar +46700000125. En grupp hittas genom en deltagare, och raden säger vem.
-  - Ett nummer hittas bara om databasen har det, så ingen träff betyder inte att numret saknas i appen. Har Signal på iOS bara kontaktens id (ACI) hämtas numret ur Signals kontakter. En WhatsApp-konversation med bara ett id (@lid) hittas på namnet: på labbtelefonen står numret i WhatsApps LID.sqlite, som inte läses än.
+  - Ett nummer hittas bara om databasen har det, så ingen träff betyder inte att numret saknas i appen. Har Signal på iOS bara kontaktens id (ACI) hämtas numret ur Signals kontakter. En WhatsApp-konversation med bara ett id (`@lid`) hittas på namnet: på labbtelefonen står numret i WhatsApps LID.sqlite, som inte läses än.
 - **Databaserna läses en gång:** nästa verktyg får en kopia ur minnet av det som läste och dekrypterade databasen först.
   - Protokollet och spårbarheten säger vilket verktyg som läste databasen och när. Ett verktyg med en annan nyckel, eller utan, får aldrig ett annat verktygs dekryptering.
   - Med en påhittad extraktion (314 MB krypterad Signal på iOS, 600 000 meddelanden) och Chattar öppnat först tog första bedömningen i Härkomst 1,7 s i stället för 3,8–4,0 s och första queryn i Queries 0,2 s i stället för 2,3–2,4 s. Chattar räknar Signals konversationer på 0,3 s i stället för 1,0 s.

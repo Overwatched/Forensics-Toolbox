@@ -51,3 +51,13 @@ test('releasens text: den riktiga filen har den senaste versionen och nedladdnin
     assert.strictEqual((notes.match(/^## Nytt i /gm) || []).length, 1);
     assert.ok(notes.includes('## macOS') && notes.includes('{{VERSION}}'));
 });
+
+// GitHub läser ett snabel-a följt av ett namn som ett konto: kontot får ett meddelande och visas som medverkande i
+// releasen. 1.57 fick ett främmande konto så, av WhatsApps id "@lid". Inom kodtecken läses det inte.
+test('releasens text: inget snabel-a med ett namn efter utanför kodtecken', () => {
+    const mentions = (s) => s.replace(/`[^`\n]*`/g, '').match(/(^|[^\w`])@[A-Za-z0-9][\w-]*/gm) || [];
+    assert.deepStrictEqual(mentions('ett id (@lid) och a@b.se, cellen @, tabb'), ['(@lid']);
+    assert.deepStrictEqual(mentions('ett id (`@lid`) och `@types/node`'), []);
+    const text = fs.readFileSync(path.join(__dirname, '..', '.github', 'release-notes.md'), 'utf8');
+    assert.deepStrictEqual(mentions(text), [], 'sätt namnet inom kodtecken');
+});

@@ -947,13 +947,14 @@
         el.classList.add('flash');
     }
 
-    // Det första meddelandet som syns och dess läge, så att sidan kan ritas om utan att hoppa.
+    // Det första meddelandet som syns och dess läge, så att sidan kan ritas om utan att hoppa. cut är hur stor del
+    // av meddelandet som står ovanför kanten.
     function anchor() {
         var box = $('c-msgs'), top = box.getBoundingClientRect().top;
         var list = box.querySelectorAll('.m');
         for (var k = 0; k < list.length; k++) {
             var r = list[k].getBoundingClientRect();
-            if (r.bottom > top) return { i: Number(list[k].dataset.i), top: r.top - top };
+            if (r.bottom > top) return { i: Number(list[k].dataset.i), top: r.top - top, cut: r.top < top ? (top - r.top) / r.height : 0 };
         }
         return null;
     }
@@ -968,7 +969,9 @@
     }
 
     // Listan eller telefonvyn. Bredden ändras och med den radbrytningarna, så läget hålls: stod chatten vid sitt
-    // slut gör den det efteråt också, annars står det översta meddelandet kvar där det stod.
+    // slut gör den det efteråt också, annars står det översta meddelandet kvar. Skär kanten meddelandet skärs det på
+    // samma ställe i sin nya höjd: med samma avstånd som förut hamnade ett meddelande som blivit kortare helt
+    // ovanför kanten.
     function setLook(look) {
         if (look === state.look) return;
         var box = $('c-msgs'), drawn = !!(state.current && state.view);
@@ -981,7 +984,10 @@
         $('c-look-phone').setAttribute('aria-pressed', String(look === 'phone'));
         var el = a ? msgEl(a.i) : null;
         if (atEnd) box.scrollTop = box.scrollHeight;
-        else if (el) box.scrollTop += el.getBoundingClientRect().top - box.getBoundingClientRect().top - a.top;
+        else if (el) {
+            var r = el.getBoundingClientRect();
+            box.scrollTop += r.top - box.getBoundingClientRect().top - (a.cut ? -a.cut * r.height : a.top);
+        }
         fill();
     }
     $('c-look-list').addEventListener('click', function () { setLook('list'); });

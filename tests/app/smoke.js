@@ -739,7 +739,7 @@ const scenarios = [
                 head: shown(phone.querySelector('.c-phone-head')), foot: shown(foot) ? foot.textContent : '',
                 avatar: document.getElementById('c-phone-avatar').textContent, name: document.getElementById('c-phone-name').textContent, tags: document.getElementById('c-phone-name').children.length, sub: document.getElementById('c-phone-sub').textContent,
                 atEnd: box.scrollHeight - box.scrollTop - box.clientHeight < 2, lastShown: !!last && Number(last.dataset.i) === ChatsApp.view().n - 1 && last.getBoundingClientRect().bottom <= b.bottom + 1,
-                top: top ? { i: Number(top.dataset.i), y: Math.round(top.getBoundingClientRect().top - b.top) } : null,
+                top: top ? { i: Number(top.dataset.i), y: Math.round((top.getBoundingClientRect().top - b.top) * 10) / 10, h: Math.round(top.getBoundingClientRect().height * 10) / 10 } : null,
             };
         })()`);
 
@@ -761,15 +761,32 @@ const scenarios = [
         expect(phone.foot === LABEL, 'Foten: ' + phone.foot);
         expect(phone.atEnd && phone.lastShown, 'Chatten står inte kvar vid slutet: ' + JSON.stringify(phone));
 
-        // Mitt i chatten: meddelandet som står överst gör det i båda utseendena, fast raderna bryts olika.
-        await c.ev(CHAT, `(async function(){ const box = document.getElementById('c-msgs'); box.scrollTop = Math.round(box.scrollHeight / 2) + 7; for (let k = 0; k < 3; k++) await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r))); return 1; })()`);
+        // Mitt i chatten: meddelandet som kanten skär står kvar överst i båda utseendena, skuret på samma ställe, fast
+        // raderna bryts olika. Kanten ställs nära slutet av det högsta meddelandet som syns: i listan är det kortare,
+        // och med samma avstånd till kanten som förut hamnade det helt ovanför den.
+        const CUT = 0.85;
+        const cutAt = await c.ev(CHAT, `(async function(){
+            const box = document.getElementById('c-msgs');
+            const frames = async () => { for (let k = 0; k < 3; k++) await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r))); };
+            box.scrollTop = Math.round(box.scrollHeight / 2) + 7;
+            await frames();
+            const b = box.getBoundingClientRect();
+            const tall = [...box.querySelectorAll('.m')].map(m => ({ m, r: m.getBoundingClientRect() })).filter(x => x.r.top >= b.top && x.r.top < b.bottom).sort((x, y) => y.r.height - x.r.height)[0];
+            box.scrollTop += tall.r.top - b.top + ${CUT} * tall.r.height;
+            await frames();
+            return Number(tall.m.dataset.i);
+        })()`);
         const mid = await read();
         await click('c-look-list');
         const midList = await read();
         await click('c-look-phone');
         const midPhone = await read();
+        const tops = JSON.stringify([mid.top, midList.top, midPhone.top]);
         expect(mid.top && midList.top && midPhone.top && !mid.atEnd && midList.look === 'list' && midPhone.look === 'phone', 'Bytet mitt i chatten: ' + JSON.stringify([mid, midList, midPhone]));
-        expect(midList.top.i === mid.top.i && midPhone.top.i === mid.top.i && Math.abs(midList.top.y - mid.top.y) <= 2 && Math.abs(midPhone.top.y - mid.top.y) <= 2, 'Det översta meddelandet flyttade sig: ' + JSON.stringify([mid.top, midList.top, midPhone.top]));
+        expect(mid.top.i === cutAt && Math.abs(-mid.top.y / mid.top.h - CUT) < 0.05, 'Kanten står inte nära slutet av meddelandet ' + cutAt + ': ' + tops);
+        expect(midList.top.i === mid.top.i && midPhone.top.i === mid.top.i, 'Ett annat meddelande står överst efter bytet: ' + tops);
+        expect(midList.top.h < mid.top.h - 10, 'Meddelandet är inte kortare i listan, så det svåra fallet prövas inte: ' + tops);
+        expect(Math.abs(midList.top.y + CUT * midList.top.h) <= 3 && Math.abs(midPhone.top.y - mid.top.y) <= 2, 'Meddelandet skärs inte på samma ställe efter bytet: ' + tops);
 
         // Exportrutan föreslår utseendet som visas, och uppskattningen följer valet: två smala remsor på sidan ger
         // färre sidor än listan. Valet i rutan ändrar inte det som visas.
