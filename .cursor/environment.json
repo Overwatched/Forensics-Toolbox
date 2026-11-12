@@ -1,0 +1,10 @@
+{
+  "name": "Forensics Toolbox",
+  "install": "npm install",
+  "terminals": [
+    {
+      "name": "app",
+      "command": "DISPLAY=${DISPLAY:-:1} env -u ELECTRON_RUN_AS_NODE npm start"
+    }
+  ]
+}
