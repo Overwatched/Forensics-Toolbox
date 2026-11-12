@@ -195,6 +195,17 @@ test('Snapchat: texten ur message_content (fält 4.4.2.1), namnen ur kontodataba
     core.applyNames(chat, threads, people, map);
     assert.strictEqual(people.c1[0].name, 'Kim K (@kimk)');
     assert.strictEqual(threads[0].name, 'Kim K (@kimk)');
+    // WhatsApp på Android: bara den enskilda chatten får deltagarens namn ur wa.db. Gruppen behåller sitt eget.
+    const wa = core.sources([require(path.join(ROOT, 'queries', 'android', 'whatsapp', 'catalog.json'))]);
+    const waChat = wa.find((s) => s.key === 'whatsapp-android-msgstore');
+    assert.strictEqual(wa.find((s) => s.key === 'whatsapp-android-contacts').namesOnly, true);
+    const waMap = core.names(wa.find((s) => s.namesOnly), { columns: ['jid', 'contact_name'], values: [['46700000001@s.whatsapp.net', 'Kim'], ['999@g.us', 'Klubben'], ['46700000009@s.whatsapp.net', null]] });
+    assert.deepStrictEqual(Object.keys(waMap).sort(), ['46700000001@s.whatsapp.net', '999@g.us']);
+    const waThreads = [{ key: '1', kind: 'person', name: '46700000001@s.whatsapp.net' }, { key: '2', kind: 'group', name: 'Klubben' }, { key: '3', kind: 'person', name: '333@lid' }];
+    const waPeople = { 1: [{ id: '46700000001@s.whatsapp.net', name: '46700000001@s.whatsapp.net' }], 2: [{ id: '222@lid', name: '222@lid' }, { id: '46700000001@s.whatsapp.net', name: '46700000001@s.whatsapp.net' }], 3: [{ id: '333@lid', name: '333@lid' }] };
+    core.applyNames(waChat, waThreads, waPeople, waMap);
+    assert.deepStrictEqual(waThreads.map((t) => t.name), ['Kim', 'Klubben', '333@lid']);
+    assert.deepStrictEqual(waPeople[2].map((p) => p.name), ['222@lid', 'Kim']);
     const msg = { columns: ['message_id', 'thread_id', 'from_me', 'sender_text', 'text_placeholder', 'message_content', 'kind', 'kind_label', 'creation_timestamp', 'read_timestamp'],
         values: [[1, 'c1', 0, '74d7b649-db5a-41c1-b3d2-0f8ee62276df', null, content, 'text', null, 1790000000000, 0]] };
     const model = core.conversation(chat, Object.assign({ kind: 'person' }, threads[0]), msg, null, people.c1, 'd/arroyo.db', { names: map });

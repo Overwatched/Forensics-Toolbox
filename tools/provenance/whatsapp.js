@@ -1,4 +1,5 @@
-// WhatsApp som källa i Härkomst (iOS). Betafunktion: tolkningarna är kontrollerade mot en labbtelefon
+// WhatsApp som källa i Härkomst: först iOS, och sist i filen Android med sin egen inledning.
+// iOS är en betafunktion: tolkningarna är kontrollerade mot en labbtelefon
 // (iOS 26.4.1, 2026-11-03) och kan skilja sig mellan versioner, därför bär varje händelse databas,
 // tabell, kolumn och query. ChatStorage.sqlite är inte krypterad. Filen kopplas till WhatsApp på tre
 // sätt som binder: samma SHA-256 som en mediefil (ZVCARDNAME, base64), samma post i bildbiblioteket
@@ -230,9 +231,159 @@
             (m.path ? ' Filen ligger under Message/' + m.path + '.' : ' Filen finns inte på telefonen.');
     }
 
+    // ---------- Android ----------
+    // msgstore.db, kontrollerad mot en labbtelefon (Android 16, WhatsApp 2.26.43, 2026-11-11). Filen kopplas till
+    // WhatsApp på tre sätt som binder: samma SHA-256 som mediefilen (message_media.file_hash, base64), samma SHA-256
+    // som originalet till en bild som togs i appen och skickades omkodad (original_file_hash), eller filen själv
+    // under WhatsApp/Media/ (file_path). WhatsApps mediefiler står också i telefonens bildbibliotek (MediaStore).
+
+    var APP_ANDROID = 'com.whatsapp';
+    // message_type med samma namn som i katalogens queryer: 0, 1, 2, 3, 7, 9 och 15 är sedda i labbet, resten är vanliga tolkningar.
+    var TYPES_ANDROID = { 0: 'meddelande', 1: 'bild', 2: 'ljudfil', 3: 'video', 4: 'kontaktkort', 5: 'plats', 7: 'systemmeddelande', 9: 'dokument', 10: 'missat samtal',
+        13: 'gif', 14: 'kontaktkort', 15: 'meddelande', 16: 'plats i realtid', 20: 'klistermärke', 42: 'bild', 43: 'video' };
+    var MEDIA_TYPES_ANDROID = { 1: 1, 2: 1, 3: 1, 9: 1, 13: 1, 20: 1, 42: 1, 43: 1 };
+    var NEUTER_ANDROID = { meddelande: 1, kontaktkort: 1, dokument: 1, 'röstmeddelande': 1, 'klistermärke': 1, systemmeddelande: 1 };
+
+    function isViewOnceAndroid(t) { return Number(t) === 42 || Number(t) === 43; }
+
+    function kindOfAndroid(row) {
+        var mime = String(row.mime || '');
+        var t = Number(row.type);
+        if (Number(row.voice) === 1) return 'röstmeddelande';
+        if (/^image\//.test(mime)) return t === 20 ? 'klistermärke' : 'bild';
+        if (/^video\//.test(mime)) return t === 13 ? 'gif' : 'video';
+        if (/^audio\//.test(mime)) return 'ljudfil';
+        var n = TYPES_ANDROID[t];
+        return n && MEDIA_TYPES_ANDROID[t] ? n : 'fil';
+    }
+
+    function nameAndroid(jid, names) { return jid && names && names[jid] ? names[jid] : jid; }
+
+    // Gruppens namn står i msgstore.db. En enskild chatt heter som kontakten i wa.db, annars som sitt JID.
+    function chatNameAndroid(row, names) {
+        return row.chatSubject || nameAndroid(row.chatJid, names) || (row.chatId != null ? 'chatt ' + row.chatId : 'okänd chatt');
+    }
+
+    function counterpartAndroid(row, names) {
+        var chat = chatNameAndroid(row, names);
+        var group = Number(row.group) === 1;
+        if (Number(row.fromMe) === 1) return group ? 'gruppen ' + chat : chat;
+        var who = row.sender && row.sender !== 'den här telefonen' ? nameAndroid(row.sender, names) : chat;
+        return group && who !== chat ? who + ' i gruppen ' + chat : who;
+    }
+
+    // Tiden på den här telefonen: när ett skickat meddelande skrevs, när ett mottaget kom in.
+    function whenAndroid(m) { return Number(m.fromMe) !== 1 && m.receivedMs != null ? m.receivedMs : m.dateMs; }
+
+    function verbAndroid(what, own, asDocument) {
+        var n = NEUTER_ANDROID[what] || /^meddelande/.test(what);
+        return (own ? (n ? 'skickat' : 'skickad') : (n ? 'mottaget' : 'mottagen')) + (asDocument ? ' som dokument' : '') + (own ? ' till ' : ' från ');
+    }
+
+    // Mediefiler som hör till filen. ctx: { sha256 (hex), path (sökvägen i zippen) }.
+    function matchAndroid(ctx, media) {
+        var sha = String(ctx.sha256 || '').toLowerCase();
+        var okSha = /^[0-9a-f]{64}$/.test(sha);
+        var path = String(ctx.path || '');
+        var out = [];
+        (media || []).forEach(function (m) {
+            var by = [];
+            if (okSha && m.sha256 && b64ToHex(m.sha256) === sha) by.push('sha256');
+            if (okSha && m.original && b64ToHex(m.original) === sha) by.push('original');
+            if (path && m.path && /^Media\//.test(m.path) && path.slice(-(m.path.length + 10)) === '/WhatsApp/' + m.path) by.push('path');
+            if (by.length) out.push({ row: m, by: by });
+        });
+        return out;
+    }
+
+    // ctx: { sha256, path, media, messages, names ({ jid: namn } ur wa.db), sources: { main }, centerMs, keep(ms) }.
+    // Returnerar { events, notes, link } som build, med link.android satt.
+    function buildAndroid(ctx) {
+        var events = [];
+        var notes = [];
+        var names = ctx.names || {};
+        var srcMain = ctx.sources && ctx.sources.main || { db: 'msgstore.db', table: 'message', queryId: 'role-messages' };
+        var media = ctx.media || [];
+        var byMessage = {};
+        media.forEach(function (m) { byMessage[m.messageId] = m; });
+        var matches = matchAndroid(ctx, media);
+        var fileMessages = {};
+        matches.forEach(function (x) { fileMessages[x.row.messageId] = x.by; });
+
+        (ctx.messages || []).forEach(function (m) {
+            var type = Number(m.type);
+            if (type === 7) return;
+            var own = Number(m.fromMe) === 1;
+            var ms = whenAndroid(m);
+            if (ms == null) return;
+            var item = m.mediaId != null ? byMessage[m.id] || null : null;
+            var hasFile = !!(item && MEDIA_TYPES_ANDROID[type] && (item.path || item.size > 0 || item.sha256));
+            var what = hasFile ? kindOfAndroid(item) : TYPES_ANDROID[type] || 'meddelande av typ ' + type;
+            var asDocument = hasFile && type === 9 && what !== 'dokument' && what !== 'fil';
+            var who = counterpartAndroid(m, names);
+            var by = fileMessages[m.id] || null;
+            var isFile = !!by;
+            // Summan är originalets: det som skickades är en kopia gjord av den bedömda filen.
+            var original = isFile && by.length === 1 && by[0] === 'original';
+            var once = isViewOnceAndroid(type);
+            var notFetched = hasFile && !item.path && Number(item.transferred) === 0;
+            var text = 'WhatsApp: ' + what + ' ' + (type === 10 ? (own ? 'till ' : 'från ') : verbAndroid(what, own, asDocument)) + who + ' (meddelande ' + m.id + ')' +
+                (type === 15 ? ', raderat för alla' : '') + (once ? ', engångsvisning' : '') + (notFetched ? ', inte hämtad till telefonen' : '');
+            var noun = hasFile ? (what === 'video' ? 'En video' : what === 'bild' ? 'En bild' : what === 'röstmeddelande' ? 'Ett röstmeddelande' : 'En fil') : null;
+            var plain = noun ? (own ? noun + ' skickas från den här telefonen i WhatsApp till ' + who : noun + ' tas emot i WhatsApp från ' + who) + (once ? ' för engångsvisning' : '') : null;
+            if (original) { text += '; den bedömda filen är originalet till den'; plain = 'En kopia av den bedömda filen skickas från den här telefonen i WhatsApp till ' + who; }
+            else if (isFile) { text = 'Den bedömda filen: ' + text; plain = own ? 'Den bedömda filen skickas från den här telefonen i WhatsApp till ' + who : 'Den bedömda filen tas emot i WhatsApp från ' + who; }
+            events.push({ ms: ms, kind: 'wa-message', lane: 'whatsapp', app: APP_ANDROID, own: own, bold: isFile, isFile: isFile, near: false, messageId: m.id, media: hasFile ? 1 : 0, mediaKind: hasFile ? what : null, fromLibrary: false, viewOnce: once,
+                active: own, activeText: own ? 'ett meddelande skickades' : null,
+                text: text, plain: plain, source: Object.assign({}, srcMain, { column: !own && m.receivedMs != null ? 'received_timestamp' : 'timestamp' }) });
+        });
+
+        if (typeof ctx.keep === 'function') events = events.filter(function (e) { return ctx.keep(e.ms); });
+        events.sort(function (a, b) { return a.ms - b.ms; });
+        if (events.length > MAX_EVENTS) {
+            var center = ctx.centerMs != null ? ctx.centerMs : events[0].ms;
+            var kept = events.filter(function (e) { return e.isFile; });
+            events.filter(function (e) { return !e.isFile; }).sort(function (a, b) { return Math.abs(a.ms - center) - Math.abs(b.ms - center); })
+                .forEach(function (e) { if (kept.length < MAX_EVENTS) kept.push(e); });
+            notes.push((events.length - kept.length) + ' WhatsApp-händelser till i fönstret visas inte.');
+            events = kept.sort(function (a, b) { return a.ms - b.ms; });
+        }
+
+        var link = {
+            matches: matches.map(function (x) {
+                var m = x.row;
+                var own = Number(m.fromMe) === 1;
+                return {
+                    mediaId: m.messageId, messageId: m.messageId, by: x.by, direction: own ? 'out' : 'in', who: counterpartAndroid(m, names), chat: chatNameAndroid(m, names),
+                    kind: kindOfAndroid(m), document: Number(m.type) === 9, mime: m.mime || null, size: m.size != null ? Number(m.size) : null, path: m.path ? 'WhatsApp/' + m.path : null, assetUuid: null,
+                    sentMs: own ? m.dateMs : null, dateMs: whenAndroid(m), writtenMs: m.dateMs, uploadMs: null, viewOnce: isViewOnceAndroid(m.type), fetched: !!m.path || Number(m.transferred) !== 0,
+                };
+            }),
+            nearby: [],
+            media: media.filter(function (m) { return m.path || m.size > 0; }).length,
+            pending: 0,
+            android: true,
+            shaKnown: /^[0-9a-f]{64}$/i.test(String(ctx.sha256 || '')),
+        };
+        return { events: events, notes: notes, link: link };
+    }
+
+    // En mening om en mediefil som hittats på sin summa (hashsökningen). by: 'sha256' eller 'original'.
+    function mediaTextAndroid(m, wall, by, names) {
+        wall = wall || function (ms) { return new Date(ms).toISOString(); };
+        var own = Number(m.fromMe) === 1;
+        var what = kindOfAndroid(m);
+        var when = whenAndroid(m);
+        return 'WhatsApp-' + what + ' (' + (m.mime || 'okänd typ') + (m.size != null ? ', ' + m.size + ' byte' : '') + ') i meddelande ' + m.messageId + ', ' +
+            verbAndroid(what, own, false) + counterpartAndroid(m, names) + (when != null ? ' ' + wall(when) : '') + '.' +
+            (by === 'original' ? ' Summan är originalets (original_file_hash): det som skickades är en kopia gjord av filen.' : '') +
+            (m.path ? ' ' + (by === 'original' ? 'Kopian' : 'Filen') + ' ligger under WhatsApp/' + m.path + '.' : ' Filen hämtades aldrig till telefonen.');
+    }
+
     var api = {
         APP: APP, APP_BUSINESS: APP_BUSINESS, isWhatsAppApp: isWhatsAppApp, b64ToHex: b64ToHex, hexToB64: hexToB64, typeName: typeName, kindOf: kindOf,
         counterpart: counterpart, match: match, nearby: nearby, build: build, mediaText: mediaText, parseExtensionLog: parseExtensionLog, isViewOnce: isViewOnce, NEARBY_MS: NEARBY_MS,
+        APP_ANDROID: APP_ANDROID, kindOfAndroid: kindOfAndroid, counterpartAndroid: counterpartAndroid, matchAndroid: matchAndroid, buildAndroid: buildAndroid, mediaTextAndroid: mediaTextAndroid,
     };
     if (typeof module !== 'undefined' && module.exports) module.exports = api;
     else root.ProvenanceWhatsApp = api;

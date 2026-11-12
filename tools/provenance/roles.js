@@ -16,7 +16,8 @@
         return out;
     }
 
-    // catalogs: { photos, android, appUsage, routined, snapchat, snapchatAndroid, signalAndroid, signalIos, whatsappIos, telegramIos } som i Queries. Returnerar källorna i
+    // catalogs: { photos, android, appUsage, routined, snapchat, snapchatAndroid, signalAndroid, signalIos, whatsappIos, telegramIos,
+    // whatsappAndroid, telegramAndroid } som i Queries. Returnerar källorna i
     // den form ExtractionCore.targets() vill ha, med rollerna per källa (och per band för Photos).
     function collect(catalogs) {
         var photos = catalogs.photos || {};
@@ -83,8 +84,10 @@
         // Signal (beta): två databaser under data/data/org.thoughtcrime.securesms och signal.sqlite i
         // appgruppen på iOS, krypterade med SQLCipher. cipher följer med källan, så att Härkomst vet att
         // nyckeln behövs. WhatsApp (beta) på iOS är okrypterad. Telegram (beta) på iOS avkodas i minnet
-        // (derive), och lagringsdatabasen är en egen källa.
-        [[catalogs.signalAndroid, 'Android'], [catalogs.signalIos, 'iOS'], [catalogs.whatsappIos, 'iOS'], [catalogs.telegramIos, 'iOS']].forEach(function (pair) {
+        // (derive), och lagringsdatabasen är en egen källa. WhatsApp och Telegram (beta) på Android är okrypterade:
+        // msgstore.db och wa.db under data/data/com.whatsapp, cache4.db under data/data/org.telegram.messenger.
+        [[catalogs.signalAndroid, 'Android'], [catalogs.signalIos, 'iOS'], [catalogs.whatsappIos, 'iOS'], [catalogs.telegramIos, 'iOS'],
+            [catalogs.whatsappAndroid, 'Android'], [catalogs.telegramAndroid, 'Android']].forEach(function (pair) {
             ((pair[0] || {}).databases || []).forEach(function (db) {
                 var roles = roleMap(db.queries);
                 if (!Object.keys(roles).length) return;

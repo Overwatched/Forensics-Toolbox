@@ -174,3 +174,170 @@ test('en kamerafil i Telegrams tmp utan meddelande', () => {
     const f = core.factorTelegram({ file: { createdMs: at(500) }, format: fmt, telegram: { link: out.link } }, t);
     assert.deepStrictEqual([f.state, f.verdictText], ['info', 'Inget meddelande']);
 });
+
+// ---------- Android ----------
+// Raderna efterliknar labbet med två telefoner (Android 16, Telegram med versionskod 73031, 2026-11-11): en
+// mottagen bild under Telegrams mapp, med bildens id i filnamnet och i meddelandets blobb. Id:n, namn och
+// storlekar är påhittade.
+
+const TG_DIR = 'Dump/data/media/0/Android/data/org.telegram.messenger/files/Telegram/Telegram Images/';
+const PHOTO_ID = 5550001112223334445n;
+const u32 = (n) => { const b = Buffer.alloc(4); b.writeUInt32LE(n >>> 0); return b; };
+const i64 = (n) => { const b = Buffer.alloc(8); b.writeBigInt64LE(n); return b; };
+// Telegrams strängar: längden i en byte, innehållet, och utfyllnad till fyra byte.
+const tlStr = (s) => { const body = Buffer.from(s, 'latin1'); const pad = (4 - ((1 + body.length) % 4)) % 4; return Buffer.concat([Buffer.from([body.length]), body, Buffer.alloc(pad)]); };
+const sizeHex = (s) => (s.stripped ? Buffer.concat([u32(0xe0b0bc2e), tlStr(s.type), tlStr('abc')])
+    : s.steps ? Buffer.concat([u32(0xfa3efb95), tlStr(s.type), u32(s.w), u32(s.h), u32(0x1cb5c415), u32(s.steps.length)].concat(s.steps.map(u32)))
+        : s.unknown ? u32(0x0badf00d) : Buffer.concat([u32(0x75c78e60), tlStr(s.type), u32(s.w), u32(s.h), u32(s.size)]));
+// En bild som den står i blobben, från bildens konstruktor: flaggor, id, åtkomstnyckel, filreferens, datum och storlekar.
+const photoHex = (id, sizes) => Buffer.concat([u32(0xfb197a65), u32(0), i64(id), i64(77n), tlStr('filreferens'), u32(1794400000), u32(0x1cb5c415), u32(sizes.length)].concat(sizes.map(sizeHex))).toString('hex').toUpperCase();
+const SIZES = [{ stripped: true, type: 'i' }, { type: 'm', w: 320, h: 240, size: 1234 }, { type: 'y', w: 1280, h: 960, steps: [9000, 30000, 54321] }];
+const idHexOf = (id) => i64(id).toString('hex').toUpperCase();
+const rowA = (id, sec, over) => Object.assign({ id: id, peerId: '7000000002', timeMs: at(sec), out: 0, peerType: 0, chatName: 'Kim', sender: 'Kim', mediaType: null, service: 0, hasText: 1, ctor: '7600B9D3' }, over || {});
+const photoRow = (over) => rowA(40, 170, Object.assign({ mediaType: 0, hasText: 0, idOffset: 52, photoHex: photoHex(PHOTO_ID, SIZES) }, over || {}));
+const MESSAGES_A = [
+    rowA(38, 150, { out: 1, sender: 'den här telefonen' }),
+    rowA(39, 160),
+    rowA(40, 170, { mediaType: 0, hasText: 0 }),
+    rowA(41, 180, { out: 1, sender: 'den här telefonen', mediaType: 2, hasText: 0 }),
+    rowA(42, 190, { peerId: '-1000000000005', peerType: 1, chatName: 'Klubben', sender: 'Alex', mediaType: 1 }),
+    rowA(43, 200, { peerId: '-1000000000006', peerType: 2, chatName: 'Nyheter', sender: 'Nyheter', mediaType: 0 }),
+    rowA(44, 210, { service: 1, hasText: 0 }),
+    rowA(45, 220, { mediaType: 9 }),
+];
+
+test('Android: filnamnet under Telegrams mapp bär bildens id med omvänt tecken och storlekens bokstav', () => {
+    const n = tg.parseFileName(TG_DIR + '-5550001112223334445_121.jpg');
+    assert.deepStrictEqual(n, { idHex: idHexOf(PHOTO_ID), sizeType: 'y', path: 'org.telegram.messenger/files/Telegram/Telegram Images/-5550001112223334445_121.jpg' });
+    // Ett positivt tal i namnet är ett negativt id, och en kod som inte är en liten bokstav ger ingen storlek.
+    assert.deepStrictEqual([tg.parseFileName(TG_DIR + '5550001112223334445_109.JPG').idHex, tg.parseFileName(TG_DIR + '5550001112223334445_109.JPG').sizeType], [idHexOf(-PHOTO_ID), 'm']);
+    assert.strictEqual(tg.parseFileName(TG_DIR + '-5550001112223334445_33.jpg').sizeType, null);
+    // Andra filer: utanför Telegrams mapp, ett annat namn, en annan filtyp, ett tal som inte ryms i 64 bitar.
+    assert.strictEqual(tg.parseFileName('Dump/data/media/0/DCIM/Camera/-5550001112223334445_121.jpg'), null);
+    assert.strictEqual(tg.parseFileName(TG_DIR + 'IMG_20261111_101500_123.jpg'), null);
+    assert.strictEqual(tg.parseFileName(TG_DIR + '-5550001112223334445_121.mp4'), null);
+    assert.strictEqual(tg.parseFileName(TG_DIR + '-99999999999999999999_121.jpg'), null);
+    assert.strictEqual(tg.parseFileName(null), null);
+    assert.strictEqual(tg.APP_ANDROID, 'org.telegram.messenger');
+});
+
+test('Android: bilden läses ur blobben, och det som inte är en bild i känd form läses inte', () => {
+    const hex = photoHex(PHOTO_ID, SIZES);
+    assert.deepStrictEqual(tg.parsePhoto(hex), { id: idHexOf(PHOTO_ID), complete: true,
+        sizes: [{ type: 'i', w: null, h: null, size: null }, { type: 'm', w: 320, h: 240, size: 1234 }, { type: 'y', w: 1280, h: 960, size: 54321 }] });
+    assert.deepStrictEqual(tg.parsePhoto(hex.toLowerCase()).id, idHexOf(PHOTO_ID));
+    // Avklippt mitt i den sista storleken, och en storlek av okänd sort: det som lästes står kvar, och complete är falskt.
+    const cut = tg.parsePhoto(hex.slice(0, -16));
+    assert.deepStrictEqual([cut.sizes.map((s) => s.type), cut.complete], [['i', 'm'], false]);
+    const odd = tg.parsePhoto(photoHex(PHOTO_ID, [{ type: 'm', w: 320, h: 240, size: 1234 }, { unknown: true }, { type: 'y', w: 1, h: 1, size: 1 }]));
+    assert.deepStrictEqual([odd.sizes.length, odd.complete], [1, false]);
+    assert.strictEqual(tg.parsePhoto('0DF0AD0B' + hex.slice(8)), null);
+    assert.strictEqual(tg.parsePhoto(hex.slice(0, 40)), null);
+    assert.strictEqual(tg.parsePhoto('inte hex'), null);
+    assert.strictEqual(tg.parsePhoto(null), null);
+});
+
+test('Android: meddelandet som bär bilden, med filens storlek mot storleken i meddelandet', () => {
+    const path = TG_DIR + '-5550001112223334445_121.jpg';
+    const one = (ctx) => tg.matchAndroid(Object.assign({ path: path, photo: [photoRow()] }, ctx));
+    assert.deepStrictEqual(one({ size: 54321 }).matches.map((x) => [x.row.id, x.size.size, x.sizeOk]), [[40, 54321, true]]);
+    assert.strictEqual(one({ size: 54000 }).matches[0].sizeOk, false);
+    assert.strictEqual(one({}).matches[0].sizeOk, null);
+    // Storleken m i namnet jämförs med m i meddelandet, och en bokstav som meddelandet saknar kan inte jämföras.
+    assert.strictEqual(tg.matchAndroid({ path: TG_DIR + '-5550001112223334445_109.jpg', photo: [photoRow()], size: 1234 }).matches[0].sizeOk, true);
+    assert.deepStrictEqual(tg.matchAndroid({ path: TG_DIR + '-5550001112223334445_120.jpg', photo: [photoRow()], size: 1234 }).matches.map((x) => [x.size, x.sizeOk]), [[null, null]]);
+    // Id:t på ett annat ställe i blobben (inte på en fyrbytesgräns, eller inte efter bildens konstruktor) räknas inte som bilden.
+    assert.deepStrictEqual(one({ photo: [photoRow({ idOffset: 53 })] }), { matches: [], unread: 1 });
+    assert.deepStrictEqual(one({ photo: [photoRow({ photoHex: 'AABBCCDD' + photoHex(PHOTO_ID, SIZES).slice(8) })] }), { matches: [], unread: 1 });
+    assert.deepStrictEqual(one({ photo: [photoRow({ photoHex: photoHex(PHOTO_ID + 1n, SIZES) })] }), { matches: [], unread: 1 });
+    assert.deepStrictEqual(tg.matchAndroid({ path: 'Dump/data/media/0/DCIM/Camera/a.jpg', photo: [photoRow()] }), { matches: [], unread: 0 });
+});
+
+test('Android: händelserna i fönstret, med filens meddelande utpekat', () => {
+    const out = tg.buildAndroid({ path: TG_DIR + '-5550001112223334445_121.jpg', size: 54321, photo: [photoRow()], messages: MESSAGES_A });
+    const ev = (id) => out.events.find((e) => e.messageId === id);
+    assert.deepStrictEqual(out.events.map((e) => e.messageId), [38, 39, 40, 41, 42, 43, 44, 45]);
+    assert.strictEqual(ev(38).text, 'Telegram: meddelande skickat till Kim (meddelande 38)');
+    assert.strictEqual(ev(39).text, 'Telegram: meddelande mottaget från Kim (meddelande 39)');
+    assert.strictEqual(ev(40).text, 'Den bedömda filen: Telegram: bild mottagen från Kim (meddelande 40)');
+    assert.strictEqual(ev(41).text, 'Telegram: röst- eller videomeddelande skickat till Kim (meddelande 41)');
+    assert.strictEqual(ev(42).text, 'Telegram: fil mottagen från Alex i gruppen Klubben (meddelande 42)');
+    assert.strictEqual(ev(43).text, 'Telegram: bild eller video mottagen från gruppen eller kanalen Nyheter (meddelande 43)');
+    assert.strictEqual(ev(44).text, 'Telegram: tjänstemeddelande mottaget från Kim (meddelande 44)');
+    assert.strictEqual(ev(45).text, 'Telegram: media mottagen från Kim (meddelande 45)');
+    assert.deepStrictEqual([ev(40).isFile, ev(40).bold, ev(40).plain], [true, true, 'Den bedömda filen tas emot i Telegram från Kim']);
+    assert.deepStrictEqual([ev(40).kind, ev(40).lane, ev(40).app, ev(40).ms, ev(40).source.db, ev(40).source.table, ev(40).source.column], ['tg-message', 'telegram', 'org.telegram.messenger', at(170), 'cache4.db', 'messages_v2', 'date']);
+    assert.deepStrictEqual([ev(38).own, ev(38).active, ev(39).own, ev(39).active], [true, true, false, false]);
+    assert.strictEqual(ev(43).plain, 'En bild eller video tas emot i Telegram från gruppen eller kanalen Nyheter');
+    assert.deepStrictEqual(out.link.matches.map((m) => [m.messageId, m.direction, m.who, m.kind, m.size, m.width, m.height, m.timeMs, m.by, m.path, m.sizeType, m.sizeOk, m.fileSize]),
+        [[40, 'in', 'Kim', 'bild', 54321, 1280, 960, at(170), ['path'], 'org.telegram.messenger/files/Telegram/Telegram Images/-5550001112223334445_121.jpg', 'y', true, 54321]]);
+    assert.deepStrictEqual([out.link.android, out.link.idInName, out.link.unread], [true, true, 0]);
+    // Samma meddelande-id i en annan chatt är inte filens meddelande.
+    const other = tg.buildAndroid({ path: TG_DIR + '-5550001112223334445_121.jpg', photo: [photoRow()], messages: [rowA(40, 170, { peerId: '7000000009', chatName: 'Alex', sender: 'Alex' })] });
+    assert.strictEqual(other.events[0].isFile, false);
+    assert.deepStrictEqual(tg.buildAndroid({ path: 'x/a.jpg', messages: MESSAGES_A, keep: (ms) => ms >= at(160) && ms <= at(180) }).events.map((e) => e.messageId), [39, 40, 41]);
+});
+
+test('Android: fler händelser än tidslinjen rymmer kortas kring T', () => {
+    const many = [];
+    for (let i = 0; i < 70; i++) many.push(rowA(100 + i, 1000 + i * 10));
+    const out = tg.buildAndroid({ path: TG_DIR + '-5550001112223334445_121.jpg', photo: [photoRow()], messages: MESSAGES_A.concat(many), centerMs: at(1300) });
+    assert.strictEqual(out.events.length, 40);
+    assert.ok(out.events.some((e) => e.isFile));
+    assert.deepStrictEqual(out.notes, ['38 Telegram-händelser till i fönstret visas inte.']);
+});
+
+test('Android, faktorn: Telegrams egen bildfil, ett meddelande som inte finns kvar och en fil som inte kan kopplas', () => {
+    const path = TG_DIR + '-5550001112223334445_121.jpg';
+    const rel = 'org.telegram.messenger/files/Telegram/Telegram Images/-5550001112223334445_121.jpg';
+    const chat = { app: tg.APP_ANDROID, appName: 'Telegram', direction: 'in', who: 'Kim', messageId: 40, path: rel, source: 'cache4.db' };
+    const type = core.classify({ chatMedia: chat }, 'Android');
+    assert.deepStrictEqual([type.type, type.label, type.importer], ['saved', 'Telegram-media utanför bildbiblioteket', 'org.telegram.messenger']);
+    assert.deepStrictEqual(type.reasons, ['filen är Telegrams egen (' + rel + ')', 'meddelande 40, mottaget från Kim (cache4.db)']);
+    const factor = (ctx, t) => core.factorTelegram({ file: { createdMs: at(170) }, format: fmt, telegram: { link: tg.buildAndroid(Object.assign({ path: path, messages: [] }, ctx)).link } }, t || type);
+
+    const f = factor({ size: 54321, photo: [photoRow()] });
+    assert.deepStrictEqual([f.id, f.title, f.state, f.verdictText], ['telegram', 'Telegram', 'support', 'Mottagen i Telegram']);
+    assert.strictEqual(f.items[0].text, 'Filen är Telegrams egen (' + rel + '): namnet bär bildens id, och id:t står i meddelande 40, mottaget från Kim ' + fmt(at(170)).slice(11) + ' (cache4.db → messages_v2.data).');
+    assert.deepStrictEqual([f.items[1].state, f.items[1].text], ['support', 'Bildens storlek y är 54321 byte enligt meddelandet, och filen är lika stor.']);
+    assert.strictEqual(f.items.length, 2);
+    assert.match(f.plain, /^Filen är Telegrams kopia av bilden i meddelande 40, mottaget från Kim /);
+    assert.doesNotMatch(f.items.map((i) => i.text).join(' ') + f.plain, /postbox|lagringsdatabas|t7|ZUUID/);
+
+    const small = factor({ size: 54000, photo: [photoRow()] });
+    assert.deepStrictEqual([small.state, small.items[1].state], ['support', 'info']);
+    assert.match(small.items[1].text, /54321 byte enligt meddelandet, men filen är 54000 byte/);
+    assert.match(factor({ photo: [photoRow()] }).items[1].text, /^Bildens storlek kunde inte läsas ur meddelandet/);
+    const twice = factor({ size: 54321, photo: [photoRow(), photoRow({ id: 41, idOffset: 53 })] });
+    assert.match(twice.items[2].text, /^Id:t står också i 1 meddelandes blobb, men inte som en bild/);
+
+    // Skickad: meddelandet säger det, och hypotesen följer med. I labbet är bara en mottagen bild kontrollerad.
+    const sent = factor({ size: 54321, photo: [photoRow({ out: 1, sender: 'den här telefonen' })] }, core.classify({ chatMedia: Object.assign({}, chat, { direction: 'out' }) }, 'Android'));
+    assert.deepStrictEqual([sent.verdictText, sent.items[0].text.indexOf('skickat till Kim') > 0], ['Skickad i Telegram', true]);
+
+    const loose = { type: 'unknown', importer: '', chat: null };
+    const gone = factor({ size: 54321, photo: [] }, loose);
+    assert.deepStrictEqual([gone.state, gone.verdictText], ['info', 'Meddelandet finns inte kvar']);
+    assert.match(gone.items[0].text, /inget meddelande i cache4\.db har den bilden/);
+    const stray = factor({ size: 54321, photo: [photoRow({ idOffset: 53 })] }, loose);
+    assert.match(stray.items[0].text, /Id:t står också i 1 meddelandes blobb/);
+
+    const none = factor({ path: 'Dump/data/media/0/DCIM/Camera/a.jpg' }, { type: 'camera', importer: 'com.sec.android.app.camera', chat: null });
+    assert.deepStrictEqual([none.state, none.verdictText], ['info', 'Ingen koppling']);
+    assert.match(none.items[0].text, /^Filen är inte en av Telegrams egna bildfiler/);
+    assert.match(none.plain, /Det betyder inte att den aldrig skickades där\.$/);
+    const owned = factor({ path: 'Dump/data/media/0/Pictures/Telegram/IMG_20261111_101500_123.jpg' }, { type: 'saved', importer: tg.APP_ANDROID, chat: null });
+    assert.match(owned.items[0].text, /^Telegram äger filen enligt MediaStore \(owner_package_name\), men den är inte/);
+});
+
+test('Android: kameran frågas inte för en bild som togs emot i Telegram, och hypotesen säger varifrån', () => {
+    const path = TG_DIR + '-5550001112223334445_121.jpg';
+    const out = tg.buildAndroid({ path: path, size: 54321, photo: [photoRow()], messages: MESSAGES_A });
+    const chat = { app: tg.APP_ANDROID, appName: 'Telegram', direction: 'in', who: 'Kim', messageId: 40, path: out.link.matches[0].path, source: 'cache4.db' };
+    const m = core.build({ platform: 'Android', appNames: (id) => (id === tg.APP_ANDROID ? 'Telegram' : id), appIntervals: [], screen: [], lock: [], locations: [], neighbours: [], windowMs: 15 * 60000, format: fmt,
+        file: { createdMs: at(170), filename: '-5550001112223334445_121.jpg', chatMedia: chat }, telegram: { link: out.link }, extraEvents: out.events });
+    assert.strictEqual(m.factors.find((f) => f.id === 'camera').state, 'na');
+    assert.strictEqual(m.factors.find((f) => f.id === 'telegram').verdictText, 'Mottagen i Telegram');
+    assert.strictEqual(m.beta, true);
+    assert.ok(m.events.some((e) => e.kind === 'tg-message' && e.isFile));
+});

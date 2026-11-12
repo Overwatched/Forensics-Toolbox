@@ -1,4 +1,5 @@
-// Telegram som källa i Härkomst (iOS). Betafunktion: tolkningarna är kontrollerade mot en labbtelefon
+// Telegram som källa i Härkomst: först iOS, och sist i filen Android med sin egen inledning.
+// iOS är en betafunktion: tolkningarna är kontrollerade mot en labbtelefon
 // (iOS 26.4.1, Telegram 13.1.2, 2026-11-03) och kan skilja sig mellan versioner, därför bär varje
 // händelse databas, tabell, kolumn och query. Telegrams format avkodas i minnet av
 // tools/db-queries/postbox.js. Filen kopplas till Telegram på tre sätt:
@@ -217,9 +218,197 @@
         return { events: events, notes: notes, link: link };
     }
 
+    // ---------- Android ----------
+    // cache4.db, kontrollerad mot en labbtelefon (Android 16, Telegram med versionskod 73031, 2026-11-11) för en mottagen bild. Filen
+    // låg under Android/data/org.telegram.messenger/files/Telegram/Telegram Images/ och hette -<id>_<nummer>.jpg:
+    // id:t med omvänt tecken är bildens id i meddelandets blobb (åtta byte efter bildens konstruktor), och numret är
+    // teckenkoden för en av bildens storlekar, vars antal byte i blobben var filens storlek. Filen står inte i
+    // telefonens bildbibliotek. Skickade bilder, videor och filer är inte kontrollerade och kopplas inte.
+
+    var APP_ANDROID = 'org.telegram.messenger';
+    var TL_PHOTO = 0xfb197a65, TL_VECTOR = 0x1cb5c415;
+    // Bildens storlekar: de tre första är sedda i labbet, de andra följer Telegrams schema.
+    var TL_SIZE = 0x75c78e60, TL_SIZE_STRIPPED = 0xe0b0bc2e, TL_SIZE_PROGRESSIVE = 0xfa3efb95, TL_SIZE_EMPTY = 0x0e17e23c, TL_SIZE_CACHED = 0x021e1ad6, TL_SIZE_PATH = 0xd8214d41;
+    // media_v4.type, med samma namn som i katalogens queryer.
+    var MEDIA_ANDROID = { 0: 'bild eller video', 1: 'fil', 2: 'röst- eller videomeddelande', 4: 'musik', 5: 'gif' };
+    var NEUTER_ANDROID = { meddelande: 1, 'röst- eller videomeddelande': 1, 'tjänstemeddelande': 1 };
+
+    // Bildens id och storlekens bokstav ur namnet på en fil under Telegrams mapp. idHex är id:t som det står i
+    // blobben: åtta byte med den lägsta först, som 16 hexadecimala tecken.
+    function parseFileName(path) {
+        var p = String(path || '');
+        var at = p.indexOf('/' + APP_ANDROID + '/');
+        if (at < 0 || typeof BigInt !== 'function') return null;
+        var m = /^(-?\d{6,20})_(\d{2,3})\.(jpe?g|png|webp)$/i.exec(p.split('/').pop());
+        if (!m) return null;
+        var n = BigInt(m[1]);
+        if (n > BigInt('9223372036854775807') || n < -BigInt('9223372036854775807')) return null;
+        var hex = ('0000000000000000' + BigInt.asUintN(64, -n).toString(16).toUpperCase()).slice(-16);
+        var le = '';
+        for (var i = 14; i >= 0; i -= 2) le += hex.substr(i, 2);
+        var code = Number(m[2]);
+        return { idHex: le, sizeType: code >= 97 && code <= 122 ? String.fromCharCode(code) : null, path: p.slice(at + 1) };
+    }
+
+    // Läser byte ur en hexsträng: tal med den lägsta byten först och Telegrams strängar (längden i en byte, eller 254 och
+    // längden i tre, utfyllt till fyra byte). Ett läsfel sätter failed och ger null.
+    function tlReader(hex) {
+        var len = Math.floor(hex.length / 2);
+        var r = { pos: 0, failed: false };
+        var b = function (at) { return parseInt(hex.substr(at * 2, 2), 16); };
+        r.u32 = function () {
+            if (r.failed || r.pos + 4 > len) { r.failed = true; return null; }
+            var v = b(r.pos) + b(r.pos + 1) * 256 + b(r.pos + 2) * 65536 + b(r.pos + 3) * 16777216;
+            r.pos += 4;
+            return v;
+        };
+        r.skip = function (n) { if (r.failed || r.pos + n > len) r.failed = true; else r.pos += n; };
+        r.bytes = function () {
+            if (r.failed || r.pos + 1 > len) { r.failed = true; return null; }
+            var n = b(r.pos), head = 1;
+            if (n === 255) { r.failed = true; return null; }
+            if (n === 254) {
+                if (r.pos + 4 > len) { r.failed = true; return null; }
+                n = b(r.pos + 1) + b(r.pos + 2) * 256 + b(r.pos + 3) * 65536;
+                head = 4;
+            }
+            var start = r.pos + head;
+            var end = r.pos + Math.ceil((head + n) / 4) * 4;
+            if (end > len) { r.failed = true; return null; }
+            r.pos = end;
+            return { start: start, length: n };
+        };
+        r.str = function () {
+            var x = r.bytes();
+            if (!x) return null;
+            var out = '';
+            for (var i = 0; i < x.length; i++) out += String.fromCharCode(b(x.start + i));
+            return out;
+        };
+        return r;
+    }
+
+    // En bild i ett meddelandes blobb. hex börjar vid bildens konstruktor. Returnerar { id (som idHex), sizes:
+    // [{ type, w, h, size }], complete } eller null när det inte är en bild i den form som är kontrollerad.
+    // För en bild i flera steg är storleken det sista stegets, alltså hela filens.
+    function parsePhoto(hex) {
+        var h = String(hex || '').toUpperCase();
+        if (!/^[0-9A-F]*$/.test(h)) return null;
+        var r = tlReader(h);
+        if (r.u32() !== TL_PHOTO) return null;
+        r.skip(4);
+        var id = h.substr(r.pos * 2, 16);
+        r.skip(16);
+        r.bytes();
+        r.skip(4);
+        if (r.u32() !== TL_VECTOR) return null;
+        var count = r.u32();
+        if (r.failed || count > 64) return null;
+        var sizes = [];
+        for (var i = 0; i < count; i++) {
+            var ctor = r.u32();
+            var s = { type: null, w: null, h: null, size: null };
+            if (ctor === TL_SIZE) { s.type = r.str(); s.w = r.u32(); s.h = r.u32(); s.size = r.u32(); }
+            else if (ctor === TL_SIZE_PROGRESSIVE) {
+                s.type = r.str(); s.w = r.u32(); s.h = r.u32();
+                var steps = r.u32() === TL_VECTOR ? r.u32() : null;
+                if (steps == null || steps > 64) r.failed = true;
+                for (var j = 0; !r.failed && j < steps; j++) s.size = r.u32();
+            } else if (ctor === TL_SIZE_CACHED) { s.type = r.str(); s.w = r.u32(); s.h = r.u32(); var body = r.bytes(); s.size = body ? body.length : null; }
+            else if (ctor === TL_SIZE_STRIPPED || ctor === TL_SIZE_PATH) { s.type = r.str(); r.bytes(); }
+            else if (ctor === TL_SIZE_EMPTY) s.type = r.str();
+            else break;
+            if (r.failed) break;
+            sizes.push(s);
+        }
+        return { id: id, sizes: sizes, complete: sizes.length === count };
+    }
+
+    function groupWordAndroid(r) { var t = Number(r.peerType); return t === 2 ? 'gruppen eller kanalen ' : t === 1 ? 'gruppen ' : ''; }
+
+    function counterpartAndroid(r) {
+        var chat = r.chatName || 'okänd chatt';
+        var g = groupWordAndroid(r);
+        if (Number(r.out) === 1) return g + chat;
+        var who = r.sender && r.sender !== 'den här telefonen' ? r.sender : chat;
+        // Ett inlägg i en kanal har kanalen själv som avsändare.
+        return g ? (who !== chat ? who + ' i ' : '') + g + chat : who;
+    }
+
+    // Meddelandena som bär filens bild. ctx.photo är raderna ur rollen photo: meddelanden vars blobb har id:t.
+    // En rad räknas bara när id:t står på en jämn fyrbytesgräns direkt efter bildens konstruktor.
+    function matchAndroid(ctx) {
+        var name = ctx.name || parseFileName(ctx.path);
+        var out = { matches: [], unread: 0 };
+        if (!name) return out;
+        (ctx.photo || []).forEach(function (r) {
+            var photo = Number(r.idOffset) % 4 === 0 ? parsePhoto(r.photoHex) : null;
+            if (!photo || photo.id !== name.idHex) { out.unread++; return; }
+            var size = name.sizeType ? photo.sizes.filter(function (s) { return s.type === name.sizeType; })[0] || null : null;
+            out.matches.push({ row: r, size: size, sizeOk: size && size.size != null && ctx.size != null ? Number(size.size) === Number(ctx.size) : null });
+        });
+        return out;
+    }
+
+    // ctx: { path, size (filens antal byte), photo (rollen photo), messages (rollen messages), sources: { main },
+    //        centerMs, keep(ms) }. Returnerar { events, notes, link } som build, med link.android satt.
+    function buildAndroid(ctx) {
+        var events = [];
+        var notes = [];
+        var srcMain = ctx.sources && ctx.sources.main || { db: 'cache4.db', table: 'messages_v2', queryId: 'role-messages' };
+        var name = parseFileName(ctx.path);
+        var found = matchAndroid({ name: name, photo: ctx.photo, size: ctx.size });
+        var fileMsgs = {};
+        found.matches.forEach(function (x) { fileMsgs[x.row.peerId + '|' + x.row.id] = true; });
+
+        (ctx.messages || []).forEach(function (m) {
+            var ms = m.timeMs;
+            if (ms == null) return;
+            var own = Number(m.out) === 1;
+            var isFile = !!fileMsgs[m.peerId + '|' + m.id];
+            var what = isFile ? 'bild' : Number(m.service) === 1 ? 'tjänstemeddelande' : m.mediaType != null ? MEDIA_ANDROID[Number(m.mediaType)] || 'media' : 'meddelande';
+            var who = counterpartAndroid(m);
+            var verb = NEUTER_ANDROID[what] ? (own ? 'skickat till ' : 'mottaget från ') : (own ? 'skickad till ' : 'mottagen från ');
+            var text = 'Telegram: ' + what + ' ' + verb + who + ' (meddelande ' + m.id + ')';
+            var hasMedia = what !== 'meddelande' && what !== 'tjänstemeddelande';
+            var plain = what === 'bild eller video' ? (own ? 'En bild eller video skickas från den här telefonen i Telegram till ' + who : 'En bild eller video tas emot i Telegram från ' + who) : null;
+            if (isFile) { text = 'Den bedömda filen: ' + text; plain = own ? 'Den bedömda filen skickas från den här telefonen i Telegram till ' + who : 'Den bedömda filen tas emot i Telegram från ' + who; }
+            events.push({ ms: ms, kind: 'tg-message', lane: 'telegram', app: APP_ANDROID, own: own, bold: isFile, isFile: isFile, near: false, messageId: m.id,
+                media: hasMedia ? 1 : 0, mediaKind: hasMedia ? what : null, fromLibrary: false, viewOnce: false, call: false,
+                active: own, activeText: own ? 'ett meddelande skickades' : null,
+                text: text, plain: plain, source: Object.assign({}, srcMain, { column: 'date' }) });
+        });
+
+        if (typeof ctx.keep === 'function') events = events.filter(function (e) { return ctx.keep(e.ms); });
+        events.sort(function (a, b) { return a.ms - b.ms; });
+        if (events.length > MAX_EVENTS) {
+            var center = ctx.centerMs != null ? ctx.centerMs : events[0].ms;
+            var kept = events.filter(function (e) { return e.isFile; });
+            events.filter(function (e) { return !e.isFile; }).sort(function (a, b) { return Math.abs(a.ms - center) - Math.abs(b.ms - center); })
+                .forEach(function (e) { if (kept.length < MAX_EVENTS) kept.push(e); });
+            notes.push((events.length - kept.length) + ' Telegram-händelser till i fönstret visas inte.');
+            events = kept.sort(function (a, b) { return a.ms - b.ms; });
+        }
+
+        var link = {
+            matches: found.matches.map(function (x) {
+                var r = x.row;
+                return {
+                    messageId: r.id, peerId: r.peerId, direction: Number(r.out) === 1 ? 'out' : 'in', who: counterpartAndroid(r), chat: r.chatName || 'okänd chatt',
+                    kind: 'bild', size: x.size ? x.size.size : null, width: x.size ? x.size.w : null, height: x.size ? x.size.h : null, resourceId: null, timeMs: r.timeMs != null ? r.timeMs : null,
+                    viewOnce: false, gone: false, by: ['path'], path: name.path, sizeType: name.sizeType, sizeOk: x.sizeOk, fileSize: ctx.size != null ? Number(ctx.size) : null,
+                };
+            }),
+            picks: [], nearby: [], camera: null, media: null, storageRead: false,
+            android: true, idInName: !!name, unread: found.unread,
+        };
+        return { events: events, notes: notes, link: link };
+    }
+
     var api = {
         APP: APP, isTelegramApp: isTelegramApp, isCameraName: isCameraName, kindOf: kindOf, counterpart: counterpart, resourceFromPath: resourceFromPath,
         match: match, picks: picks, nearby: nearby, libraryMessages: libraryMessages, build: build, NEARBY_MS: NEARBY_MS,
+        APP_ANDROID: APP_ANDROID, parseFileName: parseFileName, parsePhoto: parsePhoto, counterpartAndroid: counterpartAndroid, matchAndroid: matchAndroid, buildAndroid: buildAndroid,
     };
     if (typeof module !== 'undefined' && module.exports) module.exports = api;
     else root.ProvenanceTelegram = api;

@@ -179,3 +179,188 @@ test('en kamerafil i WhatsApps tmp utan meddelande: inget meddelande, ingen slut
     assert.deepStrictEqual([f.state, f.verdictText], ['info', 'Inget meddelande']);
     assert.match(f.items[0].text, /tillfälliga mapp/);
 });
+
+// ---------- Android ----------
+// Raderna efterliknar labbet med två telefoner (Android 16, WhatsApp 2.26.43, 2026-11-11): en bild tagen med
+// WhatsApps kamera (21), en mottagen bild (22), ett röstmeddelande (23), en video som inte hämtats (24), en
+// kamerabild skickad som dokument (25) och ett mottaget dokument i en grupp (26). Namn och id:n är påhittade.
+
+const KIM = '111@lid';
+const ALEX = '222@lid';
+const NAMES = { [KIM]: 'Kim', [ALEX]: 'Alex' };
+const ZIP_WA = 'Dump/data/media/0/Android/media/com.whatsapp/WhatsApp/';
+const b64 = (s) => sha(s).toString('base64');
+const hex = (s) => sha(s).toString('hex');
+const chatKim = { chatId: 3, chatSubject: null, chatJid: KIM, group: 0 };
+const chatClub = { chatId: 4, chatSubject: 'Klubben', chatJid: '120363000000000001@g.us', group: 1 };
+const MEDIA_A = [
+    Object.assign({ messageId: 21, type: 1, fromMe: 1, dateMs: at(11), receivedMs: null, sender: 'den här telefonen', voice: 0, mime: 'image/jpeg', path: 'Media/WhatsApp Images/Sent/IMG-20261111-WA0001.jpg', size: 80123, sha256: b64('skickad kopia'), original: b64('originalet'), transferred: 1 }, chatKim),
+    Object.assign({ messageId: 22, type: 1, fromMe: 0, dateMs: at(58), receivedMs: at(60), sender: KIM, voice: 0, mime: 'image/jpeg', path: 'Media/WhatsApp Images/IMG-20261111-WA0002.jpg', size: 91234, sha256: b64('mottagen bild'), original: null, transferred: 1 }, chatKim),
+    Object.assign({ messageId: 23, type: 2, fromMe: 1, dateMs: at(90), receivedMs: null, sender: 'den här telefonen', voice: 1, mime: 'audio/ogg; codecs=opus', path: 'Media/WhatsApp Voice Notes/202646/PTT-20261111-WA0003.opus', size: 0, sha256: b64('röst'), original: null, transferred: 1 }, chatKim),
+    Object.assign({ messageId: 24, type: 3, fromMe: 0, dateMs: at(118), receivedMs: at(120), sender: KIM, voice: 0, mime: 'video/mp4', path: null, size: 2345678, sha256: b64('video'), original: null, transferred: 0 }, chatKim),
+    Object.assign({ messageId: 25, type: 9, fromMe: 1, dateMs: at(150), receivedMs: null, sender: 'den här telefonen', voice: 0, mime: 'image/jpeg', path: 'Media/WhatsApp Documents/Sent/DOC-20261111-WA0004.jpg', size: 3456789, sha256: b64('kamerabild'), original: null, transferred: 1 }, chatKim),
+    Object.assign({ messageId: 26, type: 9, fromMe: 0, dateMs: at(178), receivedMs: at(180), sender: ALEX, voice: 0, mime: 'application/pdf', path: 'Media/WhatsApp Documents/rapport.pdf', size: 4567, sha256: b64('pdf'), original: null, transferred: 1 }, chatClub),
+];
+const msgA = (m, over) => Object.assign({ id: m.messageId, type: m.type, fromMe: m.fromMe, dateMs: m.dateMs, receivedMs: m.receivedMs, chatId: m.chatId, chatSubject: m.chatSubject, chatJid: m.chatJid, group: m.group, sender: m.sender, voice: m.voice, mime: m.mime, mediaId: m.messageId, hasText: 0 }, over || {});
+const MESSAGES_A = MEDIA_A.map((m) => msgA(m)).concat([
+    Object.assign({ id: 20, type: 0, fromMe: 1, dateMs: at(5), receivedMs: null, sender: 'den här telefonen', voice: 0, mime: null, mediaId: null, hasText: 1 }, chatKim),
+    Object.assign({ id: 27, type: 15, fromMe: 0, dateMs: at(198), receivedMs: at(200), sender: KIM, voice: 0, mime: null, mediaId: null, hasText: 0 }, chatKim),
+    Object.assign({ id: 28, type: 7, fromMe: 0, dateMs: at(1), receivedMs: at(1), sender: null, voice: 0, mime: null, mediaId: null, hasText: 0 }, chatKim),
+    Object.assign({ id: 29, type: 99, fromMe: 0, dateMs: at(210), receivedMs: null, sender: KIM, voice: 0, mime: null, mediaId: null, hasText: 0 }, chatKim),
+]);
+const buildA = (ctx) => wa.buildAndroid(Object.assign({ media: MEDIA_A, messages: MESSAGES_A, names: NAMES }, ctx));
+const factorA = (out, type, T) => core.factorWhatsApp({ file: { createdMs: T == null ? at(0) : T }, whatsapp: { link: out.link } }, type);
+const textA = (f) => f.items.map((i) => i.text).join(' ');
+
+test('Android: filen kopplas på sin summa, på originalets summa och på sin sökväg under WhatsApp/Media/', () => {
+    const by = (ctx) => wa.matchAndroid(ctx, MEDIA_A).map((x) => [x.row.messageId, x.by]);
+    assert.deepStrictEqual(by({ sha256: hex('mottagen bild'), path: ZIP_WA + 'Media/WhatsApp Images/IMG-20261111-WA0002.jpg' }), [[22, ['sha256', 'path']]]);
+    assert.deepStrictEqual(by({ sha256: hex('originalet'), path: ZIP_WA + 'Media/WhatsApp Images/IMG-20261111-WA0000.jpeg' }), [[21, ['original']]]);
+    assert.deepStrictEqual(by({ sha256: hex('kamerabild').toUpperCase(), path: 'Dump/data/media/0/DCIM/Camera/20261111_101500.jpg' }), [[25, ['sha256']]]);
+    // Bara sökvägen: en fil som ändrats efter att den sparades har en annan summa.
+    assert.deepStrictEqual(by({ sha256: hex('något annat'), path: ZIP_WA + 'Media/WhatsApp Documents/rapport.pdf' }), [[26, ['path']]]);
+    // Samma slut på sökvägen i en annan mapp är inte WhatsApps fil, och en summa som inte är SHA-256 jämförs inte.
+    assert.deepStrictEqual(by({ path: 'Dump/data/media/0/Kopior/Media/WhatsApp Documents/rapport.pdf' }), []);
+    assert.deepStrictEqual(by({ sha256: 'abc', path: null }), []);
+    assert.strictEqual(wa.APP_ANDROID, 'com.whatsapp');
+});
+
+test('Android: händelserna säger vad som skickades och togs emot, med tiden på den här telefonen', () => {
+    const out = buildA({});
+    const ev = (id) => out.events.find((e) => e.messageId === id);
+    assert.deepStrictEqual(out.events.map((e) => e.messageId), [20, 21, 22, 23, 24, 25, 26, 27, 29]);
+    assert.strictEqual(ev(20).text, 'WhatsApp: meddelande skickat till Kim (meddelande 20)');
+    assert.strictEqual(ev(21).text, 'WhatsApp: bild skickad till Kim (meddelande 21)');
+    assert.strictEqual(ev(22).text, 'WhatsApp: bild mottagen från Kim (meddelande 22)');
+    assert.strictEqual(ev(23).text, 'WhatsApp: röstmeddelande skickat till Kim (meddelande 23)');
+    assert.strictEqual(ev(24).text, 'WhatsApp: video mottagen från Kim (meddelande 24), inte hämtad till telefonen');
+    assert.strictEqual(ev(25).text, 'WhatsApp: bild skickad som dokument till Kim (meddelande 25)');
+    assert.strictEqual(ev(26).text, 'WhatsApp: dokument mottaget från Alex i gruppen Klubben (meddelande 26)');
+    assert.strictEqual(ev(27).text, 'WhatsApp: meddelande mottaget från Kim (meddelande 27), raderat för alla');
+    assert.strictEqual(ev(29).text, 'WhatsApp: meddelande av typ 99 mottaget från Kim (meddelande 29)');
+    // Ett mottaget meddelande står på tiden då det kom in, ett skickat på tiden då det skrevs.
+    assert.deepStrictEqual([ev(22).ms, ev(22).source.column, ev(22).own], [at(60), 'received_timestamp', false]);
+    assert.deepStrictEqual([ev(21).ms, ev(21).source.column, ev(21).own, ev(21).active], [at(11), 'timestamp', true, true]);
+    assert.deepStrictEqual([ev(29).ms, ev(29).source.column], [at(210), 'timestamp']);
+    assert.deepStrictEqual([ev(22).kind, ev(22).lane, ev(22).app, ev(22).source.db, ev(22).source.table], ['wa-message', 'whatsapp', 'com.whatsapp', 'msgstore.db', 'message']);
+    assert.strictEqual(ev(22).plain, 'En bild tas emot i WhatsApp från Kim');
+    assert.strictEqual(ev(20).plain, null);
+    assert.ok(out.events.every((e) => !e.isFile));
+    assert.deepStrictEqual([out.link.android, out.link.media, out.link.matches.length, out.link.shaKnown], [true, 6, 0, false]);
+    // Utan wa.db visas kontot med sitt id, och fönstret väljer händelserna.
+    assert.strictEqual(wa.buildAndroid({ media: MEDIA_A, messages: MESSAGES_A }).events[2].text, 'WhatsApp: bild mottagen från 111@lid (meddelande 22)');
+    assert.deepStrictEqual(buildA({ keep: (ms) => ms >= at(60) && ms <= at(120) }).events.map((e) => e.messageId), [22, 23, 24]);
+});
+
+test('Android: den bedömda filens meddelande pekas ut, och originalet till en skickad bild sägs vara originalet', () => {
+    const recv = buildA({ sha256: hex('mottagen bild'), path: ZIP_WA + 'Media/WhatsApp Images/IMG-20261111-WA0002.jpg' });
+    const e = recv.events.find((x) => x.messageId === 22);
+    assert.strictEqual(e.text, 'Den bedömda filen: WhatsApp: bild mottagen från Kim (meddelande 22)');
+    assert.strictEqual(e.plain, 'Den bedömda filen tas emot i WhatsApp från Kim');
+    assert.deepStrictEqual([e.isFile, e.bold], [true, true]);
+    assert.deepStrictEqual(recv.link.matches.map((m) => [m.messageId, m.by, m.direction, m.who, m.kind, m.document, m.path, m.dateMs, m.sentMs, m.fetched]),
+        [[22, ['sha256', 'path'], 'in', 'Kim', 'bild', false, 'WhatsApp/Media/WhatsApp Images/IMG-20261111-WA0002.jpg', at(60), null, true]]);
+    assert.strictEqual(recv.link.shaKnown, true);
+
+    const orig = buildA({ sha256: hex('originalet'), path: ZIP_WA + 'Media/WhatsApp Images/IMG-20261111-WA0000.jpeg' });
+    const o = orig.events.find((x) => x.messageId === 21);
+    assert.strictEqual(o.text, 'WhatsApp: bild skickad till Kim (meddelande 21); den bedömda filen är originalet till den');
+    assert.strictEqual(o.plain, 'En kopia av den bedömda filen skickas från den här telefonen i WhatsApp till Kim');
+    assert.deepStrictEqual(orig.link.matches.map((m) => [m.messageId, m.by, m.direction, m.sentMs]), [[21, ['original'], 'out', at(11)]]);
+});
+
+test('Android: fler händelser än tidslinjen rymmer kortas kring T, och filens meddelande står kvar', () => {
+    const many = [];
+    for (let i = 0; i < 60; i++) many.push(Object.assign({ id: 100 + i, type: 0, fromMe: i % 2, dateMs: at(1000 + i * 10), receivedMs: null, sender: KIM, voice: 0, mime: null, mediaId: null, hasText: 1 }, chatKim));
+    const out = buildA({ sha256: hex('mottagen bild'), messages: MESSAGES_A.concat(many), centerMs: at(1300) });
+    assert.strictEqual(out.events.length, 40);
+    assert.ok(out.events.some((e) => e.isFile && e.messageId === 22));
+    assert.deepStrictEqual(out.notes, ['29 WhatsApp-händelser till i fönstret visas inte.']);
+});
+
+test('Android, faktorn: WhatsApps egen fil är mottagen eller skickad i meddelandet som databasen pekar ut', () => {
+    const p = 'WhatsApp/Media/WhatsApp Images/IMG-20261111-WA0002.jpg';
+    const chat = { app: wa.APP_ANDROID, appName: 'WhatsApp', direction: 'in', who: 'Kim', messageId: 22, path: p, source: 'msgstore.db', inLibrary: true };
+    const type = core.classify({ importer: wa.APP_ANDROID, relativePath: 'Android/media/com.whatsapp/WhatsApp/Media/WhatsApp Images/', filename: 'IMG-20261111-WA0002.jpg', createdFrom: 'date_added', chatMedia: chat }, 'Android');
+    assert.deepStrictEqual([type.type, type.label, type.importer], ['saved', 'WhatsApp-media', 'com.whatsapp']);
+    assert.deepStrictEqual(type.reasons, ['filen är WhatsApps egen (' + p + ')', 'meddelande 22, mottaget från Kim (msgstore.db)', 'owner_package_name är com.whatsapp', 'datetaken saknas i MediaStore, så T är date_added']);
+    assert.strictEqual(core.classify({ chatMedia: Object.assign({}, chat, { inLibrary: false }) }, 'Android').label, 'WhatsApp-media utanför bildbiblioteket');
+
+    const f = factorA(buildA({ sha256: hex('mottagen bild'), path: ZIP_WA + p.slice(9) }), type, at(60));
+    assert.deepStrictEqual([f.id, f.title, f.state, f.verdictText], ['whatsapp', 'WhatsApp', 'support', 'Mottagen i WhatsApp']);
+    assert.match(f.items[0].text, /^Mottagen från Kim 11:16:00 \(meddelande 22, bild\): samma SHA-256 som mediefilen \(file_hash\), filen är WhatsApps egen \(WhatsApp\/Media\/WhatsApp Images\/IMG-20261111-WA0002\.jpg\)\.$/);
+    assert.strictEqual(f.items.length, 1);
+    assert.match(f.plain, /^Filen är WhatsApps kopia i meddelande 22, mottaget från Kim /);
+    assert.doesNotMatch(textA(f) + f.plain, /ZUUID|ChatStorage|ServiceExtension|bildbibliotekets post/);
+
+    // Samma fil med en annan summa än databasens: sökvägen binder, och det sägs.
+    const changed = factorA(buildA({ sha256: hex('ändrad'), path: ZIP_WA + p.slice(9) }), type, at(60));
+    assert.deepStrictEqual([changed.state, changed.items.length, changed.items[1].state], ['support', 2, 'info']);
+    assert.match(changed.items[1].text, /bara sökvägen binder/);
+
+    // Den skickade kopian under Sent/.
+    const sentChat = Object.assign({}, chat, { direction: 'out', messageId: 21, path: 'WhatsApp/Media/WhatsApp Images/Sent/IMG-20261111-WA0001.jpg' });
+    const sent = factorA(buildA({ sha256: hex('skickad kopia'), path: ZIP_WA + 'Media/WhatsApp Images/Sent/IMG-20261111-WA0001.jpg' }), core.classify({ importer: wa.APP_ANDROID, chatMedia: sentChat }, 'Android'), at(11));
+    assert.deepStrictEqual([sent.state, sent.verdictText], ['support', 'Skickad i WhatsApp']);
+    assert.match(sent.items[0].text, /^Skickad till Kim .*\(meddelande 21, bild\)/);
+});
+
+test('Android, faktorn: originalet, kamerabilden som skickades som dokument, en mottagen fil bland kamerabilderna och ingen träff', () => {
+    const saved = { type: 'saved', importer: wa.APP_ANDROID, chat: null };
+    const orig = factorA(buildA({ sha256: hex('originalet'), path: ZIP_WA + 'Media/WhatsApp Images/IMG-20261111-WA0000.jpeg' }), saved, at(0));
+    assert.deepStrictEqual([orig.state, orig.verdictText], ['support', 'Original till en skickad fil']);
+    assert.match(orig.items[0].text, /^Skickad till Kim .*\(meddelande 21, bild\): samma SHA-256 som originalet till det som skickades \(original_file_hash\)\.$/);
+    assert.match(orig.items[1].text, /valts ur galleriet är inte kontrollerad/);
+    assert.match(orig.plain, /^Filen är originalet till en bild som skickades i WhatsApp till Kim, 11 s efter T\. WhatsApp sparade originalet\.$/);
+
+    const cam = { type: 'camera', importer: 'com.sec.android.app.camera', chat: null };
+    const doc = factorA(buildA({ sha256: hex('kamerabild'), path: 'Dump/data/media/0/DCIM/Camera/20261111_101500.jpg' }), cam, at(100));
+    assert.deepStrictEqual([doc.state, doc.verdictText], ['info', 'Skickad i WhatsApp']);
+    assert.match(doc.items[0].text, /\(meddelande 25, bild som dokument\): samma SHA-256 som mediefilen \(file_hash\)\.$/);
+    assert.match(doc.plain, /^Filen skickades i WhatsApp till Kim som dokument, 50 s efter T\. Det säger inget om hur den skapades\.$/);
+
+    const got = factorA(buildA({ sha256: hex('mottagen bild'), path: 'Dump/data/media/0/DCIM/Camera/kopia.jpg' }), cam, at(300));
+    assert.deepStrictEqual([got.state, got.verdictText, got.items[0].state], ['contradiction', 'Togs emot i WhatsApp', 'contradiction']);
+    assert.match(got.plain, /inte en bild från telefonens kamera/);
+
+    const lost = factorA(buildA({ sha256: hex('okänd'), path: ZIP_WA + 'Media/WhatsApp Images/IMG-20261111-WA0009.jpg' }), saved);
+    assert.deepStrictEqual([lost.state, lost.verdictText], ['missing', 'Hittas inte']);
+    assert.match(lost.items[0].text, /owner_package_name\), men varken summan eller sökvägen finns bland WhatsApps 6 mediefiler i msgstore\.db/);
+
+    const none = factorA(buildA({ sha256: hex('okänd'), path: 'Dump/data/media/0/DCIM/Camera/a.jpg' }), cam);
+    assert.deepStrictEqual([none.state, none.verdictText], ['info', 'Inte i WhatsApp']);
+    assert.match(none.items[0].text, /file_hash eller original_file_hash/);
+
+    const err = core.factorWhatsApp({ file: { createdMs: at(0) }, whatsapp: { error: 'WhatsApps databaser kunde inte läsas: trasig' } }, cam);
+    assert.deepStrictEqual([err.state, err.verdictText], ['missing', 'Kunde inte läsas']);
+});
+
+test('Android: kameran frågas inte för WhatsApps egen fil, men för originalet frågas den', () => {
+    const base = { platform: 'Android', appNames: (id) => (id === 'com.whatsapp' ? 'WhatsApp' : id), appIntervals: [], screen: [], lock: [], locations: [], neighbours: [], windowMs: 15 * 60000 };
+    const chat = { app: wa.APP_ANDROID, appName: 'WhatsApp', direction: 'in', who: 'Kim', messageId: 22, path: 'WhatsApp/Media/WhatsApp Images/IMG-20261111-WA0002.jpg', source: 'msgstore.db', inLibrary: true };
+    const recv = buildA({ sha256: hex('mottagen bild'), path: ZIP_WA + 'Media/WhatsApp Images/IMG-20261111-WA0002.jpg' });
+    const own = core.build(Object.assign({}, base, { file: { createdMs: at(60), addedMs: at(60), importer: wa.APP_ANDROID, filename: 'IMG-20261111-WA0002.jpg', chatMedia: chat }, whatsapp: { link: recv.link }, extraEvents: recv.events }));
+    const cam = own.factors.find((f) => f.id === 'camera');
+    assert.strictEqual(cam.state, 'na');
+    assert.match(cam.items[0].text, /WhatsApps kopia av en fil som togs emot i appen \(meddelande 22\)/);
+    assert.strictEqual(own.factors.find((f) => f.id === 'whatsapp').verdictText, 'Mottagen i WhatsApp');
+    assert.strictEqual(own.beta, true);
+
+    const o = buildA({ sha256: hex('originalet'), path: ZIP_WA + 'Media/WhatsApp Images/IMG-20261111-WA0000.jpeg' });
+    const orig = core.build(Object.assign({}, base, { file: { createdMs: at(0), addedMs: at(0), importer: wa.APP_ANDROID, filename: 'IMG-20261111-WA0000.jpeg', relativePath: 'Android/media/com.whatsapp/WhatsApp/Media/WhatsApp Images/' }, whatsapp: { link: o.link }, extraEvents: o.events }));
+    assert.strictEqual(orig.type.type, 'saved');
+    assert.strictEqual(orig.type.chat, null);
+    assert.notStrictEqual(orig.factors.find((f) => f.id === 'camera').state, 'na');
+    assert.strictEqual(orig.factors.find((f) => f.id === 'whatsapp').verdictText, 'Original till en skickad fil');
+});
+
+test('Android: en mening om en mediefil som hittats på sin summa eller på originalets', () => {
+    const fmt = (ms) => new Date(ms).toISOString();
+    assert.strictEqual(wa.mediaTextAndroid(MEDIA_A[1], fmt, 'sha256', NAMES),
+        'WhatsApp-bild (image/jpeg, 91234 byte) i meddelande 22, mottagen från Kim ' + fmt(at(60)) + '. Filen ligger under WhatsApp/Media/WhatsApp Images/IMG-20261111-WA0002.jpg.');
+    assert.strictEqual(wa.mediaTextAndroid(MEDIA_A[0], fmt, 'original', NAMES),
+        'WhatsApp-bild (image/jpeg, 80123 byte) i meddelande 21, skickad till Kim ' + fmt(at(11)) + '. Summan är originalets (original_file_hash): det som skickades är en kopia gjord av filen. Kopian ligger under WhatsApp/Media/WhatsApp Images/Sent/IMG-20261111-WA0001.jpg.');
+    assert.match(wa.mediaTextAndroid(MEDIA_A[3], fmt, 'sha256', NAMES), /^WhatsApp-video \(video\/mp4, 2345678 byte\) i meddelande 24, mottagen från Kim .* Filen hämtades aldrig till telefonen\.$/);
+    assert.match(wa.mediaTextAndroid(MEDIA_A[5], fmt, 'sha256', NAMES), /^WhatsApp-dokument \(application\/pdf, 4567 byte\) i meddelande 26, mottaget från Alex i gruppen Klubben /);
+    assert.match(wa.mediaTextAndroid(MEDIA_A[2], fmt, 'sha256', {}), /^WhatsApp-röstmeddelande .* skickat till 111@lid /);
+});

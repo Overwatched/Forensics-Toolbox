@@ -1072,6 +1072,16 @@
             try { await addSignal(input, meta, windowMs, run, fileSha, zone); }
             catch (e) { input.signal = { error: 'Signals databaser kunde inte läsas: ' + e.message }; console.warn(e); }
         }
+        // WhatsApp och Telegram på Android (beta): filens summa och sökväg mot msgstore.db, id:t i en av Telegrams egna
+        // bildfilers namn mot cache4.db, och meddelandena kring T.
+        if (platform === 'Android' && hitFor(WHATSAPP_ANDROID_KEYS.main) && fileRow.createdMs) {
+            try { await addWhatsAppAndroid(input, meta, windowMs, run, fileSha); }
+            catch (e) { input.whatsapp = { error: 'WhatsApps databaser kunde inte läsas: ' + e.message }; console.warn(e); }
+        }
+        if (platform === 'Android' && hitFor(TELEGRAM_ANDROID_KEYS.main) && fileRow.createdMs) {
+            try { await addTelegramAndroid(input, meta, windowMs, run); }
+            catch (e) { input.telegram = { error: 'Telegrams databas kunde inte läsas: ' + e.message }; console.warn(e); }
+        }
         // Signal och WhatsApp på iOS (beta): bilagornas och mediefilernas summor, bildbibliotekets post
         // och meddelandena kring T. Samma ordning och samma extra fönster som på Android.
         if (platform === 'iOS' && hitFor(SIGNAL_IOS_KEYS.main) && fileRow.createdMs) {
@@ -1801,6 +1811,8 @@
     var SIGNAL_IOS_KEYS = { main: 'signal-ios-main' };
     var WHATSAPP_KEYS = { main: 'whatsapp-ios-chat' };
     var TELEGRAM_KEYS = { main: 'telegram-ios-postbox', storage: 'telegram-ios-storage' };
+    var WHATSAPP_ANDROID_KEYS = { main: 'whatsapp-android-msgstore', contacts: 'whatsapp-android-contacts' };
+    var TELEGRAM_ANDROID_KEYS = { main: 'telegram-android-cache4' };
 
     function signalIos() { return !!(state.zip && state.zip.platform === 'iOS' && hitFor(SIGNAL_IOS_KEYS.main)); }
 
@@ -2161,6 +2173,97 @@
         input.warnings = input.warnings.concat(db.warnings);
     }
 
+    // Namnen ur wa.db (kontaktens namn, annars namnet kontot har satt), per JID. Saknas wa.db visas JID:t.
+    async function whatsappAndroidNames(run, warnings) {
+        var hit = hitFor(WHATSAPP_ANDROID_KEYS.contacts);
+        var names = {};
+        if (!hit) return names;
+        try {
+            var src = sourceByKey(WHATSAPP_ANDROID_KEYS.contacts);
+            var db = await loadDb(hit, src.title);
+            runRole(db, src.roles.names, {}, [], run).rows.forEach(function (r) { if (r.id && r.name) names[String(r.id)] = r.name; });
+            if (warnings) db.warnings.forEach(function (w) { warnings.push(w); });
+        } catch (e) { if (warnings) warnings.push('WhatsApps kontakter (wa.db) kunde inte läsas, så konton visas med sina id:n: ' + e.message); }
+        return names;
+    }
+
+    // WhatsApp på Android: mediefilerna (alla) mot filens SHA-256, originalets SHA-256 och sökvägen, och meddelandena i
+    // fönstret. WhatsApps filer står också i MediaStore, så en fil ur biblioteket kan vara WhatsApps egen.
+    async function addWhatsAppAndroid(input, meta, windowMs, run, sha256) {
+        progress('Läser WhatsApps databaser (beta)…');
+        var fileRow = input.file;
+        var src = sourceByKey(WHATSAPP_ANDROID_KEYS.main);
+        var db = await loadDb(hitFor(WHATSAPP_ANDROID_KEYS.main), src.title);
+        var names = await whatsappAndroidNames(run, input.warnings);
+        var media = runRole(db, src.roles.media, {}, ['date', 'received'], run).rows;
+        var base = {
+            sha256: sha256, path: meta.mediaEntry ? meta.mediaEntry.name : null, media: media, names: names, centerMs: fileRow.createdMs,
+            sources: { main: { db: 'msgstore.db', table: 'message', queryId: src.roles.messages.id } },
+        };
+        // Första varvet ger kopplingen; fönstren kring meddelandet läggs till före andra varvet.
+        var first = ProvenanceWhatsApp.buildAndroid(Object.assign({}, base, { messages: [] }));
+        var extra = [];
+        first.link.matches.forEach(function (m) {
+            if (m.dateMs) extra.push({ id: 'whatsapp-' + m.messageId, label: m.direction === 'in' ? 'när filen togs emot i WhatsApp' : 'när filen skickades i WhatsApp', centerMs: m.dateMs });
+        });
+        if (extra.length) fileRow.extraWindows = (fileRow.extraWindows || []).concat(extra);
+        var wins = ProvenanceCore.windows(fileRow, windowMs);
+        var range = wins.length ? { startMs: Math.min.apply(null, wins.map(function (w) { return w.startMs; })), endMs: Math.max.apply(null, wins.map(function (w) { return w.endMs; })) } : null;
+        var messages = range ? runRole(db, src.roles.messages, { window: range }, ['date', 'received'], run).rows : [];
+        var out = ProvenanceWhatsApp.buildAndroid(Object.assign({}, base, { messages: messages, keep: function (ms) { return ProvenanceCore.inWindows(ms, wins); } }));
+        input.extraEvents = (input.extraEvents || []).concat(out.events);
+        input.extraNotes = (input.extraNotes || []).concat(out.notes);
+        input.whatsapp = { link: out.link };
+        // Är filen WhatsApps egen (under WhatsApp/Media/), bedöms den som en fil som togs emot eller skickades i WhatsApp.
+        var own = out.link.matches.find(function (m) { return m.by.indexOf('path') >= 0; });
+        if (own && (!fileRow.importer || fileRow.importer === ProvenanceWhatsApp.APP_ANDROID)) {
+            fileRow.chatMedia = { app: ProvenanceWhatsApp.APP_ANDROID, appName: 'WhatsApp', direction: own.direction, who: own.who, messageId: own.messageId, path: own.path, source: 'msgstore.db', inLibrary: !run.mediaEntry };
+        }
+        if (src.roles.coverage) {
+            var cov = runRole(db, src.roles.coverage, {}, ['first', 'last'], run).rows[0];
+            if (cov) meta.coverage.push(['WhatsApp (meddelanden kvar)', cov.firstMs ? ProvenanceCore.formatUtc(cov.firstMs) : '', cov.lastMs ? ProvenanceCore.formatUtc(cov.lastMs) : '', Number(cov.rows)]);
+        }
+        input.warnings = input.warnings.concat(db.warnings);
+    }
+
+    // Telegram på Android: en av Telegrams egna bildfiler bär bildens id i namnet, och id:t söks i meddelandenas
+    // blobbar. För alla filer läses meddelandena i fönstret.
+    async function addTelegramAndroid(input, meta, windowMs, run) {
+        progress('Läser Telegrams databas (beta)…');
+        var fileRow = input.file;
+        var src = sourceByKey(TELEGRAM_ANDROID_KEYS.main);
+        var db = await loadDb(hitFor(TELEGRAM_ANDROID_KEYS.main), src.title);
+        var path = meta.mediaEntry ? meta.mediaEntry.name : null;
+        var name = ProvenanceTelegram.parseFileName(path);
+        var photo = name ? runRole(db, src.roles.photo, { idHex: name.idHex }, ['time'], run).rows : [];
+        var base = {
+            path: path, size: meta.fileEntry ? meta.fileEntry.size : null, photo: photo, centerMs: fileRow.createdMs,
+            sources: { main: { db: 'cache4.db', table: 'messages_v2', queryId: src.roles.messages.id } },
+        };
+        var first = ProvenanceTelegram.buildAndroid(Object.assign({}, base, { messages: [] }));
+        var extra = [];
+        first.link.matches.forEach(function (m) {
+            if (m.timeMs) extra.push({ id: 'telegram-' + m.messageId, label: m.direction === 'in' ? 'när filen togs emot i Telegram' : 'när filen skickades i Telegram', centerMs: m.timeMs });
+        });
+        if (extra.length) fileRow.extraWindows = (fileRow.extraWindows || []).concat(extra);
+        var wins = ProvenanceCore.windows(fileRow, windowMs);
+        var range = wins.length ? { startMs: Math.min.apply(null, wins.map(function (w) { return w.startMs; })), endMs: Math.max.apply(null, wins.map(function (w) { return w.endMs; })) } : null;
+        var messages = range ? runRole(db, src.roles.messages, { window: range }, ['time'], run).rows : [];
+        var out = ProvenanceTelegram.buildAndroid(Object.assign({}, base, { messages: messages, keep: function (ms) { return ProvenanceCore.inWindows(ms, wins); } }));
+        input.extraEvents = (input.extraEvents || []).concat(out.events);
+        input.extraNotes = (input.extraNotes || []).concat(out.notes);
+        input.telegram = { link: out.link };
+        var own = out.link.matches[0] || null;
+        if (own && !fileRow.importer) {
+            fileRow.chatMedia = { app: ProvenanceTelegram.APP_ANDROID, appName: 'Telegram', direction: own.direction, who: own.who, messageId: own.messageId, path: own.path, source: 'cache4.db' };
+        }
+        if (src.roles.coverage) {
+            var cov = runRole(db, src.roles.coverage, {}, ['first', 'last'], run).rows[0];
+            if (cov) meta.coverage.push(['Telegram (meddelanden kvar)', cov.firstMs ? ProvenanceCore.formatUtc(cov.firstMs) : '', cov.lastMs ? ProvenanceCore.formatUtc(cov.lastMs) : '', Number(cov.rows)]);
+        }
+        input.warnings = input.warnings.concat(db.warnings);
+    }
+
     // ---------- PowerLog (iOS) ----------
 
     // PowerLogs dagsarkiv (gzip). Sparas per zip; en sökning i innehållsförteckningen.
@@ -2360,6 +2463,13 @@
             if (gp) out.push({ app: 'Signal', versionCode: gp.versionCode, source: gp.path, note: pkgNote(gp) });
             if (!lv && !gp) out.push({ app: 'Signal', source: 'varken packages.xml eller Signals logg med version finns i ' + Z() });
         }
+        // WhatsApp och Telegram på Android: versionskoden ur packages.xml.
+        var androidApp = async function (pkg, name) {
+            var p = await androidPackage(pkg);
+            out.push(p ? { app: name, versionCode: p.versionCode, source: p.path, note: pkgNote(p) } : { app: name, source: 'packages.xml finns inte i ' + Z() + ' eller saknar appen' });
+        };
+        if (z.platform !== 'iOS' && input.whatsapp && !input.whatsapp.error) await androidApp(ProvenanceWhatsApp.APP_ANDROID, 'WhatsApp');
+        if (z.platform !== 'iOS' && input.telegram && !input.telegram.error) await androidApp(ProvenanceTelegram.APP_ANDROID, 'Telegram');
         return out;
     }
 
@@ -2810,6 +2920,26 @@
         return { found: {}, texts: texts, note: notes.join(' ') };
     }
 
+    // På Android står SHA-256 för WhatsApps mediefiler i msgstore.db, också för en fil som inte finns kvar, och för
+    // originalet till en bild som skickades omkodad. MD5 och SHA-1 söks inte där.
+    async function whatsappHashLookupAndroid(hashes) {
+        var want = hashes.map(function (h) { return String(h).toLowerCase(); }).filter(function (h) { return ProvenanceHashSearch.algoOf(h) === 'sha256'; });
+        var texts = {};
+        if (!want.length) return texts;
+        var fmt = zoneChoice(null).format;
+        var run = { queries: [] };
+        var src = sourceByKey(WHATSAPP_ANDROID_KEYS.main);
+        var db = await loadDb(hitFor(WHATSAPP_ANDROID_KEYS.main), src.title);
+        var names = await whatsappAndroidNames(run, null);
+        runRole(db, src.roles.media, {}, ['date', 'received'], run).rows.forEach(function (m) {
+            [['sha256', m.sha256], ['original', m.original]].forEach(function (pair) {
+                var h = ProvenanceWhatsApp.b64ToHex(pair[1]);
+                if (h && want.indexOf(h) >= 0) (texts[h] = texts[h] || []).push(ProvenanceWhatsApp.mediaTextAndroid(m, fmt, pair[0], names));
+            });
+        });
+        return texts;
+    }
+
     // Summor som inte finns som filer i zippen kan finnas bland Signals bilagor, som ligger krypterade.
     // SHA-256 jämförs med databasens summor; MD5 och SHA-1 kräver att bilagorna dekrypteras.
     async function signalHashLookup(hashes, entries) {
@@ -2875,6 +3005,11 @@
             if (hashes.length) res = await searchHashes(hashes, entries);
             if (res && !res.stopped && res.missing.length && z.platform === 'Android' && hitFor(SIGNAL_KEYS.main)) {
                 try { sig = await signalHashLookup(res.missing, entries); } catch (e) { sig = { found: {}, note: 'Signals bilagor kunde inte sökas: ' + e.message }; console.warn(e); }
+            }
+            if (res && !res.stopped && res.missing.length && z.platform === 'Android' && hitFor(WHATSAPP_ANDROID_KEYS.main)) {
+                sig = sig || { found: {}, note: '' };
+                try { sig.texts = await whatsappHashLookupAndroid(res.missing); }
+                catch (e) { sig.note = [sig.note, 'WhatsApps databas kunde inte sökas: ' + e.message].filter(Boolean).join(' '); console.warn(e); }
             }
             if (res && !res.stopped && res.missing.length && z.platform === 'iOS' && (hitFor(SIGNAL_IOS_KEYS.main) || hitFor(WHATSAPP_KEYS.main))) {
                 try { sig = await chatHashLookupIos(res.missing); } catch (e) { sig = { found: {}, note: 'Signals och WhatsApps databaser kunde inte sökas: ' + e.message }; console.warn(e); }
@@ -4284,8 +4419,11 @@
                 loadLocalJson('../../queries/ios/signal/catalog.json', 'SIGNAL_IOS_CATALOG'),
                 loadLocalJson('../../queries/ios/whatsapp/catalog.json', 'WHATSAPP_IOS_CATALOG'),
                 loadLocalJson('../../queries/ios/telegram/catalog.json', 'TELEGRAM_IOS_CATALOG'),
+                loadLocalJson('../../queries/android/whatsapp/catalog.json', 'WHATSAPP_ANDROID_CATALOG'),
+                loadLocalJson('../../queries/android/telegram/catalog.json', 'TELEGRAM_ANDROID_CATALOG'),
             ]);
-            state.sources = ProvenanceRoles.collect({ photos: cats[0], android: cats[1], appUsage: cats[2], routined: cats[3], snapchat: cats[4], snapchatAndroid: cats[5], signalAndroid: cats[6], signalIos: cats[7], whatsappIos: cats[8], telegramIos: cats[9] });
+            state.sources = ProvenanceRoles.collect({ photos: cats[0], android: cats[1], appUsage: cats[2], routined: cats[3], snapchat: cats[4], snapchatAndroid: cats[5], signalAndroid: cats[6], signalIos: cats[7], whatsappIos: cats[8], telegramIos: cats[9],
+                whatsappAndroid: cats[10], telegramAndroid: cats[11] });
             state.databases = ProvenanceRoles.databases(state.sources);
             state.targets = ExtractionCore.targets(state.databases);
         } catch (err) {

@@ -20,6 +20,8 @@ const CATALOGS = [
     { dir: 'queries/android/samsung', global: 'SAMSUNG_ANDROID_CATALOG', name: 'android/samsung/catalog.json' },
     { dir: 'queries/ios/signal', global: 'SIGNAL_IOS_CATALOG', name: 'ios/signal/catalog.json' },
     { dir: 'queries/ios/whatsapp', global: 'WHATSAPP_IOS_CATALOG', name: 'ios/whatsapp/catalog.json' },
+    { dir: 'queries/android/whatsapp', global: 'WHATSAPP_ANDROID_CATALOG', name: 'android/whatsapp/catalog.json' },
+    { dir: 'queries/android/telegram', global: 'TELEGRAM_ANDROID_CATALOG', name: 'android/telegram/catalog.json' },
     { dir: 'queries/ios/telegram', global: 'TELEGRAM_IOS_CATALOG', name: 'ios/telegram/catalog.json' },
 ];
 

@@ -30,7 +30,7 @@ function catalogDatabases() {
         queries: b.queries.filter((q) => visible.has(q.id)),
     }));
     const shown = (list) => (list || []).filter((q) => !q.hidden);
-    [['app-usage', null], ['ios/routined', 'iOS'], ['ios/snapchat', 'iOS'], ['android/snapchat', 'Android'], ['android/signal', 'Android'], ['ios/signal', 'iOS'], ['ios/whatsapp', 'iOS'], ['ios/telegram', 'iOS']].forEach(([p, os]) => {
+    [['app-usage', null], ['ios/routined', 'iOS'], ['ios/snapchat', 'iOS'], ['android/snapchat', 'Android'], ['android/signal', 'Android'], ['ios/signal', 'iOS'], ['ios/whatsapp', 'iOS'], ['android/whatsapp', 'Android'], ['ios/telegram', 'iOS'], ['android/telegram', 'Android']].forEach(([p, os]) => {
         json(p).databases.forEach((d) => out.push({
             id: d.id, family: d.id, os: os || (/android|wellbeing/i.test(d.label) ? 'Android' : 'iOS'),
             paths: d.paths || [], cipher: d.cipher || null, queries: shown(d.queries),
@@ -126,6 +126,44 @@ test('Snapchats arroyo.db: Android har fler kolumner, och då vinner Android', a
     const fromAndroid = DbIdentify.conclude(DbIdentify.rank(SQL, schemaDb(SQL, { conversation_message: android }), databases, { name: 'arroyo.db' }));
     assert.strictEqual(fromAndroid.best, 'snapchat-android-arroyo');
     assert.ok(fromAndroid.families.includes('snapchat-arroyo'), 'iOS-queries går också att köra mot Android-filen');
+});
+
+test('WhatsApp på Android: msgstore.db och wa.db känns igen på labbtelefonens schema, och iOS-databasen blandas inte in', async () => {
+    const SQL = await loadSql();
+    const databases = catalogDatabases();
+    const chat = require('./fixtures/chat-schemas.json');
+    const bytes = (key) => {
+        const db = new SQL.Database();
+        Object.values(chat[key]).forEach((sql) => db.run(sql));
+        const out = db.export();
+        db.close();
+        return out;
+    };
+    // Utan namn: schemat räcker.
+    const store = DbIdentify.conclude(DbIdentify.rank(SQL, bytes('whatsapp-android-msgstore'), databases, {}));
+    assert.strictEqual(store.best, 'whatsapp-android-msgstore');
+    assert.deepStrictEqual(store.families, ['whatsapp-android-msgstore']);
+    assert.strictEqual(store.partial, false);
+    const contacts = DbIdentify.conclude(DbIdentify.rank(SQL, bytes('whatsapp-android-contacts'), databases, { name: 'wa.db' }));
+    assert.strictEqual(contacts.best, 'whatsapp-android-contacts');
+    assert.deepStrictEqual(contacts.families, ['whatsapp-android-contacts']);
+    const ios = DbIdentify.conclude(DbIdentify.rank(SQL, bytes('whatsapp-ios'), databases, {}));
+    assert.strictEqual(ios.best, 'whatsapp-ios-chat');
+    assert.deepStrictEqual(ios.families, ['whatsapp-ios-chat']);
+});
+
+test('Telegram på Android: cache4.db känns igen på labbtelefonens schema, utan namn', async () => {
+    const SQL = await loadSql();
+    const databases = catalogDatabases();
+    const chat = require('./fixtures/chat-schemas.json');
+    const db = new SQL.Database();
+    Object.values(chat['telegram-android-cache4']).forEach((sql) => db.run(sql));
+    const bytes = db.export();
+    db.close();
+    const found = DbIdentify.conclude(DbIdentify.rank(SQL, bytes, databases, {}));
+    assert.strictEqual(found.best, 'telegram-android-cache4');
+    assert.deepStrictEqual(found.families, ['telegram-android-cache4']);
+    assert.strictEqual(found.partial, false);
 });
 
 test('schemafrågor räknas inte: en databas utan katalogens tabeller känns inte igen', async () => {

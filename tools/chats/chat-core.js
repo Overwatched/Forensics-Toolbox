@@ -109,8 +109,11 @@
                 if (n && (p.name === p.id || !p.name)) { p.name = nameText(n); p.named = true; }
             });
         });
-        if (src.roles.threads.nameFromMembers) {
+        // nameFromMembers 'person': bara enskilda chattar får deltagarens namn. En grupp behåller sitt eget.
+        var only = src.roles.threads.nameFromMembers;
+        if (only) {
             list.forEach(function (t) {
+                if (typeof only === 'string' && t.kind !== only) return;
                 var who = (people[t.key] || []).map(function (p) { return p.name; });
                 if (who.length) t.name = who.join(', ');
             });

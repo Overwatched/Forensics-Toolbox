@@ -9,7 +9,7 @@
     var $ = function (id) { return document.getElementById(id); };
     var inHub = window.parent !== window;
     var VERSION = new URLSearchParams(location.search).get('version') || '';
-    var CATALOGS = [window.WHATSAPP_IOS_CATALOG, window.SIGNAL_IOS_CATALOG, window.SIGNAL_ANDROID_CATALOG, window.TELEGRAM_IOS_CATALOG, window.SNAPCHAT_CATALOG, window.SNAPCHAT_ANDROID_CATALOG].filter(Boolean);
+    var CATALOGS = [window.WHATSAPP_IOS_CATALOG, window.WHATSAPP_ANDROID_CATALOG, window.SIGNAL_IOS_CATALOG, window.SIGNAL_ANDROID_CATALOG, window.TELEGRAM_IOS_CATALOG, window.TELEGRAM_ANDROID_CATALOG, window.SNAPCHAT_CATALOG, window.SNAPCHAT_ANDROID_CATALOG].filter(Boolean);
     var SOURCES = ChatCore.sources(CATALOGS);
     var TARGETS = ExtractionCore.targets(ChatCore.databases(SOURCES));
     // En bilaga större än så läses först när undersökaren ber om det.

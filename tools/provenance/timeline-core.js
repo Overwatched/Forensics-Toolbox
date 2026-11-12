@@ -24,6 +24,8 @@
     var WHATSAPP = 'net.whatsapp.WhatsApp';
     var WHATSAPP_BUSINESS = 'net.whatsapp.WhatsAppSMB';
     var TELEGRAM = 'ph.telegra.Telegraph';
+    var WHATSAPP_ANDROID = 'com.whatsapp';
+    var TELEGRAM_ANDROID = 'org.telegram.messenger';
     var SSRM = 'SSRM';
     var BATTERY = 'batterihistoriken';
 
@@ -113,13 +115,16 @@
         var rel = lower(file.relativePath);
         var name = lower(file.filename);
         var sc = file.snapchatCache || null;
-        // En chattapps egen fil (WhatsApps Message/Media/ på iOS), kopplad till sitt meddelande.
+        // En chattapps egen fil (WhatsApps Message/Media/ på iOS, WhatsApp/Media/ och Telegrams mapp på Android), kopplad
+        // till sitt meddelande. På Android står WhatsApps filer också i MediaStore (chat.inLibrary).
         var chat = !sc && file.chatMedia ? file.chatMedia : null;
         if (chat) {
             type = 'saved';
             importer = chat.app;
             reasons.push('filen är ' + chat.appName + 's egen (' + chat.path + ')');
             reasons.push('meddelande ' + chat.messageId + ', ' + (chat.direction === 'in' ? 'mottaget från ' + chat.who : 'skickat till ' + chat.who) + ' (' + chat.source + ')');
+            if (platform === 'Android' && file.importer) reasons.push('owner_package_name är ' + file.importer);
+            if (platform === 'Android' && file.createdFrom === 'date_added') reasons.push('datetaken saknas i MediaStore, så T är date_added');
         } else if (sc) {
             type = 'snapchat';
             importer = SNAPCHAT;
@@ -189,7 +194,7 @@
         if (Number(file.trashed) === 1) flags.push('trashed');
         if (Number(file.hidden) === 1) flags.push('hidden');
         var labels = { camera: 'Kamerabild', screenshot: 'Skärmdump', saved: 'Sparad ur en app', snapchat: 'Snapchat-media utanför bildbiblioteket', unknown: 'Okänd typ' };
-        var label = chat ? chat.appName + '-media utanför bildbiblioteket' : transfer === 'airdrop' ? 'Mottagen med AirDrop' : transfer === 'photos' ? 'Skapad i Bilder (till exempel en dubblett)'
+        var label = chat ? chat.appName + (chat.inLibrary ? '-media' : '-media utanför bildbiblioteket') : transfer === 'airdrop' ? 'Mottagen med AirDrop' : transfer === 'photos' ? 'Skapad i Bilder (till exempel en dubblett)'
             : file.chatTemp ? file.chatTemp.appName + 's tillfälliga fil' : labels[type];
         return { type: type, label: label, reasons: reasons, flags: flags, importer: importer, importedBy: importedBy, chat: chat, transfer: transfer, chatTemp: file.chatTemp || null,
             snapchat: type === 'snapchat' || isSnapchatApp(importer), origin: snapOrigin(sc), who: sc && sc.who || null, recipient: sc && sc.external && sc.external.recipient || null,
@@ -1186,16 +1191,23 @@
         } else {
             var match = expected ? running.filter(function (e) { return e.app === expected; }) : [];
             var role = type.chat ? ', där filen ' + (type.chat.direction === 'in' ? 'togs emot' : 'skickades') + ',' : ', som skapade filen,';
+            // En chattapp tar emot i bakgrunden: en annan app i förgrunden motsäger inte att filen togs emot då.
+            var gotInChat = !!(type.chat && type.chat.direction === 'in');
             if (match.length) { state = 'support'; items.push({ state: 'support', text: appName(expected, names) + role + ' var igång vid tidpunkten (' + match[0].stream + ').' }); }
+            else if (expected && gotInChat) { state = 'info'; items.push({ state: 'info', text: 'Vid tidpunkten var ' + runningNames.join(', ') + ' igång, inte ' + appName(expected, names) + '. ' + BACKGROUND_NOTE + ' Det motsäger därför inte att filen togs emot då.' }); }
             else if (expected) { state = 'contradiction'; items.push({ state: 'contradiction', text: 'Vid tidpunkten var ' + runningNames.join(', ') + ' igång, inte ' + appName(expected, names) + (type.chat ? '' : ' som skapade filen') + '.' }); }
             else { state = 'info'; items.push({ state: 'info', text: 'Igång vid tidpunkten: ' + runningNames.join(', ') + '.' }); }
             plain = state === 'support' ? appName(expected, names) + ' var igång när ' + (type.chat ? 'filen ' + (type.chat.direction === 'in' ? 'togs emot' : 'skickades') : 'bilden sparades') + '.'
                 : state === 'contradiction' ? 'Vid den här tiden var ' + runningNames.join(' och ') + ' igång, inte ' + appName(expected, names) + '.'
-                    : 'Vid den här tiden var ' + runningNames.join(' och ') + ' igång.';
+                    : gotInChat && expected ? 'Vid den här tiden var ' + runningNames.join(' och ') + ' igång, inte ' + appName(expected, names) + '. Filen kan ha tagits emot i bakgrunden.'
+                        : 'Vid den här tiden var ' + runningNames.join(' och ') + ' igång.';
         }
         items = items.concat(batteryItems(running.length ? running : camOps), state === 'missing' || state === 'contradiction' ? unsureItems(events, T, 'app') : []);
         return { id: 'app', title: title, state: state, items: items, plain: plain, running: running.map(function (e) { return e.app; }), via: via || null, shown: shown ? shownName : null };
     }
+
+    // En fil som togs emot i en chattapp kräver varken appen i förgrunden eller tänd skärm.
+    var BACKGROUND_NOTE = 'En chattapp kan ta emot ett meddelande och hämta filen utan att någon använder telefonen: i labbet hämtade WhatsApp på Android en bild med släckt skärm.';
 
     // Samma app: namnen utan skiftläge, mellanslag och skiljetecken (filnamnets "WhatsApp" mot katalogens "WhatsApp").
     function sameAppName(a, b) {
@@ -1451,6 +1463,7 @@
                 plain: 'WhatsApps databas kunde inte läsas.', verdictText: 'Kunde inte läsas' };
         }
         var link = w.link || {};
+        if (link.android) return factorWhatsAppAndroid(input, type, link);
         var ms = link.matches || [];
         var recv = ms.filter(function (m) { return m.direction === 'in'; });
         var sent = ms.filter(function (m) { return m.direction === 'out'; });
@@ -1518,6 +1531,105 @@
             plain: 'Filen finns inte bland WhatsApps mediefiler.' };
     }
 
+    // WhatsApp på Android (beta): msgstore.db säger vilken fil som hör till vilket meddelande, på tre sätt som binder:
+    // filens SHA-256 (file_hash), SHA-256 för originalet till en bild som togs i appen och skickades omkodad
+    // (original_file_hash) och filen själv under WhatsApp/Media/ (file_path). link ur ProvenanceWhatsApp.buildAndroid.
+    function factorWhatsAppAndroid(input, type, link) {
+        var title = 'WhatsApp';
+        var T = input.file.createdMs;
+        var at = stamper(input);
+        var ms = link.matches || [];
+        var recv = ms.filter(function (m) { return m.direction === 'in'; });
+        var sent = ms.filter(function (m) { return m.direction === 'out'; });
+        var how = function (m) {
+            var parts = [];
+            if (m.by.indexOf('sha256') >= 0) parts.push('samma SHA-256 som mediefilen (file_hash)');
+            if (m.by.indexOf('original') >= 0) parts.push('samma SHA-256 som originalet till det som skickades (original_file_hash)');
+            if (m.by.indexOf('path') >= 0) parts.push('filen är WhatsApps egen (' + m.path + ')');
+            return parts.join(', ');
+        };
+        var what = function (m) { return m.kind + (m.document && m.kind !== 'dokument' ? ' som dokument' : '') + (m.viewOnce ? ', engångsvisning' : ''); };
+        var when = function (m) { return m.direction === 'in' ? m.dateMs : (m.sentMs != null ? m.sentMs : m.dateMs); };
+        var after = function (t) { return T ? (t >= T ? duration(t - T) + ' efter T' : at(t)) : at(t); };
+        var items = [];
+        recv.forEach(function (m) { items.push({ state: 'info', text: 'Mottagen från ' + m.who + ' ' + at(when(m)) + ' (meddelande ' + m.messageId + ', ' + what(m) + '): ' + how(m) + '.' }); });
+        sent.forEach(function (m) { items.push({ state: 'info', text: 'Skickad till ' + m.who + ' ' + at(when(m)) + ' (meddelande ' + m.messageId + ', ' + what(m) + '): ' + how(m) + '.' }); });
+        // WhatsApps egen fil under WhatsApp/Media/: databasen säger vilket meddelande den hör till.
+        var own = type.chat && type.chat.app === WHATSAPP_ANDROID ? ms.filter(function (m) { return m.by.indexOf('path') >= 0; })[0] || null : null;
+        if (own) {
+            items.forEach(function (it) { it.state = 'support'; });
+            if (link.shaKnown && own.by.indexOf('sha256') < 0) items.push({ state: 'info', text: 'Filens SHA-256 är inte den som står på meddelandets rad (file_hash), så bara sökvägen binder filen till meddelandet. Filen kan ha ändrats efter att den sparades.' });
+            return { id: 'whatsapp', title: title, state: 'support', items: items, verdictText: own.direction === 'in' ? 'Mottagen i WhatsApp' : 'Skickad i WhatsApp',
+                plain: 'Filen är WhatsApps kopia i meddelande ' + own.messageId + ', ' + (own.direction === 'in' ? 'mottaget från ' : 'skickat till ') + own.who + ' ' + at(when(own)) + '.' };
+        }
+        var savedByWhatsApp = !type.chat && type.importer === WHATSAPP_ANDROID;
+        // Originalet till en bild som togs i appen: WhatsApp skickar en omkodad kopia och sparar originalets summa.
+        var orig = sent.filter(function (m) { return m.by.indexOf('original') >= 0 && m.by.indexOf('sha256') < 0; })[0] || null;
+        if (orig) {
+            items.forEach(function (it) { it.state = savedByWhatsApp ? 'support' : 'info'; });
+            items.push({ state: 'info', text: 'I labbet fick en bild som togs med WhatsApps kamera och skickades en sådan rad. En bild som valts ur galleriet är inte kontrollerad.' });
+            return { id: 'whatsapp', title: title, state: savedByWhatsApp ? 'support' : 'info', items: items, verdictText: 'Original till en skickad fil',
+                plain: 'Filen är originalet till ' + (orig.kind === 'video' ? 'en video' : 'en bild') + ' som skickades i WhatsApp till ' + orig.who + ', ' + after(when(orig)) + '.' + (savedByWhatsApp ? ' WhatsApp sparade originalet.' : '') };
+        }
+        if (savedByWhatsApp && (recv.length || sent.length)) {
+            items.forEach(function (it) { it.state = 'support'; });
+            var first = recv[0] || sent[0];
+            return { id: 'whatsapp', title: title, state: 'support', items: items, verdictText: recv.length ? 'Mottagen i WhatsApp' : 'Skickad i WhatsApp',
+                plain: recv.length ? 'Filen togs emot i WhatsApp från ' + first.who + ' ' + at(when(first)) + '.' : 'Filen skickades i WhatsApp till ' + first.who + ' ' + at(when(first)) + '.' };
+        }
+        if (savedByWhatsApp) {
+            return { id: 'whatsapp', title: title, state: 'missing', verdictText: 'Hittas inte',
+                items: [{ state: 'missing', text: 'WhatsApp äger filen enligt MediaStore (owner_package_name), men varken summan eller sökvägen finns bland WhatsApps ' + (link.media || 0) + ' mediefiler i msgstore.db. Meddelandet kan ha raderats, eller filen kan ha skapats i appen utan att skickas.' }],
+                plain: 'WhatsApp sparade filen, men den hittas inte bland WhatsApps meddelanden.' };
+        }
+        if (recv.length && !sent.length && (type.type === 'camera' || type.type === 'screenshot')) {
+            items.forEach(function (it) { it.state = 'contradiction'; });
+            return { id: 'whatsapp', title: title, state: 'contradiction', items: items, verdictText: 'Togs emot i WhatsApp',
+                plain: 'Filen är samma fil som togs emot i WhatsApp från ' + recv[0].who + ', inte en bild från telefonens ' + (type.type === 'screenshot' ? 'skärm' : 'kamera') + '.' };
+        }
+        if (sent.length) {
+            var lead = sent[0];
+            return { id: 'whatsapp', title: title, state: 'info', items: items, verdictText: 'Skickad i WhatsApp',
+                plain: 'Filen skickades i WhatsApp till ' + lead.who + (lead.document ? ' som dokument' : '') + ', ' + after(when(lead)) + '. Det säger inget om hur den skapades.' };
+        }
+        if (recv.length) {
+            return { id: 'whatsapp', title: title, state: 'info', items: items, verdictText: 'Mottagen i WhatsApp', plain: 'Filen togs emot i WhatsApp från ' + recv[0].who + '.' };
+        }
+        return { id: 'whatsapp', title: title, state: 'info', verdictText: 'Inte i WhatsApp',
+            items: [{ state: 'info', text: 'Filen finns inte bland WhatsApps ' + (link.media || 0) + ' mediefiler i msgstore.db: varken samma SHA-256 (file_hash eller original_file_hash) eller samma sökväg. En bild som valts ur galleriet och skickats omkodad är inte kontrollerad i labbet och känns kanske inte igen.' }],
+            plain: 'Filen finns inte bland WhatsApps mediefiler.' };
+    }
+
+    // Telegram på Android (beta): bara Telegrams egna bildfiler kopplas. Namnet bär bildens id, och id:t står i
+    // blobben för meddelandet som bilden hör till (cache4.db). link ur ProvenanceTelegram.buildAndroid.
+    function factorTelegramAndroid(input, type, link) {
+        var title = 'Telegram';
+        var at = stamper(input);
+        var ms = link.matches || [];
+        var unread = link.unread ? ' Id:t står också i ' + link.unread + (link.unread === 1 ? ' meddelandes blobb' : ' meddelandens blobbar') + ', men inte som en bild i den form som är kontrollerad, så ' + (link.unread === 1 ? 'det' : 'de') + ' räknas inte.' : '';
+        if (ms.length) {
+            var own = ms[0];
+            var items = ms.map(function (m) {
+                return { state: 'support', text: 'Filen är Telegrams egen (' + m.path + '): namnet bär bildens id, och id:t står i meddelande ' + m.messageId + ', ' + (m.direction === 'in' ? 'mottaget från ' : 'skickat till ') + m.who + ' ' + at(m.timeMs) + ' (cache4.db → messages_v2.data).' };
+            });
+            if (own.sizeOk === true) items.push({ state: 'support', text: 'Bildens storlek ' + own.sizeType + ' är ' + own.size + ' byte enligt meddelandet, och filen är lika stor.' });
+            else if (own.sizeOk === false) items.push({ state: 'info', text: 'Bildens storlek ' + own.sizeType + ' är ' + own.size + ' byte enligt meddelandet, men filen är ' + own.fileSize + ' byte. Filen kan vara delvis hämtad eller ändrad.' });
+            else items.push({ state: 'info', text: 'Bildens storlek kunde inte läsas ur meddelandet, så filens storlek är inte jämförd.' });
+            if (unread) items.push({ state: 'info', text: unread.slice(1) });
+            return { id: 'telegram', title: title, state: 'support', items: items, verdictText: own.direction === 'in' ? 'Mottagen i Telegram' : 'Skickad i Telegram',
+                plain: 'Filen är Telegrams kopia av bilden i meddelande ' + own.messageId + ', ' + (own.direction === 'in' ? 'mottaget från ' : 'skickat till ') + own.who + ' ' + at(own.timeMs) + '.' };
+        }
+        if (link.idInName) {
+            return { id: 'telegram', title: title, state: 'info', verdictText: 'Meddelandet finns inte kvar',
+                items: [{ state: 'info', text: 'Filen ligger under Telegrams mapp och namnet bär en bilds id, men inget meddelande i cache4.db har den bilden. Meddelandet kan ha raderats, eller bilden hör till något annat än ett meddelande, till exempel en profilbild.' + unread }],
+                plain: 'Filen är Telegrams, men inget meddelande som finns kvar har den.' };
+        }
+        var savedBy = !type.chat && type.importer === TELEGRAM_ANDROID;
+        return { id: 'telegram', title: title, state: 'info', verdictText: 'Ingen koppling',
+            items: [{ state: 'info', text: (savedBy ? 'Telegram äger filen enligt MediaStore (owner_package_name), men den' : 'Filen') + ' är inte en av Telegrams egna bildfiler med bildens id i namnet. På Android kopplas bara de till ett meddelande: Telegram kodar om bilder som skickas, och skickade bilder, videor och filer är inte kontrollerade i labbet.' }],
+            plain: 'Filen kan inte kopplas till ett meddelande i Telegram. Det betyder inte att den aldrig skickades där.' };
+    }
+
     // Telegram (beta, iOS): hör filen till ett meddelande i Telegram? Filen själv under postbox/media/,
     // en bild ur bildbiblioteket enligt lagringsdatabasen (ph-<ZUUID> med den uppladdade bildens storlek)
     // eller en bild som Telegram sparat med ett skickat meddelande strax efter (bara tiden binder).
@@ -1533,6 +1645,7 @@
                 plain: 'Telegrams databas kunde inte läsas.', verdictText: 'Kunde inte läsas' };
         }
         var link = t.link || {};
+        if (link.android) return factorTelegramAndroid(input, type, link);
         var storageNote = link.storageRead ? '' : ' Telegrams lagringsdatabas finns inte i ' + (input.container || 'zippen') + ', så val ur bildbiblioteket syns inte.';
         var savedBy = !type.chat && type.importer === TELEGRAM;
         // Telegrams egen fil under postbox/media/: resursen säger vilket meddelande den hör till.
@@ -1629,7 +1742,7 @@
             plain: 'Telefonen gick ner ' + formatUtc(s.startMs) + ', och det går inte att säga när den startade igen. Den kan ha varit avstängd vid den här tiden.' };
     }
 
-    function factorScreen(input, events) {
+    function factorScreen(input, events, type) {
         var T = input.file.createdMs;
         var on = events.filter(function (e) { return e.kind === 'screen' && covers(e, T); });
         if (!on.length) {
@@ -1678,13 +1791,16 @@
             return { id: 'screen', title: 'Skärm', state: 'info', items: mixed, plain: 'Källorna säger olika om skärmen var tänd vid den här tiden.' };
         }
         var lit = litBy.length > 0;
-        var items = [{ state: lit ? 'support' : 'contradiction', text: (lit ? 'Skärmen var tänd vid tidpunkten (' : 'Skärmen var släckt vid tidpunkten (') + (lit ? litBy : darkBy).join(', ') + ').' }];
+        // Chattappens egen kopia av en mottagen fil: en släckt skärm motsäger inte att filen togs emot då.
+        var darkGot = !lit && !!(type && type.chat && type.chat.direction === 'in');
+        var items = [{ state: lit ? 'support' : darkGot ? 'info' : 'contradiction', text: (lit ? 'Skärmen var tänd vid tidpunkten (' : 'Skärmen var släckt vid tidpunkten (') + (lit ? litBy : darkBy).join(', ') + ').' }];
+        if (darkGot) items.push({ state: 'info', text: BACKGROUND_NOTE + ' Det motsäger därför inte att filen togs emot då.' });
         if (lockItem) items.push(lockItem);
         var litLocked = lit && lockedBy.length && !openBy.length;
         if (litLocked) items.push({ state: 'info', text: 'Aviseringar tänder skärmen medan telefonen är låst (labbet), så en tänd skärm visar inte att någon använde telefonen.' });
         items = items.concat(batteryItems(on), lit ? [] : unsureItems(events, T, 'screen'));
-        return { id: 'screen', title: 'Skärm', state: lit ? 'support' : 'contradiction', items: items,
-            plain: litLocked ? 'Skärmen var tänd, men telefonen var låst. En avisering kan ha tänt den.' : lit ? 'Skärmen var tänd.' : 'Skärmen var släckt vid den här tiden, vilket inte stämmer med att någon använde telefonen då.' };
+        return { id: 'screen', title: 'Skärm', state: lit ? 'support' : darkGot ? 'info' : 'contradiction', verdictText: darkGot ? 'Skärmen var släckt' : undefined, items: items,
+            plain: darkGot ? 'Skärmen var släckt. En fil kan tas emot i en chattapp utan att någon använder telefonen.' : litLocked ? 'Skärmen var tänd, men telefonen var låst. En avisering kan ha tänt den.' : lit ? 'Skärmen var tänd.' : 'Skärmen var släckt vid den här tiden, vilket inte stämmer med att någon använde telefonen då.' };
     }
 
     function alternatives(input, type, factors) {
@@ -1800,7 +1916,7 @@
             var fTime = factorTime(input, type);
             var fApp = factorApp(input, type, events);
             var fCam = factorCamera(input, type, events, fApp);
-            var fScreen = factorScreen(input, events);
+            var fScreen = factorScreen(input, events, type);
             var fPos = factorPosition(input, pos, type, wins);
             var fPower = factorPower(input, type);
             factors = [fTime].concat(fPower ? [fPower] : [], [fApp, fCam, fScreen, fPos]);
@@ -1906,7 +2022,7 @@
         buildEvents: buildEvents, narrative: narrative, build: build, summaryText: summaryText, hypothesis: hypothesis, FACTOR_WORDS: FACTOR_WORDS,
         formatWithOffset: formatWithOffset, formatUtc: formatUtc, duration: duration, appName: appName, isCameraApp: isCameraApp, covers: covers,
         positions: positions, distanceM: distanceM, metres: metres, validCoord: validCoord, inWindows: inWindows, activityAt: activityAt,
-        snapOrigin: snapOrigin, SNAPCHAT: SNAPCHAT, SNAPCHAT_ANDROID: SNAPCHAT_ANDROID, SIGNAL_ANDROID: SIGNAL_ANDROID, SIGNAL_IOS: SIGNAL_IOS, WHATSAPP: WHATSAPP, TELEGRAM: TELEGRAM, isSnapchatApp: isSnapchatApp, logInfo: logInfo, factorSignal: factorSignal, factorWhatsApp: factorWhatsApp, factorTelegram: factorTelegram, factorTelegramCamera: factorTelegramCamera,
+        snapOrigin: snapOrigin, SNAPCHAT: SNAPCHAT, SNAPCHAT_ANDROID: SNAPCHAT_ANDROID, SIGNAL_ANDROID: SIGNAL_ANDROID, SIGNAL_IOS: SIGNAL_IOS, WHATSAPP: WHATSAPP, TELEGRAM: TELEGRAM, WHATSAPP_ANDROID: WHATSAPP_ANDROID, TELEGRAM_ANDROID: TELEGRAM_ANDROID, isSnapchatApp: isSnapchatApp, logInfo: logInfo, factorSignal: factorSignal, factorWhatsApp: factorWhatsApp, factorTelegram: factorTelegram, factorTelegramCamera: factorTelegramCamera,
         STATE_LABEL: STATE_LABEL, TOLERANCE_MS: TOLERANCE_MS, SAME_TIME_MS: SAME_TIME_MS, LATE_MS: LATE_MS,
     };
     if (typeof module !== 'undefined' && module.exports) module.exports = api;

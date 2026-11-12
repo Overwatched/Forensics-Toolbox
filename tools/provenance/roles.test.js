@@ -97,3 +97,26 @@ test('utan iOS-version väljs Photos-bandet efter databasens tabeller och kolumn
     const photos = sources.find((s) => s.key === 'photos');
     ['photos-ios10-13', 'photos-ios14', 'photos-ios17-plus'].forEach((id) => assert.ok(photos.bands.some((b) => b.id === id), id + ' finns som band'));
 });
+
+test('WhatsApp och Telegram på Android är egna källor, i beta, utan chattrollerna', () => {
+    const sources = roles.collect({
+        whatsappAndroid: require(path.join(ROOT, 'queries', 'android', 'whatsapp', 'catalog.json')),
+        telegramAndroid: require(path.join(ROOT, 'queries', 'android', 'telegram', 'catalog.json')),
+    });
+    const byKey = Object.fromEntries(sources.map((s) => [s.key, s]));
+    assert.deepStrictEqual(Object.keys(byKey['whatsapp-android-msgstore'].roles).sort(), ['coverage', 'media', 'messages']);
+    assert.deepStrictEqual(Object.keys(byKey['whatsapp-android-contacts'].roles), ['names']);
+    assert.deepStrictEqual(Object.keys(byKey['telegram-android-cache4'].roles).sort(), ['coverage', 'messages', 'photo']);
+    ['whatsapp-android-msgstore', 'whatsapp-android-contacts', 'telegram-android-cache4'].forEach((key) => {
+        assert.strictEqual(byKey[key].platform, 'Android', key);
+        assert.strictEqual(byKey[key].beta, true, key);
+        assert.strictEqual(byKey[key].cipher, null, key);
+        assert.doesNotMatch(byKey[key].title, /^Android/, key);
+    });
+    assert.strictEqual(byKey['whatsapp-android-msgstore'].title, 'msgstore.db (WhatsApp)');
+    assert.deepStrictEqual(byKey['telegram-android-cache4'].paths, ['data/data/org.telegram.messenger/files/cache4.db']);
+    // Bildens id sätts in som text mellan citattecken, och queryn läser den som hexadecimala tecken.
+    const sql = roles.fill(byKey['telegram-android-cache4'].roles.photo.sql, { idHex: '0D7A3C5E9B1F0A4D' });
+    assert.match(sql, /unhex\('0D7A3C5E9B1F0A4D'\)/);
+    assert.doesNotMatch(sql, /\{\{/);
+});

@@ -1,5 +1,24 @@
 Automatiskt byggd från commit `{{SHA}}`.
 
+## Nytt i 1.60
+
+WhatsApp och Telegram på Android (beta) i Queries, Chattar och Härkomst, byggt mot en laboration med två telefoner. Härkomst har också en ny regel för filer som togs emot i en chattapp, och den gäller också iOS.
+
+- **Queries:** WhatsApps `msgstore.db` (meddelanden, mediefiler, kvitton, raderat för alla, chattar och gruppmedlemmar) och `wa.db` (kontakter och namn), och Telegrams `cache4.db` (meddelanden, media, chattar och användare).
+  - Telegrams text och avsändare står inuti meddelandets blob och läses bara i det format som fanns på labbtelefonen. En annan version av appen kan ge rader utan text, och raden säger då att formatet är okänt.
+- **Chattar:** WhatsApp och Telegram på Android visas som de andra apparna. En bild i Telegram visas som en rad utan fil.
+- **Härkomst, WhatsApp:** en fil kopplas till sitt meddelande på tre sätt, och faktorn säger vilket: filens SHA-256 är den skickade eller mottagna filens, filens SHA-256 är originalets till det som skickades, eller filen ligger på meddelandets sökväg under WhatsApps mapp.
+  - En SHA-256 som inte finns som fil i zippen söks i WhatsApps databas. Så hittas en fil som togs emot men aldrig hämtades till telefonen.
+  - En kamerabild som skickats som dokument får en upplysning: att den skickades säger inget om hur den skapades.
+  - Meddelandena står i tidslinjen, och databaserna, frågorna och appens version står i protokollet.
+- **Härkomst, Telegram:** bara Telegrams egen bildfil kopplas till sitt meddelande, på bildens id i filnamnet, och filens storlek jämförs med den som står i meddelandet.
+  - Andra filer får "Ingen koppling": Telegram kodar om bilder som skickas och sparar ingen summa. Det betyder inte att filen aldrig skickades där, och det står i faktorn.
+- **Ändrat i Härkomst, alla chattappar på iOS och Android:** för chattappens egen kopia av en mottagen fil är en släckt skärm eller en annan app i förgrunden nu en upplysning, inte en motsägelse. På labbtelefonen sparade WhatsApp en mottagen bild med släckt skärm och utan app i förgrunden.
+  - Förut gav en annan app i förgrunden sammanfattningen "inte förenligt" för en sådan fil. Gör om bedömningen i ett äldre protokoll om den vilar på det.
+  - Bara WhatsApp på Android är kontrollerat. En skickad fil bedöms som förut.
+- **Provat på labbtelefonen** (Samsung, Android 16): nio filer i Härkomst gav den koppling som laborationens steg säger, en hashsökning genom hela zippen (26,6 GB, drygt 3 minuter) hittade summan i WhatsApps databas, och konversationerna visades i Chattar och Queries. Enhetstesterna, röktestet i appen och html-versionen i Chrome på macOS gick igenom.
+- **Inte provat:** WhatsApp Business, WhatsApps äldre mapplayout, originalets summa för en bild vald ur galleriet, och medietyper som inte fanns i laborationen. I Telegram: skickade bilder, video, dokument, filer sparade till galleriet, kanaler, hemliga chattar och andra versioner av appen. Regeln från filnamn till bildens id bygger på en enda bild. Windows och Linux provas först i bygget.
+
 ## Nytt i 1.59
 
 **Laboration.** Ett nytt verktyg i listan till vänster för den som gör en egen laboration: ett flöde av steg, en klocka medan stegen görs, och en tabell till protokollet som säger när en åtgärd gjordes, vad den var och på vilken enhet.

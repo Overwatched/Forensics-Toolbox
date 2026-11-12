@@ -676,6 +676,10 @@ Plan och provkörning: [PLAN-harkomst.md](PLAN-harkomst.md).
   anteckningar, utan kontrollerade mellan källorna i extraktionen.
   `facit/lab-ios-tidsstamplar.json` (`FT_LAB_IOS_LOG_DIR`) är ett facit ur en labbsession med loggad ordning
   (2026-11-04).
+  `facit/lab-tva-telefoner.json` är underlaget ur tvåtelefonslabbet 2026-11-11 (Samsungen och en iPhone, 75 steg):
+  110 rader med stegets kod, telefon, tid och vilken kolumn eller fil tiden kommer ur, lästa utan programmets
+  kod. Loggens tid står bredvid men är inte facit: loggen började två minuter in i labbet och 19 steg trycktes
+  mer än 30 sekunder sent. Inget labbtest läser filen än.
 
 #### Stora extraktioner (1.46)
 
@@ -711,7 +715,8 @@ Plan och provkörning: [PLAN-harkomst.md](PLAN-harkomst.md).
   - `chat-names` (valfri, i en annan databas i samma app, inga params): `id` och `name` eller en kolumn som
     `nameFrom` säger hur den läses (`snapchat-flatbuffer`: `ProvenanceSnapchat.friendNames`). Namnen läggs på
     deltagare och avsändare som bara har ett id. `nameFromMembers` på `chat-threads` ger konversationen
-    deltagarnas namn. `textFrom` på `chat-messages` säger att texten avkodas ur fältet `content` (`snapchat`).
+    deltagarnas namn; med värdet `'person'` bara de enskilda chattarna, så att en grupp behåller sitt eget namn
+    (WhatsApp på Android). `textFrom` på `chat-messages` säger att texten avkodas ur fältet `content` (`snapchat`).
   - `chat-attachments` (valfri, `threadId`): `messageId`, `path` (relativ `fileRoot`, som räknas från databasens mapp:
     `.` eller `..` uppåt); gärna `thumbPath`, `mime`, `size`, `duration`, `sha256` (hex) eller `sha256b64`,
     `name`, `title`, `cardName`, `card`, `lat`, `lon`, `uploaded`.
@@ -719,7 +724,8 @@ Plan och provkörning: [PLAN-harkomst.md](PLAN-harkomst.md).
   - Varje databas med chattroller ska ha alla fyra roller med fälten ovan, tider med förklaring och en synlig
     meddelande-query med `chat: { thread, message }`. Den anger kolumnerna med chattens och meddelandets id.
   - Varje chattroll är en enda sats, eftersom meddelandena och bilagorna läses med en förberedd sats i omgångar.
-  - WhatsApps roller körs mot labbtelefonens schema (`fixtures/chat-schemas.json`), så en ändrad kolumn stoppas där.
+  - WhatsApps roller körs mot labbtelefonernas scheman (`fixtures/chat-schemas.json`, iOS och Android), så en ändrad
+    kolumn stoppas där. Android-rollerna och de synliga queryerna körs också mot påhittade rader i det schemat.
   - De synliga queryerna kan ändras fritt.
   - En ny app får chattvyn genom att lägga till rollerna i sin katalog och sin katalog i `index.html`.
 - **Queries → Chattar**: en query med `chat` får knappen Chatt på varje rad när databasen kommer ur en extraktion.
@@ -839,6 +845,112 @@ Plan och provkörning: [PLAN-harkomst.md](PLAN-harkomst.md).
   - `ZMESSAGESTATUS` visas som rått värde.
   - En mediepost utan fil, storlek, adress, kontaktkort eller plats tas inte med. I labbet hade ett textmeddelande
     och typ 59 sådana.
+- **WhatsApp på Android** (beta) är kontrollerat mot Samsungen i tvåtelefonslabbet 2026-11-11
+  (`Exampleextractions/Android/EXTRACTION_FFS.zip`: Android 16, WhatsApp 2.26.43). Katalogen är
+  `queries/android/whatsapp/`, med två databaser i `data/data/com.whatsapp/databases/`, båda okrypterade där.
+  - `msgstore.db` är meddelandedatabasen: `message`, `chat`, `jid`, `message_media`, `receipt_user` och
+    `message_revoked`. `wa.db` är kontaktlistan: `wa_contacts` har namnet till varje JID, och Chattar läser den som
+    `chat-names`.
+  - En enskild chatt hör till motpartens id med `@lid`. `jid_map` kopplar det till numrets JID
+    (`…@s.whatsapp.net`), och det är numrets JID som rollerna lämnar som id, så att namnet ur `wa.db` passar. Ett
+    konto som bara är känt som `@lid` har varken nummer eller namn.
+  - Tiderna är Unix-millisekunder. Sedda i labbet, och jämförda med den andra telefonens tider där de fanns: `timestamp` (skrivet, och för
+    ett mottaget meddelande avsändarens tid i hela sekunder), `received_timestamp` på mottagna meddelanden,
+    `receipt_timestamp` och `read_timestamp` i `receipt_user`, och `revoke_timestamp` för ett meddelande som
+    raderats för alla. `received_timestamp` på ett skickat meddelande visas för sig som en okänd tid: den stod på
+    skickade mediefiler, upp till två sekunder efter att meddelandet skrevs.
+  - `file_length` och `file_hash` (SHA-256 i base64) stämde med de fem mediefilerna i zippen, räknat utan appens
+    kod. `file_size` gjorde det inte för röstmeddelandet och används inte. Filerna ligger under
+    `data/media/0/Android/media/com.whatsapp/WhatsApp/`, fyra mappar upp från databasen (`fileRoot`).
+  - Inte kontrollerat, och sagt så i katalogens texter: typerna för kontaktkort, plats, samtal, gif, klistermärke
+    och engångsvisning, svar, redigeringar, uppspelat röstmeddelande, och `display_name` som namnet ur telefonens
+    kontakter (labbtelefonen hade inga sparade kontakter). WhatsApp Business (`com.whatsapp.w4b`) letas inte upp.
+  - En dold chatt utan meddelanden låg under telefonens eget `@lid`. Att det är telefonens eget står i
+    `shared_prefs/com.whatsapp_preferences_light.xml` (`self_lid`) och inte i databasen, så Chattar utelämnar
+    dolda chattar utan meddelanden och queryn Chattar visar dem med `dold`.
+  - Båda databaserna hade en `-wal` med rader som inte fanns i huvudfilen (ett meddelande, ett kvitto och en
+    kontakt). Appen läser den med databasen. En egen kontroll
+    med `sqlite3` ska öppna en kopia med `-wal` bredvid, och inte med `immutable=1`, som hoppar över den utan att
+    säga något.
+  - Härkomst läser `msgstore.db` och `wa.db` genom katalogens dolda roller `media`, `messages`, `coverage` och
+    `names`. Androiddelen av `whatsapp.js` (`matchAndroid`, `buildAndroid`) kopplar filen till ett meddelande på
+    tre sätt, och faktorn **WhatsApp** säger vilket (`factorWhatsAppAndroid` i `timeline-core.js`):
+    - filens SHA-256 är `file_hash`: filen är den som skickades eller togs emot;
+    - filens SHA-256 är `original_file_hash`: filen är originalet till det som skickades. I labbet stod den bara på
+      bilden som togs med WhatsApps kamera (originalet `WhatsApp Images/IMG-…-WA0000.jpeg`, den skickade kopian
+      under `Sent/`). En bild som valts ur galleriet är inte kontrollerad;
+    - filens sökväg slutar på `/WhatsApp/` och radens `file_path`: filen är WhatsApps egen, även om summan skiljer,
+      och det sägs då.
+  - WhatsApps filer står i MediaStore med `owner_package_name` `com.whatsapp`, oftast utan `datetaken`, så T är
+    `date_added`. I labbet var `date_added` på den mottagna bilden samma sekund som `received_timestamp`. Typen
+    blir "WhatsApp-media", kameran frågas inte, och meddelandets tid får ett eget fönster när det ligger utanför T:s.
+  - En kamerabild i `DCIM/Camera` som skickats som dokument hittas på summan och ger en upplysning: att den
+    skickades säger inget om hur den skapades. En fil bland kamerabilderna som bara togs emot är en motsägelse.
+  - Hashsökningen: en SHA-256 som inte finns i zippen söks i `message_media` (båda kolumnerna). I labbet är det
+    videon som aldrig hämtades (`file_path` tom, `transferred` 0).
+  - En fil som togs emot i en chattapp kräver varken appen i förgrunden eller tänd skärm: för chattappens egen
+    kopia av en mottagen fil är en släckt skärm eller en annan app i förgrunden en upplysning, inte en
+    motsägelse (`BACKGROUND_NOTE`). I labbet sparades den mottagna bilden med släckt skärm och utan app i
+    förgrunden enligt `usagestats`. Regeln gäller alla chattappar och båda systemen; bara WhatsApp på Android är
+    kontrollerat.
+  - Inte kontrollerat: `original_file_hash` för en bild ur galleriet, WhatsApp Business, äldre mapplayout
+    (`WhatsApp/Media/` direkt under lagringen) och medietyper som inte fanns i labbet.
+- **Telegram på Android** (beta) är kontrollerat mot samma Samsung i tvåtelefonslabbet 2026-11-11
+  (`Exampleextractions/Android/EXTRACTION_FFS.zip`: Android 16, Telegram med versionskod 73031 enligt
+  `data/system/packages.list`). Katalogen är `queries/android/telegram/`, med en databas:
+  `data/data/org.telegram.messenger/files/cache4.db`, okrypterad där.
+  - `cache4.db` är Telegrams lokala databas: `messages_v2` (en rad per meddelande), `dialogs` (en rad per chatt),
+    `users`, `chats`, `media_v4` och `contacts`. `uid` i `messages_v2` är chattens id: positivt för en person,
+    negativt för en grupp eller kanal.
+  - Kolumnerna säger chatt, tid (`date`, Unix-sekunder), riktning (`out`) och läst (`read_state`). Text och avsändare
+    står bara i blobben `data`, i Telegrams eget format. Katalogen läser den med ren SQL (`substr` och `hex`), utan
+    avkodare i JavaScript, och bara för de konstruktorer som sågs i labbet:
+    - meddelande `0x7600b9d3`: konstruktor, flaggor, flaggor, id, avsändaren när flaggans bit 8 är satt (i labbet
+      på de skickade och på ett av tre mottagna i den enskilda chatten), chatten, tiden och sedan texten som en sträng med längden först.
+      Queryn letar upp `date` i blobben på en jämn fyrbytesgräns och läser texten efter den, så fält mellan chatten
+      och tiden stör inte.
+    - tjänstemeddelande `0x7a800e0a` (gruppen skapades): riktning "tjänst", ingen text.
+    - En annan konstruktor ger raden med chatt, tid och riktning men utan text, och typen "okänd konstruktor …".
+      Hittas inte tiden i blobben står "texten kunde inte läsas". Ingen text gissas.
+    - Den avancerade queryn "Kontroll: meddelandets blob" visar konstruktorn, var tiden hittades, textens längdbyte
+      och de första 80 byten, så att läsningen kan kontrolleras för hand.
+  - I labbet: sex rader, fem meddelanden med text och ett tjänstemeddelande. Texterna var labbets stegkoder, och
+    `date` var på sekunden samma tid som den andra telefonens Telegram hade för alla sex.
+  - Namnen: `users.name` och `chats.name` är gemener för sökning (`namn;;;användarnamn`). Namnet som det skrivs
+    läses ur blobben (användare `0xb1b8cc83`, chatt `0x41cbf256`) och används bara när det är lika långt som
+    sökningens namn; annars visas gemenerna.
+  - Medier: typen kommer ur `media_v4.type`. I labbet fanns en rad, typ 0, för en mottagen bild. Vilken fil som hör
+    till meddelandet står i blobben och läses inte, så Chattar visar bilagan som en rad utan fil. Bilden låg under
+    `data/media/0/Android/data/org.telegram.messenger/files/Telegram/Telegram Images/`.
+  - Inte kontrollerat, och sagt så i katalogens texter: `read_state` (i labbet 3 i den lästa chatten och 2 på
+    skickade rader i gruppen), `send_state` (bara 0 sågs), de andra typerna i `media_v4` (fil, röst, länk, musik,
+    gif), texter över 253 byte (längden i tre byte), hemliga chattar (id över 2^62, visas som "hemlig chatt N"),
+    mottagna meddelanden i en grupp (labbets grupp hade bara skickade rader), kanaler, svar, redigeringar och raderade meddelanden. Betydelserna där kommer ur Telegrams öppna källkod ur
+    minnet, inte ur labbet.
+  - Chattens id lämnas som text: ett id för en hemlig chatt ryms inte exakt i ett JavaScript-tal, och sql.js ger
+    heltal som tal.
+  - Databasen hade en `-wal` på 4,5 MB. De sex tabellerna hade lika många rader med och utan den. Samma regel som
+    för WhatsApp gäller för en egen kontroll med `sqlite3`.
+  - Fler konton i samma app ligger under `files/account1/` till `account3/` med var sin `cache4.db`. De letas inte
+    upp. Andra paket än `org.telegram.messenger` (till exempel butiksvarianter) letas inte heller upp.
+  - Härkomst läser `cache4.db` genom de dolda rollerna `messages`, `photo` och `coverage`. Androiddelen av
+    `telegram.js` kopplar bara Telegrams egen bildfil till sitt meddelande (`factorTelegramAndroid`):
+    - filen heter `<tal>_<kod>.jpg` under `org.telegram.messenger/`. Talet med omvänt tecken är bildens id, och koden
+      är teckenkoden för storlekens bokstav (121 är `y`). Så var det för labbets enda bild; regeln är inte prövad
+      på fler;
+    - rollen `photo` letar upp id:t (åtta byte, lägsta först) i `messages_v2.data` med `instr`, och `parsePhoto`
+      läser bilden från konstruktorn `0xfb197a65`: id och storlekar (`photoSize`, `photoSizeProgressive`,
+      `photoStrippedSize`, `photoCachedSize`, `photoPathSize`). En träff räknas bara när id:t står på en jämn
+      fyrbytesgräns direkt efter konstruktorn och flaggorna; andra träffar redovisas som olästa;
+    - storleken med filnamnets bokstav jämförs med filens storlek. I labbet var de lika (sista steget i
+      `photoSizeProgressive`).
+  - Filen står inte i MediaStore, så den bedöms som en fil utanför bildbiblioteket, och T är tiden inuti filen
+    eller zippens ändringstid. Meddelandets tid får ett eget fönster när den ligger utanför T:s.
+  - En fil som inte är Telegrams egen bildfil kopplas inte: Telegram kodar om bilder som skickas, och ingen summa
+    står i databasen. Faktorn säger då "Ingen koppling" och att det inte betyder att filen aldrig skickades där.
+    Hashsökningen har av samma skäl inget att söka i.
+  - Inte kontrollerat: skickade bilder, videor, dokument och filer som sparats till galleriet, kanaler, och andra
+    versioners konstruktorer.
 - **Bilagor som appen krypterar** dekrypteras i `chat-media.js` efter rollens `decrypt`. Innehållets SHA-256 jämförs
   med databasens och syns under filen och i klockans ruta.
   - `signal-ios`: filen är IV (16 byte), AES-256-CBC och HMAC-SHA256 (32 byte) över IV och chiffertext, med bilagans

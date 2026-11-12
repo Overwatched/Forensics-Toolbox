@@ -1288,3 +1288,32 @@ test('Samsungs tagningstid i UTC: en timme ifrån en EXIF-tid utan zon är en zo
     const none = core.build(input({ exif: { read: true, takenMs: null }, samsungUtc: { ms: T + 500 } }));
     assert.ok(time(none).items.some((i) => /Filen har ingen tid i EXIF att jämföra den med\.$/.test(i.text)));
 });
+
+test('en fil som togs emot i en chattapp: släckt skärm och en annan app i förgrunden är upplysningar, inte motsägelser', () => {
+    const US = { db: 'usagestats', table: 'event-log' };
+    const chat = (direction) => ({ app: 'com.whatsapp', appName: 'WhatsApp', direction, who: 'Kim', messageId: 22, path: 'WhatsApp/Media/WhatsApp Images/IMG-20261111-WA0002.jpg', source: 'msgstore.db', inLibrary: true });
+    const got = (direction, over) => core.build(input(Object.assign({ platform: 'Android', appNames: (id) => ({ 'com.whatsapp': 'WhatsApp', 'com.android.chrome': 'Chrome' })[id] || null, exif: { read: true, takenMs: null },
+        file: { filename: 'IMG-20261111-WA0002.jpg', createdMs: T, addedMs: T, importer: 'com.whatsapp', createdFrom: 'date_added', chatMedia: chat(direction) },
+        appIntervals: [{ startMs: T - 60 * S, endMs: T + 60 * S, app: 'com.android.chrome', stream: 'usagestats', source: US }],
+        screen: [{ startMs: T - 3 * M, endMs: T + 2 * M, on: false, stream: 'usagestats', source: US }], lock: [] }, over || {})));
+    const by = (m, id) => m.factors.find((f) => f.id === id);
+
+    const dark = got('in');
+    assert.deepStrictEqual([by(dark, 'screen').state, by(dark, 'screen').verdict], ['info', 'Skärmen var släckt']);
+    assert.match(by(dark, 'screen').items[0].text, /^Skärmen var släckt vid tidpunkten \(usagestats\)\.$/);
+    assert.match(by(dark, 'screen').items[1].text, /utan att någon använder telefonen: i labbet hämtade WhatsApp på Android en bild med släckt skärm\. Det motsäger därför inte att filen togs emot då\.$/);
+    assert.match(by(dark, 'screen').plain, /^Skärmen var släckt\. En fil kan tas emot/);
+    assert.strictEqual(by(dark, 'app').state, 'info');
+    assert.match(by(dark, 'app').items[0].text, /^Vid tidpunkten var Chrome igång, inte WhatsApp\. En chattapp kan ta emot/);
+    assert.match(by(dark, 'app').plain, /igång, inte WhatsApp\. Filen kan ha tagits emot i bakgrunden\.$/);
+    assert.doesNotMatch(dark.summary, /inte förenligt/);
+
+    // Appen i förgrunden och tänd skärm är stöd som förut.
+    const open = got('in', { appIntervals: [{ startMs: T - 60 * S, endMs: T + 60 * S, app: 'com.whatsapp', stream: 'usagestats', source: US }], screen: [{ startMs: T - 3 * M, endMs: T + 2 * M, on: true, stream: 'usagestats', source: US }] });
+    assert.deepStrictEqual([by(open, 'app').state, by(open, 'screen').state], ['support', 'support']);
+
+    // En fil som skickades kräver att någon använde telefonen: samma lägen är motsägelser.
+    const sent = got('out');
+    assert.deepStrictEqual([by(sent, 'app').state, by(sent, 'screen').state], ['contradiction', 'contradiction']);
+    assert.match(sent.summary, /inte förenligt/);
+});
