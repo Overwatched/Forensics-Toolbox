@@ -1027,15 +1027,34 @@ Plan och provkörning: [PLAN-harkomst.md](PLAN-harkomst.md).
   anmärkning). Verktyget läser ingen extraktion och följer inte med mellan verktygen. Ingenting lämnar datorn.
 - **Kärnan** är `lab-core.js` (`LabCore`, utan DOM, testad i `lab-core.test.js`). Sidan (`script.js`) ritar och
   lyssnar, och räknar ingenting själv.
-  - **Flödet**: `{ name, prefix, devices: [{ id, name }], steps, next }`. Ett steg har `action` (ur `ACTIONS`, eller
-    `custom` med egen text), `device` (ett id eller `ALL`, alla enheter), ibland `other` (motparten), `app`, `wait`
-    (sekunder efter steget) och `block` (rubriken det hör till). Koden (`L01`, `L02` …) räknas ur platsen i flödet
-    och sparas inte, så den följer med när steg flyttas. `{kod}` i en egen text byts mot stegets kod.
-  - **Standardflöden** är `BLOCKS`: klockorna i början och i slutet, text, medier, grupp, raderat meddelande och
-    samtal per vald app, kamera och skärmdump, en app i förgrunden, lås och avstängning, och tidszon.
-    `buildFlow({ name, prefix, devices, pair, apps, blocks })` gör stegen; chattstegen går mellan de två enheterna
-    i `pair`. Ett nytt standardflöde är en post i `BLOCKS`, och en ny åtgärd en post i `ACTIONS` med texten att
-    göra (`do`), när man trycker (`press`) och meningen i tabellen (`done`).
+  - **Flödet**: `{ name, prefix, devices: [{ id, name }], groups, steps, next }`. Ett steg har `action` (ur
+    `ACTIONS`, eller `custom` med egen text), `device` (ett id eller `ALL`, alla enheter), ibland `other`
+    (motparten), `app`, `wait` (sekunder efter steget), `group` (gruppens id) och `block` (gruppens rubrik, som
+    tabellen och äldre filer läser). Koden (`L01`, `L02` …) räknas ur platsen i flödet och sparas inte, så den
+    följer med när steg flyttas. `{kod}` i en egen text byts mot stegets kod.
+  - **Grupperna** (1.61): `{ id, title, app, a, b, template }`. Stegen ligger alltid i en grupp, och i flödet står de
+    i gruppernas ordning (`tidy` gör ett flöde ur en äldre fil helt: en grupp per följd av steg med samma rubrik).
+    `a` och `b` är de två enheter gruppens chattsteg går mellan. `updateGroup` ändrar rubriken, byter app i stegen
+    som hade gruppens app, flyttar stegen från en enhet till en annan och vänder riktningen (`swap`). `copyGroup`
+    gör en kopia direkt efter, `moveGroup` flyttar gruppen, och `moveStepTo(flow, id, groupId, pos)` lägger ett
+    steg på en plats i en grupp. `outline` är grupperna med sina steg och sin väntan, som sidan ritar.
+  - **Mallarna** är data, `BLOCKS`: klockorna i början och i slutet, text, medier, grupp, raderat meddelande och
+    samtal (`kind: 'chat'`, en gång per vald app), kamera och skärmdump, en app i förgrunden, lås och avstängning,
+    och tidszon. En mall är `{ id, label, desc, steps: [{ action, on, other, wait, do, done, press, app }] }`, där
+    `on` säger vem som gör steget: `a` eller `b` (de två som chattar), `all` (alla enheter i ett steg) eller `each`
+    (en gång per enhet). `insertTemplate(flow, mall, { a, b, app }, index)` gör en grupp av mallen, och
+    `buildFlow({ name, prefix, devices, pair, apps, blocks })` ett helt flöde av flera. En ny mall är en post i
+    `BLOCKS`, och en ny åtgärd en post i `ACTIONS` med texten att göra (`do`), när man trycker (`press`) och
+    meningen i tabellen (`done`).
+  - **Egna mallar** (1.61) har samma form. `templateFrom(flow, { group } | { step }, { id, label })` gör en mall av
+    en grupp eller ett steg: enheterna blir roller (`a`, `b` …), och bara texter som skiljer sig från åtgärdens
+    egna sparas. Mallen följer därför enheterna och appen som är valda när den läggs in. `mergeTemplates` lägger
+    mallar utifrån till listan: samma innehåll läggs inte till igen, och ett upptaget id byts (`renamed`).
+    `cleanTemplate` bygger om en mall utifrån fält för fält.
+  - **Kontrollen** (`check`, 1.61) ger råd och hindrar ingenting: ett steg utan text, ett chattsteg utan motpart
+    eller app, ett svar eller ett läst meddelande utan något skickat före, en enhet som startas utan att ha stängts
+    av, flygplansläge och tidszon som återställs utan att ha ändrats, och en grupp utan steg. Svaret är
+    `[{ step, group, code, text }]`.
   - **Körningen**: `{ started, off, zone, entries, notes, undone, waitUntil, waitStep }`. Ett tryck är
     `press(flow, run, clock, 'klar' | 'hoppad')` och gäller alltid nästa steg i ordningen. Klockan ges utifrån som
     `{ t, off }` (millisekunder och datorns minuter öster om UTC i det ögonblicket), så testerna beror inte på
@@ -1049,13 +1068,31 @@ Plan och provkörning: [PLAN-harkomst.md](PLAN-harkomst.md).
     BOM och en UTC-kolumn. Datumet står på varje rad bara när laborationen går över midnatt.
   - **Filen** (`toFile`/`fromFile`): JSON med `format: "forensics-toolbox-laboration"`, flödet och, om det finns,
     körningen. Samma fil är alltså både ett flöde att dela och en logg att öppna igen. `fromFile` städar varje fält
-    som när det skrevs in och kastar det som inte hör till formatet.
+    som när det skrevs in och kastar det som inte hör till formatet. De egna mallar som flödets grupper kom ur
+    följer med som `mallar`, och läggs under Mina mallar hos den som öppnar filen. Alla egna mallar sparas som en
+    egen fil med `templatesToFile` (`format: "forensics-toolbox-laboration-mallar"`), och `Öppna` tar båda slagen.
+- **Förbered är en byggare** (1.61). Till vänster ligger byggstenarna: mallarna, Mina mallar, Eget (eget steg, ny
+  grupp, väntan) och åtgärderna som enskilda steg. Flödet till höger har en plats mellan varje steg och varje
+  grupp. **Märket** (`state.mark`, `{ at }` mellan grupper eller `{ group, pos }` i en grupp) är platsen där nästa
+  byggsten hamnar: plus sätter det, och utan märke är det flödets slut. Ett klick på en byggsten och ett släpp
+  efter ett drag går genom samma `place(kind, id, plats)`. En mall blir alltid en egen grupp, ett steg hamnar i
+  gruppen vid märket, och väntan läggs på steget före. Dragen är HTML5-drag (`startDrag`, `targetAt`, `onDrop`):
+  en byggsten ur listan, ett steg (också till en annan grupp) och en hel grupp i rubriken. Allt som går att dra
+  går också att göra med knappar (plus, pilarna, Ändra, minus), så tangentbordet räcker.
+- **Ångra**: varje ändring av flödet går genom `change(fn)`, som först sparar flödet som text (högst 50 steg
+  bakåt). `fn` som svarar `false` ändrade ingenting, och då sparas inget. Knappen Ångra och Ctrl/Cmd+Z (inte i
+  ett textfält) tar tillbaka den senaste. Historiken töms när laborationen börjar och när en fil öppnas.
+- **Det färdiga upplägget** (`#p-quick`, valen av appar och mallar som gör ett helt flöde) visas när flödet är
+  tomt och bakom knappen `Färdigt upplägg`.
 - **Allt ur flödet och loggen är text.** Sidan sätter det med `textContent`, och `protocol` och `checklist` går
   genom `esc`. Ett ord utan mellanslag som är längre än 20 tecken får brytas i tabellerna (`softParts`, `<wbr>`),
   annars blir tabellen bredare än papperet. Texten själv ändras inte, och CSV-filen och textvarianten får den hel.
 - **Läget sparas** i `localStorage['ft-laboration']` efter varje ändring, som samma fil plus valen under Förbered,
   och läses vid start; en påbörjad laboration öppnas i Genomför. Går lagringen inte att skriva säger sidan det
-  och ber om att loggen sparas som fil.
+  och ber om att loggen sparas som fil. De egna mallarna ligger för sig i `localStorage['ft-laboration-mallar']`,
+  så att `Börja om` och ett nytt flöde inte rör dem. I appen ligger lagringen i användarens datamapp och inte i
+  programmets mapp. HTML-utgåvan sparar per webbläsare och per mapp som sidan öppnas ur, så där är filen med
+  mallar sättet att ta dem med sig.
 - **Tangenterna** gäller bara i Genomför och inte i ett textfält: mellanslag (gjort), H (hoppa över), A (anteckning),
   T (tryckte för sent), backsteg (ångra), V (avbryt väntan) och Enter (starta). Medan anteckningen är öppen gäller
   de den. Före start är mellanslag ett övningstryck som inte sparas. När laborationen har börjat är Förbered låst;
@@ -1481,8 +1518,10 @@ i webbläsaren.
     nummer hittar gruppen genom deltagaren, och en databas fälls ihop; telefonvyn ställer chatten i ramen, håller platsen vid
     bytet och ger exporten samma utseende; det Chattar har läst och dekrypterat läser Härkomst och Queries inte om; Laboration
     gör steg av standardflöden, loggar dem med tangenterna, stoppar trycken under en väntan och ger tabellen, CSV-filen och en
-    logg som går att öppna igen; och HTML ur filnamn, databaser och enheters namn körs aldrig. Bara påhittade data, 30 delar
-    (2026-11-12). CI kör det i jobbet `apptest`, som inte stoppar releasen än.
+    logg som går att öppna igen; ett eget flöde byggs i Laboration av mallar, steg och riktiga drag (`c.drag` i `cdp.js`
+    trycker ner musen och släpper genom DevTools-protokollet), ändringar ångras, kontrollen varnar, en egen mall ligger kvar
+    efter omstart och går att spara och öppna som fil, och långa namn ryms i ett smalt fönster; och HTML ur filnamn,
+    databaser och enheters namn körs aldrig. Bara påhittade data, 31 delar (2026-11-12). CI kör det i jobbet `apptest`, som inte stoppar releasen än.
   - **Facit** (`facit.js`, `facit/lab-android-nord.json`, `--facit`): Härkomst bedömer filerna i
     labbzippen och jämför T, Memories, förgrund, skärm, lås, kameran, Snapchats meddelande, Signals
     meddelanden och appversionerna med det som loggades på labbtelefonen (inom en sekund, Signal två).

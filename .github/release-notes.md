@@ -1,5 +1,23 @@
 Automatiskt byggd från commit `{{SHA}}`.
 
+## Nytt i 1.61
+
+**Laboration: bygg ditt eget flöde.** Förbered är nu en byggare. Flödet sätts ihop av färdiga mallar och egna steg, genom att klicka eller dra dem på plats.
+
+- **Byggstenar** står till vänster: mallar, egna mallar, eget steg, ny grupp, väntan och enskilda steg. Ett klick lägger byggstenen vid märket i flödet, och den går också att dra dit. Listan går att söka i, och rubrikerna går att fälla ihop.
+- **Märket** visar var nästa byggsten hamnar. Ett plus mellan två steg flyttar det dit. Stegens koder räknas om när något läggs till, flyttas eller tas bort.
+- **Grupper:** en mall blir en grupp av steg med en rubrik. En grupp kan byta rubrik, app och riktning mellan enheterna, kopieras, flyttas och tas bort.
+- **Drag:** ett steg går att dra inom en grupp och till en annan grupp, och en hel grupp går att dra. Allt som går att dra går också att göra med knappar.
+- **Egna mallar:** en grupp eller ett steg sparas som en egen mall under Mina mallar. Mallarna ligger kvar på datorn när programmet stängs, och de kan sparas som en fil och öppnas på en annan dator.
+  - En egen mall som används i ett flöde följer med i flödets fil.
+  - I html-versionen sparas mallarna per webbläsare och mapp. Filen är sättet att flytta dem.
+- **Ångra:** knappen Ångra eller Ctrl+Z (Cmd+Z på macOS) tar tillbaka den senaste ändringen, upp till 50 ändringar.
+- **Saker att se över:** flödet varnar när något inte går ihop, till exempel ett steg som läser ett meddelande som inget steg har skickat, eller ett steg som slår på en enhet som inte har stängts av. Varningarna hindrar inte att laborationen startas.
+- **Färdigt upplägg:** det tidigare sättet, att bocka i appar och delar och få alla steg på en gång, finns kvar bakom en knapp och visas när flödet är tomt.
+- När laborationen har startat är flödet låst, som förut.
+- **Provat:** enhetstesterna, röktestet i appen och html-versionen i Chrome på macOS. Röktestet drar ett steg, en grupp och en mall på plats, ångrar, sparar en egen mall och ser att den ligger kvar efter omstart. Layouten är provad med mycket långa namn, smala fönster och fem typsnitt.
+- **Inte provat:** att egna mallar ligger kvar efter en uppdatering av ett installerat program, utskriftsdialogen i appen och inklistring i ett dokument. Windows och Linux provas först i bygget.
+
 ## Nytt i 1.60
 
 WhatsApp och Telegram på Android (beta) i Queries, Chattar och Härkomst, byggt mot en laboration med två telefoner. Härkomst har också en ny regel för filer som togs emot i en chattapp, och den gäller också iOS.

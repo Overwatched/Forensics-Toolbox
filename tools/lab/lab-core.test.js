@@ -406,3 +406,269 @@ test('ett mycket långt ord får brytas i tabellerna, och vanliga namn lämnas h
     assert.ok(L.checklist(flow).includes('W'.repeat(20) + '<wbr>'));
     assert.ok(!L.protocol(flowAB(), L.newRun(at(0), ''), '').html.includes('<wbr>'));
 });
+
+// ---------- Grupper, mallar och kontroll ----------
+
+const titles = (flow) => flow.groups.map((g) => g.title);
+const codes = (flow, groupId) => L.view(flow).filter((s) => s.group === groupId).map((s) => s.code);
+const PAIR = (flow) => ({ a: flow.devices[0].id, b: flow.devices[1].id });
+
+test('standardflödena blir grupper i ordning, och kontrollen har inget att säga om dem', () => {
+    const flow = flowAB(ALLA, ['WhatsApp', 'Signal']);
+    assert.strictEqual(flow.groups.length, 1 + 5 * 2 + 5);
+    assert.deepStrictEqual(titles(flow).slice(0, 3), ['Klockorna i början', 'WhatsApp: text åt båda håll, och läst', 'WhatsApp: bild, video och röst']);
+    assert.ok(flow.steps.every((s) => flow.groups.some((g) => g.id === s.group && g.title === s.block)));
+    assert.deepStrictEqual([flow.groups[1].app, flow.groups[1].a, flow.groups[1].b], ['WhatsApp', flow.devices[0].id, flow.devices[1].id]);
+    assert.deepStrictEqual(L.check(flow), []);
+    const three = L.buildFlow({ devices: ['A', 'B', 'C'], pair: [2, 0], apps: ['Signal'], blocks: ALLA });
+    assert.deepStrictEqual(L.check(three), []);
+    const groups = L.outline(flow);
+    assert.deepStrictEqual(groups[1].steps.map((s) => s.code), ['L03', 'L04', 'L05', 'L06']);
+    assert.strictEqual(groups.reduce((n, g) => n + g.steps.length, 0), 60);
+    assert.strictEqual(groups.find((g) => g.title === 'Lås och avstängning').waitS, 1080);
+});
+
+test('en fil från en äldre version saknar grupper, och får dem ur stegens rubriker', () => {
+    const flow = flowAB(['clock-start', 'chat-text', 'chat-delete', 'camera']);
+    const old = JSON.parse(JSON.stringify(L.toFile(flow, null, 'Forensics Toolbox 1.59', at(0))));
+    delete old.flow.groups;
+    for (const s of old.flow.steps) delete s.group;
+    const back = L.fromFile(JSON.stringify(old)).flow;
+    assert.deepStrictEqual(titles(back), titles(flow));
+    assert.deepStrictEqual(back.steps.map((s) => s.id), flow.steps.map((s) => s.id));
+    assert.deepStrictEqual(L.view(back).map((s) => s.do), L.view(flow).map((s) => s.do));
+    assert.ok(back.steps.every((s) => back.groups.some((g) => g.id === s.group)));
+    const ids = new Set(back.groups.map((g) => g.id).concat(back.steps.map((s) => s.id), back.devices.map((d) => d.id)));
+    assert.strictEqual(ids.size, back.groups.length + back.steps.length + back.devices.length, 'nya grupper får id som inte krockar');
+    assert.deepStrictEqual(L.pairOfGroup(back, back.groups[1].id), PAIR(back), 'utan sparade enheter gäller de två första som stegen nämner');
+});
+
+test('ett steg läggs på en plats i en grupp, och ett chattsteg får gruppens enheter och app', () => {
+    const flow = flowAB(['clock-start', 'chat-text'], ['Signal']);
+    const chat = flow.groups[1];
+    const voice = L.addStep(flow, 'voice', { group: chat.id, pos: 1 });
+    assert.deepStrictEqual([voice.device, voice.other, voice.app, voice.block], [flow.devices[0].id, flow.devices[1].id, 'Signal', chat.title]);
+    assert.deepStrictEqual(codes(flow, chat.id), ['L03', 'L04', 'L05', 'L06', 'L07']);
+    assert.strictEqual(L.view(flow)[3].do, 'Spela in ett röstmeddelande till iPhone och säg koden L04 högt. Skicka.');
+    const back = L.addStep(flow, 'text', { group: chat.id, device: flow.devices[1].id });
+    assert.strictEqual(back.other, flow.devices[0].id, 'motparten är den andra av gruppens två');
+    assert.strictEqual(flow.steps[flow.steps.length - 1].id, back.id);
+    const first = L.addStep(flow, 'photo', { group: flow.groups[0].id, pos: 0 });
+    assert.strictEqual(flow.steps[0].id, first.id);
+    const empty = L.addGroup(flow, { title: 'Efteråt' }, 1);
+    assert.deepStrictEqual(titles(flow), ['Klockorna i början', 'Efteråt', 'Signal: text åt båda håll, och läst']);
+    const own = L.addStep(flow, 'custom', { group: empty.id, do: 'Skriv {kod}.' });
+    assert.strictEqual(L.view(flow).find((s) => s.id === own.id).code, 'L04');
+    const loose = L.addStep(L.emptyFlow('Tomt', 'L', ['A', 'B']), 'text', {});
+    assert.strictEqual(loose.block, 'Egna steg');
+    assert.ok(loose.other, 'ett chattsteg utanför en chattgrupp får den andra enheten som motpart');
+});
+
+test('ett steg flyttas över gruppens kant till gruppen intill, och kan släppas var som helst', () => {
+    const flow = flowAB(['clock-start', 'chat-text']);
+    const [clocks, chat] = flow.groups;
+    const text = flow.steps[2].id;
+    assert.strictEqual(L.moveStep(flow, text, -1), true);
+    assert.deepStrictEqual([flow.steps[2].id, flow.steps[2].group, flow.steps[2].block], [text, clocks.id, 'Klockorna i början'], 'sist i gruppen före, på samma plats i ordningen');
+    assert.strictEqual(L.moveStep(flow, text, -1), true);
+    assert.strictEqual(flow.steps[1].id, text);
+    assert.strictEqual(L.moveStep(flow, text, 1), true);
+    assert.strictEqual(L.moveStep(flow, text, 1), true);
+    assert.deepStrictEqual([flow.steps[2].id, flow.steps[2].group], [text, chat.id], 'först i gruppen efter');
+    assert.strictEqual(L.moveStep(flow, flow.steps[5].id, 1), false);
+    assert.strictEqual(L.moveStepTo(flow, text, chat.id, 3), true);
+    assert.strictEqual(flow.steps[5].id, text);
+    assert.strictEqual(L.moveStepTo(flow, text, clocks.id, 0), true);
+    assert.strictEqual(flow.steps[0].id, text);
+    assert.strictEqual(L.view(flow)[0].do, 'Skriv L01 till iPhone och skicka.');
+    assert.strictEqual(L.moveStepTo(flow, text, 'g999', 0), false);
+    assert.strictEqual(flow.steps.length, 6);
+});
+
+test('en grupp kan byta riktning, enheter, app och rubrik, och stegen följer med', () => {
+    const flow = L.buildFlow({ devices: ['A', 'B', 'C'], pair: [0, 1], apps: ['WhatsApp'], blocks: ['chat-text'] });
+    const g = flow.groups[0], [a, b, c] = flow.devices.map((d) => d.id);
+    assert.strictEqual(L.updateGroup(flow, g.id, { swap: true }), true);
+    assert.deepStrictEqual([g.a, g.b], [b, a]);
+    assert.strictEqual(L.view(flow)[0].do, 'Skriv L01 till A och skicka.');
+    assert.strictEqual(L.view(flow)[0].deviceName, 'B');
+    assert.strictEqual(L.updateGroup(flow, g.id, { b: c }), true);
+    assert.strictEqual(L.view(flow)[0].do, 'Skriv L01 till C och skicka.');
+    assert.ok(flow.steps.every((s) => s.device !== a && s.other !== a));
+    assert.strictEqual(L.updateGroup(flow, g.id, { a: c }), true, 'den andra enhetens namn i den ena rutan byter plats på dem');
+    assert.deepStrictEqual([g.a, g.b], [c, b]);
+    assert.strictEqual(L.updateGroup(flow, g.id, { a: a, b: a }), false);
+    assert.strictEqual(L.updateGroup(flow, g.id, { app: ' Signal ' }), true);
+    assert.strictEqual(g.title, 'Signal: text åt båda håll, och läst');
+    assert.ok(flow.steps.every((s) => s.app === 'Signal' && s.block === g.title));
+    L.updateStep(flow, flow.steps[0].id, { app: 'Wire' });
+    L.updateGroup(flow, g.id, { app: 'Telegram', title: '  ' });
+    assert.deepStrictEqual(flow.steps.map((s) => s.app), ['Wire', 'Telegram', 'Telegram', 'Telegram'], 'ett steg med en egen app behåller den');
+    L.updateGroup(flow, g.id, { title: 'Min rubrik' });
+    assert.ok(flow.steps.every((s) => s.block === 'Min rubrik'));
+    assert.strictEqual(L.updateGroup(flow, 'g999', { title: 'x' }), false);
+});
+
+test('en grupp kan kopieras till en annan app, flyttas och tas bort', () => {
+    const flow = flowAB(['clock-start', 'chat-delete', 'clock-end'], ['WhatsApp']);
+    const chat = flow.groups[1];
+    const copy = L.copyGroup(flow, chat.id, { app: 'Signal' });
+    assert.deepStrictEqual(titles(flow), ['Klockorna i början', 'WhatsApp: raderat meddelande', 'Signal: raderat meddelande', 'Klockorna i slutet']);
+    assert.deepStrictEqual(L.view(flow).filter((s) => s.group === copy.id).map((s) => s.done), ['Skickade texten L05 raderas till iPhone i Signal.', 'Raderade meddelandet L05 raderas för alla i Signal.']);
+    assert.strictEqual(new Set(flow.steps.map((s) => s.id)).size, flow.steps.length);
+    assert.strictEqual(L.moveGroup(flow, copy.id, 0), true);
+    assert.deepStrictEqual(codes(flow, copy.id), ['L01', 'L02']);
+    assert.strictEqual(L.moveGroup(flow, copy.id), true);
+    assert.strictEqual(flow.groups[3].id, copy.id);
+    assert.strictEqual(flow.steps[flow.steps.length - 1].group, copy.id);
+    const before = flow.steps.length;
+    L.removeGroup(flow, chat.id);
+    assert.strictEqual(flow.steps.length, before - 2);
+    assert.ok(!titles(flow).includes('WhatsApp: raderat meddelande'));
+    assert.deepStrictEqual(L.check(flow), []);
+});
+
+test('en mall läggs in var som helst bland grupperna, och en chattmall kräver två enheter', () => {
+    const flow = flowAB(['clock-start', 'clock-end']);
+    const tpl = (id) => L.BLOCKS.find((b) => b.id === id);
+    const made = L.insertTemplate(flow, tpl('chat-call'), Object.assign({ app: 'Signal' }, PAIR(flow)), 1);
+    assert.deepStrictEqual([made.steps, made.missing, made.group.title], [2, 0, 'Signal: samtal']);
+    assert.deepStrictEqual(codes(flow, made.group.id), ['L03', 'L04']);
+    assert.strictEqual(L.insertTemplate(flow, tpl('camera'), { app: 'Signal' }).steps, 6);
+    assert.strictEqual(L.view(flow).find((s) => s.action === 'screenshot').do, 'Öppna Signal och ta en skärmdump.');
+    const one = L.emptyFlow('En', 'L', ['A']);
+    assert.strictEqual(L.insertTemplate(one, tpl('chat-text'), { a: one.devices[0].id, app: 'Signal' }), null);
+    assert.strictEqual(L.insertTemplate(one, tpl('zone'), {}).steps, 3);
+    assert.strictEqual(L.insertTemplate(L.emptyFlow('Ingen', 'L', []), tpl('zone'), {}), null);
+    const full = flowAB([]);
+    for (let n = 0; n < 498; n++) L.addStep(full, 'photo', {});
+    assert.strictEqual(L.insertTemplate(full, tpl('chat-text'), Object.assign({ app: 'X' }, PAIR(full))), null, 'en mall som inte ryms läggs inte in till hälften');
+    assert.strictEqual(full.groups.length, 1);
+});
+
+test('en egen mall ur en grupp går att lägga in för andra enheter och en annan app', () => {
+    const flow = L.buildFlow({ devices: ['A', 'B', 'C'], pair: [0, 1], apps: ['WhatsApp'], blocks: ['chat-delete'] });
+    const g = flow.groups[0], [a, b, c] = flow.devices.map((d) => d.id);
+    L.addStep(flow, 'custom', { group: g.id, device: c, do: 'Fotografera {enhet} med {kod} på skärmen.', wait: 30 });
+    L.addStep(flow, 'screenshot', { group: g.id, device: L.ALL, app: 'Kartor' });
+    const tpl = L.templateFrom(flow, { group: g.id }, { id: 'egen-1', label: 'Radera och fotografera' });
+    assert.deepStrictEqual(tpl.steps, [
+        { action: 'text-delete', on: 'a', other: 'b' }, { action: 'delete', on: 'a', other: 'b' },
+        { action: 'custom', on: 'c', wait: 30, do: 'Fotografera {enhet} med {kod} på skärmen.' }, { action: 'screenshot', on: 'all', app: 'Kartor' },
+    ]);
+    assert.deepStrictEqual([tpl.own, tpl.kind, tpl.label], [true, 'chat', 'Radera och fotografera']);
+    const made = L.insertTemplate(flow, tpl, { a: c, b: a, app: 'Signal' });
+    assert.deepStrictEqual([made.group.title, made.group.template, made.missing], ['Signal: Radera och fotografera', 'egen-1', 0]);
+    const steps = L.view(flow).filter((s) => s.group === made.group.id);
+    assert.deepStrictEqual(steps.map((s) => s.deviceName), ['C', 'C', 'B', 'Alla enheter']);
+    assert.deepStrictEqual(steps.map((s) => s.do), ['Skriv L05 raderas till A och skicka.', 'Radera meddelandet L05 raderas för alla.', 'Fotografera B med L07 på skärmen.', 'Öppna Kartor och ta en skärmdump.']);
+    assert.deepStrictEqual(steps.map((s) => s.wait), [0, 0, 30, 0]);
+    const two = flowAB([]);
+    const lacking = L.insertTemplate(two, tpl, Object.assign({ app: 'Signal' }, PAIR(two)));
+    assert.deepStrictEqual([lacking.steps, lacking.missing], [4, 1], 'steget för en tredje enhet hamnar på den första och räknas');
+    const single = L.templateFrom(flow, { step: flow.steps[2].id }, { id: 'egen-2' });
+    assert.deepStrictEqual([single.label, single.steps.length, single.kind], ['Eget steg', 1, undefined]);
+    assert.strictEqual(L.templateFrom(flow, { group: 'g999' }, { id: 'egen-3' }), null);
+});
+
+test('egna mallar städas, slås ihop utan dubbletter och följer med flödets fil', () => {
+    const flow = flowAB(['chat-text']);
+    const tpl = L.templateFrom(flow, { group: flow.groups[0].id }, { id: 'egen-1', label: 'Min text' });
+    const other = L.templateFrom(flow, { step: flow.steps[0].id }, { id: 'egen-2', label: 'Ett steg' });
+    assert.strictEqual(L.cleanTemplate({ id: 'egen-1', label: 'x', steps: [] }), null);
+    assert.strictEqual(L.cleanTemplate({ id: 'Egen 1', label: 'x', steps: [{ action: 'text', on: 'a' }] }), null);
+    assert.strictEqual(L.cleanTemplate({ id: 'egen-1', label: 'x', steps: [{ action: 'text', on: 'z' }] }), null);
+    assert.strictEqual(L.cleanTemplate({ id: 'egen-1', label: 'x', steps: new Array(61).fill({ action: 'text', on: 'a' }) }), null);
+    const junk = L.cleanTemplate({ id: 'egen-9', label: 'Lång ' + 'x'.repeat(200), ond: 1, steps: [{ action: 'finns-inte', on: 'a', other: 'a', do: 'y'.repeat(900), wait: 1e9, extra: 1, lap: 3 }] });
+    assert.deepStrictEqual([junk.label.length, junk.steps[0].action, junk.steps[0].do.length, junk.steps[0].wait, Object.keys(junk.steps[0]).sort().join()], [80, 'custom', 600, 86400, 'action,do,on,wait']);
+    assert.strictEqual(junk.ond, undefined);
+
+    let lib = L.mergeTemplates([], [tpl, other, tpl, null, { id: 'x' }]);
+    assert.deepStrictEqual([lib.list.length, lib.added], [2, 2]);
+    const changed = Object.assign({}, tpl, { label: 'Samma id, annat innehåll' });
+    lib = L.mergeTemplates(lib.list, [changed, other]);
+    assert.deepStrictEqual([lib.list.map((t) => t.id), lib.added, lib.renamed], [['egen-1', 'egen-2', 'egen-1-2'], 1, { 'egen-1': 'egen-1-2' }]);
+
+    const made = L.insertTemplate(flow, tpl, Object.assign({ app: 'Signal' }, PAIR(flow)));
+    const file = JSON.parse(JSON.stringify(L.toFile(flow, null, 'Forensics Toolbox', at(0), lib.list)));
+    assert.deepStrictEqual(file.mallar.map((t) => t.id), ['egen-1'], 'bara mallen som flödet använder följer med');
+    const back = L.fromFile(JSON.stringify(file));
+    assert.deepStrictEqual(back.templates, [tpl]);
+    assert.strictEqual(back.flow.groups.find((g) => g.id === made.group.id).template, 'egen-1');
+    assert.strictEqual(L.toFile(flowAB(), null, '', at(0), lib.list).mallar, undefined);
+
+    const libFile = JSON.stringify(L.templatesToFile(lib.list, 'Forensics Toolbox', at(0)));
+    assert.strictEqual(JSON.parse(libFile).format, 'forensics-toolbox-laboration-mallar');
+    assert.deepStrictEqual(L.templatesFromFile(libFile), lib.list);
+    assert.deepStrictEqual(L.templatesFromFile(JSON.stringify(file)), [tpl], 'mallarna i en fil med ett flöde går också att hämta');
+    assert.throws(() => L.templatesFromFile('{'), /inte JSON/);
+    assert.throws(() => L.templatesFromFile('{"format":"annat"}'), /inte en fil med mallar/);
+    assert.throws(() => L.templatesFromFile(JSON.stringify(L.toFile(flowAB(), null, '', at(0)))), /inga egna mallar/);
+    assert.throws(() => L.templatesFromFile(JSON.stringify({ format: L.TEMPLATES, version: 2, mallar: [tpl] })), /nyare version/);
+});
+
+test('kontrollen säger vad som ser fel ut, steg för steg', () => {
+    const flow = L.emptyFlow('Prov', 'L', ['A', 'B']);
+    const [a, b] = flow.devices.map((d) => d.id);
+    const g = L.addGroup(flow, { title: 'Eget', app: 'Signal', a, b });
+    L.addStep(flow, 'delete', { group: g.id });
+    L.addStep(flow, 'read', { group: g.id, device: b });
+    L.addStep(flow, 'group-reply', { group: g.id });
+    L.addStep(flow, 'power-on', { group: g.id });
+    L.addStep(flow, 'custom', { group: g.id, do: '  ' });
+    L.addStep(flow, 'screenshot', { group: g.id, app: '' });
+    L.addGroup(flow, { title: 'Tom' });
+    const said = L.check(flow).map((w) => (w.code || 'grupp') + ' ' + w.text);
+    assert.deepStrictEqual(said, [
+        'L01 Steget pekar på steget före, men det står först.',
+        'L02 Inget meddelande har skickats från A i Signal före det här steget, så det finns inget att läsa.',
+        'L03 Ingen grupp har skapats i Signal före det här steget.',
+        'L04 Enheten har inte stängts av före det här steget.',
+        'L05 Steget saknar text om vad som ska göras.',
+        'grupp Gruppen har inga steg.',
+    ]);
+    const bad = flowAB(['chat-delete']);
+    L.addStep(bad, 'photo', { group: bad.groups[0].id, pos: 1 });
+    assert.deepStrictEqual(L.check(bad).map((w) => w.code + ' ' + w.text), ['L03 Steget raderar meddelandet ur steget före, men steget före skickar inget meddelande att radera från samma enhet och app.']);
+    const gone = flowAB(['chat-text']);
+    L.removeDevice(gone, gone.devices[1].id);
+    assert.deepStrictEqual(L.check(gone).map((w) => w.text), ['Steget nämner den andra enheten, men ingen är vald.', 'Steget nämner den andra enheten, men ingen är vald.']);
+    const loose = L.emptyFlow('Prov', 'L', ['A']);
+    L.addStep(loose, 'open-app', {});
+    assert.deepStrictEqual(L.check(loose).map((w) => w.text), ['Steget nämner en app, men ingen är vald.']);
+});
+
+test('en borttagen enhet tar med sig grupper som blir tomma, men inte en grupp som var tom förut', () => {
+    const flow = flowAB(['clock-start', 'chat-text']);
+    const empty = L.addGroup(flow, { title: 'Tom' });
+    const mine = L.addGroup(flow, { title: 'Bara iPhone' });
+    L.addStep(flow, 'photo', { group: mine.id, device: flow.devices[1].id });
+    L.removeDevice(flow, flow.devices[1].id);
+    assert.deepStrictEqual(titles(flow), ['Klockorna i början', 'WhatsApp: text åt båda håll, och läst', 'Tom']);
+    assert.strictEqual(flow.groups[1].b, '');
+    assert.ok(flow.groups.some((g) => g.id === empty.id));
+});
+
+test('en fil med grupper i oordning rättas, och en logg som då inte stämmer med stegen avvisas', () => {
+    const flow = flowAB(['clock-start', 'chat-text']);
+    const file = JSON.parse(JSON.stringify(L.toFile(flow, null, '', at(0))));
+    file.flow.steps.reverse();
+    file.flow.groups[0].a = 'd99';
+    file.flow.groups[0].template = '<script>';
+    file.flow.steps[0].group = 'g99';
+    const back = L.fromFile(JSON.stringify(file)).flow;
+    assert.ok(back.steps.every((s) => back.groups.some((g) => g.id === s.group && g.title === s.block)));
+    assert.deepStrictEqual([back.groups[0].a, back.groups[0].template], ['', '']);
+    const order = back.groups.map((g) => g.id);
+    assert.deepStrictEqual(back.steps.map((s) => order.indexOf(s.group)), back.steps.map((s) => order.indexOf(s.group)).sort((x, y) => x - y), 'stegen ligger i gruppernas ordning');
+    const run = sampleRun(flow);
+    const logged = JSON.parse(JSON.stringify(L.toFile(flow, run, '', at(300))));
+    logged.flow.steps[0].group = logged.flow.groups[1].id;
+    assert.throws(() => L.fromFile(JSON.stringify(logged)), /hör inte till flödet/);
+    const many = JSON.parse(JSON.stringify(file));
+    many.flow.groups = new Array(201).fill(0).map((_, n) => ({ id: 'g' + (1000 + n), title: 'x' }));
+    assert.throws(() => L.fromFile(JSON.stringify(many)), /för många grupper/);
+    const dup = JSON.parse(JSON.stringify(L.toFile(flow, null, '', at(0))));
+    dup.flow.groups[1].id = dup.flow.devices[0].id;
+    assert.throws(() => L.fromFile(JSON.stringify(dup)), /grupp i filen saknar ett giltigt id/);
+});

@@ -21,9 +21,11 @@ async function connect(port, opts) {
     const pending = {};
     const contexts = [];
     const errors = [];
+    let dragData = null;
     ws.onmessage = (m) => {
         const d = JSON.parse(m.data);
         if (d.id && pending[d.id]) { pending[d.id](d); delete pending[d.id]; }
+        if (d.method === 'Input.dragIntercepted') dragData = d.params.data;
         if (d.method === 'Runtime.executionContextCreated') contexts.push(d.params.context);
         if (d.method === 'Runtime.executionContextDestroyed') {
             const i = contexts.findIndex((c) => c.id === d.params.executionContextId);
@@ -124,12 +126,45 @@ async function connect(port, opts) {
         if (r.error) throw new Error('setFileInputFiles: ' + JSON.stringify(r.error));
     }
 
+    // Ett riktigt drag i en ram: musen trycks ner på from och flyttas, Chromium börjar draget, och det släpps på to.
+    // fy är var i höjdled på to det släpps, 0 överst och 1 nederst. Svaret är false om inget drag började.
+    async function drag(part, from, to, fy) {
+        const frame = await ev(null, `(function(){ const f = [...document.querySelectorAll('iframe')].find(f => f.src.includes(${JSON.stringify(part)}) && f.getBoundingClientRect().width > 0); if (!f) return null; const r = f.getBoundingClientRect(); return { x: r.left, y: r.top }; })()`);
+        if (!frame) throw new Error('Hittar ingen synlig ram för ' + part);
+        const point = async (selector, x, y) => {
+            const r = await ev(part, `(function(){ const e = document.querySelector(${JSON.stringify(selector)}); if (!e) return null; e.scrollIntoView({ block: 'nearest' }); const r = e.getBoundingClientRect(); return { x: r.left + r.width * ${x}, y: r.top + r.height * ${y} }; })()`);
+            if (!r) throw new Error('Hittar inte ' + selector);
+            return { x: frame.x + r.x, y: frame.y + r.y };
+        };
+        const a = await point(from, 0.02, 0.5);
+        dragData = null;
+        await send('Input.setInterceptDrags', { enabled: true });
+        await send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: a.x, y: a.y });
+        await send('Input.dispatchMouseEvent', { type: 'mousePressed', x: a.x, y: a.y, button: 'left', buttons: 1, clickCount: 1 });
+        for (let n = 1; n <= 5 && !dragData; n++) {
+            await send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: a.x + n * 6, y: a.y + n * 6, button: 'left', buttons: 1 });
+            await sleep(80);
+        }
+        const data = dragData;
+        if (data) {
+            await sleep(50);
+            const b = await point(to, 0.5, fy == null ? 0.5 : fy);
+            await send('Input.dispatchDragEvent', { type: 'dragEnter', x: b.x, y: b.y, data });
+            await send('Input.dispatchDragEvent', { type: 'dragOver', x: b.x, y: b.y, data });
+            await send('Input.dispatchDragEvent', { type: 'drop', x: b.x, y: b.y, data });
+        }
+        await send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: a.x, y: a.y, button: 'left' });
+        await send('Input.setInterceptDrags', { enabled: false });
+        await sleep(100);
+        return !!data;
+    }
+
     async function shot(file) {
         const s = await send('Page.captureScreenshot', { format: 'png' });
         fs.writeFileSync(file, Buffer.from(s.result.data, 'base64'));
     }
 
-    return { send, frames, ctx, ev, waitFor, nav, setFiles, shot, errors, close: () => ws.close() };
+    return { send, frames, ctx, ev, waitFor, nav, setFiles, drag, shot, errors, close: () => ws.close() };
 }
 
 module.exports = { connect, sleep };

@@ -122,14 +122,14 @@ textarea::placeholder, input::placeholder { color: var(--text-muted); }
 .main { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; gap: 8px; overflow-wrap: anywhere; }
 .main-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .summary { margin: 0; flex: 1; min-width: 12em; font-size: 14px; font-weight: 650; }
-.steps { flex: 1; min-height: 0; overflow: auto; padding-right: 4px; }
+.steps { flex: 1 1 40%; min-height: 0; overflow: auto; padding-right: 4px; }
 .block { margin: 14px 0 4px; font-size: 12px; letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-muted); }
 .block:first-child { margin-top: 0; }
 .step {
-    display: grid; grid-template-columns: 3.4em 9.5em minmax(0, 1fr) auto; gap: 4px 10px; align-items: start;
-    padding: 7px 10px; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; margin-bottom: 4px;
+    display: grid; grid-template-columns: 4.2em 9.5em minmax(0, 1fr) auto; gap: 4px 10px; align-items: start;
+    padding: 7px 10px; background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
 }
-.step-code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-weight: 700; font-size: 14px; }
+.step-code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-weight: 700; font-size: 14px; white-space: nowrap; }
 .step-who { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; min-width: 0; overflow-wrap: anywhere; }
 .step-text { min-width: 0; overflow-wrap: anywhere; }
 .step-app { font-size: 12px; color: var(--text-muted); }
@@ -137,12 +137,97 @@ textarea::placeholder, input::placeholder { color: var(--text-muted); }
 .step-press { margin: 2px 0 0; font-size: 12px; color: var(--text-muted); }
 .step-tools { display: flex; gap: 4px; }
 
-.editor {
+.editor, .group-panel {
     display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 12px; padding: 12px; margin: 4px 0 8px;
     background: var(--surface); border: 1px solid var(--accent); border-radius: 10px;
 }
-.ed-field { display: flex; flex-direction: column; gap: 3px; }
+.ed-field { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.ed-title { margin: 0; font-size: 13px; font-weight: 650; }
 .wide { grid-column: 1 / -1; }
+.inline.wrap { flex-wrap: wrap; }
+.tpl-name { flex: 1; min-width: 10em; }
+.more summary { cursor: pointer; font-size: 12px; font-weight: 650; color: var(--accent); }
+.more-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 12px; margin-top: 8px; }
+
+/* Förbered: grupperna, luckorna och väntan */
+.note-line { font-size: 13px; color: var(--text); }
+.warn-btn {
+    border: 1px solid var(--warn); border-radius: 10px; padding: 8px 12px; font: inherit; font-size: 13px; font-weight: 650;
+    cursor: pointer; background: var(--surface); color: var(--warn);
+}
+.group { border-left: 2px solid var(--border); padding-left: 8px; min-width: 0; }
+.group-head { display: flex; align-items: center; gap: 4px 8px; flex-wrap: wrap; padding: 2px 12px 2px 0; }
+.group-head .block { margin: 0; min-width: 0; }
+.group-meta { flex: 1; min-width: 8em; font-size: 12px; color: var(--text-muted); }
+.group-empty { margin: 0 0 4px; }
+.fold-btn { border: none; background: transparent; color: var(--text-muted); font: inherit; font-size: 13px; width: 22px; height: 22px; padding: 0; cursor: pointer; flex: none; }
+.fold-btn:hover { color: var(--text); }
+.step[draggable="true"], .group-head[draggable="true"], .pal-item[draggable="true"] { cursor: grab; }
+/* Greppet ritas med punkter, så att det ser likadant ut i alla typsnitt. */
+.step[draggable="true"] .step-code::before, .group-head[draggable="true"]::before {
+    content: ''; display: inline-block; flex: none; width: 8px; height: 14px; margin-right: 5px; vertical-align: -2px; opacity: 0.7;
+    background-image: radial-gradient(var(--text-muted) 1px, transparent 1.3px); background-size: 4px 4px;
+}
+.step.has-warn { border-color: var(--warn); }
+.step-warn { margin: 3px 0 0; font-size: 12px; line-height: 1.4; color: var(--warn); }
+.flash { animation: flash 1.4s ease-out; }
+@keyframes flash { from { box-shadow: 0 0 0 2px var(--accent); } to { box-shadow: 0 0 0 2px transparent; } }
+
+.slot { position: relative; display: flex; align-items: center; gap: 4px 10px; min-height: 20px; border-radius: 8px; }
+.slot::before { content: ''; position: absolute; left: 26px; right: 0; top: 50%; border-top: 1px dashed transparent; }
+.slot:hover::before { border-top-color: var(--accent); }
+.slot-add {
+    position: relative; width: 18px; height: 18px; flex: none; margin-left: 3px; padding: 0; border: 1px solid var(--border); border-radius: 50%;
+    background: var(--bg); color: var(--text-muted); font: inherit; font-size: 14px; font-weight: 650; line-height: 1; cursor: pointer;
+}
+.slot:hover .slot-add, .slot-add:focus-visible { color: var(--accent); border-color: var(--accent); }
+.slot-group { min-height: 26px; }
+.slot.marked { flex-wrap: wrap; margin: 3px 0; padding: 5px 10px; border: 1px dashed var(--accent); font-size: 12px; }
+.slot.marked::before { display: none; }
+.slot-text { color: var(--accent); font-weight: 650; }
+/* Under ett drag syns bara luckorna där det som dras går att släppa. */
+.steps[data-drag="group"] .group-body .slot { visibility: hidden; }
+.steps[data-drag] .slot::before { border-top-color: var(--border); }
+.slot.over { background: var(--accent); }
+.slot.over::before { display: none; }
+
+.wait-row {
+    display: flex; align-items: center; gap: 4px 8px; flex-wrap: wrap; margin: 2px 0 0 28px; padding: 4px 10px;
+    border: 1px dashed var(--warn); border-radius: 10px; font-size: 12px;
+}
+.wait-label { font-weight: 650; color: var(--warn); }
+.wait-row .wait-size { width: 5.5em; padding: 4px 6px; }
+.wait-row .wait-unit { width: auto; padding: 4px 6px; }
+.wait-row .hint { flex: 1; min-width: 10em; }
+
+/* Förbered: byggstenarna och det färdiga upplägget */
+.palette { display: flex; flex-direction: column; gap: 6px; }
+.pal-sec { display: flex; flex-direction: column; gap: 4px; }
+.pal-sec > * + * { margin-top: 4px; }
+.pal-head { padding: 4px 0; font-size: 11px; font-weight: 650; letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-muted); cursor: pointer; }
+.pal-head:hover { color: var(--text); }
+.pal-item {
+    display: flex; flex-direction: column; gap: 1px; width: 100%; min-width: 0; text-align: left; font: inherit; font-size: 13px; color: var(--text);
+    background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 5px 8px; overflow-wrap: anywhere;
+}
+.pal-item:hover:not(:disabled) { background: var(--surface-hover); border-color: var(--accent); }
+.pal-template { border-left: 3px solid var(--accent); }
+.pal-label { font-weight: 600; }
+.pal-desc { font-size: 12px; line-height: 1.35; color: var(--text-muted); }
+.pal-own { display: flex; align-items: flex-start; gap: 4px; }
+.pal-own .pal-item { flex: 1; }
+.quick {
+    flex: 0 1 auto; min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: 8px; padding: 12px;
+    background: var(--surface); border: 1px solid var(--accent); border-radius: 10px;
+}
+/* Valen rullar för sig, så att förhandsvisningen och knappen Skapa stegen syns. Blir rutan lägre än så rullar den hel. */
+.quick > * { flex: none; }
+.quick > .quick-cols { flex: 0 1 auto; min-height: 5em; overflow: auto; }
+.steps.is-empty { flex: 0 0 auto; }
+.quick-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.quick h2 { margin: 0; font-size: 15px; }
+.quick h3 { margin: 0; font-size: 12px; letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-muted); }
+.quick-cols { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 2fr); gap: 8px 20px; }
 
 /* Genomför */
 .run { display: flex; flex-direction: column; gap: 10px; }
@@ -229,4 +314,14 @@ kbd {
     .clock { font-size: 40px; }
     .run-list { width: 260px; }
     .side { width: 270px; }
+    .step { grid-template-columns: 4.2em minmax(0, 1fr) auto; }
+    .step-who { grid-column: 2; grid-row: 1; flex-direction: row; flex-wrap: wrap; align-items: center; gap: 2px 8px; }
+    .step-text { grid-column: 2 / -1; grid-row: 2; }
+    .step-tools { grid-column: 3; grid-row: 1; }
+    .quick-cols, .editor, .group-panel, .more-grid { grid-template-columns: minmax(0, 1fr); }
+}
+/* I ett smalt fönster ligger byggstenarna ovanför flödet i stället för bredvid, så att stegen får hela bredden. */
+@media (max-width: 700px) {
+    #view-plan { flex-direction: column; }
+    #view-plan .side { width: auto; flex: 0 1 auto; max-height: 42%; }
 }

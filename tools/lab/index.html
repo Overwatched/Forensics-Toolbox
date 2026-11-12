@@ -30,41 +30,34 @@
                     <input type="text" id="p-name" maxlength="80" autocomplete="off">
                     <label class="field" for="p-prefix">Kodbokstav, först i varje stegs kod</label>
                     <input type="text" id="p-prefix" class="short" maxlength="3" autocomplete="off">
-                </section>
-
-                <section class="side-block">
-                    <h2>Enheter</h2>
+                    <span class="field">Enheter</span>
                     <div id="p-devices" class="rows"></div>
                     <button type="button" id="p-device-add" class="secondary-btn">Lägg till enhet</button>
+                </section>
+
+                <section class="side-block">
+                    <h2>Byggstenar</h2>
+                    <p class="hint">Klicka på en byggsten, så hamnar den vid märket i flödet. Den går också att dra dit.</p>
                     <div id="p-pair" class="pair">
-                        <label class="field" for="p-pair-a">Chattarna går mellan</label>
+                        <label class="field" for="p-app">Chattsteg görs i</label>
+                        <input type="text" id="p-app" maxlength="80" list="l-apps" autocomplete="off">
+                        <label class="field" for="p-pair-a">från</label>
                         <select id="p-pair-a"></select>
-                        <label class="field" for="p-pair-b">och</label>
-                        <select id="p-pair-b"></select>
+                        <label class="field" for="p-pair-b">till</label>
+                        <div class="inline">
+                            <select id="p-pair-b"></select>
+                            <button type="button" id="p-pair-swap" class="icon-btn" title="De två enheterna byter plats" aria-label="Byt riktning mellan de två enheterna">Byt</button>
+                        </div>
                     </div>
-                </section>
-
-                <section class="side-block">
-                    <h2>Appar att chatta i</h2>
-                    <div id="p-apps" class="ticks"></div>
-                    <div class="inline">
-                        <input type="text" id="p-app-own" maxlength="80" placeholder="Annan app" autocomplete="off" aria-label="Annan app">
-                        <button type="button" id="p-app-add" class="secondary-btn">Lägg till</button>
-                    </div>
-                </section>
-
-                <section class="side-block">
-                    <h2>Standardflöden</h2>
-                    <div id="p-blocks" class="ticks"></div>
-                    <p id="p-preview" class="hint" role="status"></p>
-                    <button type="button" id="p-create" class="primary-btn">Skapa stegen</button>
-                    <p class="hint">Stegen går att ändra, flytta och ta bort efteråt, och egna steg kan läggas till.</p>
+                    <input type="search" id="p-search" placeholder="Sök bland byggstenarna" autocomplete="off" aria-label="Sök bland byggstenarna">
+                    <div id="p-palette" class="palette"></div>
                 </section>
 
                 <section class="side-block">
                     <h2>Fil</h2>
-                    <button type="button" id="p-open" class="secondary-btn">Öppna flöde eller logg…</button>
+                    <button type="button" id="p-open" class="secondary-btn">Öppna flöde, logg eller mallar…</button>
                     <button type="button" id="p-save" class="secondary-btn">Spara flödet som fil</button>
+                    <button type="button" id="p-save-templates" class="secondary-btn">Spara mina mallar som fil</button>
                     <button type="button" id="p-reset" class="secondary-btn">Börja på ett nytt, tomt flöde</button>
                     <input type="file" id="p-file" accept=".json,application/json" hidden>
                     <p id="p-status" class="status" role="status"></p>
@@ -74,10 +67,40 @@
             <div class="main">
                 <div class="main-head">
                     <p id="p-summary" class="summary"></p>
-                    <button type="button" id="p-add" class="secondary-btn">Lägg till steg</button>
+                    <button type="button" id="p-check" class="warn-btn display-none" title="Visa det första som ser ut att bli fel"></button>
+                    <button type="button" id="p-undo" class="secondary-btn" title="Ta tillbaka den senaste ändringen (Ctrl+Z)">Ångra</button>
+                    <button type="button" id="p-quick-open" class="secondary-btn" aria-controls="p-quick">Färdigt upplägg</button>
+                    <button type="button" id="p-add" class="secondary-btn">Eget steg</button>
                     <button type="button" id="p-print" class="secondary-btn">Skriv ut stegen</button>
                     <button type="button" id="p-start" class="primary-btn">Till genomförandet</button>
                 </div>
+                <p id="p-note" class="status note-line" role="status"></p>
+                <section id="p-quick" class="quick display-none" aria-label="Färdigt upplägg">
+                    <div class="quick-head">
+                        <h2>Börja med ett färdigt upplägg</h2>
+                        <button type="button" id="p-quick-close" class="secondary-btn">Stäng</button>
+                    </div>
+                    <p class="hint">Kryssa för appar och delar, så skapas alla steg på en gång. Efteråt går varje steg och grupp att ändra, flytta och ta bort, och fler byggstenar kan läggas till.</p>
+                    <div class="quick-cols">
+                        <div class="side-block">
+                            <h3>Appar att chatta i</h3>
+                            <div id="p-apps" class="ticks"></div>
+                            <div class="inline">
+                                <input type="text" id="p-app-own" maxlength="80" placeholder="Annan app" autocomplete="off" aria-label="Annan app">
+                                <button type="button" id="p-app-add" class="secondary-btn">Lägg till</button>
+                            </div>
+                            <p class="hint">Chattarna går mellan de två enheter som är valda under Byggstenar.</p>
+                        </div>
+                        <div class="side-block">
+                            <h3>Delar</h3>
+                            <div id="p-blocks" class="ticks"></div>
+                        </div>
+                    </div>
+                    <p id="p-preview" class="hint" role="status"></p>
+                    <div class="inline">
+                        <button type="button" id="p-create" class="primary-btn">Skapa stegen</button>
+                    </div>
+                </section>
                 <div id="p-steps" class="steps"></div>
             </div>
         </section>
