@@ -908,6 +908,51 @@ Plan och provkörning: [PLAN-harkomst.md](PLAN-harkomst.md).
   - Snapar och andra medier visas som text. Filerna ligger i Snapchats cache och kopplas inte till chatten i den här
     versionen.
 
+### Laboration (`tools/lab/`)
+
+- Ett verktyg för den som gör en egen laboration: ett flöde av steg görs under **Förbered**, gås igenom med datorns
+  klocka under **Genomför**, och blir en tabell till protokollet under **Tabell** (tid, enhet, åtgärd, kod,
+  anmärkning). Verktyget läser ingen extraktion och följer inte med mellan verktygen. Ingenting lämnar datorn.
+- **Kärnan** är `lab-core.js` (`LabCore`, utan DOM, testad i `lab-core.test.js`). Sidan (`script.js`) ritar och
+  lyssnar, och räknar ingenting själv.
+  - **Flödet**: `{ name, prefix, devices: [{ id, name }], steps, next }`. Ett steg har `action` (ur `ACTIONS`, eller
+    `custom` med egen text), `device` (ett id eller `ALL`, alla enheter), ibland `other` (motparten), `app`, `wait`
+    (sekunder efter steget) och `block` (rubriken det hör till). Koden (`L01`, `L02` …) räknas ur platsen i flödet
+    och sparas inte, så den följer med när steg flyttas. `{kod}` i en egen text byts mot stegets kod.
+  - **Standardflöden** är `BLOCKS`: klockorna i början och i slutet, text, medier, grupp, raderat meddelande och
+    samtal per vald app, kamera och skärmdump, en app i förgrunden, lås och avstängning, och tidszon.
+    `buildFlow({ name, prefix, devices, pair, apps, blocks })` gör stegen; chattstegen går mellan de två enheterna
+    i `pair`. Ett nytt standardflöde är en post i `BLOCKS`, och en ny åtgärd en post i `ACTIONS` med texten att
+    göra (`do`), när man trycker (`press`) och meningen i tabellen (`done`).
+  - **Körningen**: `{ started, off, zone, entries, notes, undone, waitUntil, waitStep }`. Ett tryck är
+    `press(flow, run, clock, 'klar' | 'hoppad')` och gäller alltid nästa steg i ordningen. Klockan ges utifrån som
+    `{ t, off }` (millisekunder och datorns minuter öster om UTC i det ögonblicket), så testerna beror inte på
+    datorns zon och en rad behåller sin zon över ett byte av sommartid. Under en väntan tas inget tryck emot
+    (`isWaiting`); `cutWait` avbryter den och skriver det i anmärkningen. `undo` flyttar det senaste trycket till
+    `undone`, som räknas i tabellens uppgifter. `toggleApprox` märker tiden som ungefärlig (`ca` i tabellen).
+    `addNote` ger en egen rad med tiden då anteckningen började skrivas.
+  - **Tabellen**: `rows` ger raderna i den ordning de gjordes (ett överhoppat eller ogjort steg står som
+    `inte utförd`), `facts` uppgifterna ovanför, `protocol` tabellen som HTML med inline-stilar (Word gör en tabell
+    av den vid inklistring, och samma HTML skrivs ut) och som text med tabbar, och `toCsv` en fil med semikolon,
+    BOM och en UTC-kolumn. Datumet står på varje rad bara när laborationen går över midnatt.
+  - **Filen** (`toFile`/`fromFile`): JSON med `format: "forensics-toolbox-laboration"`, flödet och, om det finns,
+    körningen. Samma fil är alltså både ett flöde att dela och en logg att öppna igen. `fromFile` städar varje fält
+    som när det skrevs in och kastar det som inte hör till formatet.
+- **Allt ur flödet och loggen är text.** Sidan sätter det med `textContent`, och `protocol` och `checklist` går
+  genom `esc`. Ett ord utan mellanslag som är längre än 20 tecken får brytas i tabellerna (`softParts`, `<wbr>`),
+  annars blir tabellen bredare än papperet. Texten själv ändras inte, och CSV-filen och textvarianten får den hel.
+- **Läget sparas** i `localStorage['ft-laboration']` efter varje ändring, som samma fil plus valen under Förbered,
+  och läses vid start; en påbörjad laboration öppnas i Genomför. Går lagringen inte att skriva säger sidan det
+  och ber om att loggen sparas som fil.
+- **Tangenterna** gäller bara i Genomför och inte i ett textfält: mellanslag (gjort), H (hoppa över), A (anteckning),
+  T (tryckte för sent), backsteg (ångra), V (avbryt väntan) och Enter (starta). Medan anteckningen är öppen gäller
+  de den. Före start är mellanslag ett övningstryck som inte sparas. När laborationen har börjat är Förbered låst;
+  `Ny laboration med samma flöde` under Tabell tar bort körningen och låser upp.
+- Electron har ingen `window.prompt`, så egna steg och anmärkningar skrivs i formulär i sidan. Utskriften går genom
+  en dold ram (`#l-print`, `srcdoc`), så att bara tabellen skrivs ut.
+- Inte prövat: utskriftsdialogen i appen och inklistring i Word. Kopieringen är prövad i Chrome med ett riktigt
+  musklick (HTML och text i urklipp).
+
 ### Rapporter (UFDR, `tools/db-queries/ufdr.js`)
 
 En UFDR är rapporten som Cellebrite Physical Analyzer skriver. Namnen står bara här och i kodens kommentarer: programmets texter och protokoll säger rapportverktyget. Queries och Härkomst läser den som en extraktion:
@@ -1322,9 +1367,10 @@ i webbläsaren.
     läses inte om; en lista från disk bedöms; Chattar visar WhatsApp-chatten och en lång chatt på 3 000 meddelanden i block,
     med Första, sökning, ett datum i ett uppehåll och utskriftens varning; listan i Chattar väljs på app, slag och tomma, ett
     nummer hittar gruppen genom deltagaren, och en databas fälls ihop; telefonvyn ställer chatten i ramen, håller platsen vid
-    bytet och ger exporten samma utseende; det Chattar har läst och dekrypterat läser Härkomst och Queries inte om; och HTML ur
-    filnamn och databaser körs aldrig. Bara påhittade data, 29 delar (2026-11-10). CI kör det i jobbet `apptest`, som inte stoppar
-    releasen än.
+    bytet och ger exporten samma utseende; det Chattar har läst och dekrypterat läser Härkomst och Queries inte om; Laboration
+    gör steg av standardflöden, loggar dem med tangenterna, stoppar trycken under en väntan och ger tabellen, CSV-filen och en
+    logg som går att öppna igen; och HTML ur filnamn, databaser och enheters namn körs aldrig. Bara påhittade data, 30 delar
+    (2026-11-12). CI kör det i jobbet `apptest`, som inte stoppar releasen än.
   - **Facit** (`facit.js`, `facit/lab-android-nord.json`, `--facit`): Härkomst bedömer filerna i
     labbzippen och jämför T, Memories, förgrund, skärm, lås, kameran, Snapchats meddelande, Signals
     meddelanden och appversionerna med det som loggades på labbtelefonen (inom en sekund, Signal två).

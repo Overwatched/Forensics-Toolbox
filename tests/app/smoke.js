@@ -1212,6 +1212,126 @@ const scenarios = [
         await c.nav('Härkomst');
         return 'batterihistoriken, SSRM, en flyttad klocka och eRR.p, också i Queries';
     }],
+
+    ['Laboration: standardflöden blir steg, tangenterna loggar dem med klockan, väntan stoppar trycken, och tabellen, CSV-filen och loggen stämmer', async ({ c, downloads }) => {
+        const LAB = 'lab/index.html';
+        const NAME = 'Samsung <img src=x onerror=window.__ftxss=1>';
+        await c.nav('Laboration');
+        await c.waitFor(LAB, `!!window.LabCore && document.querySelectorAll('#p-blocks input').length > 5`, 30000, 'Laboration laddas');
+        const ev = (e) => c.ev(LAB, e);
+        const key = (k) => ev(`document.body.dispatchEvent(new KeyboardEvent('keydown', { key: ${JSON.stringify(k)}, bubbles: true, cancelable: true })), 1`);
+        const text = (id) => ev(`document.getElementById(${JSON.stringify(id)}).textContent`);
+        const mode = () => ev(`document.getElementById('view-run').getAttribute('data-mode')`);
+        const fits = async (view) => expect(await ev(`document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1`), 'Sidan rullar i sidled i vyn ' + view);
+        // Frågorna om att ersätta och ta bort besvaras med ja. Det som en tidigare körning lämnade i lagringen tas bort.
+        await ev(`window.confirm = () => true, document.getElementById('p-reset').click(), 1`);
+
+        // Förbered: två enheter, en app och tre standardflöden, och ett eget steg sist.
+        await ev(`(function(){
+            const set = (i, v) => { i.value = v; i.dispatchEvent(new Event('input', { bubbles: true })); i.dispatchEvent(new Event('change', { bubbles: true })); };
+            const names = document.querySelectorAll('#p-devices input');
+            set(names[0], ${JSON.stringify(NAME)});
+            set(document.querySelectorAll('#p-devices input')[1], 'iPhone');
+            const want = ['WhatsApp', 'Klockorna i början', 'Text åt båda håll, och läst', 'Lås och avstängning'];
+            for (const l of document.querySelectorAll('#p-apps label.tick, #p-blocks label.tick')) {
+                const box = l.querySelector('input'), on = want.includes(l.querySelector('.tick-label').textContent);
+                if (box.checked !== on) box.click();
+            }
+            return 1;
+        })()`);
+        expect(await text('p-preview') === 'Valet ger 15 steg, ungefär 28 minuter varav 18 minuter väntan.', 'Förhandsvisningen: ' + await text('p-preview'));
+        await ev(`document.getElementById('p-create').click(), document.getElementById('p-add').click(), 1`);
+        await ev(`(function(){
+            const pick = document.querySelector('.editor select');
+            pick.value = 'custom'; pick.dispatchEvent(new Event('change', { bubbles: true }));
+            const what = document.querySelector('.editor textarea');
+            what.value = 'Skriv {kod} i Anteckningar.'; what.dispatchEvent(new Event('input', { bubbles: true }));
+            document.querySelector('.editor button[type="submit"]').click();
+            return 1;
+        })()`);
+        const plan = await ev(`({ steps: [...document.querySelectorAll('#p-steps .step')].map(s => s.querySelector('.step-code').textContent + ' ' + s.querySelector('.step-do').textContent), summary: document.getElementById('p-summary').textContent, chip: document.querySelector('#p-steps .chip').textContent })`);
+        expect(plan.steps.length === 16 && /^16 steg, /.test(plan.summary), 'Stegen: ' + plan.steps.length + ', ' + plan.summary);
+        expect(plan.steps[2] === 'L03 Skriv L03 till iPhone och skicka.' && plan.steps[15] === 'L16 Skriv L16 i Anteckningar.', 'Koderna i stegen: ' + plan.steps[2] + ' | ' + plan.steps[15]);
+        expect(plan.chip === NAME, 'Enhetens namn visas inte som text: ' + plan.chip);
+        await fits('Förbered');
+
+        // Genomför: övningstrycket sparas inte, Enter startar, och varje tangent gör sitt.
+        await ev(`document.getElementById('p-start').click(), 1`);
+        expect(await text('r-code') === 'ÖVA', 'Före start: ' + await text('r-code'));
+        await key(' ');
+        expect(/^Bra, trycket kom \d\d:\d\d:\d\d\./.test(await text('r-do')), 'Övningstrycket: ' + await text('r-do'));
+        await key('Enter');
+        expect(await text('r-code') === 'L01' && /^\d\d:\d\d:\d\d\.\d$/.test(await text('r-clock')), 'Efter start: ' + await text('r-code') + ' ' + await text('r-clock'));
+        await fits('Genomför');
+        await key(' '); await key(' ');
+        await key('h');
+        await key(' ');
+        await key('t');
+        expect(await text('r-toast') === 'Tiden för L04 är märkt som ungefärlig.', 'T: ' + await text('r-toast'));
+        await key(' ');
+        await key('Backspace');
+        expect(await text('r-code') === 'L05' && /^Trycket för L05 togs tillbaka\./.test(await text('r-toast')), 'Ångra: ' + await text('r-code') + ', ' + await text('r-toast'));
+        // Anteckningen får tiden då A trycktes, och tangenterna gäller den tills den är sparad.
+        await key('a');
+        expect(await ev(`document.activeElement.id`) === 'r-note-text', 'Anteckningens ruta har inte fokus');
+        await ev(`document.getElementById('r-note-text').value = 'En bild för mycket <b>här</b>.', document.getElementById('r-note-device').selectedIndex = 2, 1`);
+        await key(' ');
+        expect(await text('r-code') === 'L05', 'Ett mellanslag medan anteckningen var öppen räknades som ett tryck');
+        await ev(`document.getElementById('r-note-text').dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })), 1`);
+        expect(/^Anteckningen sparades med tiden \d\d:\d\d:\d\d\.$/.test(await text('r-toast')), 'Anteckningen: ' + await text('r-toast'));
+        // Väntan efter L07: mellanslag räknas inte förrän den är slut eller avbruten med V.
+        await key(' '); await key(' '); await key(' ');
+        expect(await mode() === 'wait' && await text('r-code') === 'VÄNTA' && /^Väntan efter L07: [45]:\d\d kvar\.$/.test(await text('r-do')), 'Väntan: ' + await mode() + ', ' + await text('r-do'));
+        await key(' ');
+        expect(await ev(`document.querySelectorAll('#r-list li.done, #r-list li.skipped').length`) === 7 && /^Väntan pågår, så trycket räknades inte\./.test(await text('r-toast')), 'Ett tryck under väntan räknades: ' + await text('r-toast'));
+        await key('v');
+        expect(await mode() === 'step' && await text('r-code') === 'L08', 'Efter avbruten väntan: ' + await mode() + ' ' + await text('r-code'));
+        for (let n = 0; n < 40 && await mode() !== 'done'; n++) await key(await mode() === 'wait' ? 'v' : ' ');
+        expect(await text('r-code') === 'KLAR', 'Flödet blev inte klart: ' + await text('r-code'));
+
+        // Tabell: en rad per steg och en för anteckningen, i den ordning det gjordes.
+        await ev(`document.getElementById('r-end').click(), 1`);
+        const table = await ev(`({
+            head: [...document.querySelectorAll('.protocol th')].map(th => th.textContent),
+            rows: [...document.querySelectorAll('.protocol tbody tr')].map(tr => [...tr.cells].map(td => (td.firstElementChild && td.classList.contains('remark') ? td.firstElementChild : td).textContent)),
+            facts: Object.fromEntries([...document.querySelectorAll('.facts dt')].map(dt => [dt.textContent, dt.nextElementSibling.textContent])),
+        })`);
+        expect(table.head.join('|') === 'Tid|Enhet|Åtgärd|Kod|Anmärkning', 'Rubrikerna: ' + table.head);
+        expect(table.rows.length === 17, 'Rader i tabellen: ' + table.rows.length);
+        const row = (code) => table.rows.find((r) => r[3] === code) || [];
+        expect(/^\d\d:\d\d:\d\d$/.test(row('L01')[0]) && row('L01')[1] === NAME && row('L01')[2] === 'Tog en bild av skärmen med kameran.', 'Första raden: ' + row('L01'));
+        expect(row('L03')[0] === 'inte utförd' && /^Hoppades över \d\d:\d\d:\d\d\.$/.test(row('L03')[4]), 'Det överhoppade steget: ' + row('L03'));
+        expect(/^ca \d\d:\d\d:\d\d$/.test(row('L04')[0]) && /^Tiden är ungefärlig/.test(row('L04')[4]), 'Den ungefärliga tiden: ' + row('L04'));
+        expect(/^Väntan därefter avbröts efter 0:0\d av 5:00\.$/.test(row('L07')[4]) && row('L07')[1] === 'Alla enheter', 'Raden med väntan: ' + row('L07'));
+        const note = table.rows.findIndex((r) => r[2] === 'Utöver flödet: En bild för mycket <b>här</b>.');
+        expect(note === 4 && table.rows[note][1] === 'iPhone' && table.rows[note][3] === '', 'Anteckningen står på rad ' + note);
+        expect(row('L16')[2] === 'Skriv L16 i Anteckningar.', 'Det egna steget: ' + row('L16'));
+        expect(table.facts.Steg === '15 utförda, 1 inte utförda, 1 anteckning' && /^1 tryck ångrades/.test(table.facts['Ångrat']) && table.facts.Program === 'Forensics Toolbox ' + VERSION, 'Uppgifterna: ' + JSON.stringify(table.facts));
+        expect(/^Datorns klocka, tidszon .*\(UTC[+-]\d\d:\d\d\)\./.test(table.facts.Klocka), 'Klockan: ' + table.facts.Klocka);
+        await fits('Tabell');
+
+        // Filerna: CSV med en rad per tabellrad, och loggen som går att öppna igen.
+        await ev(`document.getElementById('t-csv').click(), 1`);
+        const csv = await download(downloads, /^laboration-\d{4}-\d\d-\d\d-.*\.csv$/);
+        const lines = csv.replace(/^\uFEFF/, '').trim().split('\r\n');
+        expect(csv.charCodeAt(0) === 0xFEFF && lines[0] === 'Datum;Tid;UTC;Enhet;App;Åtgärd;Kod;Status;Anmärkning' && lines.length === 18, 'CSV-filen: ' + lines.length + ' rader, ' + lines[0]);
+        expect(/^\d{4}-\d\d-\d\d;\d\d:\d\d:\d\d;\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z;Samsung <img /.test(lines[1]) && /;L04;utförd, tiden ungefärlig;/.test(lines[4]), 'Raderna i CSV-filen: ' + lines[1] + ' | ' + lines[4]);
+        await ev(`document.getElementById('t-save').click(), 1`);
+        const log = JSON.parse(await download(downloads, /^laboration-\d{4}-\d\d-\d\d-.*\.json$/));
+        expect(log.format === 'forensics-toolbox-laboration' && log.flow.steps.length === 16 && log.run.entries.length === 16 && log.run.undone.length === 1 && log.run.notes.length === 1, 'Loggfilen: ' + Object.keys(log));
+        const logFile = path.join(downloads, fs.readdirSync(downloads).find((n) => /^laboration-.*\.json$/.test(n)));
+        await ev(`document.getElementById('t-again').click(), 1`);
+        expect(await ev(`!document.getElementById('view-plan').classList.contains('display-none') && !document.getElementById('p-create').disabled`), 'Flödet går inte att köra igen');
+        await c.setFiles(LAB, '#p-file', [logFile]);
+        await c.waitFor(LAB, `/^Loggen är öppnad: 16 av 16 steg har ett tryck\.$/.test(document.getElementById('p-status').textContent)`, 10000, 'loggen öppnas igen');
+        const again = await ev(`[...document.querySelectorAll('.protocol tbody tr')].map(tr => tr.cells[0].textContent + tr.cells[2].textContent).join('|')`);
+        expect(again === table.rows.map((r) => r[0] + r[2]).join('|'), 'Tabellen ur den öppnade loggen skiljer sig från den som sparades');
+        await sleep(300);
+        await noInjectedScript(c);
+        await ev(`document.getElementById('tab-plan').click(), document.getElementById('p-reset').click(), 1`);
+        await c.nav('Härkomst');
+        return plan.steps.length + ' steg, ' + table.rows.length + ' rader i tabellen, CSV och logg';
+    }],
 ];
 
 module.exports = { scenarios, expect, factors, assessNamed, waitResult, download, noInjectedScript, PROV, QUER };

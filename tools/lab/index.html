@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="sv">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Laboration</title>
+    <script src="../_shared/toolkit.js"></script>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div id="container">
+        <header class="page-header">
+            <div>
+                <h1>Laboration</h1>
+                <p>Gör ett flöde av steg, gå igenom det med klockan framme och få en tabell till protokollet. Allt stannar på datorn.</p>
+            </div>
+            <div class="tabs" role="tablist">
+                <button type="button" id="tab-plan" class="tab" role="tab"><b>1</b> Förbered</button>
+                <button type="button" id="tab-run" class="tab" role="tab"><b>2</b> Genomför</button>
+                <button type="button" id="tab-table" class="tab" role="tab"><b>3</b> Tabell</button>
+            </div>
+        </header>
+
+        <section id="view-plan" class="view workspace">
+            <aside class="side">
+                <p id="p-locked" class="notice display-none">Laborationen har börjat, så stegen går inte att ändra. Tabellen har en knapp för att börja om med samma flöde.</p>
+                <section class="side-block">
+                    <h2>Laborationen</h2>
+                    <label class="field" for="p-name">Namn</label>
+                    <input type="text" id="p-name" maxlength="80" autocomplete="off">
+                    <label class="field" for="p-prefix">Kodbokstav, först i varje stegs kod</label>
+                    <input type="text" id="p-prefix" class="short" maxlength="3" autocomplete="off">
+                </section>
+
+                <section class="side-block">
+                    <h2>Enheter</h2>
+                    <div id="p-devices" class="rows"></div>
+                    <button type="button" id="p-device-add" class="secondary-btn">Lägg till enhet</button>
+                    <div id="p-pair" class="pair">
+                        <label class="field" for="p-pair-a">Chattarna går mellan</label>
+                        <select id="p-pair-a"></select>
+                        <label class="field" for="p-pair-b">och</label>
+                        <select id="p-pair-b"></select>
+                    </div>
+                </section>
+
+                <section class="side-block">
+                    <h2>Appar att chatta i</h2>
+                    <div id="p-apps" class="ticks"></div>
+                    <div class="inline">
+                        <input type="text" id="p-app-own" maxlength="80" placeholder="Annan app" autocomplete="off" aria-label="Annan app">
+                        <button type="button" id="p-app-add" class="secondary-btn">Lägg till</button>
+                    </div>
+                </section>
+
+                <section class="side-block">
+                    <h2>Standardflöden</h2>
+                    <div id="p-blocks" class="ticks"></div>
+                    <p id="p-preview" class="hint" role="status"></p>
+                    <button type="button" id="p-create" class="primary-btn">Skapa stegen</button>
+                    <p class="hint">Stegen går att ändra, flytta och ta bort efteråt, och egna steg kan läggas till.</p>
+                </section>
+
+                <section class="side-block">
+                    <h2>Fil</h2>
+                    <button type="button" id="p-open" class="secondary-btn">Öppna flöde eller logg…</button>
+                    <button type="button" id="p-save" class="secondary-btn">Spara flödet som fil</button>
+                    <button type="button" id="p-reset" class="secondary-btn">Börja på ett nytt, tomt flöde</button>
+                    <input type="file" id="p-file" accept=".json,application/json" hidden>
+                    <p id="p-status" class="status" role="status"></p>
+                </section>
+            </aside>
+
+            <div class="main">
+                <div class="main-head">
+                    <p id="p-summary" class="summary"></p>
+                    <button type="button" id="p-add" class="secondary-btn">Lägg till steg</button>
+                    <button type="button" id="p-print" class="secondary-btn">Skriv ut stegen</button>
+                    <button type="button" id="p-start" class="primary-btn">Till genomförandet</button>
+                </div>
+                <div id="p-steps" class="steps"></div>
+            </div>
+        </section>
+
+        <section id="view-run" class="view run display-none">
+            <div class="run-top">
+                <div id="r-code" class="run-code"></div>
+                <div class="run-what">
+                    <div id="r-device" class="run-device"></div>
+                    <div id="r-count" class="run-count"></div>
+                </div>
+                <div class="run-clock">
+                    <div id="r-clock" class="clock"></div>
+                    <div id="r-zone" class="zone"></div>
+                    <div id="r-since" class="zone"></div>
+                </div>
+            </div>
+            <button type="button" id="r-focus" class="focus-hint display-none">Tangenterna gäller inte just nu. Klicka här först.</button>
+            <div class="run-body">
+                <div class="run-now">
+                    <p id="r-do" class="run-do"></p>
+                    <p id="r-press" class="run-press"></p>
+                    <p id="r-next" class="run-next"></p>
+                    <form id="r-note" class="note display-none" autocomplete="off">
+                        <label class="field" for="r-note-text" id="r-note-label">Anteckning</label>
+                        <textarea id="r-note-text" rows="2" maxlength="600"></textarea>
+                        <label class="field" for="r-note-device">Gäller det något du gjorde på en enhet, utöver flödet?</label>
+                        <select id="r-note-device"></select>
+                        <div class="inline">
+                            <button type="submit" class="primary-btn">Spara anteckningen (Enter)</button>
+                            <button type="button" id="r-note-cancel" class="secondary-btn">Avbryt (Esc)</button>
+                        </div>
+                    </form>
+                    <p id="r-toast" class="status" role="status"></p>
+                    <p id="r-store" class="notice display-none">Den här webbläsaren sparar inte mellan omstarter. Spara loggen som fil innan du stänger.</p>
+                    <div class="keys">
+                        <button type="button" class="key key-main" data-act="klar"><kbd>Mellanslag</kbd> Steget är gjort</button>
+                        <button type="button" class="key" data-act="hoppad"><kbd>H</kbd> Hoppa över</button>
+                        <button type="button" class="key" data-act="note"><kbd>A</kbd> Anteckning, eller något utöver flödet</button>
+                        <button type="button" class="key" data-act="approx"><kbd>T</kbd> Jag tryckte för sent</button>
+                        <button type="button" class="key" data-act="undo"><kbd>Backsteg</kbd> Ångra trycket</button>
+                        <button type="button" class="key" data-act="cut"><kbd>V</kbd> Avbryt väntan</button>
+                        <button type="button" id="r-start" class="key key-main" data-act="start"><kbd>Enter</kbd> Starta laborationen</button>
+                        <button type="button" id="r-end" class="key key-end">Avsluta och visa tabellen</button>
+                    </div>
+                </div>
+                <ol id="r-list" class="run-list"></ol>
+            </div>
+        </section>
+
+        <section id="view-table" class="view table-view display-none">
+            <div class="table-head">
+                <button type="button" id="t-copy" class="primary-btn">Kopiera för Word</button>
+                <button type="button" id="t-print" class="secondary-btn">Skriv ut / PDF…</button>
+                <button type="button" id="t-csv" class="secondary-btn">Spara som CSV</button>
+                <button type="button" id="t-save" class="secondary-btn">Spara loggen som fil</button>
+                <button type="button" id="t-again" class="secondary-btn">Ny laboration med samma flöde</button>
+                <p id="t-status" class="status" role="status"></p>
+            </div>
+            <div id="t-sheet" class="sheet"></div>
+        </section>
+    </div>
+
+    <div id="copy-stage" class="copy-stage" contenteditable="true" aria-hidden="true"></div>
+    <iframe id="l-print" class="l-print" title="Utskrift" aria-hidden="true" tabindex="-1"></iframe>
+    <datalist id="l-apps"></datalist>
+
+    <script src="lab-core.js"></script>
+    <script src="script.js"></script>
+</body>
+</html>

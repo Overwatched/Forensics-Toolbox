@@ -1,5 +1,26 @@
 Automatiskt byggd från commit `{{SHA}}`.
 
+## Nytt i 1.59
+
+**Laboration.** Ett nytt verktyg i listan till vänster för den som gör en egen laboration: ett flöde av steg, en klocka medan stegen görs, och en tabell till protokollet som säger när en åtgärd gjordes, vad den var och på vilken enhet.
+
+- **Förbered:** namnge enheterna, välj appar att chatta i och bocka i standardflöden. Skapa stegen gör hela flödet, och varje steg går sedan att ändra, flytta och ta bort. Egna steg kan läggas till.
+  - Standardflödena: klockorna i början och i slutet, text, medier, grupp, raderat meddelande och samtal i varje vald app, kamera och skärmdump, en app i förgrunden, lås och avstängning, och tidszon.
+  - Varje steg får en kod, till exempel L07. Den skrivs i meddelandet eller syns i bilden av datorns skärm, så att spåret i enheten kan knytas till raden i tabellen.
+  - Flödet kan sparas som en fil och öppnas på en annan dator, och stegen kan skrivas ut som en lista med en ruta för klockslaget.
+- **Genomför:** ett steg i taget med stor kod och datorns klocka. Mellanslag säger att steget är gjort, H hoppar över, A tar en anteckning, Backsteg ångrar och V avbryter en väntan.
+  - Före start är mellanslag ett övningstryck som inte sparas.
+  - T märker det senaste trycket som för sent. Tiden står då som ungefärlig i tabellen.
+  - Under en väntan, till exempel fem minuter med låsta enheter, räknas inga tryck.
+  - Läget sparas efter varje tryck, så laborationen fortsätter där den var efter en omstart.
+- **Tabell:** Tid, Enhet, Åtgärd, Kod och Anmärkning, med datum, klocka, tidszon och enheter ovanför. Den kan kopieras till ett dokument, skrivas ut eller sparas som PDF, och sparas som CSV med en kolumn i UTC.
+  - Tiden på en rad är när undersökaren tryckte, inte när enheten gjorde något. Den går inte att ändra efteråt, bara märka som ungefärlig och ge en anmärkning.
+  - Ett överhoppat steg står som inte utfört. Ångrade tryck räknas ovanför tabellen och står i loggen.
+  - Loggen sparas som en fil och går att öppna igen.
+- Verktyget läser ingen extraktion, och ingenting lämnar datorn.
+- **Provat:** enhetstesterna, röktestet i appen och html-versionen i Chrome på macOS, och layouten med mycket långa namn, smala fönster och tre typsnitt. Kopieringen gav en tabell och text i urklipp i Chrome.
+- **Inte provat:** utskriftsdialogen i appen, inklistring i ett dokument, och en hel laboration med telefoner. Windows och Linux provas först i bygget.
+
 ## Nytt i 1.58
 
 En rättning i Chattars telefonvy.
