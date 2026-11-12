@@ -162,11 +162,12 @@ test('två verktyg samtidigt: det andra väntar på det första, ser vad det gö
     const readA = counting(buf), readB = counting(buf);
     const slow = async (offset, length) => { await gate; return readA(offset, length); };
 
+    // Nyckelns SHA-256 räknas i en annan tråd innan verktyget frågar efter databasen, så testet väntar på frågan.
     const pa = core.loadDatabase(slow, hit, LEAD, sharing(a, { cipher }));
-    await w.settle();
+    await w.when(() => a.sent.length > 0, 'det första verktyget frågar efter databasen');
     const texts = [];
     const pb = core.loadDatabase(readB, hit, LEAD, sharing(b, { cipher, onStage: (stage, frac, by, inner) => texts.push(core.stageText(stage, frac, by, 'Signal (signal.db)', inner)) }));
-    await w.settle();
+    await w.when(() => texts.length > 0, 'det andra verktyget får veta att det väntar');
     assert.deepStrictEqual(texts, ['Väntar på Signal (signal.db), som Chattar redan läser in…']);
     release();
     const [first, second] = await w.until(Promise.all([pa, pb]));
@@ -229,6 +230,8 @@ test('en tom eller avhuggen databas har ingenting att dela: nästa verktyg läse
         const third = await w.until(core.loadDatabase(readC, hit, LEAD, sharing(w.tool('Queries'))));
         assert.ok(readC.calls > 0, 'ingen att vänta på, och ingen kopia att få');
         assert.strictEqual(third.sharedBy, '');
+        // Det sista meddelandet kan ha skickats just när until slutade lyssna.
+        await w.settle();
         assert.deepStrictEqual(w.reg.state(), { keys: 0, gives: 0 });
     }
 });

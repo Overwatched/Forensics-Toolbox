@@ -64,6 +64,11 @@ function world() {
             },
             listen: (fn) => frame.handlers.push(fn),
         }, Object.assign({ later: clock.later }, opts));
+        // Verktyget håller sin avbild svagt. I appen håller den öppna databasen i den; här gör ramen det, så att
+        // skräpsamlingen inte tar avbilden mitt i ett test. Test som släpper avbilden gör det med looseRefs.
+        const have = frame.client.have;
+        frame.kept = [];
+        frame.client.have = (key, bytes, facts) => { frame.kept.push(bytes); return have(key, bytes, facts); };
         return frame;
     }
     // Kör tills inget meddelande och inget löfte väntar.
@@ -81,7 +86,17 @@ function world() {
         while (!done) await settle();
         return promise;
     }
-    return { clock, reg, tool, settle, until };
+    // Kör tills villkoret gäller. För arbete som blir klart utanför meddelandena (en SHA-256 räknas i en annan
+    // tråd): settle ser inte att sådant väntar, och blir på en långsam dator klar för tidigt.
+    async function when(check, what) {
+        for (let n = 0; n < 5000 && !check(); n++) {
+            await settle();
+            if (!check()) await new Promise((resolve) => setTimeout(resolve, 1));
+        }
+        if (!check()) throw new Error('Det hände aldrig: ' + what);
+        await settle();
+    }
+    return { clock, reg, tool, settle, until, when };
 }
 
 module.exports = { world, fakeClock, looseRefs };
