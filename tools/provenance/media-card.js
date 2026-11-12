@@ -50,13 +50,16 @@
             var b = l.slice(l.lastIndexOf('/') + 1);
             (byBase[b] = byBase[b] || []).push(l);
         });
-        return function (name) {
+        var keep = function (name) {
             var n = String(name).toLowerCase();
             var list = byBase[n.slice(n.lastIndexOf('/') + 1)];
             if (!list) return false;
             for (var i = 0; i < list.length; i++) if (n.endsWith(list[i]) && (n.length === list[i].length || n.charAt(n.length - list[i].length - 1) === '/')) return true;
             return false;
         };
+        // Filnamnen sökningen gäller, så att en förteckning i minnet slår upp posterna (ZipRead.scan).
+        keep.bases = Object.keys(byBase);
+        return keep;
     }
 
     // Posten som slutar på sökvägen, den kortaste om flera (t.ex. två filsystemavbilder i samma zip).

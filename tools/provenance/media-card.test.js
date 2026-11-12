@@ -27,6 +27,7 @@ test('iOS egen tumnagel ligger under Thumbnails/V2 med bildens mapp och namn', (
     assert.ok(keep('private/var/mobile/Media/photodata/thumbnails/v2/dcim/100apple/img_0049.heic/5005.jpg'), 'skiftläge');
     assert.ok(!keep('private/var/mobile/Media/PhotoData/Thumbnails/V2/DCIM/100APPLE/IMG_0049.HEIC/5003.JPG'));
     assert.ok(!keep('x/Thumbnails/V2/DCIM/100APPLE/IMG_0049.HEIC/5005.JPG'), 'hela sökvägen måste stämma');
+    assert.deepStrictEqual(media.suffixKeeper(['DCIM/100APPLE/IMG_0049.HEIC', 'Pictures/A.jpg', null, 'DCIM/101APPLE/img_0049.heic']).bases, ['img_0049.heic', 'a.jpg'], 'filnamnen sökningen gäller, till uppslaget i förteckningen');
     const pick = media.pickBySuffix([{ name: 'filesystem2-backup/private/var/mobile/Media/DCIM/100APPLE/IMG_1.JPG' }, { name: 'filesystem1/private/var/mobile/Media/DCIM/100APPLE/IMG_1.JPG' }, { name: 'other/IMG_1.JPG' }], 'Media/DCIM/100APPLE/IMG_1.JPG');
     assert.strictEqual(pick.name, 'filesystem1/private/var/mobile/Media/DCIM/100APPLE/IMG_1.JPG', 'den kortaste träffen');
     assert.strictEqual(media.pickBySuffix([{ name: 'a/xIMG_1.JPG' }], 'IMG_1.JPG'), null, 'ingen träff mitt i ett namn');

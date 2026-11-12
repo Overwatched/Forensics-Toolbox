@@ -219,11 +219,67 @@
     // Posten med filens riktiga tider, när zippen har dem i en egen fil (fs-times.js).
     function withTimes(e, times) { return times ? times.apply(e) : e; }
 
+    // Ett tal ur filnamnet utan mapp, med små bokstäver. Två namn kan få samma tal: uppslaget ger bara
+    // vilka poster som är värda att pröva.
+    function baseKey(lowerBase) {
+        var h = 0x811c9dc5;
+        for (var i = 0; i < lowerBase.length; i++) h = Math.imul(h ^ lowerBase.charCodeAt(i), 0x01000193);
+        return h >>> 0;
+    }
+    function lowerBase(name) { return name.slice(name.lastIndexOf('/') + 1).toLowerCase(); }
+
+    // Posternas nummer ordnade i 65 536 fack efter talets översta bitar: start[f]..start[f + 1] i order är fack f.
+    function buckets(keys) {
+        var start = new Uint32Array(65537);
+        for (var i = 0; i < keys.length; i++) start[(keys[i] >>> 16) + 1]++;
+        for (var f = 0; f < 65536; f++) start[f + 1] += start[f];
+        var next = start.slice(0, 65536);
+        var order = new Uint32Array(keys.length);
+        for (var k = 0; k < keys.length; k++) order[next[keys[k] >>> 16]++] = k;
+        return { start: start, order: order };
+    }
+
+    // Uppslaget i förteckningen: efter filnamn (utan mapp, små bokstäver) och efter CRC32. Det byggs första gången
+    // en sökning säger vad den letar efter (hints nedan), och ligger sedan kvar så länge förteckningen gör det.
+    function lookup(index) {
+        if (index.byBase) return index;
+        var n = index.names.length;
+        var b = index.bytes;
+        var bases = new Uint32Array(n);
+        var crcs = new Uint32Array(n);
+        for (var i = 0; i < n; i++) {
+            bases[i] = baseKey(lowerBase(index.names[i]));
+            crcs[i] = u32(b, index.places[i] + 16);
+        }
+        index.byBase = buckets(bases);
+        index.byCrc = buckets(crcs);
+        return index;
+    }
+
+    // Posterna som en sökning med hints kan gälla, i förteckningens ordning. keep.bases är filnamnen (utan mapp,
+    // små bokstäver) som keep kan säga ja till, och keep.crc en CRC32 som den också säger ja till. Den som sätter
+    // dem lovar att keep säger nej till alla andra poster. keep avgör fortfarande varje post.
+    function hinted(index, keep) {
+        lookup(index);
+        var picked = [];
+        var take = function (by, key) {
+            var f = key >>> 16;
+            for (var i = by.start[f]; i < by.start[f + 1]; i++) picked.push(by.order[i]);
+        };
+        keep.bases.forEach(function (base) { take(index.byBase, baseKey(String(base))); });
+        if (keep.crc != null) take(index.byCrc, keep.crc >>> 0);
+        picked.sort(function (x, y) { return x - y; });
+        return picked.filter(function (x, i) { return i === 0 || picked[i - 1] !== x; });
+    }
+
     function scanIndexed(d, keep, onProgress, times) {
         var index = directoryIndex(d);
         var b = index.bytes;
         var kept = [];
-        for (var i = 0; i < index.names.length; i++) {
+        var only = Array.isArray(keep.bases) ? hinted(index, keep) : null;
+        var count = only ? only.length : index.names.length;
+        for (var k = 0; k < count; k++) {
+            var i = only ? only[k] : k;
             var at = index.places[i];
             if (keep(index.names[i], u32(b, at + 24), u32(b, at + 16))) kept.push(withTimes(entryAt(b, at, index.names[i], d.built), times));
         }
@@ -233,7 +289,8 @@
 
     // Går igenom hela innehållsförteckningen i bitar och sparar bara poster där keep(namn, storlek, crc32) är sant.
     // onProgress(lästa byte, totalt) anropas efter varje bit. Är förteckningen i minnet (cacheDirectory)
-    // används den färdiga listan med namn.
+    // används den färdiga listan med namn, och en sökning efter bestämda filnamn eller en CRC32 (keep.bases,
+    // keep.crc, se hinted) slår upp dem i stället för att gå igenom alla poster. Svaret är detsamma.
     async function scan(read, size, keep, onProgress) {
         if (read.directory) return scanIndexed(read.directory, keep, onProgress, read.fsTimes);
         var dir = await readDirectory(read, size);

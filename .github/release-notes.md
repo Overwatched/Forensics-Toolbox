@@ -1,5 +1,18 @@
 Automatiskt byggd från commit `{{SHA}}`.
 
+## Nytt i 1.62
+
+**Härkomst: snabbare med många filer.** Det som gäller hela extraktionen görs nu en gång, i stället för en gång per fil. Underlaget och protokollet är desamma som förut.
+
+- **Sökningen i zippen:** ett filnamn slås upp direkt i zippens innehållsförteckning. Förut gicks alla poster igenom, flera gånger per fil.
+- **Frågor som inte beror på filen**, till exempel alla bilagor och kontakter i en chattapp, körs en gång per extraktion. Protokollet listar dem fortfarande för varje fil.
+- **En fil som redan är läst** läses inte om i ExifTool. Ett klick på en rad i listan räknar om bedömningen ur det som redan är läst.
+- **Listan** ritar bara raden som blev klar, inte hela tabellen för varje fil.
+- **Uppmätt** på en iPhone-extraktion med 634 000 poster i zippen: en lista med 3 070 filnamn, varav 3 000 inte finns i extraktionen, gick från 245 sekunder till 18. Ett klick på en rad i listan gick från 0,5–1,1 sekunder till omkring 0,1.
+- **Kvar:** en fil som inte lästs förut tar omkring 0,2 sekunder, och det mesta av den tiden är ExifTool. En lista med tusentals filer tar därför fortfarande tid första gången.
+- **Provat:** enhetstesterna, röktestet i appen och html-versionen i Chrome på macOS. Underlaget jämfördes före och efter ändringen för 104 filer ur två labbtelefoner, en iPhone och en Android, och var detsamma.
+- **Inte provat:** en lista med tusentals filer som finns i extraktionen. Windows och Linux provas först i bygget.
+
 ## Nytt i 1.61
 
 **Laboration: bygg ditt eget flöde.** Förbered är nu en byggare. Flödet sätts ihop av färdiga mallar och egna steg, genom att klicka eller dra dem på plats.

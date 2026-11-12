@@ -74,6 +74,23 @@ test('keep-filtret sparar samma storlek+CRC32 och sökta filnamn, inte mappar', 
     assert.strictEqual(onlyName('q/y.jpg', 1, 1), false);
 });
 
+test('keep-filtret säger vad det söker, och tar inget utanför det', () => {
+    const keep = copies.keeper(100, 0xabc, ['IMG_0001.HEIC', 'Bild.JPG']);
+    assert.deepStrictEqual(keep.bases, ['img_0001.heic', 'bild.jpg']);
+    assert.strictEqual(keep.crc, 0xabc);
+    const onlyName = copies.keeper(null, null, ['x.jpg']);
+    assert.deepStrictEqual(onlyName.bases, ['x.jpg']);
+    assert.ok(!('crc' in onlyName), 'utan storlek söks ingen CRC32');
+    // Löftet till ZipRead.scan: varje post filtret tar har ett av namnen eller den sökta CRC32.
+    const entries = [['a/IMG_0001.HEIC', 5, 1], ['a/img_0001.heic.tmp', 5, 1], ['b/bild.jpg', 7, 2], ['c/annan', 100, 0xabc], ['c/zip64', 0xffffffff, 0xabc], ['c/fel', 100, 0xabd], ['d/IMG_0001.HEIC/', 0, 0]];
+    entries.forEach(([name, size, crc]) => {
+        const base = name.slice(name.lastIndexOf('/') + 1).toLowerCase();
+        const pointed = keep.bases.indexOf(base) >= 0 || crc === keep.crc;
+        if (keep(name, size, crc)) assert.ok(pointed, name + ' togs utan att stå bland det sökta');
+    });
+    assert.deepStrictEqual(entries.filter((e) => keep(e[0], e[1], e[2])).map((e) => e[0]), ['a/IMG_0001.HEIC', 'b/bild.jpg', 'c/annan', 'c/zip64']);
+});
+
 test('träffar på filnamn sorteras med kortast sökväg först', () => {
     const entries = [{ name: 'a/b/c/IMG_1.JPG', size: 1, crc32: 1 }, { name: 'x/IMG_1.JPG', size: 1, crc32: 1 }, { name: 'x/img_2.jpg', size: 1, crc32: 1 }];
     assert.deepStrictEqual(copies.byName(entries, 'img_1.jpg').map((e) => e.name), ['x/IMG_1.JPG', 'a/b/c/IMG_1.JPG']);

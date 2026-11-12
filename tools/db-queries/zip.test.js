@@ -324,3 +324,43 @@ test('innehållsförteckningen i minnet: en trasig förteckning ger samma fel so
     assert.match(d, /trasig \(post 1\)/);
     assert.strictEqual(m, d);
 });
+
+// Sökningar som säger vad de gäller (keep.bases, keep.crc) slår upp posterna i förteckningen i minnet.
+// Svaret ska vara detsamma som när alla poster gås igenom, i samma ordning.
+for (const zip64 of [false, true]) {
+    test('en sökning efter filnamn eller CRC32 slår upp posterna och ger samma svar, ' + (zip64 ? 'Zip64' : 'vanlig zip'), async () => {
+        const files = [];
+        for (let i = 0; i < 1500; i++) {
+            files.push({ name: 'fs/mapp' + (i % 37) + '/', data: '' });
+            files.push({ name: 'fs/mapp' + (i % 37) + '/IMG_' + String(i % 400).padStart(4, '0') + (i % 3 ? '.JPG' : '.jpg'), data: 'bild ' + (i % 250) });
+            files.push({ name: 'fs/annat/fil' + i + '.bin', data: i % 5 ? 'x' + i : '' });
+        }
+        files.push({ name: 'IMG_0007.JPG', data: 'i roten' }, { name: 'fs/räksmörgås/ÅÄÖ.heic', data: 'bild 7' });
+        const buf = buildZip(files, { zip64 });
+        const cache = await zip.cacheDirectory(reader(buf), buf.length);
+        const base = (n) => n.slice(n.lastIndexOf('/') + 1).toLowerCase();
+        const cases = [
+            { bases: ['img_0007.jpg'] },
+            { bases: ['img_0007.jpg', 'åäö.heic', 'finns-inte.png', 'fil12.bin'] },
+            { bases: [], crc: zip.crc32(Buffer.from('bild 7')) },
+            // Tomma filer och mappar är många: där är uppslaget stort, och svaret ändå detsamma.
+            { bases: ['img_0399.jpg'], crc: zip.crc32(Buffer.from('')), many: true },
+            { bases: [''], many: true },
+            { bases: [] },
+        ];
+        for (const c of cases) {
+            const rule = (name, size, crc) => c.bases.includes(base(name)) || c.crc != null && crc === c.crc;
+            let asked = 0;
+            const hinted = Object.assign((name, size, crc) => { asked++; return rule(name, size, crc); }, { bases: c.bases, crc: c.crc });
+            const a = await zip.scan(cache.read, buf.length, rule);
+            const b = await zip.scan(cache.read, buf.length, hinted);
+            assert.deepStrictEqual(b, a, JSON.stringify(c));
+            assert.ok(c.many || asked < 200, 'uppslaget prövade ' + asked + ' av ' + a.count + ' poster för ' + JSON.stringify(c));
+            // Utan förteckningen i minnet gås alla poster igenom som förut, med samma svar.
+            assert.deepStrictEqual((await zip.scan(reader(buf), buf.length, hinted)).entries, a.entries);
+        }
+        const seven = await zip.scan(cache.read, buf.length, Object.assign((n) => base(n) === 'img_0007.jpg', { bases: ['img_0007.jpg'] }));
+        assert.strictEqual(seven.entries.length, 5);
+        assert.strictEqual(seven.entries[seven.entries.length - 1].name, 'IMG_0007.JPG');
+    });
+}

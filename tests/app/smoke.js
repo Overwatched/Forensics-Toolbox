@@ -639,6 +639,49 @@ const scenarios = [
         return 'block om högst 1 500 av 3 000, sökningen och datumet når hela chatten, utskriften varnar';
     }],
 
+    ['Härkomst: en fil som lästs läses inte om, en fråga för hela extraktionen körs en gång, och listan ritas inte om', async ({ c }) => {
+        await c.nav('Härkomst');
+        const ev = (e) => c.ev(PROV, e);
+        const work = () => ev(`ProvenanceApp.work()`);
+        const queries = () => ev(`JSON.stringify(ProvenanceApp.meta().queries.map(q => [q.id, q.db, q.sql, [...q.times].sort()]))`);
+        const underlay = () => ev(`JSON.stringify([ProvenanceApp.model().factors, ProvenanceApp.model().explanation, ProvenanceApp.meta().exifRows, ProvenanceApp.meta().fileEntry])`);
+        const single = async () => {
+            await ev(`document.getElementById('filename').value = 'IMG_0006.JPG', document.getElementById('run').click(), 1`);
+            await sleep(200);
+            await waitResult(c, 'filen ensam');
+        };
+        // Samma fil två gånger: andra gången läser ExifTool inget, frågorna som gäller hela extraktionen körs inte,
+        // och protokollets frågor och underlaget är desamma.
+        await single();
+        const w1 = await work(), q1 = await queries(), u1 = await underlay();
+        await single();
+        const w2 = await work(), q2 = await queries(), u2 = await underlay();
+        expect(w1.exif > 0 && w2.exif === w1.exif && w2.exifReused > w1.exifReused, 'ExifTool lästes om: ' + JSON.stringify([w1, w2]));
+        expect(w2.reused > w1.reused, 'Frågorna för hela extraktionen kördes om: ' + JSON.stringify([w1, w2]));
+        expect(q2 === q1, 'Protokollets frågor ändrades av återanvändningen: ' + q1.length + ' och ' + q2.length + ' tecken');
+        expect(u2 === u1, 'Underlaget ändrades av återanvändningen');
+
+        // I listan: ett klick på en rad läser inte filen i ExifTool igen, och vägen tillbaka ritar inte om de andra raderna.
+        await ev(`document.getElementById('filename').value = 'IMG_0006.JPG\\nfinns-inte.jpg\\nfinns-inte-heller.jpg', document.getElementById('run').click(), 1`);
+        await sleep(300);
+        await c.waitFor(PROV, `!ProvenanceApp.busy() && document.querySelectorAll('#batch-list tbody tr').length === 3`, 60000, 'listan');
+        const rows = await ev(`[...document.querySelectorAll('#batch-list tbody tr')].map(t => t.className + ': ' + t.innerText.replace(/\\s+/g, ' '))`);
+        expect(/^batch-row pick: +IMG_0006\.JPG/.test(rows[0]) && /^batch-row: +finns-inte\.jpg Finns inte/.test(rows[1]) && /^batch-row: +finns-inte-heller\.jpg Finns inte/.test(rows[2]), 'Raderna efter körningen: ' + rows.join(' | '));
+        const w3 = await work();
+        await ev(`document.querySelector('#batch-list tbody').rows[2].dataset.kvar = 'ja', document.querySelector('#batch-list tr.pick').click(), 1`);
+        await sleep(200);
+        await waitResult(c, 'raden i listan');
+        const w4 = await work(), u4 = await underlay();
+        expect(w4.exif === w3.exif && w3.exif === w1.exif, 'Klicket läste filen i ExifTool igen: ' + JSON.stringify([w1, w3, w4]));
+        expect(u4 === u1, 'Underlaget ur listan skiljer sig från filen ensam');
+        await ev(`document.getElementById('batch-back').click(), 1`);
+        await sleep(200);
+        const back = await ev(`({ shown: !document.getElementById('batch-box').classList.contains('display-none'), kept: document.querySelector('#batch-list tbody').rows[2].dataset.kvar || '', rows: [...document.querySelectorAll('#batch-list tbody tr')].map(t => t.className + ': ' + t.innerText.replace(/\\s+/g, ' ')) })`);
+        expect(back.shown && back.kept === 'ja', 'Listan ritades om på vägen tillbaka: ' + JSON.stringify(back));
+        expect(back.rows.join(' | ') === rows.join(' | '), 'Raderna ändrades på vägen tillbaka: ' + back.rows.join(' | '));
+        return 'andra gången: ' + (w2.reused - w1.reused) + ' svar återanvända, ' + (w2.asked - w1.asked) + ' frågor körda, ExifTool 0 gånger';
+    }],
+
     ['Chattar: listan väljs på app, slag och tomma, ett nummer hittar gruppen genom deltagaren, och en databas fälls ihop', async ({ c }) => {
         const CHAT = 'chats/index.html';
         await c.nav('Chattar');

@@ -697,6 +697,33 @@ Plan och provkörning: [PLAN-harkomst.md](PLAN-harkomst.md).
   (200 000 meddelanden). `postbox.test.js` har ett hastighetstest för det.
 - **Kvar:** `TelegramPostbox.attach` körs i huvudtråden.
 
+#### Många filer i Härkomst (1.62)
+
+Det som gäller hela extraktionen görs en gång per öppnad zip. Det som gäller filen görs en gång per fil. Uppmätt på
+iPhonen ur tvåtelefonslabbet (634 000 poster i zippen): en lista med 3 070 namn, varav 3 000 inte finns, gick från
+245 s till 18 s, och ett klick på en rad i listan från 0,5–1,1 s till omkring 0,1 s. Underlaget var detsamma före och
+efter för 104 filer på båda telefonerna.
+
+- **Uppslag i förteckningen (`zip.js`):** en `keep` till `ZipRead.scan` kan säga vad den söker: `keep.bases` (filnamn
+  utan mapp, små bokstäver) och `keep.crc` (CRC32). Med en förteckning i minnet prövas då bara posterna med de
+  filnamnen eller den summan (`lookup`, `hinted`), i förteckningens ordning. Den som sätter fälten lovar att `keep`
+  säger nej till allt annat, och `keep` avgör fortfarande varje post, så svaret är detsamma som vid en hel genomgång
+  (`zip.test.js` jämför de två). Utan förteckning i minnet läses allt som förut. `Copies.keeper`,
+  `MediaCard.suffixKeeper` och sökningarna i `script.js` (`findMedia`, `telegramCamera`) sätter fälten.
+- **Frågor för hela extraktionen (`runRole`):** en fråga utan värden, eller med bara fönstret `ALL_TIME`, ger samma svar
+  för varje fil. Svaret sparas på den öppnade databasen (`loaded.answers`, nyckel: frågans id, tidskolumnerna och
+  SQL-texten) och raderna fryses, så att en ändring av en delad rad blir ett fel i stället för ett annat underlag
+  för nästa fil. Frågan skrivs ändå i varje fils protokoll (`run.queries`). Frågor med filens eget fönster körs per fil.
+- **ExifTool (`readTags`):** omkring 0,2 s per anrop, och det mesta av tiden för en fil som inte lästs förut. Svaret
+  sparas som text per SHA-256 och filnamn (`state.tags`, högst `MAX_TAG_TEXT` tecken, äldst ut först) och varje
+  läsning får en egen kopia. Utan SHA-256 (ingen `crypto.subtle`) sparas inget.
+- **Listan (`renderBatchRow`):** en körning ritar bara raden som blev klar och den före, inte hela tabellen per fil
+  (det var kvadratiskt: 36 s av 245). Vägen tillbaka från en rad ritar om de rader som öppnats och de med samma fil.
+- **`ProvenanceApp.work()`** räknar körda och återanvända frågor och ExifTool-anrop. Röktestet läser det: samma fil
+  en gång till, och ett klick i listan, läser inte ExifTool igen, och underlaget och protokollets frågor är desamma.
+- **Kvar:** en lista med filer som inte lästs förut kostar ExifTool-tiden per fil, en fil i taget. Hela bedömningen
+  per rad sparas inte (omkring 0,45 MB per fil), så ett klick räknar om filen ur det som redan är läst.
+
 ### Chattar (`tools/chats/`)
 
 - Visar konversationerna i chattapparnas databaser som i appen. Följer extraktionen som Härkomst och Queries
