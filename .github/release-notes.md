@@ -1,5 +1,19 @@
 Automatiskt byggd från commit `{{SHA}}`.
 
+## Nytt i 1.63
+
+**Härkomst: listan med flera filer är lättare att följa och läsa.**
+
+- **Förlopp:** en stapel visar hur långt programmet har kommit, både när en extraktion öppnas och när filer bedöms. För en lista står antalet klara och ungefär hur lång tid som är kvar, och för en sökning på hashsumma hur stor del som är läst.
+- **Sök i listan:** skriv ett eller flera ord, så visas bara raderna där alla orden finns: namn, mapp, typ, app eller tid.
+- **Urval:** knappar ovanför listan visar bara filerna med underlag, de där något inte är förenligt, de med flera träffar eller de som inte finns. Varje knapp visar antalet. Föregående och Nästa går bara mellan de rader som visas.
+- **En rad per träff:** finns ett namn på flera ställen i extraktionen går det att få varje träff som en egen rad, med sin sökväg, i stället för att välja en träff per fil. Raderna går sedan att söka bland som de andra.
+- **Tecken och ord i stället för prickar:** varje faktor står nu som ✓ Förenligt, ✕ Inte förenligt, ? Saknas, i Upplysning eller – Inte tillämplig, och en förklaring av lägena står ovanför listan. Rubrikraden ligger kvar när listan rullas.
+- **Exporterna tar hela listan,** också när en sökning eller ett urval visas. Det står bredvid sökrutan.
+- **Uppmätt** på en iPhone-extraktion: en lista med 70 filer tog 16 sekunder, lika länge som förut, och fönstret stod aldrig still längre än 0,2 sekunder under listan.
+- **Provat:** enhetstesterna, röktestet i appen och html-versionen i Chrome på macOS, och listan mot en labbtelefon, en iPhone. Ljust och mörkt tema är sedda.
+- **Inte provat:** en hashsumma med träffar på flera ställen som en rad per träff, och listor med hundratals filer som finns i extraktionen. Windows och Linux provas först i bygget.
+
 ## Nytt i 1.62
 
 **Härkomst: snabbare med många filer.** Det som gäller hela extraktionen görs nu en gång, i stället för en gång per fil. Underlaget och protokollet är desamma som förut.

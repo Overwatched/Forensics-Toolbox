@@ -682,6 +682,152 @@ const scenarios = [
         return 'andra gången: ' + (w2.reused - w1.reused) + ' svar återanvända, ' + (w2.asked - w1.asked) + ' frågor körda, ExifTool 0 gånger';
     }],
 
+    ['Härkomst: listan visar förloppet och faktorernas lägen i ord, går att söka och välja i, och ett namn med flera träffar blir en rad per träff', async ({ c, downloads }) => {
+        await c.nav('Härkomst');
+        const ev = (e) => c.ev(PROV, e);
+        const rows = () => ev(`[...document.querySelectorAll('#batch-list tbody tr')].map(t => ({ hidden: t.classList.contains('display-none'), text: t.innerText.replace(/\\s+/g, ' ').trim(),
+            marks: [...t.querySelectorAll('td.f-col .mark')].map(m => m.className.replace('mark ', '') + '=' + m.textContent), titles: [...t.querySelectorAll('td.f-col .mark')].filter(m => m.title).length }))`);
+        const shown = async () => (await rows()).filter((r) => !r.hidden).map((r) => r.text.split(' ')[0]);
+        const tools = () => ev(`({ chips: [...document.querySelectorAll('#batch-chips .chip')].filter(b => !b.classList.contains('display-none')).map(b => (b.getAttribute('aria-pressed') === 'true' ? '>' : '') + b.textContent.trim()),
+            shown: document.getElementById('batch-shown').textContent, hits: document.getElementById('batch-hits').classList.contains('display-none') ? '' : document.getElementById('batch-hits-text').textContent,
+            expand: document.getElementById('batch-expand').textContent, note: document.getElementById('batch-note').textContent, search: document.getElementById('batch-filter').value })`);
+        const search = (text) => ev(`(function () { const f = document.getElementById('batch-filter'); f.value = ${JSON.stringify(text)}; f.dispatchEvent(new Event('input', { bubbles: true })); return 1; })()`);
+        const chip = (group) => ev(`document.querySelector('#batch-chips .chip[data-group="${group}"]').click(), 1`);
+        const bar = () => ev(`window.__bar.splice(0)`);
+        const listed = (n, label) => c.waitFor(PROV, `!ProvenanceApp.busy() && document.querySelectorAll('#batch-list tbody tr').length === ${n}`, 60000, label);
+        // Namnen skrivs i rutan, som av en användare, så att raden om en tidigare listfil inte följer med.
+        const type = async (list) => {
+            await ev(`(function () { const f = document.getElementById('filename'); f.value = ${JSON.stringify(list.join('\n'))}; f.dispatchEvent(new Event('input', { bubbles: true })); document.getElementById('run').click(); return 1; })()`);
+            await sleep(300);
+        };
+
+        // Stapeln under lägesraden följer med medan listan körs, och är borta när den är klar.
+        await ev(`(function () { window.__bar = []; const box = document.getElementById('run-progress'), track = box.firstElementChild; let last = '';
+            new MutationObserver(function () { const t = [box.className, track.firstElementChild.style.width, track.getAttribute('aria-valuenow'), box.lastElementChild.textContent].join('|'); if (t !== last) { last = t; window.__bar.push(t); } })
+                .observe(box, { attributes: true, subtree: true, childList: true, characterData: true }); })(), 1`);
+        const names = ['IMG_0001.JPG', 'IMG_0002.JPG', 'IMG_0006.JPG', 'IMG_0009.JPG', 'finns-inte.jpg'];
+        await type(names);
+        await listed(5, 'listan');
+        const ran = await bar();
+        // Tiden som är kvar står med först när listan har gått i två sekunder, så den är inte med i jämförelsen.
+        expect(ran.includes('progress|0%|0|0 av 5 klara') && ran.some((x) => /^progress\|80%\|80\|4 av 5 klara( · |$)/.test(x)) && /^progress idle\|/.test(ran[ran.length - 1]), 'Förloppet under listan: ' + ran.join(' ; '));
+        expect(await ev(`document.querySelector('#run-progress .progress-track').getAttribute('role')`) === 'progressbar', 'Stapeln saknar sin roll');
+
+        // Varje faktor står med tecken och ord, rubrikerna säger vilken faktor det är, och förklaringen har alla fem lägen.
+        let r = await rows();
+        const done = r.filter((x) => x.marks.length);
+        expect(done.length === 3 && done.every((x) => x.marks.length === 5 && x.titles === 5), 'Märkena: ' + JSON.stringify(r.map((x) => x.marks)));
+        const WORDS = { support: '✓Förenligt', contradiction: '✕Inte förenligt', missing: '?Saknas', info: 'iUpplysning', na: '–Inte tillämplig' };
+        const odd = done.flatMap((x) => x.marks).filter((m) => WORDS[m.split('=')[0]] !== m.split('=')[1]);
+        expect(!odd.length, 'Ett läge utan sitt tecken och ord: ' + odd.join(', '));
+        expect(done.flatMap((x) => x.marks).some((m) => /^contradiction=/.test(m)) && done.flatMap((x) => x.marks).some((m) => /^support=/.test(m)), 'Testdatan har inte både förenligt och inte förenligt: ' + JSON.stringify(done.map((x) => x.marks)));
+        expect(await ev(`document.querySelectorAll('#batch-list .dot').length`) === 0, 'Prickarna står kvar');
+        const legend = await ev(`({ items: [...document.querySelectorAll('#batch-legend .legend-item')].map(e => e.innerText.replace(/\\s+/g, ' ').trim()), head: document.querySelector('#batch-legend .legend-head').textContent,
+            cols: [...document.querySelectorAll('#batch-list thead th.f-col')].map(h => h.textContent).join() })`);
+        expect(legend.items.length === 5 && /^✓ ?Förenligt stämmer med/.test(legend.items[0]) && /^✕ ?Inte förenligt stämmer inte/.test(legend.items[1]) && /^\? ?Saknas registreringar saknas/.test(legend.items[2]), 'Förklaringen: ' + legend.items.join(' | '));
+        expect(legend.cols === 'Skapad,App,Kamera,Skärm,Position' && /^Skapad, App, Kamera, Skärm och Position är faktorerna/.test(legend.head), 'Rubrikerna: ' + legend.cols + ' | ' + legend.head);
+
+        // Rubrikraden står kvar när listan rullas, och i en smal ruta rullar bara listan i sidled, i sin egen ruta.
+        const fit = await ev(`(function () {
+            const box = document.getElementById('container'), list = document.getElementById('batch-list'), keep = [box.style.maxWidth, list.style.maxHeight];
+            box.style.maxWidth = '620px'; list.style.maxHeight = '150px';
+            list.scrollTop = 120;
+            const out = { scrolled: list.scrollTop, head: Math.round(list.querySelector('thead th.f-col').getBoundingClientRect().top - list.getBoundingClientRect().top),
+                wide: [document.documentElement, ...document.querySelectorAll('#batch-box, #batch-box .box-head, .batch-tools, #batch-chips, #batch-legend, #batch-hits, #batch-note')]
+                    .filter(e => e.scrollWidth > e.clientWidth + 1).map(e => (e.id || e.className || e.tagName) + ' ' + e.scrollWidth + '/' + e.clientWidth),
+                cut: [...list.querySelectorAll('td.f-col, th.f-col')].filter(e => e.scrollWidth > e.clientWidth + 1).length };
+            list.scrollTop = 0; box.style.maxWidth = keep[0]; list.style.maxHeight = keep[1];
+            return out; })()`);
+        expect(fit.scrolled > 50 && fit.head === 0, 'Rubrikraden följde med när listan rullades: ' + JSON.stringify(fit));
+        expect(!fit.wide.length && !fit.cut, 'Det sticker ut i sidled i en smal ruta: ' + JSON.stringify(fit));
+
+        // Urvalet: grupperna med antal, bara de som har rader. Sökningen går på namn, mapp, typ och appen som sparade filen.
+        let t = await tools();
+        expect(t.chips.join(' | ') === '>Alla 5 | Med underlag 3 | Något inte förenligt 2 | Flera träffar 1 | Finns inte 1' && t.shown === '', 'Urvalet: ' + t.chips.join(' | ') + ' | ' + t.shown);
+        await search('signal');
+        expect((await shown()).join() === 'IMG_0006.JPG' && (await tools()).shown === 'Visar 1 av 5. Exporterna tar hela listan.', 'Sökningen på appen: ' + await shown() + ' | ' + (await tools()).shown);
+        await search('  DCIM kamerabild ');
+        expect((await shown()).join() === 'IMG_0002.JPG,IMG_0009.JPG', 'Sökningen på mapp och typ: ' + await shown());
+        await search('finns inte');
+        expect((await shown()).join() === 'finns-inte.jpg', 'Sökningen på radens läge: ' + await shown());
+        await search('');
+        await chip('contradiction');
+        expect((await shown()).join() === 'IMG_0002.JPG,IMG_0009.JPG' && (await tools()).chips[2] === '>Något inte förenligt 2', 'Gruppen: ' + await shown() + ' | ' + (await tools()).chips.join(' | '));
+
+        // Föregående och Nästa går bara mellan raderna som visas, och urvalet står kvar på vägen tillbaka.
+        await ev(`document.querySelectorAll('#batch-list tbody tr')[1].click(), 1`);
+        await sleep(200);
+        await waitResult(c, 'raden i urvalet');
+        let nav = await ev(`({ pos: document.getElementById('batch-pos').textContent, prev: document.getElementById('batch-prev').disabled, next: document.getElementById('batch-next').disabled })`);
+        expect(/^Fil 2 av 5 i listan: IMG_0002\.JPG/.test(nav.pos) && nav.prev && !nav.next, 'Raden i urvalet: ' + JSON.stringify(nav));
+        await ev(`document.getElementById('batch-next').click(), 1`);
+        await sleep(200);
+        await c.waitFor(PROV, `!ProvenanceApp.busy() && /^Fil 4 av 5/.test(document.getElementById('batch-pos').textContent)`, 60000, 'nästa i urvalet');
+        nav = await ev(`({ name: ProvenanceApp.model().file.filename, next: document.getElementById('batch-next').disabled })`);
+        expect(nav.name === 'IMG_0009.JPG' && nav.next, 'Nästa hoppade inte över raderna utanför urvalet: ' + JSON.stringify(nav));
+        await ev(`document.getElementById('batch-back').click(), 1`);
+        await sleep(200);
+        expect((await shown()).join() === 'IMG_0002.JPG,IMG_0009.JPG', 'Urvalet efter vägen tillbaka: ' + await shown());
+
+        // Exporten tar hela listan, också när ett urval visas.
+        await ev(`document.getElementById('batch-save').click(), 1`);
+        const saved = await download(downloads, /^harkomst-lista-.*\.html$/);
+        for (const n of names) expect(saved.includes(n), 'Den sparade listan saknar ' + n + ' när ett urval visas');
+        for (const f of fs.readdirSync(downloads)) if (/^harkomst-lista-/.test(f)) fs.unlinkSync(path.join(downloads, f));
+
+        // Namnet som finns på två rader i bildbiblioteket: erbjudandet står ovanför listan, och varje träff blir en egen rad som bedöms.
+        await chip('ambiguous');
+        t = await tools();
+        expect((await shown()).join() === 'IMG_0001.JPG' && /^En rad har flera träffar\./.test(t.hits) && t.expand === 'Visa alla 2 träffar som egna rader', 'Flera träffar: ' + JSON.stringify(t));
+        const before = await ev(`ProvenanceApp.work()`);
+        await bar();
+        await ev(`document.getElementById('batch-expand').click(), 1`);
+        await sleep(300);
+        await listed(6, 'en rad per träff');
+        r = await rows();
+        t = await tools();
+        expect(/^IMG_0001\.JPG .*träff 1 av 2 .*DCIM\/100APPLE\/IMG_0001\.JPG/.test(r[0].text) && /^IMG_0001\.JPG .*träff 2 av 2 .*DCIM\/101APPLE\/IMG_0001\.JPG/.test(r[1].text) && r[0].marks.length === 5 && r[1].marks.length === 5,
+            'Träffarna som egna rader: ' + r.slice(0, 2).map((x) => x.text).join(' | '));
+        expect(r.slice(2).map((x) => x.text.split(' ')[0]).join() === names.slice(1).join() && r.every((x) => !x.hidden), 'Raderna efter träffarna: ' + r.map((x) => (x.hidden ? '(gömd) ' : '') + x.text.split(' ')[0]).join());
+        expect(t.chips.join(' | ') === '>Alla 6 | Med underlag 5 | Något inte förenligt 2 | Finns inte 1' && t.hits === '' && /^6 filer, /.test(t.note), 'Urvalet efter träffarna: ' + JSON.stringify(t));
+        // Bara de nya raderna bedömdes: stapeln räknade två filer, och filerna som redan var lästa lästes inte om.
+        const again = await bar();
+        const after = await ev(`ProvenanceApp.work()`);
+        expect(again.includes('progress|50%|50|1 av 2 klara') && !again.some((x) => /av 6 klara/.test(x)), 'Förloppet för träffarna: ' + again.join(' ; '));
+        expect(after.exif - before.exif <= 2, 'Hela listan lästes om för träffarna: ' + JSON.stringify([before, after]));
+
+        // En ny tidszon gör om listan med träffarna som egna rader, och sökningen står kvar.
+        await search('101apple');
+        await ev(`(function () { const z = document.getElementById('zone'); z.value = 'utc'; z.dispatchEvent(new Event('change')); return 1; })()`);
+        await sleep(300);
+        await listed(6, 'listan i en ny zon');
+        t = await tools();
+        r = await rows();
+        expect(t.search === '101apple' && t.shown === 'Visar 1 av 6. Exporterna tar hela listan.' && r.filter((x) => !x.hidden).length === 1 && /träff 2 av 2/.test(r[1].text) && / UTC /.test(r[1].text), 'Listan i en ny zon: ' + JSON.stringify(t) + ' | ' + r[1].text);
+        await ev(`(function () { const z = document.getElementById('zone'); z.value = 'file'; z.dispatchEvent(new Event('change')); return 1; })()`);
+        await sleep(300);
+        await listed(6, 'listan i filens zon');
+        // En ny lista börjar utan urval. Namnet finns på två ställen i zippen utanför bildbiblioteket: träffarna skiljs åt på sökvägen.
+        await type(['db_sqlite', 'IMG_0002.JPG']);
+        await listed(2, 'en ny lista');
+        t = await tools();
+        expect(t.search === '' && t.shown === '' && t.chips.join(' | ') === '>Alla 2 | Med underlag 1 | Något inte förenligt 1 | Flera träffar 1' && t.expand === 'Visa alla 2 träffar som egna rader', 'En ny lista: ' + JSON.stringify(t));
+        await ev(`document.getElementById('batch-expand').click(), 1`);
+        await sleep(300);
+        await listed(3, 'en rad per post i zippen');
+        r = await rows();
+        expect(/^db_sqlite .*träff 1 av 2 .*postbox\/db\/db_sqlite /.test(r[0].text) && /^db_sqlite .*träff 2 av 2 .*postbox\/media\/storage\/db\/db_sqlite /.test(r[1].text) && /^IMG_0002\.JPG /.test(r[2].text), 'Posterna som egna rader: ' + r.map((x) => x.text).join(' | '));
+        // Raden öppnar just den posten.
+        await ev(`document.querySelectorAll('#batch-list tbody tr')[1].click(), 1`);
+        await sleep(200);
+        await waitResult(c, 'träffens rad');
+        const opened = await ev(`(ProvenanceApp.meta().fileEntry || {}).path || ''`);
+        expect(/postbox\/media\/storage\/db\/db_sqlite$/.test(opened), 'Raden för träff 2 öppnade ' + opened);
+        await ev(`document.getElementById('batch-back').click(), 1`);
+        await sleep(200);
+        return 'stapeln i ' + ran.length + ' lägen, 5 lägen med tecken och ord, 2 träffar som egna rader';
+    }],
+
     ['Chattar: listan väljs på app, slag och tomma, ett nummer hittar gruppen genom deltagaren, och en databas fälls ihop', async ({ c }) => {
         const CHAT = 'chats/index.html';
         await c.nav('Chattar');

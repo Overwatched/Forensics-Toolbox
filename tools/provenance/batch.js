@@ -223,9 +223,88 @@
         return out;
     }
 
+    // ---------- Lägen, märken och urval i listan ----------
+
+    // Radens läge i ord, som det står i listan och i urvalet ovanför den.
+    var STATUS_WORD = { done: 'Med underlag', ambiguous: 'Flera träffar', missing: 'Finns inte', error: 'Kunde inte bedömas', stopped: 'Avbruten', waiting: 'Väntar' };
+
+    // En faktors läge som tecken. Tecknet står ihop med ordet, så att läget går att läsa utan färgen.
+    var STATE_SIGN = { support: '✓', contradiction: '✕', missing: '?', info: 'i', na: '–' };
+    // Vad varje läge betyder, till förklaringen ovanför listan. Samma ord som i protokollet för en fil.
+    var STATE_MEANING = [
+        ['support', 'stämmer med det typen säger om hur filen kom till'],
+        ['contradiction', 'stämmer inte utan vidare, och behöver förklaras'],
+        ['missing', 'registreringar saknas, så faktorn säger inget åt något håll'],
+        ['info', 'väger inte åt något håll'],
+        ['na', 'frågan gäller inte den här typen av fil'],
+    ];
+
+    // Grupperna i urvalet, i den ordning de står. 'contradiction' är filer med underlag där minst en faktor inte är förenlig.
+    var GROUPS = [
+        ['', 'Alla'], ['done', STATUS_WORD.done], ['contradiction', 'Något inte förenligt'], ['ambiguous', STATUS_WORD.ambiguous],
+        ['missing', STATUS_WORD.missing], ['error', STATUS_WORD.error], ['stopped', 'Avbrutna'],
+    ];
+
+    function inGroup(row, group) {
+        if (!group) return true;
+        if (group !== 'contradiction') return row.status === group;
+        var f = row.status === 'done' && row.summary ? row.summary.factors : {};
+        return Object.keys(f).some(function (id) { return f[id].state === 'contradiction'; });
+    }
+
+    // Hur många rader varje grupp har: { '': 70, done: 68, contradiction: 2, … }.
+    function groupCounts(rows) {
+        var out = {};
+        GROUPS.forEach(function (g) { out[g[0]] = (rows || []).filter(function (r) { return inGroup(r, g[0]); }).length; });
+        return out;
+    }
+
+    // Texten som sökningen i listan går mot: namnet, det som söktes, sökvägen, mappen, typen, T, radens läge och
+    // programmets sammanvägning, där appen som sparade filen står.
+    function rowText(row) {
+        var s = row.summary || {};
+        var it = row.item || {};
+        return [row.name, it.hash, it.path, s.filename, s.path, s.place, s.typeLabel, s.tText, s.summary, row.note, row.status === 'done' ? '' : STATUS_WORD[row.status]]
+            .filter(Boolean).join('\n').toLowerCase();
+    }
+
+    // filter: { text, group }. Varje ord i texten ska finnas någonstans på raden, och raden ska höra till gruppen.
+    function matches(row, filter) {
+        filter = filter || {};
+        if (!inGroup(row, filter.group || '')) return false;
+        var words = String(filter.text || '').toLowerCase().split(/\s+/).filter(Boolean);
+        if (!words.length) return true;
+        var hay = rowText(row);
+        return words.every(function (w) { return hay.indexOf(w) >= 0; });
+    }
+
+    // Texten vid stapeln medan listan körs: hur många som är klara, och ungefär hur lång tid som är kvar räknat
+    // på filerna hittills. Tiden står först efter tre filer och två sekunder, när det finns något att räkna på.
+    function progressText(done, total, elapsedMs) {
+        var text = done + ' av ' + total + ' klara';
+        if (done < 3 || done >= total || !(elapsedMs >= 2000)) return text;
+        var left = elapsedMs / done * (total - done) / 1000;
+        if (left < 8) return text + ' · några sekunder kvar';
+        return text + ' · ungefär ' + (left < 90 ? Math.round(left / 5) * 5 + ' s' : Math.round(left / 60) + ' min') + ' kvar';
+    }
+
+    // En rad med flera träffar som en rad per träff. choices: det som skiljer träffarna åt ({ pk } för en rad i
+    // bildbiblioteket, { path } för en post i zippen). Varje ny post är den gamla med valet och träffens nummer.
+    function hitItems(item, choices) {
+        return (choices || []).map(function (c, n) {
+            var out = {};
+            Object.keys(item || {}).forEach(function (k) { out[k] = item[k]; });
+            Object.keys(c).forEach(function (k) { out[k] = c[k]; });
+            out.hit = { n: n + 1, of: choices.length };
+            return out;
+        });
+    }
+
     var api = {
         FACTOR_COLUMNS: FACTOR_COLUMNS, parseNames: parseNames, isListFile: isListFile, isOfficeFile: isOfficeFile, looksLikeText: looksLikeText, decodeList: decodeList, parseList: parseList,
         summarize: summarize, examinerState: examinerState, examinerText: examinerText, counts: counts,
+        STATUS_WORD: STATUS_WORD, STATE_SIGN: STATE_SIGN, STATE_MEANING: STATE_MEANING, GROUPS: GROUPS, inGroup: inGroup, groupCounts: groupCounts,
+        rowText: rowText, matches: matches, progressText: progressText, hitItems: hitItems,
     };
     if (typeof module !== 'undefined' && module.exports) module.exports = api;
     else root.ProvenanceBatch = api;

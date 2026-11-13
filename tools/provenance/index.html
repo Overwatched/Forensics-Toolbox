@@ -40,6 +40,7 @@
                 </div>
             </div>
             <div id="ex-status" class="status"></div>
+            <div id="ex-progress" class="progress idle"><div class="progress-track" role="progressbar" aria-label="Förlopp" aria-valuemin="0" aria-valuemax="100"><div class="progress-fill"></div></div><span class="progress-text"></span></div>
             <div id="ex-follow" class="follow display-none"></div>
             <div id="ex-list"></div>
             <div class="signal-key display-none" id="signal-key-row">
@@ -101,6 +102,7 @@
                 <p class="muted">Filerna kring tidpunkten listas, närmast först. Klicka på en rad för att bedöma den.</p>
             </div>
             <div id="run-status" class="status"></div>
+            <div id="run-progress" class="progress idle"><div class="progress-track" role="progressbar" aria-label="Förlopp" aria-valuemin="0" aria-valuemax="100"><div class="progress-fill"></div></div><span class="progress-text"></span></div>
             <button type="button" class="secondary display-none" id="batch-stop" title="Filen som bedöms nu blir klar, sedan stannar listan">Avbryt listan</button>
             <div class="batch-nav display-none" id="batch-nav">
                 <button type="button" class="secondary" id="batch-back">← Tillbaka till listan</button>
@@ -124,6 +126,16 @@
                 </div>
             </div>
             <p class="muted" id="batch-note"></p>
+            <div class="batch-hits display-none" id="batch-hits">
+                <span id="batch-hits-text"></span>
+                <button type="button" class="secondary" id="batch-expand" title="Varje träff bedöms som en egen fil och får en egen rad i listan"></button>
+            </div>
+            <div class="batch-tools">
+                <input type="text" id="batch-filter" placeholder="Sök i listan: namn, mapp, typ, app eller tid" aria-label="Sök i listan" spellcheck="false" autocomplete="off">
+                <div class="chips" id="batch-chips" role="group" aria-label="Visa bara"></div>
+                <span class="muted" id="batch-shown" aria-live="polite"></span>
+            </div>
+            <div class="legend" id="batch-legend"></div>
             <div id="batch-list" class="result-scroll"></div>
         </section>
 

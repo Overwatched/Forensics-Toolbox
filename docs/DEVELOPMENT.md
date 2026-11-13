@@ -436,6 +436,28 @@ i extraktionen med `-wal` pålagd, och bygger en händelselista i UTC.
   `state.examiner` (nyckeln innehåller zippen) och finns kvar så länge programmet är öppet.
   Raden med Tillbaka till listan, Föregående och Nästa fil (`#batch-nav`) ligger i filrutan ovanför
   vallistan, inte i `#result`, så att den syns också när en rad med flera träffar visar sin vallista.
+- Listans märken, urval och förlopp (allt som inte rör sidan ligger i `batch.js` och prövas i `batch.test.js`):
+  - **Märkena.** Varje faktor står med tecken och ord (`STATE_SIGN` och `ProvenanceCore.STATE_LABEL`, ritade av
+    `markHtml()`), så att läget går att läsa utan färgen. Förklaringen ovanför listan (`#batch-legend`,
+    `STATE_MEANING`) byggs en gång av `buildBatchTools()`. Rubrikraden är `position: sticky`, så att faktorns namn
+    syns när listan rullas.
+  - **Urvalet.** `b.filter = { text, group }`. `matches(row, filter)` kräver att varje ord finns i `rowText(row)`
+    (namnet, det som söktes, sökvägen, mappen, typen, T, sammanvägningen och radens läge) och att raden hör till
+    gruppen (`GROUPS`; `contradiction` är filer med underlag där någon faktor inte är förenlig). Rader utanför urvalet
+    göms med `display-none` på sin plats, så att `tbody.rows[i]` fortfarande är `b.rows[i]`; `renderBatchRow()` och
+    `backToList()` bygger på det. Föregående och Nästa (`nextOpenable()`) hoppar över gömda rader. Exporterna och
+    Visa listan i EXIF & karta tar hela listan, och raden vid urvalet säger det. Urvalet följer med när listan görs
+    om för en ny zon eller ett nytt fönster, och en ny lista börjar utan.
+  - **En rad per träff.** Ett mål med flera träffar bär det som skiljer dem åt: `choices` (`{ pk }` för rader i
+    bildbiblioteket, `{ path }` för poster i zippen) eller `entries` (sökning på innehåll). `expandHits()` byter
+    varje sådan rad mot en rad per träff (`hitItems()`: postens kopia med valet och `hit: { n, of }`) och
+    `assessRows()` bedömer bara raderna som väntar. Det är samma val som undersökaren annars gör i vallistan, sparat
+    på samma sätt, så en lista som görs om behåller raderna.
+  - **Förloppet.** `setProgress(id, part, text)` styr stapeln under en lägesrad (`#ex-progress`, `#run-progress`):
+    en andel 0–1 fyller den, -1 är en rörlig markering för det som inte har något antal, `null` tar bort den.
+    `busy()` visar den rörliga markeringen så länge något pågår; listan sätter antalet klara och
+    `progressText()` (tiden som är kvar först efter tre filer och två sekunder), sökningen på hashsumma andelen
+    lästa byte, och öppningen andelen av zippens innehållsförteckning och rapportens förteckning.
 - Sök på hashsumma (`hash-search.js`, UMD `ProvenanceHashSearch`): `parseNames()` släpper igenom
   MD5, SHA-1 och SHA-256 (32, 40 och 64 hexadecimala tecken, med komma, mellanslag eller en per rad,
   och summan ur en rad från md5sum). `runWithHashes()` i `script.js` tar först bort summor som är ett
@@ -723,6 +745,11 @@ efter för 104 filer på båda telefonerna.
   en gång till, och ett klick i listan, läser inte ExifTool igen, och underlaget och protokollets frågor är desamma.
 - **Kvar:** en lista med filer som inte lästs förut kostar ExifTool-tiden per fil, en fil i taget. Hela bedömningen
   per rad sparas inte (omkring 0,45 MB per fil), så ett klick räknar om filen ur det som redan är läst.
+- **Flera ExifTool samtidigt byggs inte.** Listorna är för det mesta 10–200 filer, och fyra arbetare skulle ta en
+  lista på 200 från ungefär 45 s till 20 s mot priset av en fördelare, 10 MB WebAssembly per arbetare och en
+  ordning som måste hållas. Fönstret står inte still under en lista: mätt på samma iPhone (70 filer, 16 s) var det
+  längsta uppehållet i sidans kö 160 ms, och 374 ms när zippens innehållsförteckning lästes. Det som saknades var
+  besked om hur långt listan kommit, och det ger stapeln.
 
 ### Chattar (`tools/chats/`)
 
@@ -1540,7 +1567,8 @@ i webbläsaren.
     knowledgeC.db med en trasig `-wal`, routined, bildfiler och poster med HTML i namnet) öppnas i Queries
     och Härkomst; en query med noll rader sägs ut; en fil från disk väljer raden i rätt mapp; en källa i Härkomst
     öppnar rätt databas och markerar raden; exempelraderna är märkta och resultatet når kartan; en inläst databas
-    läses inte om; en lista från disk bedöms; Chattar visar WhatsApp-chatten och en lång chatt på 3 000 meddelanden i block,
+    läses inte om; en lista från disk bedöms; listan visar förloppet och faktorernas lägen med tecken och ord, går att söka
+    och välja i, och ett namn med flera träffar blir en rad per träff; Chattar visar WhatsApp-chatten och en lång chatt på 3 000 meddelanden i block,
     med Första, sökning, ett datum i ett uppehåll och utskriftens varning; listan i Chattar väljs på app, slag och tomma, ett
     nummer hittar gruppen genom deltagaren, och en databas fälls ihop; telefonvyn ställer chatten i ramen, håller platsen vid
     bytet och ger exporten samma utseende; det Chattar har läst och dekrypterat läser Härkomst och Queries inte om; Laboration

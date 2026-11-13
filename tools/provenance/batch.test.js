@@ -136,3 +136,73 @@ test('lista: vilka filer som räknas som listor och hur de avkodas', () => {
     assert.ok(B.looksLikeText(new Uint8Array([0xff, 0xfe, 0x41, 0x00])));
     assert.ok(!B.looksLikeText(new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10])), 'en JPEG är inte text');
 });
+
+// Raderna i listan som urvalet och sökningen prövas mot. Värdena är påhittade.
+function listRow(name, status, more) {
+    return Object.assign({ item: { kind: 'name', name }, name, status, note: '', summary: null }, more || {});
+}
+const done = (name, factors, more) => listRow(name, 'done', { summary: Object.assign({ filename: name, path: 'private/var/mobile/Media/DCIM/100APPLE/' + name, place: 'Bildbiblioteket (DCIM)',
+    typeLabel: 'Kamerabild', tText: '2026-03-01 14:02:33', summary: 'Materialet är förenligt med att bilden togs med den här telefonens kamera.', factors }, more || {}) });
+const ROWS = [
+    done('IMG_1.JPG', { time: { state: 'support' }, app: { state: 'missing' } }),
+    done('IMG_2.JPG', { time: { state: 'support' }, app: { state: 'contradiction' } }, { typeLabel: 'Sparad ur en app', summary: 'Det går inte att bedöma att filen sparades på den här telefonen av Exempelappen.' }),
+    listRow('IMG_3.JPG', 'ambiguous', { note: '2 rader i Photos.sqlite har det namnet. Öppna raden och välj.' }),
+    listRow('borta.jpg', 'missing', { note: 'Finns varken i bildbiblioteket eller någon annanstans i zippen.' }),
+    listRow('trasig.jpg', 'error', { note: 'Filen gick inte att läsa.' }),
+];
+
+test('urvalet: grupperna räknas, och en fil med en faktor som inte är förenlig hör till sin egen grupp', () => {
+    assert.deepStrictEqual(B.groupCounts(ROWS), { '': 5, done: 2, contradiction: 1, ambiguous: 1, missing: 1, error: 1, stopped: 0 });
+    assert.deepStrictEqual(B.groupCounts([]), { '': 0, done: 0, contradiction: 0, ambiguous: 0, missing: 0, error: 0, stopped: 0 });
+    const names = (filter) => ROWS.filter((r) => B.matches(r, filter)).map((r) => r.name);
+    assert.deepStrictEqual(names({ group: 'contradiction' }), ['IMG_2.JPG']);
+    assert.deepStrictEqual(names({ group: 'done' }), ['IMG_1.JPG', 'IMG_2.JPG']);
+    assert.deepStrictEqual(names({ group: 'ambiguous' }), ['IMG_3.JPG']);
+    assert.deepStrictEqual(names({}), ROWS.map((r) => r.name));
+    assert.deepStrictEqual(names(null), ROWS.map((r) => r.name));
+    // Varje grupp har ett ord, och varje läge ett tecken och en förklaring.
+    assert.deepStrictEqual(B.GROUPS.map((g) => g[0]), ['', 'done', 'contradiction', 'ambiguous', 'missing', 'error', 'stopped']);
+    assert.deepStrictEqual(B.STATE_MEANING.map((m) => m[0]).sort(), Object.keys(B.STATE_SIGN).sort());
+    assert.strictEqual(new Set(Object.values(B.STATE_SIGN)).size, 5, 'två lägen har samma tecken');
+});
+
+test('sökningen i listan: varje ord ska finnas på raden, oavsett skiftläge, tillsammans med gruppen', () => {
+    const names = (filter) => ROWS.filter((r) => B.matches(r, filter)).map((r) => r.name);
+    assert.deepStrictEqual(names({ text: 'img_2' }), ['IMG_2.JPG']);
+    assert.deepStrictEqual(names({ text: '  100apple   kamerabild ' }), ['IMG_1.JPG'], 'mappen och typen, i valfri ordning');
+    assert.deepStrictEqual(names({ text: '14:02' }), ['IMG_1.JPG', 'IMG_2.JPG'], 'tiden');
+    assert.deepStrictEqual(names({ text: 'exempelappen' }), ['IMG_2.JPG'], 'appen står i sammanvägningen');
+    assert.deepStrictEqual(names({ text: 'finns inte' }), ['borta.jpg'], 'radens läge');
+    assert.deepStrictEqual(names({ text: 'photos.sqlite' }), ['IMG_3.JPG'], 'det som står på raden');
+    assert.deepStrictEqual(names({ text: 'img', group: 'done' }), ['IMG_1.JPG', 'IMG_2.JPG']);
+    assert.deepStrictEqual(names({ text: 'img_1', group: 'contradiction' }), []);
+    assert.deepStrictEqual(names({ text: 'finns-ingenstans' }), []);
+    // En rad som söktes med en hashsumma hittas på summan, och en träff på sin sökväg.
+    const hash = listRow('IMG_9.JPG', 'done', { item: { kind: 'hash', hash: MD5, path: 'private/var/tmp/kopia/IMG_9.JPG' }, summary: { filename: 'IMG_9.JPG', factors: {} } });
+    assert.ok(B.matches(hash, { text: MD5.slice(0, 12).toUpperCase() }));
+    assert.ok(B.matches(hash, { text: 'tmp/kopia' }));
+});
+
+test('förloppet: antalet klara, och tiden som är kvar först när det finns något att räkna på', () => {
+    assert.strictEqual(B.progressText(0, 200, 0), '0 av 200 klara');
+    assert.strictEqual(B.progressText(2, 200, 60000), '2 av 200 klara', 'två filer är för få');
+    assert.strictEqual(B.progressText(50, 200, 1500), '50 av 200 klara', 'under två sekunder');
+    assert.strictEqual(B.progressText(37, 200, 9000), '37 av 200 klara · ungefär 40 s kvar');
+    assert.strictEqual(B.progressText(100, 200, 60000), '100 av 200 klara · ungefär 60 s kvar');
+    assert.strictEqual(B.progressText(100, 1000, 30000), '100 av 1000 klara · ungefär 5 min kvar');
+    assert.strictEqual(B.progressText(190, 200, 40000), '190 av 200 klara · några sekunder kvar');
+    assert.strictEqual(B.progressText(200, 200, 40000), '200 av 200 klara');
+    assert.strictEqual(B.progressText(5, 10), '5 av 10 klara', 'utan tid');
+});
+
+test('en rad per träff: valet läggs på en kopia av posten, med träffens nummer', () => {
+    const item = { kind: 'name', name: 'IMG_3.JPG' };
+    assert.deepStrictEqual(B.hitItems(item, [{ pk: 4 }, { pk: 9 }]), [
+        { kind: 'name', name: 'IMG_3.JPG', pk: 4, hit: { n: 1, of: 2 } },
+        { kind: 'name', name: 'IMG_3.JPG', pk: 9, hit: { n: 2, of: 2 } },
+    ]);
+    assert.deepStrictEqual(item, { kind: 'name', name: 'IMG_3.JPG' }, 'posten som delades ändras inte');
+    assert.deepStrictEqual(B.hitItems({ kind: 'hash', hash: MD5 }, [{ path: 'a/x.jpg' }, { path: 'b/x.jpg' }, { path: 'c/x.jpg' }]).map((i) => i.path + ' ' + i.hit.n + '/' + i.hit.of), ['a/x.jpg 1/3', 'b/x.jpg 2/3', 'c/x.jpg 3/3']);
+    assert.deepStrictEqual(B.hitItems(item, []), []);
+    assert.deepStrictEqual(B.hitItems(item, null), []);
+});
