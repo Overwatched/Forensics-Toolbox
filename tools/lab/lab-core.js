@@ -20,9 +20,9 @@
         { id: 'read', label: 'Öppna chatten, så att meddelandena blir lästa', chat: true, do: 'Lås upp, öppna {app} och chatten med {andra}, så att meddelandena blir lästa.',
             done: 'Öppnade chatten med {andra} i {app}.', press: 'när chatten är öppen' },
         { id: 'reply', label: 'Svara i chatten', chat: true, do: 'Lås upp, öppna chatten med {andra} i {app} och svara {kod}.', done: 'Öppnade chatten med {andra} i {app} och svarade {kod}.', press: SENT },
-        { id: 'photo-app', label: 'Bild med appens kamera', chat: true, do: 'Ta en bild av den här skärmen med kameran inne i {app}. Skriv {kod} som bildtext och skicka till {andra}.',
+        { id: 'photo-app', label: 'Bild med appens kamera', chat: true, do: 'Ta en bild av rutan med koden och klockan med kameran inne i {app}. Skriv {kod} som bildtext och skicka till {andra}.',
             done: 'Tog en bild med kameran i {app} och skickade den till {andra} med bildtexten {kod}.', press: SENT },
-        { id: 'video-app', label: 'Video med appens kamera', chat: true, do: 'Spela in en video på ungefär fem sekunder av den här skärmen med kameran inne i {app}. Skriv {kod} som bildtext och skicka till {andra}.',
+        { id: 'video-app', label: 'Video med appens kamera', chat: true, do: 'Spela in en video på ungefär fem sekunder av rutan med koden och klockan med kameran inne i {app}. Skriv {kod} som bildtext och skicka till {andra}.',
             done: 'Spelade in en video med kameran i {app} och skickade den till {andra} med bildtexten {kod}.', press: SENT },
         { id: 'photo-library', label: 'Bild ur enhetens bilder', chat: true, do: 'Skicka den senaste bilden ur enhetens bilder till {andra}, utan att redigera den, med {kod} som bildtext.',
             done: 'Skickade den senaste bilden ur enhetens bilder till {andra} i {app}, med bildtexten {kod}.', press: SENT },
@@ -42,8 +42,8 @@
         { id: 'call-answer', label: 'Ring med svar', chat: true, do: 'Ring {andra} med ett röstsamtal i {app}. Svara på {andra}, vänta ungefär tio sekunder och lägg på.',
             done: 'Ringde {andra} i {app}. Samtalet besvarades och avslutades.', press: 'när samtalet är avslutat' },
 
-        { id: 'photo', label: 'Bild med kameran', app: 'Kamera', do: 'Fotografera den här skärmen så att koden och klockan syns.', done: 'Tog en bild av skärmen med kameran.', press: 'när bilden är tagen' },
-        { id: 'video', label: 'Video med kameran', app: 'Kamera', do: 'Spela in en video på ungefär tio sekunder av den här skärmen.', done: 'Spelade in en video av skärmen med kameran.',
+        { id: 'photo', label: 'Bild med kameran', app: 'Kamera', do: 'Fotografera rutan med koden och klockan. Resten av skärmen behöver inte komma med.', done: 'Tog en bild av skärmen med kameran.', press: 'när bilden är tagen' },
+        { id: 'video', label: 'Video med kameran', app: 'Kamera', do: 'Spela in en video på ungefär tio sekunder av rutan med koden och klockan.', done: 'Spelade in en video av skärmen med kameran.',
             press: 'när inspelningen stoppas' },
         { id: 'screenshot', label: 'Skärmdump med en app framme', needsApp: true, do: 'Öppna {app} och ta en skärmdump.', done: 'Tog en skärmdump med {app} på skärmen.', press: 'när skärmdumpen är tagen' },
         { id: 'edit-date', label: 'Ändra datum på den senaste bilden', app: 'Bilder', do: 'Ändra datum och tid på den senaste bilden till den 1 januari 2020 klockan 12.00.',
@@ -74,7 +74,7 @@
     // bara efter den sista enheten. kind chat görs en gång per vald app. En egen mall har samma form, med own.
     function st(action, on, o) { return Object.assign({ action: action, on: on }, o); }
     var BLOCKS = [
-        { id: 'clock-start', label: 'Klockorna i början', desc: 'Varje enhet fotograferar skärmen. Bilden visar datorns klocka, och bildens egna tider visar enhetens.',
+        { id: 'clock-start', label: 'Klockorna i början', desc: 'Varje enhet fotograferar rutan med koden och klockan. Bilden visar datorns klocka, och bildens egna tider visar enhetens.',
             steps: [st('photo', 'each')] },
         { id: 'chat-text', kind: 'chat', label: 'Text åt båda håll, och läst', desc: 'Skickat, mottaget och läst på båda enheterna.',
             steps: [st('text', 'a'), st('read', 'b'), st('text', 'b'), st('read', 'a')] },

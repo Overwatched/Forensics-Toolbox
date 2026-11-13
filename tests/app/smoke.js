@@ -682,6 +682,48 @@ const scenarios = [
         return 'andra gången: ' + (w2.reused - w1.reused) + ' svar återanvända, ' + (w2.asked - w1.asked) + ' frågor körda, ExifTool 0 gånger';
     }],
 
+    ['Härkomst: en lista som läser filerna i förväg ger samma rader som utan, och ExifTools workrar lämnas tillbaka', async ({ c }) => {
+        await c.nav('Härkomst');
+        const ev = (e) => c.ev(PROV, e);
+        const names = ['IMG_0001.JPG', 'IMG_0002.JPG', 'IMG_0005.JPG', 'IMG_0006.JPG', 'finns-inte.jpg', 'IMG_0007.JPG', 'IMG_0008.JPG', 'IMG_0009.JPG', 'IMG_0010.JPG'];
+        const start = (then) => ev(`(function () { const f = document.getElementById('filename'); f.value = ${JSON.stringify(names.join('\n'))}; f.dispatchEvent(new Event('input', { bubbles: true })); document.getElementById('run').click(); ${then || ''} return 1; })()`);
+        // Workrar som startades för listan och inte hann bli klara stängs när de hör av sig, så det väntas in.
+        const idle = async (label) => {
+            await c.waitFor(PROV, `!ProvenanceApp.busy() && document.querySelectorAll('#batch-list tbody tr').length === ${names.length} && ProvenanceApp.exif().starting === 0`, 60000, label);
+            const pool = await ev(`ProvenanceApp.exif()`);
+            expect(pool.working === 0 && pool.waiting === 0 && pool.workers <= 1, 'ExifTool efter ' + label + ': ' + JSON.stringify(pool));
+        };
+        // Samma lista utan och med läsning i förväg. ExifTools svar glöms före varje gång, så att filerna läses båda gångerna.
+        const run = async (ahead) => {
+            await ev(`ProvenanceApp.forgetTags(), ProvenanceApp.readAhead(${ahead}), 1`);
+            const before = await ev(`ProvenanceApp.work()`);
+            await start();
+            await sleep(300);
+            await idle('listan med ' + ahead + ' rader i förväg');
+            const after = await ev(`ProvenanceApp.work()`);
+            return { list: await ev(`JSON.stringify(ProvenanceApp.list())`), exif: after.exif - before.exif, asked: after.asked - before.asked, logs: after.logs - before.logs };
+        };
+        const usual = await ev(`ProvenanceApp.readAhead()`);
+        expect(usual > 0, 'Läsningen i förväg är avstängd från början: ' + usual);
+        const off = await run(0), on = await run(usual);
+        const done = JSON.parse(off.list).filter((r) => r.status === 'done').length;
+        expect(done >= 5, 'Listan utan läsning i förväg: ' + JSON.parse(off.list).map((r) => r.name + ' ' + r.status).join(', '));
+        expect(on.list === off.list, 'Listan ändrades av läsningen i förväg: ' + JSON.parse(on.list).map((r) => r.name + ' ' + r.status).join(', '));
+        // Lika många filer går genom ExifTool, och läsningen i förväg kör inga frågor och läser inga loggar själv.
+        expect(off.exif >= done && on.exif === off.exif && on.asked === off.asked && on.logs === off.logs, 'Arbetet utan och med läsning i förväg: ' + JSON.stringify([off, on]).replace(/"list":"(\\.|[^"])*",/g, ''));
+
+        // Avbruten mitt i: det som lästes i förväg blir klart och släpps, och nästa fil bedöms som vanligt.
+        await ev(`ProvenanceApp.forgetTags(), 1`);
+        await start(`setTimeout(function () { document.getElementById('batch-stop').click(); }, 30);`);
+        await sleep(300);
+        await idle('den avbrutna listan');
+        const left = (await ev(`ProvenanceApp.list()`)).filter((r) => r.status !== 'done' && r.status !== 'missing').length;
+        await ev(`document.getElementById('filename').value = 'IMG_0006.JPG', document.getElementById('run').click(), 1`);
+        await sleep(200);
+        await waitResult(c, 'filen efter den avbrutna listan');
+        return done + ' filer lika med och utan ' + usual + ' rader i förväg, ExifTool ' + on.exif + ' gånger var; ' + left + ' rader blev kvar när listan avbröts';
+    }],
+
     ['Härkomst: listan visar förloppet och faktorernas lägen i ord, går att söka och välja i, och ett namn med flera träffar blir en rad per träff', async ({ c, downloads }) => {
         await c.nav('Härkomst');
         const ev = (e) => c.ev(PROV, e);
@@ -1481,6 +1523,28 @@ const scenarios = [
         await key('Enter');
         expect(await text('r-code') === 'L01' && /^\d\d:\d\d:\d\d\.\d$/.test(await text('r-clock')), 'Efter start: ' + await text('r-code') + ' ' + await text('r-clock'));
         await fits('Genomför');
+        // Rutan att fotografera har koden, klockan och datumet tätt ihop och är en liten del av vyn. Stegen i listan
+        // står med läsbar text, och steget som görs nu med hela sin text.
+        const shot = await ev(`(function () {
+            const box = (e) => e.getBoundingClientRect(), s = document.getElementById('r-shot'), b = box(s), v = box(document.getElementById('view-run'));
+            const inside = ['r-code', 'r-clock', 'r-zone'].filter(id => { const r = box(document.getElementById(id)); return s.contains(document.getElementById(id)) && r.left >= b.left && r.right <= b.right + 0.5 && r.top >= b.top && r.bottom <= b.bottom + 0.5; });
+            const now = document.querySelector('#r-list li.current .list-text');
+            return { inside: inside.length, share: (b.width * b.height) / (v.width * v.height), zone: document.getElementById('r-zone').textContent, label: s.querySelector('.shot-label').textContent,
+                font: parseFloat(getComputedStyle(document.querySelector('#r-list li')).fontSize), cut: now.scrollWidth > now.clientWidth + 1, abort: !document.getElementById('r-abort').classList.contains('display-none') };
+        })()`);
+        expect(shot.inside === 3 && shot.share < 0.25 && /^\d{4}-\d\d-\d\d · UTC[+-]\d\d:\d\d/.test(shot.zone) && shot.label === 'Rutan att fotografera', 'Rutan att fotografera: ' + JSON.stringify(shot));
+        expect(shot.font >= 14 && !shot.cut && shot.abort, 'Listan med stegen: ' + JSON.stringify(shot));
+        // Avbryt laborationen: loggen tas bort, flödet står kvar och går att ändra, och nästa start börjar om från L01.
+        await key(' ');
+        expect(await text('r-code') === 'L02', 'Efter ett tryck: ' + await text('r-code'));
+        await ev(`window.confirm = (t) => { window.__asked = t; return true; }, document.getElementById('r-abort').click(), 1`);
+        const aborted = await ev(`({ asked: window.__asked, plan: !document.getElementById('view-plan').classList.contains('display-none'), locked: !document.getElementById('p-locked').classList.contains('display-none'),
+            steps: document.querySelectorAll('#p-steps .step').length, create: !document.getElementById('p-create').disabled })`);
+        expect(/^Laborationen avbryts och loggen med 1 steg tas bort härifrån\./.test(aborted.asked) && aborted.plan && !aborted.locked && aborted.steps === 16 && aborted.create, 'Efter Avbryt laborationen: ' + JSON.stringify(aborted));
+        await ev(`window.confirm = () => true, document.getElementById('p-start').click(), 1`);
+        expect(await text('r-code') === 'ÖVA' && await ev(`document.getElementById('r-abort').classList.contains('display-none')`), 'Före en ny start: ' + await text('r-code'));
+        await key('Enter');
+        expect(await text('r-code') === 'L01', 'Efter en ny start: ' + await text('r-code'));
         await key(' '); await key(' ');
         await key('h');
         await key(' ');

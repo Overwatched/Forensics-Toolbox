@@ -138,6 +138,22 @@ test('crc32 ger standardvärdet för 123456789', () => {
     assert.strictEqual(zip.crc32(Buffer.from('123456789')), 0xcbf43926);
 });
 
+test('crc32 är samma som räknat en byte i taget, för varje längd och början', () => {
+    // Summan räknas åtta byte i taget. Varje längd upp till 70 och varje början i en buffert prövar resten på slutet.
+    const table = new Int32Array(256).map((_, n) => { let x = n; for (let k = 0; k < 8; k++) x = x & 1 ? 0xedb88320 ^ (x >>> 1) : x >>> 1; return x; });
+    const plain = (bytes) => { let c = 0xffffffff; for (let i = 0; i < bytes.length; i++) c = table[(c ^ bytes[i]) & 0xff] ^ (c >>> 8); return (c ^ 0xffffffff) >>> 0; };
+    const data = new Uint8Array(4096);
+    let seed = 12345;
+    for (let i = 0; i < data.length; i++) { seed = (Math.imul(seed, 1103515245) + 12345) >>> 0; data[i] = seed >>> 16; }
+    for (let length = 0; length <= 70; length++) {
+        for (let start = 0; start < 9; start++) {
+            const part = data.subarray(start, start + length);
+            assert.strictEqual(zip.crc32(part), plain(part), 'längd ' + length + ', början ' + start);
+        }
+    }
+    assert.strictEqual(zip.crc32(data), plain(data));
+});
+
 // Extraktionsdelen får bara läsa. Inga API:er som kan skriva till filer eller nå huvudprocessen.
 test('extraktionskoden använder inga skrivande API:er', () => {
     const forbidden = /createWritable|showOpenFilePicker|showSaveFilePicker|showDirectoryPicker|FileSystemHandle|forensicsMedia|ipcRenderer|require\(|\bfs\.|localStorage|indexedDB/;

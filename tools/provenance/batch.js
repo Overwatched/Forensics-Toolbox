@@ -278,12 +278,14 @@
         return words.every(function (w) { return hay.indexOf(w) >= 0; });
     }
 
-    // Texten vid stapeln medan listan körs: hur många som är klara, och ungefär hur lång tid som är kvar räknat
-    // på filerna hittills. Tiden står först efter tre filer och två sekunder, när det finns något att räkna på.
-    function progressText(done, total, elapsedMs) {
+    // Texten vid stapeln medan listan körs: hur många som är klara, och ungefär hur lång tid som är kvar. Tiden
+    // står först efter tre filer och två sekunder, när det finns något att räkna på.
+    // paceMs: tiden per fil för de senaste filerna. Utan den räknas på alla filer hittills, och då väger den första
+    // filen, som läser in databaserna, för tungt i en lång lista.
+    function progressText(done, total, elapsedMs, paceMs) {
         var text = done + ' av ' + total + ' klara';
         if (done < 3 || done >= total || !(elapsedMs >= 2000)) return text;
-        var left = elapsedMs / done * (total - done) / 1000;
+        var left = (paceMs > 0 ? paceMs : elapsedMs / done) * (total - done) / 1000;
         if (left < 8) return text + ' · några sekunder kvar';
         return text + ' · ungefär ' + (left < 90 ? Math.round(left / 5) * 5 + ' s' : Math.round(left / 60) + ' min') + ' kvar';
     }

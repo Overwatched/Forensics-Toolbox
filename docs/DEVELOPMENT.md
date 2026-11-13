@@ -743,20 +743,64 @@ efter för 104 filer på båda telefonerna.
   för varje fil. Svaret sparas på den öppnade databasen (`loaded.answers`, nyckel: frågans id, tidskolumnerna och
   SQL-texten) och raderna fryses, så att en ändring av en delad rad blir ett fel i stället för ett annat underlag
   för nästa fil. Frågan skrivs ändå i varje fils protokoll (`run.queries`). Frågor med filens eget fönster körs per fil.
-- **ExifTool (`readTags`):** omkring 0,2 s per anrop, och det mesta av tiden för en fil som inte lästs förut. Svaret
-  sparas som text per SHA-256 och filnamn (`state.tags`, högst `MAX_TAG_TEXT` tecken, äldst ut först) och varje
-  läsning får en egen kopia. Utan SHA-256 (ingen `crypto.subtle`) sparas inget.
+- **ExifTool (`readTags`):** svaret sparas som text per SHA-256 och filnamn (`state.tags`, högst `MAX_TAG_TEXT`
+  tecken, äldst ut först) och varje läsning får en egen kopia. Utan SHA-256 (ingen `crypto.subtle`) sparas inget.
 - **Listan (`renderBatchRow`):** en körning ritar bara raden som blev klar och den före, inte hela tabellen per fil
   (det var kvadratiskt: 36 s av 245). Vägen tillbaka från en rad ritar om de rader som öppnats och de med samma fil.
 - **`ProvenanceApp.work()`** räknar körda och återanvända frågor och ExifTool-anrop. Röktestet läser det: samma fil
   en gång till, och ett klick i listan, läser inte ExifTool igen, och underlaget och protokollets frågor är desamma.
-- **Kvar:** en lista med filer som inte lästs förut kostar ExifTool-tiden per fil, en fil i taget. Hela bedömningen
-  per rad sparas inte (omkring 0,45 MB per fil), så ett klick räknar om filen ur det som redan är läst.
-- **Flera ExifTool samtidigt byggs inte.** Listorna är för det mesta 10–200 filer, och fyra arbetare skulle ta en
-  lista på 200 från ungefär 45 s till 20 s mot priset av en fördelare, 10 MB WebAssembly per arbetare och en
-  ordning som måste hållas. Fönstret står inte still under en lista: mätt på samma iPhone (70 filer, 16 s) var det
-  längsta uppehållet i sidans kö 160 ms, och 374 ms när zippens innehållsförteckning lästes. Det som saknades var
-  besked om hur långt listan kommit, och det ger stapeln.
+- **Kvar:** hela bedömningen per rad sparas inte (omkring 0,45 MB per fil), så ett klick räknar om filen ur det
+  som redan är läst.
+
+#### Långa listor i Härkomst (1.65)
+
+En användare hade en lista med omkring 3 000 mediefiler ur en Android-extraktion, och programmet räknade med 60–90
+minuter. Två saker tog tiden, och ingen av dem syntes i mätningen för 1.62, som mest gjordes med namn som inte fanns:
+
+- **Loggarna lästes om för varje fil.** `ProvenanceAndroidLogs.pickDiscrete` väljer alla appops-filer som skrivits
+  efter fönstrets början (upp till 600), och var och en packades upp, summerades och avkodades för varje mediefil.
+  Detsamma gällde usagestats mappningar och dygnsfiler. Nu läses en loggfil en gång per öppnad zip (`logOnce(entry,
+  kind, decode)`, nyckel: sorten och postens plats i zippen), det avkodade fryses (`deepFreeze`) och urvalet ur
+  appops sparas per uppsättning filer (`state.zip.appopsSets`). `work.logs` och `work.logsReused` räknar.
+- **ExifTool blev långsammare för varje fil.** Se "ExifTool i EXIF-visaren": varje fil får nu en ny Perl-instans.
+
+Det som byggdes ovanpå det:
+
+- **Flera ExifTool (`exifPool`).** Upp till `EXIF_WORKERS` workrar (kärnorna minus en, högst fyra) med en kö
+  (`askExifTool`, `exifPump`). En worker startas först när en fil väntar och ingen är ledig. Efter `EXIF_RENEW`
+  (100) filer avslutas workern och en ny tar över, så att minnet efter de gamla Perl-instanserna lämnas tillbaka på
+  en gång (uppmätt: sidans minne nådde 4,2 GB på 1 127 filer utan bytet och 2,8 GB med). När listan är klar
+  behålls en worker (`exifShrink`).
+- **Läsning i förväg (`lookAhead`, `startAhead`).** Filerna bedöms fortfarande en i taget och i listans ordning.
+  I förväg görs bara det som inte beror på något annat än filen: raden slås upp, filen packas upp, summorna räknas
+  och ExifTool läser den, för `aheadRows` rader framåt (två per worker) och högst `AHEAD_BYTES` uppackat som väntar.
+  Det lästa ligger under postens plats i zippen (`state.ahead.reads`) och under SHA-256 och filnamn
+  (`state.tags.early`), och bedömningen hämtar det i `readMedia`, `readPaired` och `readTags`. Stämmer inget av det
+  läser bedömningen själv. Läsningen i förväg är alltså bara ett förråd: databaser och loggar frågas enbart av
+  bedömningen, och ingen ordning mellan workrarna kan ändra ett svar. `assessRows` väntar i sin `finally` på det
+  som ännu läses, också när listan avbryts, så att inget arbete är kvar efteråt.
+- **Tiden som är kvar** (`ProvenanceBatch.progressText(done, total, elapsedMs, paceMs)`) räknas på de senaste
+  högst 25 filernas takt. Den första filen läser in databaserna, och räknad på snittet sedan starten blev
+  uppskattningen flera gånger för lång.
+- **Mindre arbete per fil:** paketnamnet för en app slås upp en gång (`androidPackage`), en post i zippen packas
+  upp en gång per bedömning (`assessEntry`), `Copies` sorterar sökvägarna efter en klassning per sökväg, MD5 i
+  `hashing.js` har sina 64 steg utskrivna (omkring 380 MB/s) och CRC32 i `zip.js` tar åtta byte i taget
+  (`CRC_BY8`, omkring 1 370 MB/s). MD5 prövas mot Nodes egen i `hashing.test.js` och CRC32 mot en räkning med en
+  byte i taget i `zip.test.js`.
+
+Uppmätt på Samsungen ur tvåtelefonslabbet (`Exampleextractions/Android/`, 28,6 GB): 400 namn gick från 89–100 s
+i 1.64 till 16 s, och alla 1 127 namn tar 38 s (129 s utan läsning i förväg). På iPhonen ur samma labb gick 55 filer
+ur kamerarullen från 13,8 s till 3,5 s. Radernas text är densamma som i 1.64 för 400 rader på Samsungen och 55 på
+iPhonen, och `ProvenanceApp.list()` är lika tecken för tecken med och utan läsning i förväg. Av de 38 sekunderna är
+ungefär 17 räknande i fönstrets egen tråd, och det är golvet nu.
+
+- **Provkörningen** når det här genom `ProvenanceApp.list()` (radernas namn, läge och sammanfattning), `exif()`
+  (workrarna och kön), `readAhead(rader)` (0 stänger av läsningen i förväg) och `forgetTags()` (glömmer ExifTools
+  sparade svar). Röktestet 'Härkomst: en lista som läser filerna i förväg ger samma rader som utan …' kör samma
+  lista på båda sätten, jämför raderna och antalet frågor, och ser att workrarna är lediga efter en klar och en
+  avbruten lista.
+- **Inte uppmätt:** 3 000 filer (labbet har 1 127 namn; minnet i fönstret växte med omkring 0,6 MB per fil), en
+  Windows-dator, och användarens egen extraktion.
 
 ### Chattar (`tools/chats/`)
 
@@ -1157,7 +1201,15 @@ efter för 104 filer på båda telefonerna.
 - **Tangenterna** gäller bara i Genomför och inte i ett textfält: mellanslag (gjort), H (hoppa över), A (anteckning),
   T (tryckte för sent), backsteg (ångra), V (avbryt väntan) och Enter (starta). Medan anteckningen är öppen gäller
   de den. Före start är mellanslag ett övningstryck som inte sparas. När laborationen har börjat är Förbered låst;
-  `Ny laboration med samma flöde` under Tabell tar bort körningen och låser upp.
+  `Avbryt laborationen` under Genomför och `Ny laboration med samma flöde` under Tabell tar bort körningen och
+  låser upp (`dropRun`). Flödet står kvar i båda fallen.
+- **Genomför** (1.65): koden, klockan och datumet med zonen står i en ram, `#r-shot` ("Rutan att fotografera"), så
+  att bilden inte behöver visa hela skärmen. Stegens texter säger "rutan med koden och klockan"; ett flöde som
+  sparades före 1.65 behåller sina gamla texter. Listan med stegen till höger (`#r-list`) har 14 px text, är mellan
+  340 och 560 px bred och visar det aktuella stegets hela text. Under 700 px bredd ligger delarna under varandra
+  och vyn rullar. `Avbryt laborationen` (`#r-abort`) finns bara när laborationen har börjat, frågar först och har
+  ingen tangent, så att den inte trycks av misstag. `Rensa allt` (`#p-reset`) överst under Förbered tar bort namnet,
+  enheterna och stegen (`fresh()`), och loggen om det finns en. De egna mallarna ligger kvar.
 - Electron har ingen `window.prompt`, så egna steg och anmärkningar skrivs i formulär i sidan. Utskriften går genom
   en dold ram (`#l-print`, `srcdoc`), så att bara tabellen skrivs ut.
 - Inte prövat: utskriftsdialogen i appen och inklistring i Word. Kopieringen är prövad i Chrome med ett riktigt
@@ -1477,6 +1529,15 @@ workern från `scripts/exiftool/worker-entry.mjs` med esbuild och lägger in
 `parseMetadata` importeras; skrivfunktionen finns inte i bundlen.
 `exif-vendor.test.js` kontrollerar wasm-filens SHA-256 och läser en riktig bild med
 workern. Byt version genom att ändra `PACKAGES` i skriptet och köra det igen.
+
+**En ny Perl-instans för varje fil (1.65).** Biblioteket sparar sin Perl-instans i en `WeakRef` och använder den
+tills skräpsamlaren har tagit den. I en och samma instans blev varje läsning omkring 1 ms långsammare än den förra,
+minnet växte med omkring 9 MB per läsning, och efter ungefär 230 läsningar slutade varje läsning med "memory access
+out of bounds". Bygget byter därför två saker i bibliotekets kod med esbuilds `--define`: `WeakRef` mot
+`self.FT_EXIF.NoRef`, som aldrig har något kvar, och `WebAssembly.instantiate` mot `self.FT_EXIF.instantiate`, som
+gör instansen av modulen som workern kompilerade vid starten. Svaret från workern säger vilken instans i ordningen
+som läste (`instance`), och testet 'varje läsning får en ny Perl-instans och samma svar' faller om en ny version av
+biblioteket håller kvar sin instans på något annat sätt. EXIF & karta och Härkomst använder samma worker.
 
 Detaljrutan visar alla tider i filen (`ExifCore.timeTags()`): som de står i filen, med taggen och samma tid i UTC, eller
 "ingen zon i filen". Filsystemets tider står för sig: ur zippen för en fil från Härkomst, annars för kopian på datorn.

@@ -120,6 +120,8 @@ textarea::placeholder, input::placeholder { color: var(--text-muted); }
 
 /* Förbered: stegen */
 .main { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; gap: 8px; overflow-wrap: anywhere; }
+.side-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.side-head .secondary-btn { padding: 4px 10px; }
 .main-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .summary { margin: 0; flex: 1; min-width: 12em; font-size: 14px; font-weight: 650; }
 .steps { flex: 1 1 40%; min-height: 0; overflow: auto; padding-right: 4px; }
@@ -231,10 +233,16 @@ textarea::placeholder, input::placeholder { color: var(--text-muted); }
 
 /* Genomför */
 .run { display: flex; flex-direction: column; gap: 10px; }
-.run-top {
-    display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 8px 28px; align-items: center;
-    padding: 12px 20px; background: var(--surface); border: 1px solid var(--border); border-radius: 14px;
-}
+.run-main { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; gap: 10px; }
+.run-top { display: flex; flex-wrap: wrap; gap: 10px 24px; align-items: center; }
+/* Rutan som fotograferas: koden och klockan tätt ihop, så att kameran inte behöver få med hela skärmen. */
+.run-shot { flex: none; padding: 10px 22px 12px; background: var(--surface); border: 3px solid var(--text); border-radius: 14px; text-align: center; }
+.shot-label { margin-bottom: 6px; font-size: 12px; font-weight: 650; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-muted); }
+.run-what { flex: 1; min-width: 9em; display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 10px 14px; }
+.run-info { flex: 1 1 12em; min-width: 0; }
+.run-shot .zone { font-size: 15px; color: var(--text); white-space: nowrap; }
+/* Avbryt står för sig, långt från tangenterna som används vid varje steg. */
+.run-abort { flex: none; padding: 5px 10px; }
 .run-code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 96px; font-weight: 800; line-height: 1; letter-spacing: 0.02em; }
 .run[data-mode="wait"] .run-code { color: var(--warn); }
 .run[data-mode="done"] .run-code { color: var(--ok); }
@@ -243,13 +251,12 @@ textarea::placeholder, input::placeholder { color: var(--text-muted); }
 .run-device .chip { font-size: 22px; padding: 3px 16px; border-width: 2px; }
 .run-app { font-size: 22px; font-weight: 650; }
 .run-count { margin-top: 6px; font-size: 13px; color: var(--text-muted); }
-.run-clock { text-align: right; }
-.clock { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 60px; font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums; }
+.clock { margin-top: 8px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 60px; font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums; }
 .zone { margin-top: 4px; font-size: 13px; color: var(--text-muted); font-variant-numeric: tabular-nums; }
 
 .focus-hint { border: 1px solid var(--warn); border-radius: 10px; background: var(--surface); color: var(--warn); font: inherit; font-size: 14px; font-weight: 650; padding: 8px 12px; cursor: pointer; text-align: left; }
 .run-body { flex: 1; min-height: 0; display: flex; gap: 14px; }
-.run-now { flex: 1; min-width: 0; min-height: 0; overflow: auto; overflow-wrap: anywhere; display: flex; flex-direction: column; gap: 10px; padding: 4px 4px 4px 2px; }
+.run-now { flex: 1; min-height: 0; overflow: auto; overflow-wrap: anywhere; display: flex; flex-direction: column; gap: 10px; padding: 4px 4px 4px 2px; }
 .run-do { margin: 0; font-size: 26px; line-height: 1.3; font-weight: 600; }
 .run-press { margin: 0; font-size: 16px; line-height: 1.4; }
 .run-press:empty, .run-next:empty { display: none; }
@@ -270,17 +277,18 @@ kbd {
     border: 1px solid var(--border); border-bottom-width: 2px; border-radius: 6px; padding: 1px 6px; background: var(--bg);
 }
 
-.run-list { position: relative; width: 400px; flex: none; min-height: 0; overflow: auto; scrollbar-gutter: stable; margin: 0; padding: 0; list-style: none; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); }
-.run-list li { display: grid; grid-template-columns: 3.2em auto minmax(0, 1fr) auto; gap: 6px; align-items: center; padding: 5px 16px 5px 8px; font-size: 12px; border-bottom: 1px solid var(--border); }
+.run-list { position: relative; width: clamp(340px, 40%, 560px); flex: none; min-height: 0; overflow: auto; scrollbar-gutter: stable; margin: 0; padding: 0; list-style: none; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); }
+.run-list li { display: grid; grid-template-columns: 3.2em auto minmax(0, 1fr) auto; gap: 6px; align-items: center; padding: 7px 16px 7px 10px; font-size: 14px; line-height: 1.35; border-bottom: 1px solid var(--border); }
 .run-list li:last-child { border-bottom: none; }
 .run-list b { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
-.run-list .chip { font-size: 11px; padding: 0 6px; max-width: 11em; }
+.run-list .chip { font-size: 12px; padding: 0 6px; max-width: 11em; }
 .list-text { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--text-muted); }
 .list-time { font-variant-numeric: tabular-nums; }
 .run-list li.done .list-time { color: var(--ok); }
 .run-list li.skipped { opacity: 0.6; }
 .run-list li.current { background: var(--surface-hover); box-shadow: inset 3px 0 0 var(--accent); }
-.run-list li.current .list-text { color: var(--text); }
+/* Steget som görs nu står med hela sin text. */
+.run-list li.current .list-text { color: var(--text); white-space: normal; }
 
 /* Tabell */
 .table-view { display: flex; flex-direction: column; gap: 10px; }
@@ -312,7 +320,8 @@ kbd {
 @media (max-width: 900px) {
     .run-code { font-size: 64px; }
     .clock { font-size: 40px; }
-    .run-list { width: 260px; }
+    .run-list { width: 300px; }
+    .run-list li { font-size: 13px; }
     .side { width: 270px; }
     .step { grid-template-columns: 4.2em minmax(0, 1fr) auto; }
     .step-who { grid-column: 2; grid-row: 1; flex-direction: row; flex-wrap: wrap; align-items: center; gap: 2px 8px; }
@@ -322,6 +331,11 @@ kbd {
 }
 /* I ett smalt fönster ligger byggstenarna ovanför flödet i stället för bredvid, så att stegen får hela bredden. */
 @media (max-width: 700px) {
+    /* Rutan att fotografera behåller sin bredd, så listan med stegen ligger under i stället för bredvid, och
+       det som inte får plats nås genom att rulla. Steget som ska göras står direkt under rutan. */
+    .run-body { flex-direction: column; overflow: auto; }
+    .run-main, .run-now { flex: none; overflow: visible; }
+    .run-list { width: auto; max-height: 260px; }
     #view-plan { flex-direction: column; }
     #view-plan .side { width: auto; flex: 0 1 auto; max-height: 42%; }
 }

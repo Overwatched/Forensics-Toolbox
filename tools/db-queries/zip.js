@@ -373,8 +373,29 @@
         return t;
     })();
 
+    // Åtta tabeller i rad, så att åtta byte tas i varje steg (slicing-by-8): CRC_BY8[256 * k + n] är summan av
+    // byten n följd av k nollbyte. Samma summa som med en byte i taget, flera gånger fortare.
+    var CRC_BY8 = (function () {
+        var t = new Uint32Array(8 * 256);
+        t.set(CRC_TABLE);
+        for (var k = 1; k < 8; k++) {
+            for (var n = 0; n < 256; n++) {
+                var prev = t[256 * (k - 1) + n];
+                t[256 * k + n] = (prev >>> 8) ^ CRC_TABLE[prev & 0xff];
+            }
+        }
+        return t;
+    })();
+
     function crcUpdate(c, part) {
-        for (var i = 0, n = part.length; i < n; i++) c = CRC_TABLE[(c ^ part[i]) & 0xff] ^ (c >>> 8);
+        var t = CRC_BY8;
+        var i = 0, n = part.length;
+        for (var last = n - 8; i <= last; i += 8) {
+            c ^= part[i] | (part[i + 1] << 8) | (part[i + 2] << 16) | (part[i + 3] << 24);
+            c = t[1792 + (c & 0xff)] ^ t[1536 + ((c >>> 8) & 0xff)] ^ t[1280 + ((c >>> 16) & 0xff)] ^ t[1024 + (c >>> 24)] ^
+                t[768 + part[i + 4]] ^ t[512 + part[i + 5]] ^ t[256 + part[i + 6]] ^ t[part[i + 7]];
+        }
+        for (; i < n; i++) c = t[(c ^ part[i]) & 0xff] ^ (c >>> 8);
         return c;
     }
 

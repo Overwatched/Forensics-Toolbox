@@ -88,11 +88,13 @@
             return e.size === file.size && e.crc32 === file.crc32 && e.name !== file.name && e.name.charAt(e.name.length - 1) !== '/';
         });
         var rank = { library: 0, snapchat: 1, messages: 2, picker: 3, downloads: 4, app: 5, appgroup: 6, plugin: 7, tmp: 8, other: 9 };
-        out.sort(function (a, b) {
-            var ra = rank[classifyPath(a.name, opts).area], rb = rank[classifyPath(b.name, opts).area];
-            return ra - rb || a.name.length - b.name.length || (a.name < b.name ? -1 : a.name > b.name ? 1 : 0);
+        // Varje sökväg klassas en gång, inte i varje jämförelse under sorteringen.
+        var ranked = out.map(function (e) { return { entry: e, rank: rank[classifyPath(e.name, opts).area] }; });
+        ranked.sort(function (x, y) {
+            var a = x.entry, b = y.entry;
+            return x.rank - y.rank || a.name.length - b.name.length || (a.name < b.name ? -1 : a.name > b.name ? 1 : 0);
         });
-        return out;
+        return ranked.map(function (x) { return x.entry; });
     }
 
     // Poster vars filnamn är det sökta, skiftlägesokänsligt. Kortast sökväg först.

@@ -195,6 +195,14 @@ test('förloppet: antalet klara, och tiden som är kvar först när det finns n�
     assert.strictEqual(B.progressText(5, 10), '5 av 10 klara', 'utan tid');
 });
 
+test('förloppet: tiden som är kvar räknas på de senaste filernas takt när den är känd', () => {
+    // Den första filen läser in databaserna. Räknat på alla tre filerna vore det över tre timmar kvar.
+    assert.strictEqual(B.progressText(3, 3000, 12000), '3 av 3000 klara · ungefär 200 min kvar');
+    assert.strictEqual(B.progressText(3, 3000, 12000, 50), '3 av 3000 klara · ungefär 2 min kvar');
+    assert.strictEqual(B.progressText(2900, 3000, 400000, 50), '2900 av 3000 klara · några sekunder kvar');
+    assert.strictEqual(B.progressText(100, 200, 60000, 0), '100 av 200 klara · ungefär 60 s kvar', 'utan takt räknas på alla filer');
+});
+
 test('en rad per träff: valet läggs på en kopia av posten, med träffens nummer', () => {
     const item = { kind: 'name', name: 'IMG_3.JPG' };
     assert.deepStrictEqual(B.hitItems(item, [{ pk: 4 }, { pk: 9 }]), [

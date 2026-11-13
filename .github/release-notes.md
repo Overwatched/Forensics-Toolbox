@@ -1,5 +1,21 @@
 Automatiskt byggd från commit `{{SHA}}`.
 
+## Nytt i 1.65
+
+**Härkomst går mycket fortare med långa listor, och Laboration har en ruta att fotografera, större steg och en knapp för att avbryta.**
+
+- **Långa listor i Härkomst:** en lista med tusentals mediefiler ur en Android-extraktion kunde ta över en timme. Uppmätt på en Samsung-extraktion på 28,6 GB tog 400 filer förut omkring 90 sekunder och tar nu 16, och 1 127 filer tar 38 sekunder.
+- **Loggarna läses en gång:** förut lästes telefonens loggar över appanvändning och behörigheter om för varje fil i listan. Nu läses varje loggfil en gång per öppnad extraktion.
+- **Flera filer läses samtidigt:** upp till fyra ExifTool arbetar på en gång och läser de närmaste filerna i listan i förväg. Bedömningen görs fortfarande en fil i taget och i listans ordning, så underlaget är detsamma som förut.
+- **ExifTool tröttnar inte:** förut blev varje läsning lite långsammare än den förra, och efter ungefär 230 filer i rad kunde läsningarna sluta med fel. Nu börjar varje fil från början. Det gäller också EXIF & karta.
+- **Tiden som är kvar** räknas på de senaste filernas takt. Förut blev uppskattningen flera gånger för lång i början av en lista.
+- **Laboration, rutan att fotografera:** koden, klockan och datumet med tidszonen står i en ram. Bilden behöver bara visa ramen, inte hela skärmen, och stegens texter säger det. Ett flöde som sparades tidigare behåller sina gamla texter.
+- **Laboration, större steg:** listan med stegen till höger under Genomför har större text, är bredare och visar hela texten för steget som är på tur.
+- **Avbryt laborationen:** en knapp under Genomför tar bort loggen efter en fråga och låter flödet stå kvar, så att det kan ändras och köras igen.
+- **Rensa allt:** en knapp överst under Förbered tar bort namnet, enheterna och stegen. De egna mallarna ligger kvar.
+- **Provat:** enhetstesterna, röktestet i appen och html-versionen i Chrome på macOS. Listorna är mätta på en Samsung och en iPhone ur en egen laboration, och raderna är jämförda med 1.64: 400 rader på Samsungen och 55 på iPhonen har samma text.
+- **Inte provat:** en lista med 3 000 filer (den längsta som mätts har 1 127), och hur mycket minne en så lång lista tar. Windows och Linux provas först i bygget.
+
 ## Nytt i 1.64
 
 **Samsungs loggar utan tidszon visas som antagande, och en tom sida i stora Signal-databaser räknas inte längre som skadad.**

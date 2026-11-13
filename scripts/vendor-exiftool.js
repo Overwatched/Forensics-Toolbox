@@ -50,9 +50,13 @@ function main() {
     execFileSync(path.join(work, 'node_modules', '.bin', 'esbuild'), [
         'entry.mjs', '--bundle', '--format=iife', '--platform=browser', '--target=chrome110',
         '--minify', '--legal-comments=none', '--external:node:*', '--outfile=' + bundle,
+        // En ny Perl-instans för varje fil: se worker-entry.mjs.
+        '--define:WeakRef=self.FT_EXIF.NoRef', '--define:WebAssembly.instantiate=self.FT_EXIF.instantiate',
     ], { cwd: work, stdio: 'inherit' });
 
     const workerSrc = fs.readFileSync(bundle, 'utf8');
+    if (/\bWeakRef\b|WebAssembly\.instantiate\b/.test(workerSrc)) throw new Error('biblioteket håller fortfarande kvar sin Perl-instans');
+    if ((workerSrc.match(/self\.FT_EXIF\.NoRef\(/g) || []).length !== 3 || (workerSrc.match(/self\.FT_EXIF\.instantiate\(/g) || []).length !== 1) throw new Error('biblioteket skapar inte sin instans som väntat');
     if (/https?:\/\/[^\s"'`]*\.wasm/.test(workerSrc)) throw new Error('workern refererar en extern wasm-URL');
 
     const wasmPath = path.join(work, 'node_modules', '@6over3', 'zeroperl-ts', 'dist', 'esm', 'zeroperl.wasm');

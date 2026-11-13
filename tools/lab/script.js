@@ -977,6 +977,14 @@
         $('r-note-text').focus();
     }
 
+    // Loggen tas bort och flödet står kvar, olåst.
+    function dropRun() {
+        state.run = null;
+        state.remark = '';
+        state.toast = '';
+        save();
+    }
+
     function closeNote(saveIt) {
         if (saveIt && state.note && state.run) {
             var ok = Lab.addNote(state.flow, state.run, state.note, $('r-note-text').value, $('r-note-device').value);
@@ -1046,6 +1054,7 @@
         var showKey = { klar: mode === 'practice' || mode === 'step', hoppad: mode === 'step', note: !!run, approx: !!prev, undo: !!prev, cut: mode === 'wait', start: mode === 'practice' };
         Array.prototype.forEach.call(document.querySelectorAll('#view-run .key[data-act]'), function (b) { b.classList.toggle('display-none', !showKey[b.getAttribute('data-act')]); });
         $('r-end').classList.toggle('display-none', !run);
+        $('r-abort').classList.toggle('display-none', !run);
         $('r-store').classList.toggle('display-none', state.stored);
         status('r-toast', state.toast);
 
@@ -1222,7 +1231,7 @@
         $('p-file').addEventListener('change', function () { var file = this.files[0]; this.value = ''; openFile(file); });
         $('p-save').addEventListener('click', function () { status('p-status', 'Flödet sparades utan logg: ' + saveFile(false)); });
         $('p-reset').addEventListener('click', function () {
-            if ((state.run || state.flow.steps.length) && !confirm(state.run ? 'Flödet och loggen tas bort härifrån. Spara loggen som fil först. Fortsätta?' : 'Stegen tas bort. Dina egna mallar ligger kvar. Fortsätta?')) return;
+            if ((state.run || state.flow.steps.length) && !confirm(state.run ? 'Flödet och loggen tas bort härifrån. Spara loggen som fil först. Fortsätta?' : 'Namnet, enheterna och stegen tas bort. Dina egna mallar ligger kvar. Fortsätta?')) return;
             fresh();
             state.edit = state.groupEdit = state.mark = state.quick = null;
             state.history = [];
@@ -1237,6 +1246,13 @@
             b.addEventListener('click', function () { act(b.getAttribute('data-act')); });
         });
         $('r-end').addEventListener('click', function () { show('table'); });
+        $('r-abort').addEventListener('click', function () {
+            var n = state.run ? state.run.entries.length : 0;
+            if (!confirm('Laborationen avbryts och loggen' + (n ? ' med ' + n + ' steg' : '') + ' tas bort härifrån. Flödet står kvar och kan ändras och köras igen. Fortsätta?')) return;
+            closeNote(false);
+            dropRun();
+            show('plan');
+        });
         $('r-focus').addEventListener('click', function () { dropFocus(); paintClock(Lab.clockNow()); });
         $('r-note').addEventListener('submit', function (e) { e.preventDefault(); closeNote(true); });
         $('r-note-cancel').addEventListener('click', function () { closeNote(false); });
@@ -1257,10 +1273,7 @@
         $('t-save').addEventListener('click', function () { status('t-status', 'Sparade ' + saveFile(true)); });
         $('t-again').addEventListener('click', function () {
             if (!confirm('Loggen tas bort härifrån och flödet kan köras igen. Spara loggen som fil först. Fortsätta?')) return;
-            state.run = null;
-            state.remark = '';
-            state.toast = '';
-            save();
+            dropRun();
             status('t-status', '');
             show('plan');
         });

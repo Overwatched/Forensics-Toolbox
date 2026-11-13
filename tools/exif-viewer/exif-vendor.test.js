@@ -45,24 +45,26 @@ test('workern innehåller bara läsning', () => {
     assert.ok(fs.existsSync(path.join(VENDOR, 'LICENSES.txt')));
 });
 
+// Workern körs här i testets egen tråd: det den skickar samlas i messages.
+const messages = [];
+const waiters = [];
+const self = globalThis;
+const next = (type) => new Promise((resolve) => {
+    (function check() {
+        const i = messages.findIndex((m) => m.type === type || m.type === 'init-error');
+        if (i >= 0) return resolve(messages.splice(i, 1)[0]);
+        waiters.push(check);
+    })();
+});
+
 test('workern läser EXIF ur en riktig bild utan att ändra den', { timeout: 60000 }, async () => {
     if (!globalThis.File) globalThis.File = require('node:buffer').File;
-    const messages = [];
-    const waiters = [];
-    const self = globalThis;
     self.self = self;
     self.postMessage = (msg) => {
         messages.push(msg);
         while (waiters.length) waiters.shift()();
     };
     new Function(workerSource)();
-    const next = (type) => new Promise((resolve) => {
-        (function check() {
-            const i = messages.findIndex((m) => m.type === type || m.type === 'init-error');
-            if (i >= 0) return resolve(messages.splice(i, 1)[0]);
-            waiters.push(check);
-        })();
-    });
 
     self.onmessage({ data: { type: 'init', wasmGz } });
     const ready = await next('ready');
@@ -93,4 +95,26 @@ test('workern läser EXIF ur en riktig bild utan att ändra den', { timeout: 600
     assert.strictEqual(s.device.text, 'Apple iPhone 15 Pro');
     assert.ok(Math.abs(s.position.lat - 59.3293) < 0.001);
     assert.ok(Math.abs(s.position.lon - 18.0686) < 0.001);
+});
+
+// I samma Perl-instans blir varje läsning långsammare än den förra, och efter ungefär 230 läsningar tar
+// instansens minne slut. Workern gör därför en ny instans för varje fil (scripts/exiftool/worker-entry.mjs).
+test('varje läsning får en ny Perl-instans och samma svar', { timeout: 60000 }, async () => {
+    assert.ok(!/\bWeakRef\b/.test(workerSource), 'biblioteket håller kvar sin instans i en WeakRef');
+    assert.ok(!/WebAssembly\.instantiate\b/.test(workerSource), 'biblioteket gör sin instans av binären i stället för av den kompilerade modulen');
+    const bytes = fs.readFileSync(path.join(__dirname, 'fixtures', 'exif-sample.jpg'));
+    let first = null;
+    let instance = null;
+    for (let i = 0; i < 12; i++) {
+        self.onmessage({ data: { type: 'parse', id: 100 + i, file: new File([bytes], 'exif-sample.jpg', { lastModified: 1717245296000 }) } });
+        const result = await next('result');
+        assert.ok(result.ok, result.error);
+        if (instance !== null) assert.strictEqual(result.instance, instance + 1, 'läsning ' + (i + 1) + ' fick inte en egen instans');
+        instance = result.instance;
+        // Tiderna för åtkomst och ändrad inod följer klockan när filen läses.
+        delete result.tags['System:FileAccessDate'];
+        delete result.tags['System:FileInodeChangeDate'];
+        if (first === null) first = result.tags;
+        else assert.deepStrictEqual(result.tags, first);
+    }
 });

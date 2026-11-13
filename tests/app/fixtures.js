@@ -275,6 +275,14 @@ function bplistDict(obj) {
 }
 
 // En -wal med giltigt magiskt tal och sidstorlek men fel checksumma i huvudet: SQLite hoppar över den.
+// Byte utan mönster, men samma varje gång. Slumpade byte tolkar ExifTool ungefär en gång av hundra som en
+// MP3-fil, och då faller testet som väntar sig en fil som inte går att tolka.
+function noise(length) {
+    const parts = [];
+    for (let i = 0; i * 32 < length; i++) parts.push(crypto.createHash('sha256').update('brus ' + i).digest());
+    return Buffer.concat(parts).subarray(0, length);
+}
+
 function brokenWal() {
     const b = Buffer.alloc(32 + 24 + 4096);
     b.writeUInt32BE(0x377f0682, 0);
@@ -465,7 +473,7 @@ async function build() {
         { name: P + 'Containers/Shared/' + GROUP_SIGNAL + 'grdb/signal.sqlite', data: signalDb(SQL, sha(signalSaved)), deflate: true },
         { name: P + 'Containers/Shared/' + GROUP_SIGNAL + 'grdb/signal.sqlite-wal', data: '' },
         // Bilagans krypterade fil. Inte en fil ExifTool känner igen.
-        { name: P + 'Containers/Shared/' + GROUP_SIGNAL + 'attachment_files/AB/ABCDEF', data: crypto.randomBytes(4096), mtime: T2 },
+        { name: P + 'Containers/Shared/' + GROUP_SIGNAL + 'attachment_files/AB/ABCDEF', data: noise(4096), mtime: T2 },
         { name: P + 'Containers/Shared/' + GROUP_WA + 'ChatStorage.sqlite', data: Buffer.from(whatsappDb(SQL, sha(waReceived))), deflate: true },
         { name: P + 'Containers/Shared/' + GROUP_WA + 'ChatStorage.sqlite-wal', data: '' },
         { name: P + 'Containers/Shared/' + GROUP_WA + 'Message/Media/1@lid/c/d/mottagen.jpg', data: waReceived, mtime: T2 + 71 },

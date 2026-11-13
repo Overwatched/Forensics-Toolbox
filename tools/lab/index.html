@@ -23,9 +23,12 @@
 
         <section id="view-plan" class="view workspace">
             <aside class="side">
-                <p id="p-locked" class="notice display-none">Laborationen har börjat, så stegen går inte att ändra. Tabellen har en knapp för att börja om med samma flöde.</p>
+                <p id="p-locked" class="notice display-none">Laborationen har börjat, så stegen går inte att ändra. Under 2 Genomför finns Avbryt laborationen, och tabellen har en knapp för att börja om med samma flöde.</p>
                 <section class="side-block">
-                    <h2>Laborationen</h2>
+                    <div class="side-head">
+                        <h2>Laborationen</h2>
+                        <button type="button" id="p-reset" class="secondary-btn" title="Namnet, enheterna och stegen tas bort, och du börjar på ett nytt, tomt flöde. Dina egna mallar ligger kvar.">Rensa allt</button>
+                    </div>
                     <label class="field" for="p-name">Namn</label>
                     <input type="text" id="p-name" maxlength="80" autocomplete="off">
                     <label class="field" for="p-prefix">Kodbokstav, först i varje stegs kod</label>
@@ -58,7 +61,6 @@
                     <button type="button" id="p-open" class="secondary-btn">Öppna flöde, logg eller mallar…</button>
                     <button type="button" id="p-save" class="secondary-btn">Spara flödet som fil</button>
                     <button type="button" id="p-save-templates" class="secondary-btn">Spara mina mallar som fil</button>
-                    <button type="button" id="p-reset" class="secondary-btn">Börja på ett nytt, tomt flöde</button>
                     <input type="file" id="p-file" accept=".json,application/json" hidden>
                     <p id="p-status" class="status" role="status"></p>
                 </section>
@@ -106,20 +108,25 @@
         </section>
 
         <section id="view-run" class="view run display-none">
-            <div class="run-top">
-                <div id="r-code" class="run-code"></div>
-                <div class="run-what">
-                    <div id="r-device" class="run-device"></div>
-                    <div id="r-count" class="run-count"></div>
-                </div>
-                <div class="run-clock">
-                    <div id="r-clock" class="clock"></div>
-                    <div id="r-zone" class="zone"></div>
-                    <div id="r-since" class="zone"></div>
-                </div>
-            </div>
             <button type="button" id="r-focus" class="focus-hint display-none">Tangenterna gäller inte just nu. Klicka här först.</button>
             <div class="run-body">
+                <div class="run-main">
+                <div class="run-top">
+                    <div id="r-shot" class="run-shot">
+                        <div class="shot-label">Rutan att fotografera</div>
+                        <div id="r-code" class="run-code"></div>
+                        <div id="r-clock" class="clock"></div>
+                        <div id="r-zone" class="zone"></div>
+                    </div>
+                    <div class="run-what">
+                        <div class="run-info">
+                            <div id="r-device" class="run-device"></div>
+                            <div id="r-count" class="run-count"></div>
+                            <div id="r-since" class="run-count"></div>
+                        </div>
+                        <button type="button" id="r-abort" class="secondary-btn run-abort display-none" title="Loggen tas bort och flödet står kvar, så att det kan ändras och köras igen">Avbryt laborationen</button>
+                    </div>
+                </div>
                 <div class="run-now">
                     <p id="r-do" class="run-do"></p>
                     <p id="r-press" class="run-press"></p>
@@ -146,6 +153,7 @@
                         <button type="button" id="r-start" class="key key-main" data-act="start"><kbd>Enter</kbd> Starta laborationen</button>
                         <button type="button" id="r-end" class="key key-end">Avsluta och visa tabellen</button>
                     </div>
+                </div>
                 </div>
                 <ol id="r-list" class="run-list"></ol>
             </div>

@@ -22,8 +22,9 @@
         sources: null, databases: null, targets: null, toolVersion: '',
         zip: null,           // { file, read, found, version, platform, zipLine, snapEntries }
         loaded: {},          // zip-postens namn -> laddad databas (bytes, stats, hashes, sqlDb …)
-        exif: null,          // ExifTool-motorn
-        tags: { map: new Map(), size: 0 },   // ExifTools svar per fil (readTags)
+        exif: null,          // ExifTools workrar och kön till dem (exifPool)
+        tags: { map: new Map(), size: 0, early: new Map() },   // ExifTools svar per fil (readTags)
+        ahead: null,         // filer som läses i förväg medan en lista bedöms (assessRows)
         model: null, meta: null, pngs: [],
         ownFor: null,        // filen (zip + rad eller sökväg) som undersökarens ruta och bockar gäller
         checked: {},         // faktor-id -> när undersökaren bockade i Kontrollerad (ms)
@@ -284,7 +285,8 @@
         if (state.zip) toHub({ type: 'current-file', name: null });
         Object.keys(state.loaded).forEach(function (k) { if (state.loaded[k].sqlDb) state.loaded[k].sqlDb.close(); });
         state.loaded = {};
-        state.tags = { map: new Map(), size: 0 };
+        state.tags = { map: new Map(), size: 0, early: new Map() };
+        state.ahead = null;
         state.zip = null;
         // De andra verktygen ska inte fråga här efter databaser som är stängda.
         if (window.DbShare && window.DbShare.client) window.DbShare.client.gone();
@@ -550,7 +552,7 @@
     }
 
     // Hur mycket som gjorts och hur mycket som återanvänts, för provkörningarna (ProvenanceApp.work).
-    var work = { asked: 0, reused: 0, exif: 0, exifReused: 0 };
+    var work = { asked: 0, reused: 0, exif: 0, exifReused: 0, logs: 0, logsReused: 0 };
 
     // Hela tiden: en fråga med det fönstret gäller hela loggen, inte den enskilda filen.
     var ALL_TIME = Object.freeze({ startMs: 0, endMs: 4102444800000 });
@@ -640,59 +642,168 @@
         });
     }
 
-    async function exifEngine() {
-        if (state.exif) return state.exif;
-        if (window.toolboxWasmProblem()) throw new Error(window.toolboxWasmProblem());
-        if (!window.EXIFTOOL_WORKER_SOURCE) await loadScript('../exif-viewer/vendor/exiftool/exiftool-worker.js');
-        if (!window.EXIFTOOL_WASM_GZ) await loadScript('../exif-viewer/vendor/exiftool/zeroperl-wasm.js');
-        var url = URL.createObjectURL(new Blob([window.EXIFTOOL_WORKER_SOURCE], { type: 'text/javascript' }));
-        var worker = new Worker(url);
-        var engine = { worker: worker, pending: {}, next: 1 };
-        await new Promise(function (resolve, reject) {
-            worker.onmessage = function (event) {
-                var msg = event.data || {};
-                if (msg.type === 'ready') { URL.revokeObjectURL(url); engine.blobsBlocked = !!msg.blobsBlocked; resolve(); }
-                else if (msg.type === 'init-error') reject(new Error('ExifTool kunde inte starta: ' + msg.error));
-                else if (msg.type === 'result' && engine.pending[msg.id]) {
-                    var p = engine.pending[msg.id];
-                    delete engine.pending[msg.id];
-                    if (msg.ok) p.resolve(msg.tags || {}); else p.reject(new Error(msg.error || 'ExifTool misslyckades'));
+    // ExifTool körs i workrar, en fil i taget per worker. En ensam fil använder en worker. En lista läser de
+    // närmaste filerna i förväg (assessRows), och då startas fler, upp till EXIF_WORKERS. Varje jobb har ett eget
+    // nummer och ligger antingen i kön eller hos precis en worker, så ett svar kan inte hamna hos en annan fil.
+    var EXIF_WORKERS = Math.max(1, Math.min(4, ((typeof navigator !== 'undefined' && navigator.hardwareConcurrency) || 2) - 1));
+    // Varje fil får en ny Perl-instans i workern (scripts/exiftool/worker-entry.mjs), och de gamla instansernas minne
+    // städas bort först när webbläsaren finner tid. Efter så här många filer byts workern mot en ny, och då lämnas
+    // allt dess minne tillbaka på en gång.
+    var EXIF_RENEW = 100;
+
+    function exifPool() {
+        if (!state.exif) state.exif = { engines: [], starting: 0, queue: [], limit: EXIF_WORKERS, scripts: null, next: 1, started: 0, list: false };
+        return state.exif;
+    }
+
+    // De två skriptfilerna med ExifTool laddas en gång. Går det inte försöker nästa fil igen.
+    function exifScripts(pool) {
+        if (!pool.scripts) {
+            pool.scripts = (async function () {
+                if (window.toolboxWasmProblem()) throw new Error(window.toolboxWasmProblem());
+                if (!window.EXIFTOOL_WORKER_SOURCE) await loadScript('../exif-viewer/vendor/exiftool/exiftool-worker.js');
+                if (!window.EXIFTOOL_WASM_GZ) await loadScript('../exif-viewer/vendor/exiftool/zeroperl-wasm.js');
+            })();
+            pool.scripts.catch(function () { pool.scripts = null; });
+        }
+        return pool.scripts;
+    }
+
+    function startEngine(pool) {
+        var url, worker;
+        try {
+            url = URL.createObjectURL(new Blob([window.EXIFTOOL_WORKER_SOURCE], { type: 'text/javascript' }));
+            worker = new Worker(url);
+        } catch (err) {
+            if (pool.engines.length + pool.starting) pool.limit = pool.engines.length + pool.starting;
+            else pool.queue.splice(0).forEach(function (job) { job.reject(err); });
+            return;
+        }
+        pool.starting++;
+        pool.started++;
+        var engine = { worker: worker, job: null, ready: false, blobsBlocked: false, done: 0 };
+        var gaveUp = false;
+        // Workern kom aldrig igång. Finns det andra går arbetet vidare med dem; annars får de väntande filerna felet.
+        var failed = function (err) {
+            if (gaveUp) return;
+            gaveUp = true;
+            pool.starting--;
+            URL.revokeObjectURL(url);
+            worker.terminate();
+            if (pool.engines.length + pool.starting) pool.limit = pool.engines.length + pool.starting;
+            else pool.queue.splice(0).forEach(function (job) { job.reject(err); });
+            exifPump(pool);
+        };
+        worker.onmessage = function (event) {
+            var msg = event.data || {};
+            if (msg.type === 'ready' && !engine.ready && !gaveUp) {
+                URL.revokeObjectURL(url);
+                engine.ready = true;
+                engine.blobsBlocked = !!msg.blobsBlocked;
+                pool.starting--;
+                // Listan som workern startades för kan ha hunnit bli klar. Då behövs den inte.
+                if (!pool.list && !pool.queue.length && pool.engines.length) { worker.terminate(); return; }
+                pool.engines.push(engine);
+                exifPump(pool);
+            } else if (msg.type === 'init-error') failed(new Error('ExifTool kunde inte starta: ' + msg.error));
+            else if (msg.type === 'result' && engine.job && engine.job.id === msg.id) {
+                var job = engine.job;
+                engine.job = null;
+                if (msg.ok) job.resolve(msg.tags || {}); else job.reject(new Error(msg.error || 'ExifTool misslyckades'));
+                if (++engine.done >= EXIF_RENEW) {
+                    pool.engines = pool.engines.filter(function (e) { return e !== engine; });
+                    worker.terminate();
                 }
-            };
-            worker.onerror = function (event) {
-                event.preventDefault();
-                Object.keys(engine.pending).forEach(function (id) { engine.pending[id].reject(new Error('ExifTool avbröts: ' + (event.message || 'okänt fel'))); });
-                engine.pending = {};
-                state.exif = null;
-            };
-            worker.postMessage({ type: 'init', wasmGz: window.EXIFTOOL_WASM_GZ });
+                exifPump(pool);
+            }
+        };
+        worker.onerror = function (event) {
+            event.preventDefault();
+            var err = new Error('ExifTool avbröts: ' + (event.message || 'okänt fel'));
+            if (!engine.ready) { failed(err); return; }
+            // Bara filen som den här workern höll på med får felet. Workern stängs, och nästa fil startar en ny.
+            var job = engine.job;
+            engine.job = null;
+            pool.engines = pool.engines.filter(function (e) { return e !== engine; });
+            worker.terminate();
+            if (job) job.reject(err);
+            exifPump(pool);
+        };
+        worker.postMessage({ type: 'init', wasmGz: window.EXIFTOOL_WASM_GZ });
+    }
+
+    // Ger väntande filer till lediga workrar, i den ordning filerna kom, och startar en worker till när kön är
+    // längre än de som finns.
+    function exifPump(pool) {
+        pool.engines.forEach(function (engine) {
+            if (engine.job || !pool.queue.length) return;
+            var job = pool.queue.shift();
+            engine.job = job;
+            try {
+                // WebKit kan inte läsa en File i workern under file://. Då skickas bytena som de är.
+                engine.worker.postMessage({ type: 'parse', id: job.id, file: engine.blobsBlocked ? { name: job.name, data: job.bytes } : new File([job.bytes], job.name), unknown: false });
+            } catch (err) {
+                engine.job = null;
+                job.reject(err);
+            }
         });
-        state.exif = engine;
-        return engine;
+        while (pool.queue.length && pool.engines.length + pool.starting < Math.min(pool.limit, pool.engines.length + pool.queue.length)) startEngine(pool);
+    }
+
+    // När en lista är klar stängs de workrar som startades för den. En står kvar för nästa fil.
+    function exifShrink() {
+        var pool = state.exif;
+        if (!pool) return;
+        pool.list = false;
+        var keep = [];
+        pool.engines.forEach(function (engine) {
+            if (engine.job || !keep.length) keep.push(engine); else engine.worker.terminate();
+        });
+        pool.engines = keep;
     }
 
     // ExifTools svar för en fil läses en gång: det sparas som text under filens SHA-256 och namn, och samma innehåll
     // med samma namn får sedan svaret därifrån (ett klick på en rad i listan, samma fil en gång till). Varje
     // anrop får en egen kopia. Minnet töms när extraktionen stängs, och de äldsta svaren går först när det är fullt.
+    //
+    // ahead: en lista frågar i förväg om en fil som snart ska bedömas. Frågan ställs då utan att någon väntar på
+    // svaret, och bedömningen av filen tar sedan emot samma svar (store.early) i stället för att fråga en gång till.
     var MAX_TAG_TEXT = 96 * 1024 * 1024;   // tecken i de sparade svaren sammanlagt
-    async function readTags(bytes, name, sha256) {
-        var sha = sha256 || await ExtractionCore.sha256(bytes);
+    async function readTags(bytes, name, sha256, ahead) {
+        // Svaren hör till extraktionen som var öppen när frågan ställdes.
+        var store = state.tags;
+        var sha = sha256 || (ahead ? '' : await ExtractionCore.sha256(bytes));
         // Utan summa (webbläsaren räknar ingen SHA-256 här) går filen inte att känna igen, och då sparas inget.
-        if (!sha) return askExifTool(bytes, name);
+        if (!sha) return ahead ? undefined : askExifTool(bytes, name);
         var key = sha + '\n' + name;
-        var had = state.tags.map.get(key);
-        if (had !== undefined) { work.exifReused++; return JSON.parse(had); }
-        var tags = await askExifTool(bytes, name);
+        if (ahead) {
+            if (!store.early.has(key) && store.map.get(key) === undefined) {
+                var asked = askExifTool(bytes, name);
+                asked.catch(function () {});   // felet tas emot av bedömningen av filen
+                store.early.set(key, asked);
+            }
+            return undefined;
+        }
+        var early = store.early.get(key);
+        var tags;
+        if (early) {
+            store.early.delete(key);
+            tags = await early;
+        } else {
+            var had = store.map.get(key);
+            if (had !== undefined) { work.exifReused++; return JSON.parse(had); }
+            tags = await askExifTool(bytes, name);
+        }
         var text = JSON.stringify(tags);
         // Bara ett svar som blir detsamma efter att ha sparats som text sparas.
-        if (text && text.length <= MAX_TAG_TEXT && sameJson(tags, JSON.parse(text))) {
-            state.tags.map.set(key, text);
-            state.tags.size += text.length;
-            var oldest = state.tags.map.keys();
-            while (state.tags.size > MAX_TAG_TEXT) {
+        if (text && text.length <= MAX_TAG_TEXT && store.map.get(key) === undefined && sameJson(tags, JSON.parse(text))) {
+            store.map.set(key, text);
+            store.size += text.length;
+            var oldest = store.map.keys();
+            while (store.size > MAX_TAG_TEXT) {
                 var k = oldest.next().value;
-                state.tags.size -= state.tags.map.get(k).length;
-                state.tags.map.delete(k);
+                store.size -= store.map.get(k).length;
+                store.map.delete(k);
             }
         }
         return tags;
@@ -707,12 +818,11 @@
 
     async function askExifTool(bytes, name) {
         work.exif++;
-        var engine = await exifEngine();
-        var id = engine.next++;
+        var pool = exifPool();
+        await exifScripts(pool);
         return new Promise(function (resolve, reject) {
-            engine.pending[id] = { resolve: resolve, reject: reject };
-            // WebKit kan inte läsa en File i workern under file://. Då skickas bytena som de är.
-            engine.worker.postMessage({ type: 'parse', id: id, file: engine.blobsBlocked ? { name: name, data: bytes } : new File([bytes], name), unknown: false });
+            pool.queue.push({ id: pool.next++, bytes: bytes, name: name, resolve: resolve, reject: reject });
+            exifPump(pool);
         });
     }
 
@@ -747,6 +857,14 @@
     async function findMedia(file, platform) {
         var suffix = mediaSuffix(file, platform);
         if (!suffix) return { entry: null, reason: 'sökvägen i databasen går inte att tolka', paired: null };
+        // Under en lista slås en sökväg upp en gång: först när filen läses i förväg, sedan när den bedöms.
+        var a = state.ahead;
+        if (!a) return findMediaNow(suffix);
+        if (!a.media.has(suffix)) a.media.set(suffix, findMediaNow(suffix));
+        return a.media.get(suffix);
+    }
+
+    async function findMediaNow(suffix) {
         var stem = suffix.replace(/\.[^.]+$/, '');
         var lowerSuffix = suffix.toLowerCase();
         var lowerStem = stem.toLowerCase();
@@ -764,13 +882,113 @@
         return { entry: entry, paired: paired, reason: entry ? '' : state.zip.report ? 'filen finns inte i rapporten (den kan ha valts bort när rapporten skapades, vara iCloud-optimerad eller raderad)' : 'filen finns inte i zippen (iCloud-optimerad, raderad eller utanför extraktionen)' };
     }
 
-    async function readMedia(entry) {
+    // Filen ur zippen med sina summor. Under en lista kan filen redan vara läst i förväg (startAhead): då är det
+    // den läsningen som lämnas, samma bytes och samma summor som en läsning här hade gett.
+    function readMedia(entry) {
+        var had = state.ahead && state.ahead.reads.get('m:' + ProvenanceHashSearch.keyOf(entry));
+        return had ? had.promise : readMediaNow(entry, false);
+    }
+
+    // quiet: läsningen görs i förväg, och lägesraden tillhör filen som bedöms just då.
+    async function readMediaNow(entry, quiet) {
         if (entry.size > MAX_MEDIA) return { bytes: null, reason: 'filen är ' + ExtractionCore.sizeText(entry.size) + ', över gränsen på 200 MB för EXIF-läsning' };
         var r = await ExtractionCore.readEntry(state.zip.read, entry);
-        progress('Räknar MD5 och SHA-256 på ' + escapeHtml(ExtractionCore.baseName(entry.name)) + '…');
-        await tick();
+        if (!quiet) {
+            progress('Räknar MD5 och SHA-256 på ' + escapeHtml(ExtractionCore.baseName(entry.name)) + '…');
+            await tick();
+        }
         var sha = await ExtractionCore.sha256(r.bytes);
         return { bytes: r.bytes, crcOk: r.crcOk, sha256: sha, md5: md5Hex(r.bytes), line: r.line };
+    }
+
+    // Live Photo-videon till en bild, med SHA-256 så att ExifTools svar känns igen.
+    function readPaired(entry) {
+        var had = state.ahead && state.ahead.reads.get('p:' + ProvenanceHashSearch.keyOf(entry));
+        return had ? had.promise : readPairedNow(entry);
+    }
+    async function readPairedNow(entry) {
+        var r = await ExtractionCore.readEntry(state.zip.read, entry);
+        return { bytes: r.bytes, sha256: await ExtractionCore.sha256(r.bytes) };
+    }
+
+    // ---------- Läsning i förväg medan en lista bedöms ----------
+    //
+    // Filerna bedöms en i taget, i listans ordning, precis som utan läsning i förväg. Det som görs i förväg är bara
+    // det som inte beror på något annat än filen själv: den packas upp ur zippen, summorna räknas och ExifTool
+    // läser den. Databaser och loggar frågas bara av bedömningen. Det som lästs i förväg ligger under postens plats
+    // i zippen (reads) och under innehållets SHA-256 och filnamn (state.tags.early), och bedömningen hämtar det
+    // därifrån i readMedia, readPaired och readTags. Stämmer inget av det läser bedömningen själv, som förut.
+    var aheadRows = 2 * EXIF_WORKERS;         // så många rader framåt slås upp och läses (0: ingen läsning i förväg)
+    var AHEAD_BYTES = 256 * 1024 * 1024;      // så mycket uppackat får vänta på sin bedömning
+
+    function newAhead() { return { reads: new Map(), media: new Map(), held: 0, tasks: new Set() }; }
+
+    // Vad raden ska bedöma, och för en rad i bildbiblioteket var filen ligger i zippen.
+    async function resolveAhead(row) {
+        var pre = { target: null, error: null, media: null, keys: [], size: 0 };
+        try {
+            pre.target = await resolveItem(row.item);
+            var t = pre.target;
+            if (t.kind === 'row') pre.media = await findMedia(t.row, state.zip.platform);
+            else if (t.kind === 'entry') pre.media = { entry: t.entry, paired: null };
+        } catch (err) { pre.error = err; }
+        return pre;
+    }
+
+    // Börjar läsa radens fil. false när det som redan väntar fyller minnet: då görs försöket om vid nästa rad.
+    function startAhead(a, pre) {
+        var media = pre.media;
+        if (pre.error || !media || !media.entry || media.entry.size > MAX_MEDIA) return true;
+        var t = pre.target;
+        var paired = media.paired && media.paired.size <= MAX_MEDIA ? media.paired : null;
+        var size = media.entry.size + (paired ? paired.size : 0);
+        if (a.held && a.held + size > AHEAD_BYTES) return false;
+        var hold = function (key, bytes, read) {
+            var had = a.reads.get(key);
+            if (!had) {
+                had = { promise: read(), size: bytes, uses: 0 };
+                a.reads.set(key, had);
+                a.held += bytes;
+            }
+            had.uses++;
+            pre.keys.push(key);
+            return had.promise;
+        };
+        var name = t.kind === 'row' ? t.row.filename : ExtractionCore.baseName(media.entry.name);
+        var store = state.tags;
+        var wait = function (read, tagName) {
+            // Uppgiften är klar när ExifTool har svarat, så att inget arbete är kvar när listan avslutas.
+            var task = read.then(function (r) {
+                if (!r.bytes || !r.sha256) return null;
+                return readTags(r.bytes, tagName, r.sha256, true).then(function () { return store.early.get(r.sha256 + '\n' + tagName); });
+            }).then(function () {}, function () {});
+            a.tasks.add(task);
+            task.then(function () { a.tasks.delete(task); });
+        };
+        wait(hold('m:' + ProvenanceHashSearch.keyOf(media.entry), media.entry.size, function () { return readMediaNow(media.entry, true); }), name);
+        if (paired) wait(hold('p:' + ProvenanceHashSearch.keyOf(paired), paired.size, function () { return readPairedNow(paired); }), ExtractionCore.baseName(paired.name));
+        return true;
+    }
+
+    // Raden är bedömd: det som lästes i förväg för den släpps.
+    function releaseAhead(a, pre) {
+        pre.keys.forEach(function (key) {
+            var had = a.reads.get(key);
+            if (!had || --had.uses > 0) return;
+            a.reads.delete(key);
+            a.held -= had.size;
+        });
+        pre.keys = [];
+    }
+
+    // Före rad n: raderna fram till aheadRows längre ned slås upp, en i taget, och deras filer börjar läsas.
+    async function lookAhead(b, at, n, plan) {
+        var to = Math.min(at.length, n + 1 + aheadRows);
+        for (; plan.next < to; plan.next++) plan.rows[plan.next] = await resolveAhead(b.rows[at[plan.next]]);
+        for (var m = Math.max(n + 1, plan.started); m < to; m++) {
+            if (!startAhead(plan.ahead, plan.rows[m])) break;
+            plan.started = m + 1;
+        }
     }
 
     // MD5 ur Kontrollsumma-verktygets rena JS-implementation (WebCrypto saknar MD5).
@@ -1064,7 +1282,9 @@
         try {
             var media = run.mediaEntry ? { entry: run.mediaEntry, paired: null, reason: '' } : await findMedia(fileRow, platform);
             if (media.entry) {
-                var read = await readMedia(media.entry);
+                // En fil utan registerrad är redan läst en gång, för tiden inuti den (assessEntry).
+                var read = run.mediaRead && run.mediaEntry === media.entry ? run.mediaRead : await readMedia(media.entry);
+                run.mediaRead = null;
                 // Tiderna efter läsningen: den lokala posten kan ha fler tider än innehållsförteckningen.
                 var times = ExtractionCore.entryTimes(media.entry);
                 meta.fileEntry = { path: media.entry.name, size: media.entry.size, crc32: ExtractionCore.hex(media.entry.crc32), crcOk: read.crcOk, md5: read.md5 || '', sha256: read.sha256 || '', reportRows: ProvenanceMedia.reportRows(media.entry.report, read) };
@@ -1122,8 +1342,8 @@
                 }
                 if (media.paired && media.paired.size <= MAX_MEDIA) {
                     try {
-                        var pr = await ExtractionCore.readEntry(state.zip.read, media.paired);
-                        var ptags = await readTags(pr.bytes, media.paired.name.slice(media.paired.name.lastIndexOf('/') + 1));
+                        var pr = await readPaired(media.paired);
+                        var ptags = await readTags(pr.bytes, media.paired.name.slice(media.paired.name.lastIndexOf('/') + 1), pr.sha256);
                         var psum = ExifCore.summarize(ptags, media.paired.name);
                         var pt = exifTakenMs(psum.taken, ProvenanceMedia.exifZone(fileRow, zone));
                         if (pt.ms) input.pairedVideo = { name: media.paired.name.slice(media.paired.name.lastIndexOf('/') + 1), takenMs: pt.ms, source: { db: 'bildfilen', table: media.paired.name.slice(media.paired.name.lastIndexOf('/') + 1), column: psum.taken.source } };
@@ -1387,6 +1607,29 @@
         return r;
     }
 
+    // En loggfil läses och avkodas en gång per extraktion: en lista med filer frågar samma loggfiler om och om igen,
+    // och på en telefon som använts ett tag är de flera hundra. Det avkodade är låst (deepFreeze), så att en
+    // bedömning inte kan ändra det nästa bedömning får.
+    async function logOnce(entry, kind, decode) {
+        var cache = state.zip.logCache || (state.zip.logCache = new Map());
+        var key = kind + ':' + ProvenanceHashSearch.keyOf(entry);
+        var had = cache.get(key);
+        if (had) { work.logsReused++; return had; }
+        work.logs++;
+        var r = await readLog(entry);
+        var done = { read: { crcOk: r.crcOk, sha256: r.sha256 }, value: deepFreeze(decode(r.bytes)) };
+        cache.set(key, done);
+        return done;
+    }
+
+    function deepFreeze(value) {
+        if (!value || typeof value !== 'object' || Object.isFrozen(value) || ArrayBuffer.isView(value)) return value;
+        Object.freeze(value);
+        if (Array.isArray(value)) for (var i = 0; i < value.length; i++) deepFreeze(value[i]);
+        else Object.keys(value).forEach(function (k) { deepFreeze(value[k]); });
+        return value;
+    }
+
     // Protokollet får varje läst loggfil som en källa (sökväg, storlek, CRC32, SHA-256), eftersom
     // det inte finns någon databas att peka på.
     function logSource(meta, entry, label, read, kind) {
@@ -1415,16 +1658,17 @@
             progress('Läser usagestats (app, skärm, lås)…');
             var map = null;
             if (logs.mappings) {
-                var mapRead = await readLog(logs.mappings);
-                logSource(meta, logs.mappings, 'usagestats mappings', mapRead);
-                map = L.usageMappings(mapRead.bytes);
+                var mapRead = await logOnce(logs.mappings, 'usagestats-mappings', function (bytes) { return L.usageMappings(bytes); });
+                logSource(meta, logs.mappings, 'usagestats mappings', mapRead.read);
+                map = mapRead.value;
             }
             var decoded = [];
             var files = [];
+            var dailyOf = function (entry) { return function (bytes) { return L.usageDaily(bytes, L.dailyBeginMs(entry.name), map, vi.version || 5); }; };
             for (var i = 0; i < dailies.length; i++) {
-                var dr = await readLog(dailies[i]);
-                logSource(meta, dailies[i], 'usagestats daily/' + ExtractionCore.baseName(dailies[i].name), dr);
-                decoded.push(L.usageDaily(dr.bytes, L.dailyBeginMs(dailies[i].name), map, vi.version || 5));
+                var dr = await logOnce(dailies[i], 'usagestats-daily', dailyOf(dailies[i]));
+                logSource(meta, dailies[i], 'usagestats daily/' + ExtractionCore.baseName(dailies[i].name), dr.read);
+                decoded.push(dr.value);
                 files.push(dailies[i].name + ' (' + dailies[i].size + ' byte, CRC32 ' + ExtractionCore.hex(dailies[i].crc32) + ')');
             }
             var usSource = { db: 'usagestats', table: dailies.map(function (d) { return 'daily/' + ExtractionCore.baseName(d.name); }).join(', '), column: 'event_log: typ 1/2/23 (app), 15/16 (skärm), 17/18 (låsskärm)', queryId: 'usagestats-daily' };
@@ -1459,27 +1703,49 @@
         var discrete = L.pickDiscrete(logs.discrete, range);
         if (discrete.length) {
             progress('Läser appops (kameran per app)…');
-            var rows = [];
             var dfiles = [];
+            var parts = [];
+            var opsOf = function (bytes) {
+                var ops = L.discreteOps(bytes);
+                return { ops: ops, cameraMs: ops.filter(function (o) { return o.op === L.OP_CAMERA; }).map(function (o) { return o.ms; }) };
+            };
             for (var j = 0; j < discrete.length; j++) {
                 var e = discrete[j];
                 if (e.size > 2 * 1024 * 1024) continue;
-                var r = await readLog(e);
-                var ops = L.discreteOps(r.bytes);
-                rows = rows.concat(ops);
+                var r = await logOnce(e, 'appops-discrete', opsOf);
+                parts.push(r.value.ops);
                 dfiles.push(e);
                 // Källa i protokollet för filerna med kamerarader nära fönstret; alla står i pseudoqueryn.
-                if (ops.some(function (o) { return o.op === L.OP_CAMERA && o.ms >= range.startMs - 3600000 && o.ms <= range.endMs; })) logSource(meta, e, 'appops discrete/' + ExtractionCore.baseName(e.name), r);
+                if (r.value.cameraMs.some(function (ms) { return ms >= range.startMs - 3600000 && ms <= range.endMs; })) logSource(meta, e, 'appops discrete/' + ExtractionCore.baseName(e.name), r.read);
             }
             if (dfiles.length) {
+                // Filer som valts för ett fönster är ofta desamma för nästa fil i listan: raderna läggs ihop, kamerans
+                // intervall byggs och täckningen räknas en gång per uppsättning filer.
+                var sets = state.zip.appopsSets || (state.zip.appopsSets = new Map());
+                var setKey = dfiles.map(ProvenanceHashSearch.keyOf).join('\n');
+                var set = sets.get(setKey);
+                if (!set) {
+                    var all = [];
+                    var firstMs = null, lastMs = null;
+                    parts.forEach(function (ops) {
+                        ops.forEach(function (o) {
+                            all.push(o);
+                            if (firstMs === null || o.ms < firstMs) firstMs = o.ms;
+                            if (lastMs === null || o.ms > lastMs) lastMs = o.ms;
+                        });
+                    });
+                    set = { rows: all.length, firstMs: firstMs, lastMs: lastMs, camera: deepFreeze(L.opIntervals(all, L.OP_CAMERA)) };
+                    // Bara den senaste uppsättningen behålls: filerna i en lista ligger oftast i tidsordning eller nära varandra.
+                    sets.clear();
+                    sets.set(setKey, set);
+                }
                 var first = dfiles[0], last = dfiles[dfiles.length - 1];
                 var apSource = { db: 'appops', table: 'discrete/' + ExtractionCore.baseName(first.name) + (dfiles.length > 1 ? ' … ' + ExtractionCore.baseName(last.name) + ' (' + dfiles.length + ' filer)' : ''), column: 'op 26 (CAMERA): nt (start), nd (längd ms) per paket', queryId: 'appops-discrete' };
-                var allCam = L.opIntervals(rows, L.OP_CAMERA);
+                var allCam = set.camera;
                 allCam.filter(function (c) { return c.startMs <= range.endMs && (c.endMs == null ? c.startMs : c.endMs) >= range.startMs; })
                     .forEach(function (c) { input.cameraUse.push({ startMs: c.startMs, endMs: c.endMs, app: c.app, attribution: c.attribution, source: apSource }); });
-                var ms = rows.map(function (x) { return x.ms; });
-                input.coverage.appops = { firstMs: ms.length ? Math.min.apply(null, ms) : null, lastMs: ms.length ? Math.max.apply(null, ms) : null, rows: rows.length };
-                meta.coverage.push(['appops discrete (' + dfiles.length + (dfiles.length === 1 ? ' fil' : ' filer') + ', kameran ' + allCam.length + ' gånger)', input.coverage.appops.firstMs ? fmtU(input.coverage.appops.firstMs) : '', input.coverage.appops.lastMs ? fmtU(input.coverage.appops.lastMs) : '', rows.length]);
+                input.coverage.appops = { firstMs: set.firstMs, lastMs: set.lastMs, rows: set.rows };
+                meta.coverage.push(['appops discrete (' + dfiles.length + (dfiles.length === 1 ? ' fil' : ' filer') + ', kameran ' + allCam.length + ' gånger)', input.coverage.appops.firstMs ? fmtU(input.coverage.appops.firstMs) : '', input.coverage.appops.lastMs ? fmtU(input.coverage.appops.lastMs) : '', set.rows]);
                 input.extraNotes.push('Kameran igång betyder att kameravyn visades, inte att en bild togs.');
                 run.queries.push({ id: 'appops-discrete', db: 'appops', title: 'Härkomst: appops discrete (binär XML, ingen SQL)',
                     sql: '-- ' + dfiles.length + ' filer ur ' + Z() + ' under appops/discrete/, skrivna ' + fmtU(L.discreteWrittenMs(first.name)) + ' till ' + fmtU(L.discreteWrittenMs(last.name)) + ', avkodade från Androids binära XML (ABX):\n-- ' +
@@ -2521,8 +2787,13 @@
             if (hits.length && hits[0].size <= 32 * 1024 * 1024) z.packagesXml = { entry: hits[0], bytes: (await ExtractionCore.readEntry(z.read, hits[0])).bytes };
         }
         if (!z.packagesXml) return null;
-        var info = ProvenanceAppVersions.fromPackagesXml(z.packagesXml.bytes, pkg, ProvenanceAndroidLogs.abxParse);
-        return info ? Object.assign({ path: z.packagesXml.entry.name }, info) : null;
+        // Filen tolkas en gång per paket, inte för varje fil i en lista. Svaret är låst och delas.
+        var known = z.packagesXml.info || (z.packagesXml.info = {});
+        if (!Object.prototype.hasOwnProperty.call(known, pkg)) {
+            var info = ProvenanceAppVersions.fromPackagesXml(z.packagesXml.bytes, pkg, ProvenanceAndroidLogs.abxParse);
+            known[pkg] = info ? deepFreeze(Object.assign({ path: z.packagesXml.entry.name }, info)) : null;
+        }
+        return known[pkg];
     }
 
     async function appVersions(input) {
@@ -2775,8 +3046,9 @@
             var zone0 = zoneChoice(fileRow);
             if (entry.size <= MAX_MEDIA) {
                 try {
-                    var r = await ExtractionCore.readEntry(z.read, entry);
-                    var tags = await readTags(r.bytes, name);
+                    var r = await readMedia(entry);
+                    runLog.mediaRead = r;
+                    var tags = await readTags(r.bytes, name, r.sha256);
                     var sum = ExifCore.summarize(tags, name);
                     var taken = exifTakenMs(sum.taken, zone0);
                     if (taken.ms) { fileRow.createdMs = taken.ms; tSource = { db: 'bildfilen', table: name, column: sum.taken.source }; }
@@ -3470,22 +3742,39 @@
         var t0 = performance.now();
         var done = 0;
         var toolsAt = t0;
+        var ends = [];   // när varje fil blev klar, för tiden som är kvar
+        // plan.rows[n] är rad n uppslagen; plan.next och plan.started säger hur långt uppslagningen och läsningen har nått.
+        var plan = { next: 0, started: 0, rows: [], ahead: newAhead() };
+        state.ahead = plan.ahead;
+        exifPool().list = true;
         try {
             for (var n = 0; n < at.length && !b.stop; n++) {
                 var i = at[n];
                 b.current = i;
                 b.prefix = 'Bedömer ' + (n + 1) + ' av ' + at.length + ': ' + escapeHtml(b.rows[i].name);
                 progress('');
-                setProgress('run-progress', n / at.length, ProvenanceBatch.progressText(n, at.length, performance.now() - t0));
+                // Tiden kvar räknas på de senaste filerna. Den första filen läser in databaserna och säger inget om resten.
+                var back = Math.min(25, n - 1);
+                setProgress('run-progress', n / at.length, ProvenanceBatch.progressText(n, at.length, performance.now() - t0, back >= 2 ? (ends[n - 1] - ends[n - 1 - back]) / back : null));
                 // Bara raden som just blev klar och raden som nu bedöms ritas om, inte hela listan.
                 if (n) renderBatchRow(at[n - 1]);
                 renderBatchRow(i);
                 // Antalen i urvalet följer med, men räknas inte om för varje fil.
                 if (performance.now() - toolsAt > 250) { renderBatchTools(); toolsAt = performance.now(); }
-                await batchOne(b.rows[i], b);
+                await lookAhead(b, at, n, plan);
+                await batchOne(b.rows[i], b, plan.rows[n]);
+                releaseAhead(plan.ahead, plan.rows[n]);
+                plan.rows[n] = null;
+                ends.push(performance.now());
                 done++;
             }
         } finally {
+            // Det som lästes i förväg men inte hann bedömas (listan avbröts) väntas in och släpps, så att inget
+            // arbete pågår när extraktionen går att stänga igen.
+            await Promise.all(Array.from(plan.ahead.tasks));
+            if (state.ahead === plan.ahead) state.ahead = null;
+            state.tags.early.clear();
+            exifShrink();
             b.running = false;
             b.current = -1;
             $('batch-stop').classList.add('display-none');
@@ -3497,7 +3786,7 @@
         var secs = (performance.now() - t0) / 1000;
         var c = ProvenanceBatch.counts(b.rows);
         var text = (b.stop ? 'Avbruten efter ' + done + ' av ' + at.length + ' filer' : at.length + ' filer genomgångna') +
-            ' på ' + secs.toFixed(1).replace('.', ',') + ' s' + (done ? ' (' + (secs / done).toFixed(1).replace('.', ',') + ' s per fil)' : '') + '. ' +
+            ' på ' + secs.toFixed(1).replace('.', ',') + ' s' + (done ? ' (' + (secs / done).toFixed(secs / done < 0.95 ? 2 : 1).replace('.', ',') + ' s per fil)' : '') + '. ' +
             c.done + ' bedömda' + (c.missing ? ', ' + c.missing + ' finns inte' : '') + (c.ambiguous ? ', ' + c.ambiguous + ' med flera träffar' : '') + (c.error ? ', ' + c.error + ' kunde inte bedömas' : '') +
             '. Klicka på en rad för att se underlaget och skriva din egen bedömning.';
         setStatus('run-status', escapeHtml(text));
@@ -3529,10 +3818,12 @@
         await assessRows(b);
     }
 
-    async function batchOne(row, b) {
+    // pre: raden uppslagen i förväg (resolveAhead).
+    async function batchOne(row, b, pre) {
         var windowMs = Number(b.window) * 60000;
         try {
-            var target = await resolveItem(row.item);
+            if (pre.error) throw pre.error;
+            var target = pre.target;
             row.target = target;
             if (target.missing) { row.status = 'missing'; row.note = target.missing; return; }
             if (target.ambiguous) { row.status = 'ambiguous'; row.note = target.ambiguous; return; }
@@ -4813,12 +5104,32 @@
         if (data.type === 'provenance-names' && Array.isArray(data.names)) receiveNames(data.names.map(String), data.zipName || '');
     });
 
-    // Läsåtkomst till bedömningen som visas, för provkörningarna (tests/app) och felsökning. Ändrar inget.
+    // Läsåtkomst till bedömningen som visas, för provkörningarna (tests/app) och felsökning. Bara readAhead och
+    // forgetTags ändrar något, och ingen av dem medan en bedömning pågår.
     window.ProvenanceApp = {
         model: function () { return state.model; },
         meta: function () { return state.meta; },
         busy: isBusy,
         work: function () { return Object.assign({}, work); },
+        // Listan som visas: varje rads namn, läge och sammanfattning.
+        list: function () {
+            return state.batch ? state.batch.rows.map(function (r) { return { name: r.name, status: r.status, note: r.note || '', summary: r.summary || null }; }) : null;
+        },
+        // ExifTools workrar: hur många som finns, arbetar och har startats, och hur många filer som väntar.
+        exif: function () {
+            var p = state.exif;
+            return p ? { workers: p.engines.length, working: p.engines.filter(function (e) { return e.job; }).length, starting: p.starting, waiting: p.queue.length, started: p.started, limit: p.limit } : null;
+        },
+        // Hur många rader en lista läser i förväg. 0 stänger av det, så att provkörningen kan jämföra samma lista
+        // med och utan. Utan värde: antalet som gäller.
+        readAhead: function (rows) {
+            if (rows !== undefined && !isBusy()) aheadRows = Math.max(0, Math.min(64, Math.floor(Number(rows)) || 0));
+            return aheadRows;
+        },
+        // Glömmer ExifTools sparade svar, så att provkörningen kan läsa samma filer en gång till.
+        forgetTags: function () {
+            if (!isBusy()) state.tags = { map: new Map(), size: 0, early: new Map() };
+        },
     };
 
     init();
