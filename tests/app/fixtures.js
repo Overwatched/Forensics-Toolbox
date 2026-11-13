@@ -421,6 +421,19 @@ function samsungEntries(SQL, jpeg) {
     ];
 }
 
+// Samma telefon, men inget i loggarna säger vilken zon tiderna står i: SSRM utan [RTC] och batterifilerna utan
+// ändringstid. Telefonens inställda zon finns (persistent_properties: en post per egenskap, namnet i fält 1, värdet i fält 2).
+function samsungNoZoneEntries(SQL, jpeg) {
+    const str = (no, s) => [(no << 3) | 2, Buffer.byteLength(s), ...Buffer.from(s)];
+    const record = (k, v) => { const inner = [...str(1, k), ...str(2, v)]; return [(1 << 3) | 2, inner.length, ...inner]; };
+    const props = Buffer.from([...record('persist.sys.locale', 'sv-SE'), ...record('persist.sys.timezone', 'Europe/Stockholm')]);
+    return samsungEntries(SQL, jpeg).map((e) => {
+        if (/ssrm_heating/.test(e.name)) return Object.assign({}, e, { data: String(e.data).split('\n').filter((l) => !/\[RTC\]/.test(l)).join('\n') });
+        if (/newbatterystats/.test(e.name)) return { name: e.name, data: e.data };
+        return e;
+    }).concat([{ name: 'data/property/persistent_properties', data: props }]);
+}
+
 async function build() {
     const SQL = await loadSql();
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ft-provkorning-'));
@@ -496,6 +509,7 @@ async function build() {
         noKey: path.join(dir, 'ingen', 'Ingen-nyckel.zip'),
         powerlogArchive: path.join(dir, 'powerlog_2024-06-06_ABCDEF12.PLSQL.gz'),
         samsung: path.join(dir, 'Testextraktion-Samsung.zip'),
+        samsungNoZone: path.join(dir, 'Testextraktion-Samsung-utan-zon.zip'),
     };
     fs.writeFileSync(files.zip, zip);
     fs.writeFileSync(files.ufdr, buildUfdr(reportRows(entries, keychainPlist())).buf);
@@ -517,6 +531,7 @@ async function build() {
     fs.writeFileSync(files.knowledge, knowledge);
     fs.writeFileSync(files.powerlogArchive, require('node:zlib').gzipSync(powerlog(SQL)));
     fs.writeFileSync(files.samsung, buildZip(samsungEntries(SQL, jpeg)));
+    fs.writeFileSync(files.samsungNoZone, buildZip(samsungNoZoneEntries(SQL, jpeg)));
     return { files, T: T * 1000, imageName: 'IMG_0001.JPG', T2: T2 * 1000, waMedia: 'mottagen.jpg', T3: T3 * 1000, tgMedia: TG_MEDIA, TS: TS * 1000, TS2: TS2 * 1000, TS3: TS3 * 1000,
         longChat: { count: LONG.count, needles: LONG.needles, gapAfter: LONG.gapAfter, timeMs: (i) => longTime(i) * 1000 } };
 }

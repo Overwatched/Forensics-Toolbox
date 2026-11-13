@@ -480,10 +480,11 @@
                 plain: told ? null : iv.app ? name + ' startar kameran' : 'Kameran startas', plainEnd: told ? null : iv.app ? name + ' stänger kameran' : 'Kameran stängs', source: iv.source });
         });
         // Rader vars tid är osäker: de står i händelsetabellen, men räknas inte i bedömningen och ritas inte i tidslinjen.
+        // assumed: loggen säger inte sin zon, och tiden är räknad med telefonens inställda zon (zonens namn) som antagande.
         (input.logUnsure || []).forEach(function (u) {
             var what = u.what === 'screen' ? (u.on ? 'Skärmen tänd' : 'Skärmen släckt') : u.what === 'camera' ? (u.app ? appName(u.app, names) + ' använder kameran' : 'Kameran på') : appName(u.app, names) + ' i förgrunden';
-            add({ ms: u.startMs, endMs: u.endMs, kind: 'log-unsure', lane: 'log', app: u.app || null, on: u.on, what: u.what, stream: u.stream, openEnded: u.openEnded, clockMs: u.clockMs || 0, zoneMs: u.zoneMs || 0,
-                text: what + ' (' + u.stream + ', tiden osäker)', plain: null, source: u.source });
+            add({ ms: u.startMs, endMs: u.endMs, kind: 'log-unsure', lane: 'log', app: u.app || null, on: u.on, what: u.what, stream: u.stream, openEnded: u.openEnded, clockMs: u.clockMs || 0, zoneMs: u.zoneMs || 0, assumed: u.assumed || null, said: what,
+                text: what + ' (' + u.stream + (u.assumed ? ', zonen antagen: ' + u.assumed : ', tiden osäker') + ')', plain: null, source: u.source });
         });
         (input.screen || []).forEach(function (iv) {
             add({ ms: iv.startMs, endMs: iv.endMs, kind: 'screen', lane: 'screen', on: !!iv.on, stream: iv.stream, openEnded: iv.openEnded,
@@ -575,6 +576,8 @@
             var c = input.coverage && input.coverage[k[0]];
             if (!c) return;
             var gap = (c.gaps || []).find(function (g) { return g.startMs <= ms && ms <= g.endMs; });
+            // Utan zon går det inte att säga om loggen täcker tiden, och då är "inget vid tidpunkten" fel besked.
+            if (c.noZone) { out += ' ' + k[1] + ' går inte att lägga i tiden: loggen säger inte vilken tidszon dess tider står i.'; return; }
             out += c.firstMs != null && c.lastMs != null && (ms < c.firstMs || ms > c.lastMs)
                 ? ' Tidpunkten ligger också utanför ' + k[2] + ' täckning (' + formatUtc(c.firstMs) + ' till ' + formatUtc(c.lastMs) + ').'
                 : gap ? ' ' + k[1] + ' har inga rader från ' + formatUtc(gap.startMs) + ' till ' + formatUtc(gap.endMs) + '.'
@@ -613,13 +616,23 @@
     }
 
     // Batterihistorikens rader som inte räknas vid T, för att tiden är osäker. what: 'app', 'camera' eller 'screen'.
+    // Rader räknade med en antagen zon sägs för sig, med vad de säger: undersökaren ska kunna pröva antagandet.
     function unsureItems(events, T, what) {
-        var near = events.filter(function (e) { return e.kind === 'log-unsure' && e.what === what && covers(e, T, TOLERANCE_MS + Math.max(e.clockMs, e.zoneMs)); });
-        if (!near.length) return [];
+        var all = events.filter(function (e) { return e.kind === 'log-unsure' && e.what === what && covers(e, T, TOLERANCE_MS + Math.max(e.clockMs, e.zoneMs)); });
+        var streamOf = function (e) { return e.stream === BATTERY ? 'Batterihistoriken' : e.stream; };
+        var out = [];
+        var guessed = all.filter(function (e) { return e.assumed; });
+        if (guessed.length) {
+            var said = uniq(guessed.map(function (e) { return e.said + ' ' + formatUtc(e.ms) + (e.endMs != null && e.endMs !== e.ms ? ' till ' + formatUtc(e.endMs) : ''); }));
+            out.push({ state: 'info', text: 'Med telefonens inställda zon ' + guessed[0].assumed + ' som antagande har ' + uniq(guessed.map(function (e) { return e.stream; })).join(' och ') + ' de här raderna kring tidpunkten: ' +
+                said.slice(0, 3).join('; ') + (said.length > 3 ? '; och ' + (said.length - 3) + ' till' : '') + '. Loggen visar inte själv zonen, så de räknas inte i bedömningen: kontrollera zonen först. Raderna står bland händelserna.' });
+        }
+        var near = all.filter(function (e) { return !e.assumed; });
+        if (!near.length) return out;
         var zone = near.filter(function (e) { return e.zoneMs > 0; });
         var why = zone.length ? 'tidszonen bytte under loggens gång, så tiden kan ligga ' + duration(Math.max.apply(null, zone.map(function (e) { return e.zoneMs; }))) + ' fel'
             : 'klockan flyttades ' + duration(Math.max.apply(null, near.map(function (e) { return e.clockMs; }))) + ' i det avsnittet, så tiden kan ligga så mycket fel';
-        return [{ state: 'info', text: (near[0].stream === BATTERY ? 'Batterihistoriken' : near[0].stream) + ' har rader kring tidpunkten, men de räknas inte: ' + why + '. Raderna står bland händelserna.' }];
+        return out.concat([{ state: 'info', text: streamOf(near[0]) + ' har rader kring tidpunkten, men de räknas inte: ' + why + '. Raderna står bland händelserna.' }]);
     }
 
     // Används batterihistorikens tid sägs det, en gång per faktor.

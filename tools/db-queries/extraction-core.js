@@ -430,7 +430,7 @@
             cipherLine = dep('SqlCipher').summary(core.stats, opts.cipher && opts.cipher.source);
             lines.push(cipherLine);
             var bad = core.stats.cipher.badHmac + core.stats.cipher.walBadHmac;
-            if (bad) warnings.push(dbName + ': kontrollsumman (HMAC) stämde inte för ' + bad + ' sidor efter dekrypteringen. De sidorna kan vara skadade.');
+            if (bad) warnings.push(dbName + ': kontrollsumman (HMAC) stämde inte för ' + dep('SqlCipher').badText(core.stats.cipher) + ' efter dekrypteringen. ' + (bad === 1 ? 'Den sidan kan vara skadad.' : 'De sidorna kan vara skadade.'));
         }
         // Läst av ett annat verktyg: det ska synas i protokollet, med när kontrollerna gjordes.
         var sharedLine = '';

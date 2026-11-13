@@ -1,5 +1,18 @@
 Automatiskt byggd från commit `{{SHA}}`.
 
+## Nytt i 1.64
+
+**Samsungs loggar utan tidszon visas som antagande, och en tom sida i stora Signal-databaser räknas inte längre som skadad.**
+
+- **Samsungs loggar utan zon (Härkomst):** SSRM och batterihistoriken skriver lokal tid utan zon. Visar loggarna inte själva vilken zon det är användes raderna förut inte alls. Nu står de bland händelserna med telefonens inställda zon som antagande, märkta "zonen antagen".
+- **De räknas inte i bedömningen.** Ingen faktor blir Förenligt eller Inte förenligt av en rad med antagen zon, och raderna ritas inte i tidslinjen. Faktorn som saknar underlag säger vad raderna visar kring tidpunkten och att zonen ska kontrolleras först. En varning säger hur många rader det gäller och vilken zon som är antagen.
+- **Ingen falsk tystnad:** går en logg inte att lägga i tiden står det så i skälet, i stället för att loggen inte har något vid tidpunkten.
+- **Utan telefonens inställda zon** i extraktionen används raderna fortfarande inte, och varningen säger det.
+- **"1 sida skadad" i Signal-databaser över 1 GB:** SQLite skriver aldrig på sidan vid 1 GB, så den är tom i varje så stor databas och dess kontrollsumma kan inte stämma. Den räknas inte längre som skadad, och protokollet säger att den är tom och varför.
+- **Vilka sidor:** när kontrollsumman inte stämmer för en sida står nu sidans nummer i varningen, för de fem första, och hur många som ligger i -wal.
+- **Provat:** enhetstesterna, röktestet i appen och html-versionen i Chrome på macOS. Samsungs loggar utan zon är provade med påhittade loggar, och sidan vid 1 GB med en vanlig SQLite-databas på 1,1 GB.
+- **Inte provat:** en riktig extraktion där loggarna saknar zon, och en riktig krypterad Signal-databas över 1 GB. Windows och Linux provas först i bygget.
+
 ## Nytt i 1.63
 
 **Härkomst: listan med flera filer är lättare att följa och läsa.**

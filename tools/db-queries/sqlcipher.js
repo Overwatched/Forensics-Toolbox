@@ -330,8 +330,33 @@
         return { bytes: out, hmacOk: ok };
     }
 
+    // Sidan med byten på plats 1 GB (0x40000000) är SQLites låssida. SQLite skriver aldrig på den, så i en databas
+    // över 1 GB står den tom i filen och har ingen HMAC som kan stämma. Är den tom räknas den inte som skadad.
+    // opts.lockByte finns för testerna, som inte bygger en databas på 1 GB.
+    var LOCK_BYTE = 0x40000000;
+    var BAD_LISTED = 5;
+    function lockPageOf(profile, opts) { return Math.floor((opts && opts.lockByte || LOCK_BYTE) / profile.pageSize) + 1; }
+    function isEmpty(page) {
+        for (var i = 0; i < page.length; i++) if (page[i]) return false;
+        return true;
+    }
+
+    // Det som räknas under dekrypteringen: sidor med fel HMAC, numren på de första, och låssidan när den är tom.
+    function tally() { return { bad: 0, badPages: [], lockPage: 0 }; }
+    function countBad(t, pgno) {
+        t.bad++;
+        if (t.badPages.length < BAD_LISTED) t.badPages.push(pgno);
+    }
+    function statsOf(pages, t) {
+        var stats = { pages: pages, badHmac: t.bad };
+        if (t.badPages.length) stats.badPages = t.badPages;
+        if (t.lockPage) stats.lockPage = t.lockPage;
+        return stats;
+    }
+
     // Dekrypterar hela databasfilen. Stämmer inte HMAC för sida 1 är nyckeln (eller profilen)
-    // fel, och då kastas ett fel i klartext. Returnerar { bytes, keys, stats: { pages, badHmac } }.
+    // fel, och då kastas ett fel i klartext. Returnerar { bytes, keys, stats: { pages, badHmac } }, och i stats
+    // också badPages (numren på de första sidorna med fel HMAC) och lockPage när det finns något att säga.
     function checkDatabase(db, profile) {
         if (!isEncrypted(db, profile.id)) throw new Error('Databasen är inte krypterad.');
         if (db.length < profile.pageSize || db.length % profile.pageSize) throw new Error('Filens storlek (' + db.length + ' byte) är inte ett helt antal sidor på ' + profile.pageSize + ' byte. Är det en SQLCipher-databas?');
@@ -341,21 +366,24 @@
         return new Error('Nyckeln passar inte: kontrollsumman (HMAC) för första sidan stämmer inte. Fel nyckel, eller andra SQLCipher-inställningar än ' + profile.settings + '.');
     }
 
-    function decryptDatabase(db, passphrase, profileName) {
+    function decryptDatabase(db, passphrase, profileName, opts) {
         var profile = profileOf(profileName);
         db = db instanceof Uint8Array ? db : new Uint8Array(db);
         checkDatabase(db, profile);
         var keys = keysFor(db, passphrase, profile);
         var pages = db.length / profile.pageSize;
         var out = new Uint8Array(db.length);
-        var bad = 0;
+        var t = tally();
+        var lock = lockPageOf(profile, opts);
         for (var p = 1; p <= pages; p++) {
-            var r = decryptPage(keys, profile, db.subarray((p - 1) * profile.pageSize, p * profile.pageSize), p);
+            var page = db.subarray((p - 1) * profile.pageSize, p * profile.pageSize);
+            if (p === lock && p > 1 && isEmpty(page)) { t.lockPage = p; continue; }
+            var r = decryptPage(keys, profile, page, p);
             if (p === 1 && !r.hmacOk) throw wrongKey(profile);
-            if (!r.hmacOk) bad++;
+            if (!r.hmacOk) countBad(t, p);
             out.set(r.bytes, (p - 1) * profile.pageSize);
         }
-        return { bytes: out, keys: keys, profile: profile, stats: { pages: pages, badHmac: bad } };
+        return { bytes: out, keys: keys, profile: profile, stats: statsOf(pages, t) };
     }
 
     // Dekrypterar sidorna i -wal när ramarna läggs på (SqliteWal.apply med opts.page). Räknar
@@ -371,9 +399,16 @@
 
     // Databasen och dess -wal dekrypterade och sammanlagda. wal får vara tom. Returnerar som
     // SqliteWal.apply: { bytes, stats }, med stats.cipher = { profile, pages, badHmac, walPages, walBadHmac }.
-    function open(db, wal, passphrase, profileName, SqliteWal) {
-        var dec = decryptDatabase(db, passphrase, profileName);
-        var cipherStats = { profile: dec.profile.label, settings: dec.profile.settings, pages: dec.stats.pages, badHmac: dec.stats.badHmac, walPages: 0, walBadHmac: 0 };
+    function cipherStatsOf(dec) {
+        var c = { profile: dec.profile.label, settings: dec.profile.settings, pages: dec.stats.pages, badHmac: dec.stats.badHmac, walPages: 0, walBadHmac: 0 };
+        if (dec.stats.badPages) c.badPages = dec.stats.badPages;
+        if (dec.stats.lockPage) c.lockPage = dec.stats.lockPage;
+        return c;
+    }
+
+    function open(db, wal, passphrase, profileName, SqliteWal, opts) {
+        var dec = decryptDatabase(db, passphrase, profileName, opts);
+        var cipherStats = cipherStatsOf(dec);
         var Wal = SqliteWal || root.SqliteWal || (typeof module !== 'undefined' && module.exports ? require('./wal.js') : null);
         var merged = Wal.apply(dec.bytes, wal || new Uint8Array(0), { owned: true, page: walPageDecryptor(dec.keys, dec.profile, cipherStats) });
         merged.stats.cipher = cipherStats;
@@ -454,13 +489,13 @@
         });
     }
 
-    // Sidorna 2 och framåt i bitar, med en paus efter varje bit.
-    async function decryptRest(subtle, keys, profile, db, out, opts) {
+    // Sidorna 2 och framåt i bitar, med en paus efter varje bit. Räknar i t (tally).
+    async function decryptRest(subtle, keys, profile, db, out, opts, t) {
         var sk = await subtleKeys(subtle, keys, profile);
         var size = profile.pageSize;
         var pages = db.length / size;
         var batch = opts && opts.batchPages || BATCH_PAGES;
-        var bad = 0;
+        var lock = lockPageOf(profile, opts);
         for (var p = 2; p <= pages; p += batch) {
             var list = [], pgnos = [], destAt = [];
             for (var q = p; q < p + batch && q <= pages; q++) {
@@ -469,11 +504,14 @@
                 destAt.push((q - 1) * size);
             }
             var ok = await decryptBatch(subtle, sk, profile, list, pgnos, out, destAt);
-            ok.forEach(function (x) { if (!x) bad++; });
+            for (var j = 0; j < ok.length; j++) {
+                if (ok[j]) continue;
+                if (pgnos[j] === lock && isEmpty(list[j])) { t.lockPage = lock; out.fill(0, destAt[j], destAt[j] + size); }
+                else countBad(t, pgnos[j]);
+            }
             if (opts && opts.onProgress) opts.onProgress(Math.min(p + batch - 1, pages), pages);
             await yieldToApp();
         }
-        return bad;
     }
 
     // Slut på minne blir inte bättre av ett försök till i ren JS: det felet ska fram som det är.
@@ -484,21 +522,27 @@
     // Sidorna 2 och framåt i ren JS, som decryptRest: i bitar, med förlopp och en paus efter varje bit, så att
     // sidan ritar och svarar under tiden. Omkring 30 MB i sekunden, mot flera hundra med WebCrypto.
     var SLOW_PAGES = 256;
-    async function decryptRestSlow(keys, profile, db, out, opts) {
+    async function decryptRestSlow(keys, profile, db, out, opts, t) {
         var size = profile.pageSize;
         var pages = db.length / size;
         var batch = opts && opts.slowPages || SLOW_PAGES;
-        var bad = 0;
+        var lock = lockPageOf(profile, opts);
         for (var p = 2; p <= pages; p++) {
-            var r = decryptPage(keys, profile, db.subarray((p - 1) * size, p * size), p);
-            if (!r.hmacOk) bad++;
-            out.set(r.bytes, (p - 1) * size);
+            var page = db.subarray((p - 1) * size, p * size);
+            if (p === lock && isEmpty(page)) {
+                // Den snabba vägen kan ha hunnit skriva hit innan den gav upp.
+                t.lockPage = p;
+                out.fill(0, (p - 1) * size, p * size);
+            } else {
+                var r = decryptPage(keys, profile, page, p);
+                if (!r.hmacOk) countBad(t, p);
+                out.set(r.bytes, (p - 1) * size);
+            }
             if (p % batch === 0 || p === pages) {
                 if (opts && opts.onProgress) opts.onProgress(p, pages, { slow: true });
                 await yieldToApp();
             }
         }
-        return bad;
     }
 
     // Som decryptDatabase. Utan WebCrypto, eller om ett anrop misslyckas, går det i ren JS i samma array, i bitar.
@@ -514,13 +558,19 @@
         if (!first.hmacOk) throw wrongKey(profile);
         out.set(first.bytes, 0);
         var subtle = subtleOf(opts);
-        var bad = null;
+        var t = null;
         if (subtle) {
-            try { bad = await decryptRest(subtle, keys, profile, db, out, opts); }
-            catch (e) { if (isOutOfMemory(e)) throw e; }
+            try {
+                var fast = tally();
+                await decryptRest(subtle, keys, profile, db, out, opts, fast);
+                t = fast;
+            } catch (e) { if (isOutOfMemory(e)) throw e; }
         }
-        if (bad === null) bad = await decryptRestSlow(keys, profile, db, out, opts);
-        return { bytes: out, keys: keys, profile: profile, stats: { pages: pages, badHmac: bad } };
+        if (!t) {
+            t = tally();
+            await decryptRestSlow(keys, profile, db, out, opts, t);
+        }
+        return { bytes: out, keys: keys, profile: profile, stats: statsOf(pages, t) };
     }
 
     // Ramarna som ska läggas på, dekrypterade i förväg. Sida 1 har ett huvud och dekrypteras när den läggs på.
@@ -553,7 +603,7 @@
     // Som open, och med samma resultat, men med WebCrypto när det finns. opts som decryptDatabaseAsync.
     async function openAsync(db, wal, passphrase, profileName, SqliteWal, opts) {
         var dec = await decryptDatabaseAsync(db, passphrase, profileName, opts);
-        var cipherStats = { profile: dec.profile.label, settings: dec.profile.settings, pages: dec.stats.pages, badHmac: dec.stats.badHmac, walPages: 0, walBadHmac: 0 };
+        var cipherStats = cipherStatsOf(dec);
         var Wal = SqliteWal || root.SqliteWal || (typeof module !== 'undefined' && module.exports ? require('./wal.js') : null);
         var walBytes = wal instanceof Uint8Array ? wal : new Uint8Array(wal || 0);
         var planned = Wal.plan(dec.bytes, walBytes);
@@ -570,6 +620,17 @@
         return merged;
     }
 
+    // Sidorna med fel HMAC i ord: antalet, och vilka så långt numren är sparade. "1 sida (sida 7)",
+    // "3 sidor (sida 7, 9 och 1 i -wal)".
+    function badText(c) {
+        var bad = c.badHmac + c.walBadHmac;
+        var listed = c.badPages || [];
+        var parts = [];
+        if (listed.length) parts.push('sida ' + listed.join(', ') + (c.badHmac > listed.length ? ' med flera' : ''));
+        if (c.walBadHmac) parts.push(c.walBadHmac + ' i -wal');
+        return (bad === 1 ? '1 sida' : bad + ' sidor') + (parts.length ? ' (' + parts.join(' och ') + ')' : '');
+    }
+
     // Raden till protokollet om hur databasen dekrypterades.
     function summary(stats, keySource) {
         var c = stats && stats.cipher;
@@ -577,12 +638,14 @@
         var from = keySource === 'inklistrad' ? 'den inklistrade nyckeln' : 'nyckeln ur ' + (keySource || 'okänd källa');
         var text = 'Dekrypterad i minnet (SQLCipher, ' + (c.settings || c.profile + 's inställningar') + ') med ' + from + ': ' + c.pages + ' sidor' + (c.walPages ? ' och ' + c.walPages + ' sidor ur -wal' : '') + '.';
         var bad = c.badHmac + c.walBadHmac;
-        text += bad ? ' Kontrollsumman (HMAC) stämde inte för ' + bad + ' sidor: de kan vara skadade.' : ' Kontrollsumman (HMAC) stämde för alla sidor.';
+        text += bad ? ' Kontrollsumman (HMAC) stämde inte för ' + badText(c) + ': ' + (bad === 1 ? 'den kan vara skadad.' : 'de kan vara skadade.') : ' Kontrollsumman (HMAC) stämde för alla sidor.';
+        if (c.lockPage) text += ' Sida ' + c.lockPage + ' är tom och räknas inte: det är sidan vid 1 GB, som SQLite aldrig skriver på.';
         return text;
     }
 
     var api = {
-        PROFILES: PROFILES, isPlain: isPlain, isEncrypted: isEncrypted, decryptDatabase: decryptDatabase, decryptDatabaseAsync: decryptDatabaseAsync, decryptPage: decryptPage, keysFor: keysFor, open: open, openAsync: openAsync, summary: summary,
+        PROFILES: PROFILES, isPlain: isPlain, isEncrypted: isEncrypted, decryptDatabase: decryptDatabase, decryptDatabaseAsync: decryptDatabaseAsync, decryptPage: decryptPage, keysFor: keysFor, open: open, openAsync: openAsync, summary: summary, badText: badText,
+        lockPage: function (profileName, opts) { return lockPageOf(profileOf(profileName), opts); },
         expandKey: expandKey, encryptBlock: encryptBlock, decryptBlock: decryptBlock, cbcDecrypt: cbcDecrypt, ctr: ctr,
         hmac: hmac, pbkdf2: pbkdf2, hexToBytes: hexToBytes, bytesToHex: bytesToHex, base64ToBytes: base64ToBytes, utf8: utf8, reserveOf: reserveOf,
     };

@@ -1529,7 +1529,8 @@
         return cache.ssrm;
     }
 
-    // zones: batteryZones. Filen räknas med telefonens zon när zonen då filen skrevs stämmer med den.
+    // zones: batteryZones. Filen räknas med telefonens zon när zonen då filen skrevs stämmer med den, och som antagande
+    // när inget säger vilken zon filen har.
     async function samsungBattery(entry, cache, zones) {
         var name = ExtractionCore.baseName(entry.name);
         if (cache.battery[name]) return cache.battery[name];
@@ -1537,7 +1538,7 @@
         try {
             var t = await samsungText(entry);
             var z = zones && zones[name];
-            done = { entry: entry, read: t.read, parsed: ProvenanceSamsungLogs.parseBattery(t.text, name, { rules: z ? z.rules : null }), empty: !t.text.length };
+            done = { entry: entry, read: t.read, parsed: ProvenanceSamsungLogs.parseBattery(t.text, name, { rules: z ? z.rules || z.assumed : null }), empty: !t.text.length };
         } catch (err) { done = { entry: entry, read: null, parsed: null, error: err.message }; }
         cache.battery[name] = done;
         return done;
@@ -1646,7 +1647,9 @@
             var camNote = 'Kameran igång betyder att kameravyn visades, inte att en bild togs.';
             if (input.extraNotes.indexOf(camNote) < 0) input.extraNotes.push(camNote);
         }
-        if (got.noZone) input.warnings.push('Samsungs loggar: ' + got.noZone + ' rader saknar tidszon, varken SSRM eller filernas tider säger vilken, så de används inte.');
+        if (got.noZone) input.warnings.push('Samsungs loggar: ' + got.noZone + ' rader saknar tidszon. Varken SSRM, filernas tider eller telefonens inställda zon säger vilken, så de används inte.');
+        if (got.assumed) input.warnings.push('Samsungs loggar: ' + got.assumed + (got.assumed === 1 ? ' rad' : ' rader') + ' kring tidpunkten har ingen tidszon som loggarna själva visar. ' + (got.assumed === 1 ? 'Den' : 'De') + ' står bland händelserna med telefonens inställda zon ' + got.assumedZone +
+            ' som antagande och räknas inte i bedömningen. Kontrollera zonen, till exempel mot en händelse vars tid är känd, innan raderna används.');
         var zoneLine = samsungZoneLine(zone, rules, err && err.parsed, ssrm && ssrm.parsed, withTimes, zones);
         if (zone && zone.read) logSource(meta, zone.entry, 'Telefonens zon (persist.sys.timezone)', zone.read, 'Protobuf');
         if (ssrm && ssrm.parsed) {
@@ -1691,9 +1694,13 @@
         if (!rules) return 'Telefonens zon ' + zone.name + ' (persist.sys.timezone) är okänd här, så zonen kommer ur loggarnas egna rader.';
         var chk = ProvenanceSamsungLogs.zoneCheck(rules, { err: errParsed, ssrm: ssrmParsed, battery: withTimes });
         var files = Object.keys(zones).filter(function (n) { return zones[n].rules; }).length;
+        var guessed = Object.keys(zones).filter(function (n) { return zones[n].assumed; }).length;
+        var noRtc = !!ssrmParsed && !ssrmParsed.offsets.length;
+        var guess = (guessed ? ' I ' + guessed + (guessed === 1 ? ' fil' : ' filer') + ' säger varken ändringstiden eller SSRM vilken zon filen har.' : '') + (noRtc ? ' SSRM har ingen rad [RTC].' : '') +
+            (guessed || noRtc ? ' De raderna är räknade med telefonens zon som antagande: de visas, men räknas inte i bedömningen.' : '');
         return 'Telefonens zon: ' + zone.name + ' (persist.sys.timezone). ' + chk.agree + ' av ' + chk.total + ' zoner i loggarna stämmer med den' +
             (chk.differ.length ? ' (inte: ' + chk.differ.join('; ') + ')' : '') + '. Batterihistorikens rader räknas om med förskjutningen vid sin tid, sommar- eller vintertid, i ' + files + ' av ' + Object.keys(zones).length + ' filer: de där zonen när filen skrevs stämmer med telefonens. ' +
-            'SSRM:s rader räknas om så när [RTC] före och efter stämmer med zonen. Timmen som går två gånger när sommartiden slutar är osäker, utom där raderna visar vilket varv det är.';
+            'SSRM:s rader räknas om så när [RTC] före och efter stämmer med zonen. Timmen som går två gånger när sommartiden slutar är osäker, utom där raderna visar vilket varv det är.' + guess;
     }
 
     // Råraderna i fönstret, i filens ordning och en gång var. Batterihistorikens äldre form saknar klockslag, så ankaret står med.

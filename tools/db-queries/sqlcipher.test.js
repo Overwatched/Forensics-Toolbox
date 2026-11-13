@@ -279,3 +279,63 @@ test('openAsync: slut på minne kastas vidare i stället för ett nytt försök'
     await assert.rejects(sc.openAsync(enc, encryptedWal(k, await makeDb(60), salt), PASS, 'signal', wal, { subtle: later }), (e) => e === oom);
     assert.ok(imports > 2);
 });
+
+// ---------- Låssidan ----------
+
+test('låssidan: sidan vid 1 GB, som SQLite aldrig skriver på, räknas inte som skadad när den är tom (Android och iOS)', async () => {
+    assert.strictEqual(sc.lockPage('signal'), 262145);
+    assert.strictEqual(sc.lockPage('signal-ios'), 262145);
+    const raw = crypto.randomBytes(48);
+    const cases = [
+        { profile: 'signal', pass: PASS, plain: await makeDb(60) },
+        { profile: 'signal-ios', pass: raw.toString('hex'), plain: await makeDbIos(60) },
+    ];
+    // Testet låtsas att låsbyten ligger i sida 3, så att databasen inte behöver vara på 1 GB.
+    const opts = { lockByte: 2 * PAGE + 17 };
+    const none = new Uint8Array(0);
+    for (const c of cases) {
+        const enc = c.profile === 'signal' ? encryptDb(c.plain, c.pass, crypto.randomBytes(16)).bytes : encryptDbIos(c.plain, raw).bytes;
+        const pages = enc.length / PAGE;
+        assert.ok(pages >= 5, 'flera sidor');
+        assert.strictEqual(sc.lockPage(c.profile, opts), 3);
+        const hole = enc.slice();
+        hole.fill(0, 2 * PAGE, 3 * PAGE);
+        const expected = Buffer.from(c.plain);
+        expected.fill(0, 2 * PAGE, 3 * PAGE);
+
+        // Utan låssida på den platsen är en tom sida en skadad sida, och den sägs ut med sitt nummer.
+        const plainly = sc.open(hole, none, c.pass, c.profile, wal);
+        assert.strictEqual(plainly.stats.cipher.badHmac, 1);
+        assert.deepStrictEqual(plainly.stats.cipher.badPages, [3]);
+        assert.match(sc.summary(plainly.stats, 'nyckelringen'), /Kontrollsumman \(HMAC\) stämde inte för 1 sida \(sida 3\): den kan vara skadad\.$/);
+
+        const want = sc.open(hole, none, c.pass, c.profile, wal, opts);
+        assert.deepStrictEqual(Buffer.from(want.bytes), expected, c.profile + ': låssidan är tom, resten som förut');
+        assert.strictEqual(want.stats.cipher.badHmac, 0);
+        assert.strictEqual(want.stats.cipher.badPages, undefined);
+        assert.strictEqual(want.stats.cipher.lockPage, 3);
+        assert.match(sc.summary(want.stats, 'nyckelringen'), /Kontrollsumman \(HMAC\) stämde för alla sidor\. Sida 3 är tom och räknas inte: det är sidan vid 1 GB, som SQLite aldrig skriver på\.$/);
+        for (const more of [{ subtle: countingSubtle() }, { subtle: countingSubtle(), batchPages: 1 }, { subtle: countingSubtle(), batchPages: 2 }, { subtle: null },
+            { subtle: { importKey: () => Promise.reject(new Error('går inte')) } }]) {
+            const got = await sc.openAsync(hole, none, c.pass, c.profile, wal, Object.assign({}, opts, more));
+            assert.deepStrictEqual(Buffer.from(got.bytes), expected, c.profile + ' ' + JSON.stringify(Object.keys(more)) + ' ' + more.batchPages);
+            assert.deepStrictEqual(got.stats, want.stats);
+        }
+
+        // En låssida som inte är tom och inte stämmer räknas som förut, och en hel databas säger inget om låssidan.
+        const dirty = hole.slice();
+        dirty[2 * PAGE + 9] = 1;
+        assert.strictEqual(sc.open(dirty, none, c.pass, c.profile, wal, opts).stats.cipher.badHmac, 1);
+        assert.strictEqual((await sc.openAsync(dirty, none, c.pass, c.profile, wal, opts)).stats.cipher.badHmac, 1);
+        const whole = sc.open(enc, none, c.pass, c.profile, wal, opts);
+        assert.deepStrictEqual(Buffer.from(whole.bytes), Buffer.from(c.plain));
+        assert.strictEqual(whole.stats.cipher.lockPage, undefined);
+    }
+});
+
+test('skadade sidor i ord: antalet, numren på de första och hur många som ligger i -wal', () => {
+    assert.strictEqual(sc.badText({ badHmac: 1, walBadHmac: 0, badPages: [7] }), '1 sida (sida 7)');
+    assert.strictEqual(sc.badText({ badHmac: 2, walBadHmac: 1, badPages: [7, 9] }), '3 sidor (sida 7, 9 och 1 i -wal)');
+    assert.strictEqual(sc.badText({ badHmac: 8, walBadHmac: 0, badPages: [2, 3, 4, 5, 6] }), '8 sidor (sida 2, 3, 4, 5, 6 med flera)');
+    assert.strictEqual(sc.badText({ badHmac: 0, walBadHmac: 2 }), '2 sidor (2 i -wal)');
+});

@@ -951,6 +951,35 @@ test('Samsung: en rad med osäker tid räknas inte, och faktorn säger varför',
     assert.ok(/tidszonen bytte under loggens gång, så tiden kan ligga 1 h 0 min fel/.test(textOf(zone.factors.find((x) => x.id === 'camera'))));
 });
 
+test('Samsung: rader med antagen zon räknas inte, och faktorn säger vad de säger och att zonen ska kontrolleras', () => {
+    const guess = { stream: 'SSRM', clockMs: 0, zoneMs: 0, assumed: 'Europe/Stockholm', source: SSRM_SRC };
+    const unsure = [
+        Object.assign({ what: 'camera', startMs: T - 8 * S, endMs: T + 5 * S, app: SAM_CAM }, guess),
+        Object.assign({ what: 'app', startMs: T - 9 * S, endMs: T + 5 * S, app: SAM_CAM }, guess),
+        Object.assign({ what: 'screen', startMs: T - 3 * M, endMs: T + 3 * M, on: true }, guess, { stream: 'batterihistoriken', source: BATTERY_SRC }),
+    ];
+    const m = core.build(samsungInput({ appIntervals: [], screen: [], cameraUse: [], logUnsure: unsure }));
+    const f = Object.fromEntries(m.factors.map((x) => [x.id, x]));
+    assert.deepStrictEqual([f.app.state, f.camera.state, f.screen.state], ['missing', 'missing', 'missing'], 'antagandet ger inget stöd');
+    assert.match(textOf(f.camera), /Med telefonens inställda zon Europe\/Stockholm som antagande har SSRM de här raderna kring tidpunkten: Samsung Kamera använder kameran \S+ \S+ UTC till \S+ \S+ UTC\. Loggen visar inte själv zonen, så de räknas inte i bedömningen: kontrollera zonen först\. Raderna står bland händelserna\./);
+    assert.match(textOf(f.app), /som antagande har SSRM de här raderna kring tidpunkten: Samsung Kamera i förgrunden /);
+    assert.match(textOf(f.screen), /som antagande har batterihistoriken de här raderna kring tidpunkten: Skärmen tänd /);
+    const rows = m.events.filter((e) => e.kind === 'log-unsure');
+    assert.deepStrictEqual(rows.map((e) => e.text).sort(), ['Samsung Kamera använder kameran (SSRM, zonen antagen: Europe/Stockholm)', 'Samsung Kamera i förgrunden (SSRM, zonen antagen: Europe/Stockholm)', 'Skärmen tänd (batterihistoriken, zonen antagen: Europe/Stockholm)']);
+    // Loggen går inte att lägga i tiden, så faktorn säger inte att den saknar något vid tidpunkten.
+    const cov = samsungInput().coverage;
+    const lost = core.build(samsungInput({ appIntervals: [], screen: [], cameraUse: [], logUnsure: unsure, coverage: Object.assign({}, cov, { SSRM: { firstMs: null, lastMs: null, rows: 100, gaps: [], noZone: true } }) }));
+    const lostText = textOf(lost.factors.find((x) => x.id === 'camera'));
+    assert.match(lostText, /SSRM går inte att lägga i tiden: loggen säger inte vilken tidszon dess tider står i\./);
+    assert.ok(!/SSRM har inget om det vid tidpunkten/.test(lostText), lostText);
+    // En rad en timme bort nämns inte: antagandet prövas inte genom att flytta raden.
+    const far = core.build(samsungInput({ appIntervals: [], screen: [], cameraUse: [], logUnsure: [Object.assign({}, unsure[0], { startMs: T - 3600 * S, endMs: T - 3590 * S })] }));
+    assert.ok(!/antagande/.test(textOf(far.factors.find((x) => x.id === 'camera'))));
+    // En rad med säker tid vid T går före: antagandet nämns inte.
+    const safe = core.build(samsungInput({ logUnsure: unsure }));
+    assert.ok(safe.factors.every((x) => !/antagande/.test(textOf(x))));
+});
+
 test('Samsung: utan registrering säger faktorn vad varje logg täcker', () => {
     const m = core.build(samsungInput({ appIntervals: [], screen: [], cameraUse: [], coverage: {
         usagestats: { firstMs: T + 200 * 86400 * S, lastMs: T + 201 * 86400 * S },

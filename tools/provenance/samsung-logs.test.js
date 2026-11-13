@@ -881,6 +881,44 @@ test('batterihistoriken med telefonens zon: raderna över sommartidens slut får
     assert.ok(old.unsure.length >= 3 && old.unsure.every((u) => u.zoneMs === 3600000));
 });
 
+test('ingen logg säger zonen: med telefonens zon som antagande visas raderna men räknas inte, och utan den används de inte', () => {
+    // SSRM utan en enda rad [RTC], och en batterifil utan ändringstid: inget i loggarna säger vilken zon tiderna står i.
+    const text = SSRM_A.split('\n').filter((l) => !/\[RTC\]/.test(l)).join('\n');
+    const files = [{ name: 'data/log/batterystats/newbatterystats260930083000', mtimeMs: null }];
+    const name = 'newbatterystats260930083000';
+    const day = [{ startMs: L(2026, 5, 22), endMs: L(2026, 5, 23) }, { startMs: L(2026, 9, 30), endMs: L(2026, 10, 1) }];
+
+    const zones = logs.batteryZones(files, [], STHLM);
+    assert.deepStrictEqual([zones[name].offsetMinutes, zones[name].rules, zones[name].assumed.name], [null, null, 'Europe/Stockholm']);
+    const ssrm = logs.parseSsrm([{ name: 'ssrm_heating_5.log', text }], { rules: STHLM });
+    assert.deepStrictEqual(ssrm.offsets, []);
+    const battery = logs.parseBattery(CLOCK, name, { rules: zones[name].assumed });
+    const got = logs.collect({ windows: day, ssrm, battery: [battery], zones, primary: [], rules: STHLM });
+    assert.deepStrictEqual([got.apps, got.screen, got.camera, got.noZone], [[], [], [], 0], 'inget räknas, och inget tappas');
+    assert.ok(got.unsure.length > 0 && got.unsure.every((u) => u.assumed === 'Europe/Stockholm'));
+    assert.deepStrictEqual([got.assumed, got.assumedZone], [got.unsure.length, 'Europe/Stockholm']);
+    // Tiderna är räknade med sommartid i Stockholm, två timmar före UTC.
+    const cam = got.unsure.filter((u) => u.what === 'camera' && u.stream === 'SSRM');
+    assert.deepStrictEqual(cam.map((c) => [c.app, c.startMs, c.endMs]).slice(0, 1), [['org.example.chat', L(2026, 5, 22, 10, 24, 57), L(2026, 5, 22, 10, 25, 0)]]);
+    const lit = got.unsure.filter((u) => u.what === 'screen' && u.on && u.stream === 'batterihistoriken');
+    assert.ok(lit.some((s) => s.startMs === L(2026, 9, 30, 6, 22, 31)), JSON.stringify(lit.map((s) => s.startMs)));
+    assert.ok(got.usedSsrm['ssrm_heating_5.log'] && got.usedBattery[name], 'råraderna står i bilagan');
+    // Täckningen bygger inte på antagandet: att loggen saknar en rad får inte bli ett besked.
+    const sCov = logs.ssrmCoverage(ssrm, STHLM), bCov = logs.batteryCoverage(files, zones, { [name]: battery });
+    assert.deepStrictEqual([sCov.firstMs, sCov.noZone, bCov.firstMs, bCov.noZone], [null, true, null, true]);
+    assert.strictEqual(logs.ssrmCoverage(logs.parseSsrm([{ name: 'ssrm_heating_5.log', text: SSRM_A }], { rules: STHLM }), STHLM).noZone, undefined, 'en logg med zon säger inget om det');
+
+    // Utan telefonens zon finns inget att anta.
+    const bare = logs.collect({ windows: day, ssrm: logs.parseSsrm([{ name: 'ssrm_heating_5.log', text }]), battery: [logs.parseBattery(CLOCK, name)], zones: logs.batteryZones(files, []), primary: [] });
+    assert.deepStrictEqual([bare.unsure, bare.assumed], [[], 0]);
+    assert.ok(bare.noZone > 0);
+
+    // En logg som själv visar zonen räknas som förut, också med telefonens zon känd.
+    const known = logs.collect({ windows: day, ssrm: logs.parseSsrm([{ name: 'ssrm_heating_5.log', text: SSRM_A }], { rules: STHLM }), battery: [], zones: {}, primary: [], rules: STHLM });
+    assert.deepStrictEqual([known.assumed, known.unsure.length], [0, 0]);
+    assert.ok(known.camera.length > 0);
+});
+
 test('batterihistoriken med telefonens zon: i den äldre formen räknas raderna från ankarets UTC, och bytet är inget steg', () => {
     const text = [
         '                    0 (19) RESET:TIME: 2026-10-25-01-30-00',

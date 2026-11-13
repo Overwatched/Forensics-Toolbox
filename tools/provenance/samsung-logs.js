@@ -877,6 +877,8 @@
     // ändringstid. Utan telefonens zon: har förskjutningen bytts sedan förra filen spänner filen över bytet (sommartid eller
     // en resa), och då går det inte att säga vilken sida en rad hör till. Med telefonens zon (rules) räknas raderna om med
     // zonens regler när förskjutningen då filen skrevs stämmer med den (rules i svaret). entries är sorterade och har mtimeMs.
+    // Säger varken filens tider eller SSRM något om zonen finns bara telefonens inställda zon att gå på (assumed i svaret):
+    // den är ett antagande om vad som gällde då, inte något loggen visar, så raderna visas men räknas inte (collect).
     function batteryZones(entries, ssrmOffsets, rules) {
         var out = {};
         var prev = null;
@@ -888,7 +890,7 @@
             var unsure = viaSsrm ? viaSsrm.unsureMs : 0;
             if (prev != null && offset != null && prev !== offset) unsure = Math.max(unsure, Math.abs(prev - offset) * MINUTE);
             var fits = !!rules && offset != null && (own != null ? rules.offsetAt(e.mtimeMs) === own : !viaSsrm.unsureMs && agrees(rules, { localMs: nameMs, offsetMinutes: offset }));
-            out[baseName(e.name)] = { offsetMinutes: offset, unsureMs: unsure, oldest: i === 0, nameMs: nameMs, rules: fits ? rules : null };
+            out[baseName(e.name)] = { offsetMinutes: offset, unsureMs: unsure, oldest: i === 0, nameMs: nameMs, rules: fits ? rules : null, assumed: rules && offset == null ? rules : null };
             if (offset != null) prev = offset;
         });
         return out;
@@ -896,6 +898,9 @@
 
     // En tolkad batterifil räknad med telefonens zon, som också gäller filen?
     function byRules(z, p) { return !!(z && z.rules && p && p.rules === z.rules.name); }
+
+    // En tolkad batterifil räknad med telefonens zon som antagande, för att inget säger vilken zon filen har?
+    function byGuess(z, p) { return !!(z && z.assumed && p && p.rules === z.assumed.name); }
 
     // Den äldsta filen har ingen fil före sig att jämföra zonen med, så rader långt före filens namn är osäkra.
     function batteryZoneAt(z, localMs) {
@@ -939,6 +944,7 @@
                 if (iv.endMs >= last.endMs) { last.endMs = iv.endMs; last.to = iv.to; last.openEnded = iv.openEnded; }
                 last.clockMs = Math.max(last.clockMs || 0, iv.clockMs || 0);
                 last.zoneMs = Math.max(last.zoneMs, iv.zoneMs);
+                if (iv.assumed) last.assumed = iv.assumed;
             } else {
                 out.push(Object.assign({}, iv));
             }
@@ -951,9 +957,11 @@
     //   telefonens egen logg (primary: usagestats eller Wellbeing), sedan SSRM, sist batterihistoriken. Kameran har ingen
     //   sådan ordning: där är flera oberoende källor just det undersökaren vill se.
     // - En rad vars tid är osäker hamnar i unsure och räknas inte i bedömningen.
+    // - En rad vars zon ingen logg säger räknas med telefonens inställda zon som antagande (assumed: zonens namn) och
+    //   hamnar också i unsure. Utan telefonens zon går raden inte att lägga i tiden alls (noZone).
     // opts: { windows: [{ startMs, endMs }], ssrm, battery: [parsed], zones, primary: [{ startMs, endMs }], rules }
     function collect(opts) {
-        var out = { apps: [], screen: [], camera: [], unsure: [], usedSsrm: {}, usedBattery: {}, ssrmRows: [], batteryRows: [], noZone: 0 };
+        var out = { apps: [], screen: [], camera: [], unsure: [], usedSsrm: {}, usedBattery: {}, ssrmRows: [], batteryRows: [], noZone: 0, assumed: 0, assumedZone: null };
         var offsets = opts.ssrm ? opts.ssrm.offsets : [];
         var primary = opts.primary || [];
         var sRules = ssrmRules(opts.ssrm, opts.rules);
@@ -966,10 +974,11 @@
             if (what === 'camera' && iv.byUid) row.byUid = true;
             if (what === 'screen') row.on = iv.on;
             row.source = stream === 'SSRM' ? sourceOf('SSRM', 'ssrm-heating', iv) : sourceOf('batterihistoriken', 'batterystats-history', iv);
-            if (zoneMs > 0 || clockMs > CLOCK_LIMIT_MS) {
+            if (zoneMs > 0 || clockMs > CLOCK_LIMIT_MS || iv.assumed) {
                 row.what = what;
                 row.clockMs = clockMs;
                 row.zoneMs = zoneMs;
+                if (iv.assumed) { row.assumed = iv.assumed; out.assumed++; out.assumedZone = iv.assumed; }
                 out.unsure.push(row);
             } else if (what === 'app') out.apps.push(row);
             else if (what === 'screen') out.screen.push(row);
@@ -985,14 +994,20 @@
             [['app', opts.ssrm.apps], ['screen', opts.ssrm.screen], ['camera', opts.ssrm.camera]].forEach(function (pair) {
                 pair[1].forEach(function (iv) {
                     var a = ssrmZone(offsets, sRules, iv.startLocal, iv.startUtc, iv.startTwice);
-                    if (!a) { out.noZone++; return; }
                     var b = iv.endLocal != null ? ssrmZone(offsets, sRules, iv.endLocal, iv.endUtc, iv.endTwice) : a;
-                    if (!b) { out.noZone++; return; }
+                    var guess = null;
+                    // Loggen har ingen rad med zon alls: då är tiden räknad med telefonens zon ett antagande.
+                    if ((!a || !b) && sRules && iv.startUtc != null && (iv.endLocal == null || iv.endUtc != null)) {
+                        a = { ms: iv.startUtc, unsureMs: iv.startTwice ? 60 * MINUTE : 0 };
+                        b = iv.endLocal != null ? { ms: iv.endUtc, unsureMs: iv.endTwice ? 60 * MINUTE : 0 } : a;
+                        guess = sRules.name;
+                    }
+                    if (!a || !b) { out.noZone++; return; }
                     var startMs = a.ms;
                     var endMs = iv.endLocal != null ? b.ms : null;
                     if (!inRange(startMs, endMs)) return;
                     if (pair[0] !== 'camera' && inSpan(primary, startMs, endMs != null ? endMs : startMs)) return;
-                    take(pair[0], iv, 'SSRM', startMs, endMs, Math.max(a.unsureMs, b.unsureMs));
+                    take(pair[0], guess ? Object.assign({}, iv, { assumed: guess }) : iv, 'SSRM', startMs, endMs, Math.max(a.unsureMs, b.unsureMs));
                 });
             });
         }
@@ -1000,11 +1015,14 @@
         (opts.battery || []).forEach(function (p) {
             var z = (opts.zones || {})[baseName(p.name)];
             var rulesHere = byRules(z, p);
+            var guess = !rulesHere && byGuess(z, p) ? z.assumed.name : null;
             [['app', p.apps], ['screen', p.screen], ['camera', p.camera]].forEach(function (pair) {
                 pair[1].forEach(function (iv) {
                     // Med telefonens zon är raden räknad med förskjutningen vid sin tid. Bara timmen som går två gånger är osäker.
-                    if (rulesHere && iv.startUtc != null && iv.endUtc != null) {
-                        parts[pair[0]].push(Object.assign({}, iv, { startMs: iv.startUtc, endMs: iv.endUtc, zoneMs: iv.startTwice || iv.endTwice ? 60 * MINUTE : 0 }));
+                    if ((rulesHere || guess) && iv.startUtc != null && iv.endUtc != null) {
+                        var part = Object.assign({}, iv, { startMs: iv.startUtc, endMs: iv.endUtc, zoneMs: iv.startTwice || iv.endTwice ? 60 * MINUTE : 0 });
+                        if (guess) part.assumed = guess;
+                        parts[pair[0]].push(part);
                         return;
                     }
                     var a = batteryZoneAt(z, iv.startLocal);
@@ -1025,17 +1043,19 @@
     }
 
     // Täckningen i UTC, och hålen i den: tiden mellan två delar av SSRM-loggen (telefonen var avstängd, eller inte upplåst
-    // efter en omstart: loggen ligger i appens krypterade lagring).
+    // efter en omstart: loggen ligger i appens krypterade lagring). noZone: loggen har rader, men inget säger deras zon.
     function ssrmCoverage(parsed, rules) {
         var list = spansUtc(parsed.spans, parsed.offsets, ssrmRules(parsed, rules));
         var gaps = [];
         list.forEach(function (s, i) { if (i && s.startMs > list[i - 1].endMs) gaps.push({ startMs: list[i - 1].endMs, endMs: s.startMs }); });
-        return { firstMs: list.length ? list[0].startMs : null, lastMs: list.length ? list[list.length - 1].endMs : null, rows: parsed.rows, gaps: gaps };
+        var cov = { firstMs: list.length ? list[0].startMs : null, lastMs: list.length ? list[list.length - 1].endMs : null, rows: parsed.rows, gaps: gaps };
+        if (parsed.spans.length && !list.length) cov.noZone = true;
+        return cov;
     }
 
     // Batterihistorikens täckning: från den äldsta filens första rad till den nyaste filens namn. Filen ska täcka tiden från
     // förra filens namn, men historiken har ett tak och de äldsta raderna kan vara borta. Då är tiden däremellan ett hål.
-    // parsed: { filnamn: tolkad fil } för de filer som är lästa; bara deras hål är kända.
+    // parsed: { filnamn: tolkad fil } för de filer som är lästa; bara deras hål är kända. noZone: ingen fil har en zon.
     function batteryCoverage(entries, zones, parsed) {
         var list = entries || [];
         // Filnamnets tid är lokal i zonen när filen skrevs. Med telefonens zon räknas den om med förskjutningen just då.
@@ -1062,11 +1082,13 @@
             if (from != null && to != null && late > MINUTE) gaps.push({ startMs: from, endMs: to });
         });
         var first = list.length ? parsed[baseName(list[0].name)] : null;
-        return {
+        var cov = {
             firstMs: first && first.firstLocal != null ? firstUtc(list[0], first) : null,
             lastMs: list.length ? nameUtc(list[list.length - 1]) : null,
             gaps: gaps,
         };
+        if (list.length && list.every(function (e) { var z = zones[baseName(e.name)]; return !z || (z.offsetMinutes == null && !z.rules); })) cov.noZone = true;
+        return cov;
     }
 
     var api = {

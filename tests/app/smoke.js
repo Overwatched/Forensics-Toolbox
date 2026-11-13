@@ -1402,6 +1402,37 @@ const scenarios = [
         return 'batterihistoriken, SSRM, en flyttad klocka och eRR.p, också i Queries';
     }],
 
+    ['Samsung: säger ingen logg sin zon står raderna med telefonens inställda zon som antagande, och räknas inte', async ({ c, fx }) => {
+        await c.nav('Härkomst');
+        await c.ev(PROV, `document.getElementById('ex-close').click(), 1`);
+        await c.setFiles(null, '#cb-input', [fx.files.samsungNoZone]);
+        await c.ev(null, `document.getElementById('cb-input').dispatchEvent(new Event('change')), 1`);
+        await c.waitFor(PROV, `!ProvenanceApp.busy() && document.getElementById('ex-status').textContent.includes('Testextraktion-Samsung-utan-zon.zip') && /databas(er)? hittades/.test(document.getElementById('ex-status').textContent)`, 60000, 'Samsung-zippen utan zon');
+        const detail = () => c.ev(PROV, `(function(){ const m = ProvenanceApp.model(); return { factors: Object.fromEntries(m.factors.map(f => [f.id, { state: f.state, text: f.items.map(i => i.text).join(' ') }])), warnings: m.warnings, kinds: m.events.map(e => e.kind + '/' + (e.stream || '')),
+            events: [...document.querySelectorAll('#events tbody tr')].map(r => r.textContent) }; })()`);
+
+        // SSRM har raderna kring tiden, men ingen rad [RTC]: zonen är telefonens inställda, som antagande.
+        const one = await assessNamed(c, 'chatt_kamera.jpg');
+        expect(one.f.camera.state === 'missing' && one.f.app.state === 'missing' && one.f.screen.state === 'missing', 'Antagen zon gav stöd: ' + JSON.stringify(one.f));
+        let d = await detail();
+        expect(/Med telefonens inställda zon Europe\/Stockholm som antagande har SSRM de här raderna kring tidpunkten: org\.example\.chat i förgrunden 2026-05-22 10:21:10 UTC till/.test(d.factors.camera.text) && /kontrollera zonen först/.test(d.factors.camera.text), 'Kamera: ' + d.factors.camera.text);
+        expect(/SSRM går inte att lägga i tiden: loggen säger inte vilken tidszon/.test(d.factors.camera.text) && !/har inget om det vid tidpunkten/.test(d.factors.camera.text), 'Täckningen: ' + d.factors.camera.text);
+        expect(/räknas inte i bedömningen: kontrollera zonen först/.test(d.factors.app.text) && /de här raderna kring tidpunkten: Skärmen tänd/.test(d.factors.screen.text), 'App och skärm: ' + d.factors.app.text + ' / ' + d.factors.screen.text);
+        expect(d.events.some((r) => /SSRM, zonen antagen: Europe\/Stockholm/.test(r) && /camera running :: true/.test(r)), 'Raderna: ' + d.events.join(' / '));
+        expect(!d.kinds.some((k) => /^(app|screen)\/(SSRM|batterihistoriken)$/.test(k)), 'Rader med antagen zon räknades: ' + d.kinds);
+        expect(d.warnings.some((w) => /^Samsungs loggar: \d+ rader kring tidpunkten har ingen tidszon som loggarna själva visar\. De står bland händelserna med telefonens inställda zon Europe\/Stockholm som antagande och räknas inte i bedömningen\. Kontrollera zonen/.test(w)), 'Varningen: ' + d.warnings.join(' / '));
+        expect(!d.warnings.some((w) => /så de används inte/.test(w)), 'Rader tappades: ' + d.warnings.join(' / '));
+
+        // Batterihistoriken: filens ändringstid saknas, så inget säger filens zon.
+        const two = await assessNamed(c, '20260312_133111.jpg');
+        expect(two.f.camera.state === 'missing' && two.f.app.state === 'missing' && two.f.screen.state === 'missing', 'Antagen zon gav stöd: ' + JSON.stringify(two.f));
+        d = await detail();
+        expect(/Europe\/Stockholm som antagande har batterihistoriken de här raderna kring tidpunkten/.test(d.factors.camera.text), 'Kamera: ' + d.factors.camera.text);
+        expect(d.events.some((r) => /batterihistoriken, zonen antagen: Europe\/Stockholm/.test(r) && /\+camera/.test(r)), 'Raderna: ' + d.events.join(' / '));
+        await noInjectedScript(c);
+        return 'SSRM utan [RTC] och batterifiler utan ändringstid: raderna visas, räknas inte, och varningen säger antagandet';
+    }],
+
     ['Laboration: standardflöden blir steg, tangenterna loggar dem med klockan, väntan stoppar trycken, och tabellen, CSV-filen och loggen stämmer', async ({ c, downloads }) => {
         const LAB = 'lab/index.html';
         const NAME = 'Samsung <img src=x onerror=window.__ftxss=1>';
