@@ -20,7 +20,7 @@
 
     // rows: listans bedömda rader (takeKept). md5: MD5 per SHA-256 (md5For). parked: Signals databaser medan nyckeln
     // är borttagen (dropCipherDbs). Allt ligger i minnet och släpps när extraktionen stängs.
-    function newKept() { return { rows: new Map(), md5: new Map(), parked: {} }; }
+    function newKept() { return { rows: new Map(), md5: new Map(), parked: {}, fulls: new Set(), fullBytes: 0 }; }
 
     var state = {
         sources: null, databases: null, targets: null, toolVersion: '',
@@ -311,6 +311,7 @@
         state.loaded = {};
         Object.keys(state.kept.parked).forEach(function (k) { if (state.kept.parked[k].sqlDb) state.kept.parked[k].sqlDb.close(); });
         state.kept = newKept();
+        fullChanges++;
         keyStates.clear();
         state.tags = { map: new Map(), size: 0, early: new Map() };
         state.ahead = null;
@@ -640,7 +641,8 @@
     // Hur mycket som gjorts och hur mycket som återanvänts, för provkörningarna (ProvenanceApp.work).
     // loaded: databaser inlästa. rowsKept: rader i en lista som redan var bedömda. md5, md5Kept: MD5 uträknad och återanvänd.
     // freed: gånger en lista släppt fram fönstret. byRows: frågor i delar som skurits efter antal rader.
-    var work = { byRows: 0, asked: 0, reused: 0, parts: 0, exif: 0, exifReused: 0, logs: 0, logsReused: 0, indexBuilt: 0, indexed: 0, indexChecked: 0, loaded: 0, rowsKept: 0, md5: 0, md5Kept: 0, freed: 0 };
+    // shownKept: rader som öppnats ur underlaget som fanns kvar, utan att filen bedömdes igen.
+    var work = { byRows: 0, asked: 0, reused: 0, parts: 0, exif: 0, exifReused: 0, logs: 0, logsReused: 0, indexBuilt: 0, indexed: 0, indexChecked: 0, loaded: 0, rowsKept: 0, md5: 0, md5Kept: 0, freed: 0, shownKept: 0 };
 
     // Hela tiden: en fråga med det fönstret gäller hela loggen, inte den enskilda filen.
     var ALL_TIME = Object.freeze({ startMs: 0, endMs: 4102444800000 });
@@ -678,6 +680,8 @@
         if (key) {
             answer.rows.forEach(function (r) { if (r._raw) Object.freeze(r._raw); Object.freeze(r); });
             Object.freeze(answer.rows);
+            // Tiderna är frysta som märke: svaret finns en gång i minnet och räknas inte per fil (roughBytes).
+            Object.freeze(answer.times);
             (loaded.answers = loaded.answers || {})[key] = answer;
         }
         return answer;
@@ -1353,6 +1357,31 @@
         meta.thumbnail = thumb ? { path: thumb.path, size: thumb.size, crc32: thumb.crc32, crcOk: thumb.crcOk, mtime: thumb.mtime, sha256: thumb.sha256 } : null;
     }
 
+    // Bilden till kortet ur innehållet som ska visas (shown), och vad bildtexten säger om en av Signals bilagor (inner).
+    async function previewOf(shown, inner, libraryRow, platform, meta) {
+        try { await loadPreview({ name: shown.name, size: shown.size }, shown.bytes, libraryRow, platform, meta); }
+        catch (e) { state.preview = { source: 'none', kind: null, note: 'Bilden kunde inte visas: ' + e.message, url: null }; }
+        if (inner && inner.bytes && state.preview && state.preview.url) state.preview.note += ' Ur det dekrypterade innehållet.';
+        if (inner && inner.reason && state.preview && !state.preview.url) state.preview.note = inner.reason + '.';
+    }
+
+    // Bilden till kortet för ett underlag som finns kvar i minnet (showKept). Filen läses ur zippen en gång till,
+    // bara för bilden: summorna och EXIF står redan i underlaget och räknas inte om. libraryRow som i loadPreview.
+    async function previewForKept(meta, libraryRow) {
+        releasePreview();
+        var entry = meta.mediaEntry;
+        if (entry) {
+            try {
+                progress('Läser bilden ur ' + Z() + '…');
+                var bytes = entry.size > MAX_MEDIA ? null : (await ExtractionCore.readEntry(state.zip.read, entry)).bytes;
+                var inner = bytes ? await signalContent(entry, bytes) : null;
+                var shown = inner && inner.bytes ? { bytes: inner.bytes, name: entry.name + ProvenanceMedia.extForMime(inner.contentType), size: inner.bytes.length } : { bytes: bytes, name: entry.name, size: entry.size };
+                await previewOf(shown, inner, libraryRow, state.zip.platform, meta);
+            } catch (e) { state.preview = { source: 'none', kind: null, note: 'Bilden kunde inte läsas: ' + e.message, url: null }; }
+        }
+        if (!state.preview) state.preview = { source: 'none', kind: null, note: meta.fileMissingReason || 'Filen lästes inte ur ' + Z() + '.', url: null };
+    }
+
     // Bilden förminskad till en JPEG-data-URL för exporterna (längsta sidan 480 px). Ritas från
     // blob-URL:en, så det fungerar även när bilden är dold i kortet. null om den inte går att rita.
     function previewDataUrl() {
@@ -1541,6 +1570,8 @@
             if (!run.quiet) fillZoneSelect(fileRow);
         }
         var zone = zoneChoice(fileRow);
+        // Vad bedömningen gjordes med: fönstret, zonen som var vald, och om filen är en rad i bildbiblioteket (showKept, refill).
+        var asked = { windowMs: windowMs, zone: $('zone').value, library: !run.mediaEntry };
         var fmt = zone.format;
         var cams = cameraApps();
         var input = {
@@ -1556,7 +1587,7 @@
         [run.fileDb, run.neighbourDb].forEach(function (db, i, all) {
             if (db && all.indexOf(db) === i && db.warnings) input.warnings = input.warnings.concat(db.warnings);
         });
-        var meta = { sources: [], queries: run.queries, coverage: [], fileRows: [], exifRows: [], fileEntry: null, fileMissingReason: '', timelinePngs: [], copiesNote: '' };
+        var meta = { sources: [], queries: run.queries, coverage: [], fileRows: [], exifRows: [], fileEntry: null, fileMissingReason: '', timelinePngs: [], copiesNote: '', asked: asked };
 
         // Bildfilen: EXIF, CRC32, MD5, SHA-256, filsystemets tid och bilden till kortet.
         progress('Läser bildfilen ur ' + Z() + '…');
@@ -1630,12 +1661,7 @@
                     input.fileMissingReason = read.reason;
                     meta.fileMissingReason = read.reason;
                 }
-                if (!run.quiet) {
-                    try { await loadPreview({ name: shown.name, size: shown.size }, shown.bytes, run.mediaEntry ? null : fileRow, platform, meta); }
-                    catch (e) { state.preview = { source: 'none', kind: null, note: 'Bilden kunde inte visas: ' + e.message, url: null }; }
-                    if (inner && inner.bytes && state.preview && state.preview.url) state.preview.note += ' Ur det dekrypterade innehållet.';
-                    if (inner && inner.reason && state.preview && !state.preview.url) state.preview.note = inner.reason + '.';
-                }
+                if (!run.quiet) await previewOf(shown, inner, run.mediaEntry ? null : fileRow, platform, meta);
                 if (media.paired && media.paired.size <= MAX_MEDIA) {
                     try {
                         var pr = await readPaired(media.paired);
@@ -3877,10 +3903,12 @@
         meta.format = fmt;
         meta.formatUtc = ProvenanceCore.formatUtc;
         if (quiet) return { model: model, meta: meta };
+        // Underlaget som listan sparar det, innan visningen lägger till sitt (bilderna till exporten): se refill.
+        var plain = Object.assign({}, meta, { thumbnail: null, timelinePngs: [] });
         state.model = model;
         state.meta = meta;
         await render();
-        noteBatchDetail(model, meta);
+        noteBatchDetail(model, meta, plain);
         announceFile();
         return { model: model, meta: meta };
     }
@@ -4139,6 +4167,8 @@
         return { item: it, name: batchItemName(it), status: 'waiting', note: '', summary: null, key: null, target: null, thumbUrl: null };
     }
 
+    var batchCount = 0;
+
     // keep.filter: urvalet i listan som görs om, så att det står kvar.
     async function runBatch(items, origin, keep) {
         var z = state.zip;
@@ -4150,7 +4180,7 @@
         $('result').classList.add('display-none');
         fillZoneSelect(null, true);
         var b = state.batch = {
-            rows: items.map(batchRow),
+            id: ++batchCount, rows: items.map(batchRow),
             stop: false, running: false, prefix: '', current: -1, open: -1, origin: origin || '', urls: [],
             window: $('window').value, zone: $('zone').value, listNote: origin === 'names' ? state.listNote || '' : '',
             filter: keep && keep.filter ? keep.filter : { text: '', group: '' },
@@ -4200,8 +4230,7 @@
                 // Antalen i urvalet följer med, men räknas inte om för varje fil.
                 if (performance.now() - toolsAt > 250) { renderBatchTools(); toolsAt = performance.now(); }
                 await lookAhead(b, at, n, plan);
-                await batchOne(b.rows[i], b, plan.rows[n]);
-                keepRow(b.rows[i], b, keys);
+                keepRow(b.rows[i], b, keys, await batchOne(b.rows[i], b, plan.rows[n]));
                 releaseAhead(plan.ahead, plan.rows[n]);
                 plan.rows[n] = null;
                 ends.push(performance.now());
@@ -4260,10 +4289,9 @@
     // Avbilden ändras inte och läses på samma sätt varje gång, så samma post med samma fönster, zon och nycklar ger
     // samma underlag. Kommer raden igen (samma lista en gång till, en lista med fler namn, fönstret ställt tillbaka)
     // visas den som den bedömdes, utan att filen läses och frågorna ställs igen, och bara de nya raderna bedöms.
-    // Det som sparas är det listan visar och det ett klick behöver (vilken post raden gäller). Hela underlaget
-    // sparas inte: det är omkring 0,45 MB per fil, och ett klick på raden tar fram det igen. En rad som inte kunde
-    // bedömas eller avbröts sparas inte. Raden under listan säger hur många rader som var bedömda förut, och knappen
-    // där bedömer hela listan på nytt.
+    // Det som sparas är det listan visar, vilken post raden gäller och, för en fil som blev bedömd, hela underlaget
+    // (full, se keepFull). En rad som inte kunde bedömas eller avbröts sparas inte. Raden under listan säger hur
+    // många rader som var bedömda förut, och knappen där bedömer hela listan på nytt.
     function keptKey(row, b, keys) {
         var item = itemKey(row.item);
         return item === null ? null : keys.id + '\n' + b.window + '\n' + b.zone + '\n' + item;
@@ -4274,13 +4302,101 @@
         if (!had) return false;
         row.status = had.status; row.note = had.note; row.summary = had.summary; row.key = had.key; row.target = had.target;
         row.kept = true;
+        // Underlaget hör nu till den här listan och är det som senast användes.
+        if (had.full) { had.full.list = b.id; state.kept.fulls.delete(had); state.kept.fulls.add(had); }
         return true;
     }
     // Byttes nyckeln medan listan bedömdes sparas inget mer ur den: raden kan vara bedömd med en annan nyckel än listans.
-    function keepRow(row, b, keys) {
+    // full: hela underlaget för en fil som blev bedömd.
+    function keepRow(row, b, keys, full) {
         if (keys.changes !== keyChanges || (row.status !== 'done' && row.status !== 'missing' && row.status !== 'ambiguous')) return;
         var key = keptKey(row, b, keys);
-        if (key !== null) state.kept.rows.set(key, { status: row.status, note: row.note, summary: row.summary, key: row.key, target: row.target });
+        if (key === null) return;
+        dropFull(state.kept.rows.get(key));
+        var had = { status: row.status, note: row.note, summary: row.summary, key: row.key, target: row.target, full: null };
+        state.kept.rows.set(key, had);
+        if (full && row.status === 'done') keepFull(had, b, full);
+    }
+
+    // Hela underlaget för en bedömd fil ({ model, meta }: faktorerna, tidslinjen, händelserna, källorna och frågorna)
+    // sparas i minnet med raden, så att ett klick på raden och Nästa visar det utan att filen läses och databaserna
+    // frågas en gång till (showKept). Det är samma underlag som ett klick förut räknade fram på nytt: avbilden ändras
+    // inte, så samma post med samma fönster, zon och nycklar ger samma svar. Inget skrivs till disk.
+    //
+    // Minnet har ett tak, och det står under listan (renderBatchMemory): underlagen får ta högst hälften av det minne
+    // webbläsaren ger sidan (performance.memory.jsHeapSizeLimit, omkring 4 GB i Electron och Edge på en dator med
+    // gott om minne). Säger webbläsaren inget antas 2 GB. Resten är till för allt annat sidan håller i minnet, och en
+    // sida som slår i sitt tak stängs av webbläsaren utan förvarning. När taket är nått lämnar äldre listors underlag
+    // plats först, de som längst har legat oanvända. Räcker inte det sparas inte fler underlag för listan, och de
+    // filerna bedöms i sin helhet när raden öppnas, som före 1.67. Inget går förlorat, det tar bara längre tid.
+    //
+    // PÅ PROV sedan 1.67: uppmätt sparar det bara omkring 30 ms per klick, så det behålls så länge det inte ställer
+    // till något. Visar en rad något annat än en ny bedömning, eller växer minnet, är det här man börjar leta:
+    // docs/DEVELOPMENT.md, "Hela underlaget per fil finns kvar i minnet", säger hur det stängs av och tas bort.
+    var KEEP_SHARE = 0.5;
+    var keepLimitSet = null;   // satt av provkörningen (ProvenanceApp.kept)
+    var fullChanges = 0;       // gånger underlagen som finns kvar har ändrats, för raden under listan
+    function keepLimit() {
+        if (keepLimitSet !== null) return keepLimitSet;
+        var m = performance.memory;
+        return Math.floor(KEEP_SHARE * (m && m.jsHeapSizeLimit ? m.jsHeapSizeLimit : 2 * 1024 * 1024 * 1024));
+    }
+    function keepFull(had, b, full) {
+        var k = state.kept, limit = keepLimit();
+        var bytes = roughBytes(full);
+        // Underlagen ligger i den ordning de senast användes, och den här listans ligger sist.
+        var it = k.fulls.values(), old;
+        while (k.fullBytes + bytes > limit && !(old = it.next()).done && old.value.full.list !== b.id) dropFull(old.value);
+        if (k.fullBytes + bytes > limit) { b.fullDenied = true; return; }
+        had.full = { model: full.model, meta: full.meta, bytes: bytes, list: b.id };
+        k.fulls.add(had);
+        k.fullBytes += bytes;
+        fullChanges++;
+    }
+    function dropFull(had) {
+        if (!had || !had.full) return;
+        state.kept.fullBytes -= had.full.bytes;
+        state.kept.fulls.delete(had);
+        had.full = null;
+        fullChanges++;
+    }
+    // Radens sparade post, om hela underlaget finns kvar för nyckelläget som gäller nu. keys: { id: keyState() }.
+    function fullOf(row, b, keys) {
+        if (row.status !== 'done' || !state.kept.fulls.size) return null;
+        var key = keptKey(row, b, keys);
+        var had = key === null ? null : state.kept.rows.get(key);
+        return had && had.full ? had : null;
+    }
+
+    // Ungefär hur många byte ett underlag tar i minnet: texterna tecken för tecken, och ett påslag per tal, lista,
+    // objekt och fält. Samma text och samma objekt räknas en gång per underlag, och det som delas av alla filer (svar
+    // för hela extraktionen och lästa loggar, som är frysta) räknas inte alls. Summan är avstämd mot vad sidans minne
+    // faktiskt växte med när underlagen sparades (ROUGH_SHARE, se docs/DEVELOPMENT.md): den är ungefärlig, inte exakt.
+    var ROUGH_SHARE = 2 / 3;
+    function roughBytes(root) {
+        var seen = new Set(), total = 0, stack = [root];
+        while (stack.length) {
+            var v = stack.pop();
+            var t = typeof v;
+            if (t === 'number') { total += 8; continue; }
+            if (t !== 'string' && (t !== 'object' || v === null)) continue;
+            if (seen.has(v)) continue;
+            seen.add(v);
+            if (t === 'string') { total += 16 + v.length; continue; }
+            if (ArrayBuffer.isView(v)) { total += 64 + v.byteLength; continue; }
+            // Fryst är det som delas av alla filer (keepAnswer, logOnce).
+            if (Object.isFrozen(v)) continue;
+            if (Array.isArray(v)) {
+                total += 16 + 4 * v.length;
+                for (var i = 0; i < v.length; i++) stack.push(v[i]);
+                continue;
+            }
+            if (v instanceof Map || v instanceof Set) { total += 48 + 16 * v.size; v.forEach(function (x, k) { stack.push(x); if (k !== x) stack.push(k); }); continue; }
+            var names = Object.keys(v);
+            total += 16 + 4 * names.length;
+            for (var n = 0; n < names.length; n++) stack.push(v[names[n]]);
+        }
+        return Math.round(total * ROUGH_SHARE);
     }
 
     // Hela listan bedöms på nytt: det som sparats för dess rader glöms först.
@@ -4288,7 +4404,12 @@
         var b = state.batch;
         if (!b || b.running || isBusy()) return;
         var keys = { id: keyState() };
-        b.rows.forEach(function (r) { var key = keptKey(r, b, keys); if (key !== null) state.kept.rows.delete(key); });
+        b.rows.forEach(function (r) {
+            var key = keptKey(r, b, keys);
+            if (key === null) return;
+            dropFull(state.kept.rows.get(key));
+            state.kept.rows.delete(key);
+        });
         runBatch(b.rows.map(function (r) { return r.item; }), b.origin, { filter: b.filter }).catch(batchFailed);
     }
 
@@ -4317,7 +4438,7 @@
         await assessRows(b);
     }
 
-    // pre: raden uppslagen i förväg (resolveAhead).
+    // pre: raden uppslagen i förväg (resolveAhead). Ger hela underlaget ({ model, meta }) för en fil som blev bedömd.
     async function batchOne(row, b, pre) {
         var windowMs = Number(b.window) * 60000;
         try {
@@ -4333,6 +4454,7 @@
             if (!out || out.missing) { row.status = 'error'; row.note = out && out.missing ? out.missing : 'Filen kunde inte bedömas.'; return; }
             setRowSummary(row, out.model, out.meta);
             row.status = 'done';
+            return out;
         } catch (err) {
             console.warn(err);
             row.status = 'error';
@@ -4502,6 +4624,7 @@
         $('batch-kept').classList.toggle('display-none', !kept);
         if (kept) $('batch-kept-text').textContent = (kept === b.rows.length ? 'Alla ' + kept + ' filer' : kept + ' av ' + b.rows.length + ' filer') +
             ' var redan bedömda med samma fönster, zon och nycklar för den här extraktionen. De visas som de bedömdes då, utan att läsas igen.';
+        renderBatchMemory();
         var hits = b.running ? [] : b.rows.map(function (r) { return hitChoices(r).length; }).filter(function (k) { return k > 1; });
         $('batch-hits').classList.toggle('display-none', !hits.length);
         if (hits.length) {
@@ -4528,6 +4651,34 @@
         holder.innerHTML = batchRowHtml(b.rows[i], i, b);
         batchEls[i] = holder.firstElementChild;
         tr.parentNode.replaceChild(batchEls[i], tr);
+    }
+
+    // Raden om minnet: för hur många av listans bedömda filer hela underlaget finns kvar, ungefär hur mycket minne det
+    // tar, och taket när det är nått. Räknas om när underlagen eller nyckeln har ändrats, inte för varje tecken i sökrutan.
+    function renderBatchMemory() {
+        var b = state.batch;
+        var el = $('batch-memory');
+        if (!b || b.running) { el.classList.add('display-none'); return; }
+        var keys = { id: keyState() };
+        var at = keys.id + '/' + fullChanges + '/' + b.rows.length;
+        if (!b.memory || b.memory.at !== at) {
+            var m = b.memory = { at: at, done: 0, full: 0, bytes: 0 };
+            b.rows.forEach(function (r) {
+                if (r.status !== 'done') return;
+                m.done++;
+                var had = fullOf(r, b, keys);
+                if (had) { m.full++; m.bytes += had.full.bytes; }
+            });
+        }
+        var mem = b.memory;
+        el.classList.toggle('display-none', !mem.done);
+        if (!mem.done) return;
+        var size = ExtractionCore.sizeText(mem.bytes);
+        var roof = ' Mer sparas inte nu: underlagen får ta högst hälften av det minne webbläsaren ger sidan, här ' + ExtractionCore.sizeText(keepLimit()) + '.';
+        el.textContent = mem.full === mem.done
+            ? (mem.done === 1 ? 'Hela underlaget för filen' : 'Hela underlaget för alla ' + mem.done + ' bedömda filer') + ' finns kvar i minnet (ungefär ' + size + '). En rad öppnas därför utan att filen bedöms igen; bara bilden läses då ur ' + Z() + '.'
+            : (mem.full ? 'Hela underlaget finns kvar i minnet för ' + mem.full + ' av ' + mem.done + ' bedömda filer (ungefär ' + size + '), och de raderna öppnas utan att filen bedöms igen. De övriga bedöms i sin helhet när raden öppnas.'
+                : 'Hela underlaget för filerna finns inte kvar i minnet, så en fil bedöms i sin helhet när raden öppnas.') + (b.fullDenied ? roof : '');
     }
 
     function renderBatchNote() {
@@ -4585,7 +4736,8 @@
         }
     }
 
-    // Ett klick på en rad: samma bedömning som för en ensam fil, med listans fönster och zon.
+    // Ett klick på en rad: samma bedömning som för en ensam fil, med listans fönster och zon. Finns hela underlaget
+    // kvar från när listan bedömdes visas det, annars bedöms filen i sin helhet.
     function openBatchRow(i) {
         var b = state.batch;
         if (!b || b.running || isBusy() || !b.rows[i]) return;
@@ -4593,6 +4745,7 @@
         if (row.status !== 'done' && row.status !== 'ambiguous') return;
         saveExaminer();
         b.open = i;
+        b.openKeys = { id: keyState(), changes: keyChanges };
         (b.touched = b.touched || {})[i] = true;
         $('window').value = b.window;
         $('zone').value = b.zone;
@@ -4615,16 +4768,43 @@
                 return;
             }
             var t = row.target && row.target.kind ? row.target : (row.target = await resolveItem(row.item));
-            if (t.kind === 'row') await run({ filename: t.row.filename, pk: t.row.pk, foundBy: foundBy });
+            var had = t.kind === 'row' || t.kind === 'entry' ? fullOf(row, b, { id: keyState() }) : null;
+            if (had) await showKept(had.full, t, foundBy);
+            else if (t.kind === 'row') await run({ filename: t.row.filename, pk: t.row.pk, foundBy: foundBy });
             else if (t.kind === 'entry') await assessEntry(t.entry, windowMs, t.priorQueries, { foundBy: foundBy });
             else { setStatus('run-status', escapeHtml(t.missing || t.ambiguous || 'Filen kunde inte öppnas.'), 'warn'); return; }
             setStatus('run-status', '');
         });
     }
 
+    // Visar ett underlag som finns kvar i minnet (keepFull), som finalize visar ett som just räknats fram. Det som
+    // en ny bedömning gör vid sidan av underlaget görs också här: zonerna att välja bland är filens, bilden läses
+    // till kortet, och byts fönstret eller zonen medan filen visas bedöms den på nytt (state.redo).
+    // t: vad raden gäller (resolveItem).
+    async function showKept(full, t, foundBy) {
+        // meta är en kopia av det yttre lagret: det som skrivs dit medan filen visas (telefonens tumnagel, tidslinjens
+        // och kartans bilder till exporten) ligger då inte kvar i minnet när nästa fil visas.
+        var model = full.model, meta = Object.assign({}, full.meta);
+        state.redo = t.kind === 'row'
+            ? function () { return run({ pk: t.row.pk, filename: t.row.filename, foundBy: foundBy }); }
+            : function () { return assessEntry(t.entry, Number($('window').value) * 60000, t.priorQueries, { foundBy: foundBy }).then(function () { setStatus('run-status', ''); }); };
+        releaseHitUrls();
+        $('hits').classList.add('display-none');
+        $('hits-entries').classList.add('display-none');
+        fillZoneSelect(model.file);
+        await previewForKept(meta, meta.asked && meta.asked.library ? model.file : null);
+        work.shownKept++;
+        state.model = model;
+        state.meta = meta;
+        await render();
+        noteBatchDetail(model, meta);
+        announceFile();
+    }
+
     // Efter en bedömning som öppnats ur listan: valet bland flera träffar sparas på raden, så att
     // det gäller när listan görs om, och raden får underlaget för den valda filen.
-    function noteBatchDetail(model, meta) {
+    // plain: underlaget utan det som hör till visningen, när filen just har bedömts i sin helhet.
+    function noteBatchDetail(model, meta, plain) {
         var b = state.batch;
         if (!b || b.open < 0 || b.running) return;
         var row = b.rows[b.open];
@@ -4635,8 +4815,22 @@
             row.target = null;
             setRowSummary(row, model, meta);
             row.status = 'done';
-        }
+        } else if (row.status === 'done' && plain && plain.asked) refill(row, b, model, plain);
         showBatchNav();
+    }
+
+    // En rad vars underlag inte fanns kvar (taket var nått, eller en nyare lista behövde platsen) har bedömts i sin
+    // helhet vid klicket. Var det med listans fönster och zon och samma nycklar är det radens underlag, och det
+    // sparas om det får plats, så att raden öppnas direkt nästa gång.
+    function refill(row, b, model, meta) {
+        var keys = b.openKeys;
+        // Bildens zon för en fil utan egen zon är datorns (zoneChoice), och då står också datorns zon som vald.
+        var zoneOf = function (v) { return v === 'file' && !(model.file.zoneName || model.file.zoneOffset != null) ? 'local' : v; };
+        if (!keys || keys.changes !== keyChanges || meta.asked.windowMs !== Number(b.window) * 60000 || zoneOf(meta.asked.zone) !== zoneOf(b.zone)) return;
+        var key = keptKey(row, b, keys);
+        var had = key === null ? null : state.kept.rows.get(key);
+        if (!had || had.status !== 'done' || had.full) return;
+        keepFull(had, b, { model: model, meta: meta });
     }
 
     function showBatchNav() {
@@ -5641,7 +5835,20 @@
         },
         // Glömmer listans bedömda rader och uträknade MD5, så att provkörningen kan bedöma samma lista en gång till.
         forgetRows: function () {
-            if (!isBusy()) { state.kept.rows = new Map(); state.kept.md5 = new Map(); }
+            if (!isBusy()) { state.kept.rows = new Map(); state.kept.md5 = new Map(); state.kept.fulls = new Set(); state.kept.fullBytes = 0; fullChanges++; }
+        },
+        // Hela underlag som finns kvar: hur många, ungefär hur många byte, och taket. Med ett värde sätts taket i byte
+        // (null: det vanliga), så att provkörningen kan nå det med en kort lista.
+        kept: function (limit) {
+            if (limit !== undefined && !isBusy()) {
+                keepLimitSet = limit === null ? null : Math.max(0, Number(limit) || 0);
+                // Ett lägre tak gäller också det som redan är sparat: de äldsta underlagen lämnar plats.
+                var it = state.kept.fulls.values(), old;
+                while (state.kept.fullBytes > keepLimit() && !(old = it.next()).done) dropFull(old.value);
+                if (state.batch) state.batch.fullDenied = false;
+                fullChanges++;
+            }
+            return { rows: state.kept.rows.size, full: state.kept.fulls.size, bytes: state.kept.fullBytes, limit: keepLimit() };
         },
         // Så ofta en lista släpper fram fönstret, i millisekunder. 0: efter varje rad. Utan värde: det som gäller.
         listFree: function (ms) {

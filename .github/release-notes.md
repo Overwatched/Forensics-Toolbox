@@ -1,5 +1,19 @@
 Automatiskt byggd från commit `{{SHA}}`.
 
+## Nytt i 1.67
+
+**Härkomst öppnar en rad i listan ur minnet, utan att bedöma filen en gång till.**
+
+- **En rad öppnas ur minnet:** när en lista har bedömts finns hela underlaget för varje fil kvar i minnet. Ett klick på en rad, Nästa och Föregående visar det utan att databaserna frågas, ExifTool läser eller summorna räknas en gång till. Bara bilden läses ur extraktionen igen.
+- **Samma underlag:** det som visas är lika med en ny bedömning av filen. Tiden då underlaget skapades är tiden då listan bedömde filen, inte tiden för klicket. Ändras tidsfönstret, zonen eller en nyckel bedöms filen på nytt.
+- **Det står under listan:** en rad säger hur många filer som har underlaget kvar i minnet och ungefär hur mycket det tar. Underlagen får ta högst hälften av det minne webbläsaren ger sidan. Ryms inte alla står det där, och de övriga filerna bedöms i sin helhet när raden öppnas, som förut.
+- **Inget skrivs** till extraktionen eller till disken.
+- **Uppmätt:** vinsten är liten, eftersom ett klick redan gick fort. På en iPhone ur en egen laboration (55 bilder) tog Nästa förut omkring 0,10 sekunder tills bilden var ritad och tar nu 0,07. På en påhittad extraktion med 3 000 Signal-bilagor var det 37 mot 32 millisekunder. Underlagen för de 3 000 filerna tog omkring 60 MB minne.
+- **På prov:** eftersom vinsten är liten ses ändringen över, eller tas bort, om den ställer till något. Hör av dig om en rad i listan visar något annat än samma fil bedömd för sig.
+- **Provat:** enhetstesterna, röktestet i appen och html-versionen i Chrome på macOS.
+- **Inte provat:** en lista så stor att minnets tak nås på riktigt. Windows och Linux provas först i bygget.
+- **Kvar:** en enskild fil utanför en lista sparas inte, och inte heller en rad med flera träffar. Ett klick mitt i en lista med 3 000 rader tar omkring 0,3 sekunder, med och utan sparat underlag.
+
 ## Nytt i 1.66
 
 **Härkomst visar förloppet medan stora Signal-databaser läses, gör inte om det som redan är gjort och lämnar hela listan till EXIF & karta.**

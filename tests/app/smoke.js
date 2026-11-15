@@ -756,7 +756,7 @@ const scenarios = [
         expect(JSON.stringify(JSON.parse(third.list).slice(0, names.length)) === first.list && inOrder(third, more), 'De gamla raderna ändrades: ' + third.rows.join('|'));
         expect(/^2 filer genomgångna på .* 6 filer var redan bedömda och lästes inte igen\. /.test(third.said) && /^6 av 8 filer var redan bedömda/.test(third.kept), 'Lägesraden och raden under: ' + third.said + ' / ' + third.kept);
 
-        // En rad som visas igen öppnas som vanligt: filen bedöms då i sin helhet.
+        // En rad som visas igen öppnas som vanligt.
         await ev(`document.querySelector('#batch-list tr.pick[data-i="3"]').click(), 1`);
         await sleep(200);
         await waitResult(c, 'raden som visades igen');
@@ -821,6 +821,127 @@ const scenarios = [
             await ev(`ProvenanceApp.busy() && document.getElementById('batch-stop').click(), 1`);
             await c.waitFor(PROV, `!ProvenanceApp.busy()`, 60000, 'listan stannar').catch(() => {});
             await ev(`ProvenanceApp.listFree(${pace}), 1`);
+        }
+    }],
+
+    ['Härkomst: en rad öppnas ur underlaget som finns kvar i minnet, lika med en ny bedömning, och taket för minnet sägs under listan', async ({ c }) => {
+        await c.nav('Härkomst');
+        const ev = (e) => c.ev(PROV, e);
+        const A = ['IMG_0002.JPG', 'IMG_0005.JPG', 'IMG_0006.JPG'], B = ['IMG_0007.JPG', 'IMG_0008.JPG'], all = A.concat(B);
+        const type = (list) => ev(`(function () { const f = document.getElementById('filename'); f.value = ${JSON.stringify(list.join('\n'))}; f.dispatchEvent(new Event('input', { bubbles: true })); document.getElementById('run').click(); return 1; })()`);
+        const list = async (names, label) => { await type(names); await sleep(300); await c.waitFor(PROV, `!ProvenanceApp.busy() && document.querySelectorAll('#batch-list tbody tr').length === ${names.length} && ProvenanceApp.exif().starting === 0`, 90000, label); };
+        const state = () => ev(`({ work: ProvenanceApp.work(), kept: ProvenanceApp.kept(), said: document.getElementById('batch-memory').classList.contains('display-none') ? '' : document.getElementById('batch-memory').textContent })`);
+        const delta = (a, b) => Object.fromEntries(Object.keys(b.work).map((k) => [k, b.work[k] - a.work[k]]));
+        // Inget lästes och inget frågades: bara räknaren för rader öppnade ur minnet har gått.
+        const onlyShown = (d, n) => Object.keys(d).every((k) => d[k] === (k === 'shownKept' ? n : 0));
+        // Det som visas, utan tiden då underlaget skapades (den står i tidslinjens rad och i dess bild).
+        const view = async () => {
+            await c.waitFor(PROV, `[...document.querySelectorAll('#result img')].every((i) => i.complete)`, 30000, 'bilden i kortet');
+            return ev(`(function () { const m = ProvenanceApp.meta(); return { name: ProvenanceApp.model().file.filename, model: JSON.stringify(ProvenanceApp.model()),
+                meta: JSON.stringify([m.sources, m.queries, m.coverage, m.fileRows, m.exifRows, m.fileEntry, m.thumbnail, m.zoneLabel, m.zoneNote, m.copiesNote, m.fileMissingReason]),
+                text: document.getElementById('result').innerText.replace(/skapad [-0-9: ]+UTC/g, 'skapad då'), created: m.createdText,
+                pictures: [...document.querySelectorAll('#result img')].map((i) => i.naturalWidth + 'x' + i.naturalHeight).join(), timelines: (m.timelinePngs || []).length + '/' + (m.closeupPngs || []).length }; })()`);
+        };
+        const same = (a, b) => ['name', 'model', 'meta', 'text', 'pictures', 'timelines'].filter((k) => a[k] !== b[k]);
+        const open = async (i, label) => { await ev(`document.querySelector('#batch-list tr.pick[data-i="${i}"]').click(), 1`); await sleep(200); await waitResult(c, label); };
+        const back = async () => { await ev(`document.getElementById('batch-back').click(), 1`); await sleep(200); };
+        const step = async (id, pos, label) => { await ev(`document.getElementById('${id}').click(), 1`); await sleep(200); await c.waitFor(PROV, `!ProvenanceApp.busy() && /^Fil ${pos} av /.test(document.getElementById('batch-pos').textContent)`, 60000, label); };
+        const setWindow = (v) => ev(`(function () { const w = document.getElementById('window'); w.value = ${JSON.stringify(v)}; w.dispatchEvent(new Event('change', { bubbles: true })); return 1; })()`);
+
+        await ev(`ProvenanceApp.forgetTags(), ProvenanceApp.forgetRows(), ProvenanceApp.kept(null), 1`);
+        try {
+            // Listan bedöms: hela underlaget för varje bedömd fil finns kvar, och raden under listan säger det.
+            await list(all, 'listan');
+            const s0 = await state();
+            expect(s0.kept.full === all.length && s0.kept.bytes > 0 && s0.kept.bytes < s0.kept.limit, 'Underlagen sparades inte: ' + JSON.stringify(s0.kept));
+            expect(/^Hela underlaget för alla 5 bedömda filer finns kvar i minnet \(ungefär [\d,]+ (byte|kB|MB)\)\. En rad öppnas därför utan att filen bedöms igen; bara bilden läses då ur zippen\.$/.test(s0.said), 'Raden om minnet: ' + s0.said);
+
+            // Ett klick visar underlaget utan att fråga databaserna eller ExifTool och utan att räkna summor. Nästa och
+            // Föregående likaså, och samma fil visad en gång till är densamma.
+            await open(1, 'raden ur minnet');
+            const s1 = await state(), a = await view();
+            expect(onlyShown(delta(s0, s1), 1) && a.name === all[1] && a.pictures !== '' && a.timelines !== '0/0', 'Klicket läste eller frågade: ' + JSON.stringify(delta(s0, s1)) + ' ' + a.name + ' ' + a.pictures + ' ' + a.timelines);
+            await step('batch-next', 3, 'nästa ur minnet');
+            const s2 = await state(), n = await view();
+            expect(onlyShown(delta(s1, s2), 1) && n.name === all[2], 'Nästa läste eller frågade: ' + JSON.stringify(delta(s1, s2)) + ' ' + n.name);
+            await step('batch-prev', 2, 'föregående ur minnet');
+            const s3 = await state(), a2 = await view();
+            expect(onlyShown(delta(s2, s3), 1) && !same(a, a2).length && a2.created === a.created, 'Samma fil visad igen skiljer sig i ' + same(a, a2).join() + ': ' + JSON.stringify(delta(s2, s3)));
+
+            // Byts fönstret medan filen visas bedöms den på nytt, och tillbaka i listans fönster likaså.
+            const usual = await ev(`document.getElementById('window').value`);
+            const other = await ev(`[...document.getElementById('window').options].map(o => o.value).find(v => v !== document.getElementById('window').value)`);
+            await setWindow(other);
+            await sleep(300);
+            await waitResult(c, 'filen med ett annat fönster');
+            const s4 = await state(), w = await view();
+            expect(delta(s3, s4).shownKept === 0 && delta(s3, s4).asked + delta(s3, s4).reused > 0 && w.name === a.name && w.model !== a.model, 'Ett annat fönster ska bedöma filen på nytt: ' + JSON.stringify(delta(s3, s4)));
+            await setWindow(usual);
+            await sleep(300);
+            await waitResult(c, 'filen med listans fönster igen');
+            const s5 = await state(), a3 = await view();
+            expect(delta(s4, s5).shownKept === 0 && !same(a, a3).length && s5.kept.full === all.length, 'Listans fönster igen skiljer sig i ' + same(a, a3).join() + ': ' + JSON.stringify(delta(s4, s5)));
+            await back();
+
+            // Utan sparade underlag bedöms filen i sin helhet vid klicket, som före 1.67, och det som visas är detsamma
+            // som ur minnet. Bara tiden då underlaget skapades skiljer.
+            await ev(`ProvenanceApp.kept(0), 1`);
+            const s6 = await state();
+            await open(1, 'raden bedömd i sin helhet');
+            const s7 = await state(), f = await view();
+            expect(s6.kept.full === 0 && delta(s6, s7).shownKept === 0 && delta(s6, s7).asked + delta(s6, s7).reused > 0 && delta(s6, s7).exif + delta(s6, s7).exifReused === 1, 'Utan sparat underlag ska filen bedömas: ' + JSON.stringify(delta(s6, s7)));
+            expect(!same(a, f).length, 'Underlaget ur minnet skiljer sig från en ny bedömning i ' + same(a, f).join());
+            await back();
+            const s8 = await state();
+            expect(s8.kept.full === 0 && /^Hela underlaget för filerna finns inte kvar i minnet, så en fil bedöms i sin helhet när raden öppnas\. Mer sparas inte nu: underlagen får ta högst hälften av det minne webbläsaren ger sidan, här 0 byte\.$/.test(s8.said), 'Raden om minnet utan plats: ' + s8.said);
+
+            // Med plats igen sparas underlaget från klicket, så att raden öppnas ur minnet nästa gång.
+            await ev(`ProvenanceApp.kept(null), 1`);
+            await open(1, 'raden bedömd och sparad');
+            await back();
+            const s9 = await state();
+            expect(s9.kept.full === 1 && delta(s8, s9).shownKept === 0 && /^Hela underlaget finns kvar i minnet för 1 av 5 bedömda filer \(ungefär [\d,]+ (byte|kB|MB)\), och de raderna öppnas utan att filen bedöms igen\. De övriga bedöms i sin helhet när raden öppnas\.$/.test(s9.said), 'Underlaget från klicket: ' + JSON.stringify(s9.kept) + ' ' + s9.said);
+            await open(1, 'raden ur minnet igen');
+            const s10 = await state(), r = await view();
+            expect(onlyShown(delta(s9, s10), 1) && !same(a, r).length, 'Det sparade underlaget från klicket skiljer sig i ' + same(a, r).join() + ': ' + JSON.stringify(delta(s9, s10)));
+            await back();
+
+            // Taket: en nyare lista tar platsen från en äldre, som då bedömer sina filer igen vid klicket.
+            await ev(`ProvenanceApp.forgetRows(), 1`);
+            await list(A, 'den första listan');
+            const sizeA = (await state()).kept.bytes;
+            await list(B, 'den andra listan');
+            const sizeB = (await state()).kept.bytes - sizeA;
+            const roof = Math.max(sizeA, sizeB) + 2000;
+            expect(sizeA > 4000 && sizeB > 4000, 'Underlagens storlek: ' + sizeA + ' och ' + sizeB);
+            await ev(`ProvenanceApp.forgetRows(), ProvenanceApp.kept(${roof}), 1`);
+            await list(A, 'den första listan under taket');
+            const t1 = await state();
+            expect(t1.kept.full === A.length && /^Hela underlaget för alla 3 bedömda filer/.test(t1.said), 'Den första listan under taket: ' + JSON.stringify(t1.kept) + ' ' + t1.said);
+            await list(B, 'den andra listan under taket');
+            const t2 = await state();
+            expect(t2.kept.full < all.length && t2.kept.bytes <= roof && /^Hela underlaget för alla 2 bedömda filer/.test(t2.said), 'Den nyare listan ska få platsen: ' + JSON.stringify(t2.kept) + ' ' + t2.said);
+            await list(A, 'den första listan igen');
+            const t3 = await state();
+            expect(delta(t2, t3).rowsKept === A.length && t3.kept.full === t2.kept.full && /^Hela underlaget (finns kvar i minnet för [12] av 3 bedömda filer .*De övriga bedöms i sin helhet när raden öppnas\.|för filerna finns inte kvar i minnet, så en fil bedöms i sin helhet när raden öppnas\.)$/.test(t3.said), 'Den äldre listan igen: ' + JSON.stringify(delta(t2, t3)) + ' ' + t3.said);
+            await open(0, 'raden som förlorat sitt underlag');
+            await back();
+            const t4 = await state();
+            expect(delta(t3, t4).shownKept === 0 && delta(t3, t4).asked + delta(t3, t4).reused > 0 && t4.kept.bytes <= roof, 'Raden utan underlag ska bedömas: ' + JSON.stringify(delta(t3, t4)) + ' ' + JSON.stringify(t4.kept));
+            await open(0, 'raden med sitt underlag igen');
+            await back();
+            const t5 = await state();
+            expect(onlyShown(delta(t4, t5), 1), 'Underlaget från klicket fick inte platsen från den äldre listan: ' + JSON.stringify(delta(t4, t5)) + ' ' + JSON.stringify(t5.kept));
+
+            // Taket inom en lista: det som inte får plats sparas inte, och raden under listan säger taket.
+            await ev(`ProvenanceApp.forgetRows(), ProvenanceApp.kept(${sizeA - 2000}), 1`);
+            await list(A, 'listan som inte får plats');
+            const u = await state();
+            expect(u.kept.full > 0 && u.kept.full < A.length && u.kept.bytes <= sizeA - 2000 && new RegExp('^Hela underlaget finns kvar i minnet för ' + u.kept.full + ' av 3 bedömda filer \\(ungefär [\\d,]+ (byte|kB|MB)\\), och de raderna öppnas utan att filen bedöms igen\\. De övriga bedöms i sin helhet när raden öppnas\\. Mer sparas inte nu: underlagen får ta högst hälften av det minne webbläsaren ger sidan, här [\\d,]+ (byte|kB|MB)\\.$').test(u.said),
+                'Listan som inte får plats: ' + JSON.stringify(u.kept) + ' ' + u.said);
+            return 'en rad öppnad ur minnet utan läsning, lika med en ny bedömning; ' + Math.round(s0.kept.bytes / all.length / 1024) + ' kB per fil; taket hållet mellan två listor och inom en';
+        } finally {
+            await ev(`ProvenanceApp.busy() || (ProvenanceApp.kept(null), ProvenanceApp.forgetRows()), 1`);
         }
     }],
 

@@ -756,8 +756,8 @@ efter för 104 filer på båda telefonerna.
   (det var kvadratiskt: 36 s av 245). Vägen tillbaka från en rad ritar om de rader som öppnats och de med samma fil.
 - **`ProvenanceApp.work()`** räknar körda och återanvända frågor och ExifTool-anrop. Röktestet läser det: samma fil
   en gång till, och ett klick i listan, läser inte ExifTool igen, och underlaget och protokollets frågor är desamma.
-- **Kvar:** hela bedömningen per rad sparas inte (omkring 0,45 MB per fil), så ett klick räknar om filen ur det
-  som redan är läst. Sedan 1.66 sparas det listan visar om raden, se "Det som redan är gjort görs inte om".
+- Sedan 1.66 sparas det listan visar om raden, se "Det som redan är gjort görs inte om", och sedan 1.67 hela
+  bedömningen per rad, se "Hela underlaget per fil finns kvar i minnet".
 
 #### Långa listor i Härkomst (1.65)
 
@@ -1002,9 +1002,10 @@ när extraktionen stängs (`closeZip`). Inget skrivs till disk, och avbildningen
     knappen "Bedöm listan på nytt" (`freshBatch`) glömmer de raderna och bedömer dem igen. Lägesraden säger också
     hur många som inte lästes. Utan det skulle ett tillfälligt läsfel eller en ändring utanför programmet inte gå
     att få bort annat än genom att stänga extraktionen.
-  - **Det sparas inte:** hela bedömningen (`{ model, meta }`, omkring 0,45 MB per fil), så ett klick på en rad och
-    Nästa bedömer filen i sin helhet, som förut. En enskild fil (`run()`) sparas inte heller. Exporten av listan
-    (`exportBatch`) nämner inga databaser och är densamma för en sparad rad som för en nybedömd.
+  - **Hela bedömningen** (`{ model, meta }`) sparades inte i 1.66, så ett klick på en rad och Nästa bedömde filen
+    i sin helhet. Sedan 1.67 sparas den, se "Hela underlaget per fil finns kvar i minnet". En enskild fil (`run()`)
+    sparas inte. Exporten av listan (`exportBatch`) nämner inga databaser och är densamma för en sparad rad som för
+    en nybedömd.
 - **MD5 per SHA-256 (`md5For`, `state.kept.md5`).** SHA-256 räknas alltid på det som lästes. MD5, som räknas i
   JavaScript i sidans tråd, tas ur minnet när samma SHA-256 har setts förut i samma extraktion.
 - **Listan ritas utan att leta och släpper fram fönstret.** `renderBatchRow` slog upp raden med `tbody.rows[i]`
@@ -1052,8 +1053,10 @@ Uppmätt på utvecklarens Mac, på den påhittade extraktionen från avsnitten o
   `INSERT … SELECT`, 3,6 s), frågan efter loggens första och sista tid och antal rader (omkring 1 s), 0,7 s när
   signal.db lämnas till SHA-256, och två enstaka på 0,4 s. SHA-256 över loggen går i bitar som en tangenttryckning
   väntade högst 0,09 s på.
-- **Ett klick på en rad** tar 0,2–0,3 s och Nästa 0,2 s per fil, eftersom hela bedömningen inte sparas. ExifTools
-  svar och MD5 tas ur minnet, filen läses och SHA-256 räknas.
+- **Ett klick på en rad** bedömer filen i sin helhet, eftersom hela bedömningen inte sparas. ExifTools svar och
+  MD5 tas ur minnet, filen läses och SHA-256 räknas. Tiderna som stod här (0,2–0,3 s per klick, 0,2 s per Nästa)
+  var för höga: i dem låg provkörningens egen väntan mellan avläsningarna. Mätt i sidan är det 0,04–0,1 s, se
+  tabellen i "Hela underlaget per fil finns kvar i minnet".
 - **20 000 namn som inte finns** (Samsungen ur tvåtelefonslabbet): förut 8–9 s med fönstret fruset i ett stycke
   och utan möjlighet att avbryta. Nu 5,3–5,9 s i stycken på upp till 1,0 s, med 35 ritade bildrutor, och Avbryt
   listan stoppade 1,1 s efter klicket. 1 000 namn tar 0,3 s och 5 000 tar 0,8 s. Samma 20 000 en gång till: 0,9 s.
@@ -1070,6 +1073,90 @@ Uppmätt på utvecklarens Mac, på den påhittade extraktionen från avsnitten o
   inte ritningen som sätter takten. Vid 3 000 rader kan den göra det, och det är inte uppmätt hur mycket.
 - **Inte uppmätt:** användarens egen extraktion, Windows, riktiga Signal-data, och hur mycket minne de sparade
   raderna tar (`performance.memory` gav samma tal i varje prov och säger inget).
+
+#### Hela underlaget per fil finns kvar i minnet (1.67)
+
+Ett klick på en rad i listan, Nästa och Föregående bedömde filen i sin helhet: filens egna frågor ställdes igen
+(19 per fil på labb-iPhonen), filen lästes och underlaget byggdes. Nu sparas hela bedömningen (`{ model, meta }`)
+med raden när listan bedömer filen, och raden öppnas ur den.
+
+> **På prov (beslut 2026-11-15).** Vinsten är liten på det som gått att mäta, omkring 30 ms per klick (se
+> tabellen nedan). Underhållaren valde att behålla det, med förbehållet att det ska ses över eller tas bort om det
+> ger problem. Kom tillbaka hit om något av det här visar sig:
+>
+> - en rad som öppnas ur listan visar något annat än samma fil bedömd för sig,
+> - underlaget följer inte med när fönstret, zonen eller en nyckel har ändrats,
+> - minnet växer, eller sidan stängs av webbläsaren, med långa listor,
+> - raden under listan (`#batch-memory`) säger något som inte stämmer, eller är i vägen.
+>
+> **Pröva utan det:** `ProvenanceApp.kept(0)` i Härkomsts konsol sätter taket till noll. Då sparas inga underlag,
+> de som finns släpps, och varje klick bedömer filen i sin helhet som i 1.66. Försvinner felet då ligger det här.
+> `ProvenanceApp.kept(null)` ställer tillbaka.
+>
+> **Ta bort det:** låt `keepRow` sluta anropa `keepFull` och `openBatchRow` sluta anropa `showKept` (då används
+> alltid `run`/`assessEntry`), och ta sedan bort `keepFull`, `dropFull`, `fullOf`, `roughBytes`, `showKept`,
+> `previewForKept`, `refill`, `renderBatchMemory`, `state.kept.fulls`/`fullBytes`, `asked` i `meta`, kroken
+> `kept`, räknaren `shownKept`, raden `#batch-memory` i `index.html` och röktestets scenario. `previewOf` och
+> att `batchOne` lämnar tillbaka bedömningen kan stå kvar. Det listan visar om raden (`state.kept.rows`, 1.66)
+> berörs inte.
+
+- **Var det ligger.** `keepRow` får bedömningen av `batchOne` och lägger den på radens sparade post
+  (`state.kept.rows`, `had.full`) med `keepFull`. Allt ligger i minnet. Inget skrivs till disk, och extraktionen
+  läses bara.
+- **Öppna en rad (`openBatchRow` → `showKept`).** Finns underlaget kvar för raden och nyckelläget som gäller
+  (`fullOf`) visas det utan att `assess` körs: ingen fråga, ingen ExifTool-läsning, ingen summa. Bara bilden läses
+  ur zippen igen (`previewForKept`; Signals bilaga dekrypteras då igen), eftersom filens innehåll inte sparas.
+  `work().shownKept` räknar. `state.redo` sätts som vid en vanlig bedömning, så ett annat fönster eller en annan
+  zon medan filen visas bedömer den på nytt.
+- **Det som visas är en kopia av det yttre lagret** (`Object.assign({}, full.meta)`). Tumnageln och bilderna som
+  ritas till exporten skrivs på kopian och ligger inte kvar när nästa fil visas. Av samma skäl sparar `finalize`
+  en kopia utan dem (`plain`) när ett klick har bedömt filen i sin helhet.
+- **Tiden underlaget skapades** (`createdText`, som också ritas in i tidslinjens bild) är tiden då listan bedömde
+  filen, inte tiden för klicket. Allt annat är lika med en ny bedömning.
+- **Taket sägs ut.** Underlagen får ta högst hälften av det minne webbläsaren ger sidan (`KEEP_SHARE` av
+  `performance.memory.jsHeapSizeLimit`, 1,8 GB i Electron på utvecklarens Mac). När det är nått ger först äldre
+  listors underlag plats (`state.kept.fulls` är i den ordning listorna användes, `takeKept` flyttar fram dem som
+  en ny lista tar över). Räcker inte det sparas inga fler, raden `#batch-memory` under listan säger hur många
+  filer som har underlaget kvar, ungefär hur mycket det tar och var taket ligger, och de övriga bedöms i sin
+  helhet när raden öppnas, som före 1.67. Ingen fil lämnas alltså utan underlag, och inget kortas.
+- **Påfyllning (`refill`).** En rad som bedöms i sin helhet vid ett klick, med listans fönster och zon och samma
+  nycklar, får sitt underlag sparat om det får plats. `asked` i `meta` säger vad bedömningen gjordes med. Zonen
+  jämförs som den gäller: "Varje bilds egen zon" är datorns zon för en fil utan egen zon.
+- **Storleken är en uppskattning (`roughBytes`).** Texter räknas tecken för tecken, med ett påslag per tal,
+  lista, objekt och fält. Det som delas av alla filer räknas inte: svar som gäller hela extraktionen
+  (`keepAnswer`) och lästa loggar (`logOnce`) är frysta, och frysta objekt hoppas över. Utan det räknades
+  tidsmängden i två svar (7,6 MB) en gång per fil, och 240 av 3 000 filer sades fylla taket fast de tog 5 MB.
+  `ROUGH_SHARE` (2/3) är avstämd mot minnet mätt utifrån: före den var uppskattningen 30 kB per fil mot 18–21 kB
+  verklig ökning (påhittade Signal-bilagor) och 83 kB mot 56 kB (labb-iPhonens kamerarulle).
+- **Det som inte sparas:** en enskild fil utanför en lista (`run()`), en rad med flera träffar (den bedöms när
+  undersökaren har valt, varje gång), och en rad med fel.
+- **Krokar:** `ProvenanceApp.kept()` ger `{ rows, full, bytes, limit }`, och `kept(n)` sätter taket i byte för
+  provkörningen (`null` = det vanliga) och släpper de äldsta underlagen ned till det.
+- **Test:** röktestet 'Härkomst: en rad öppnas ur underlaget som finns kvar i minnet …' jämför det som visas ur
+  minnet med en ny bedömning (modellen, protokollets delar, texten utan tiden det skapades, bildernas mått),
+  byter fönster medan en fil visas, sätter taket till 0, mellan två listor och mitt i en lista, och läser raden
+  under listan. Det går också i HTML-utgåvan.
+
+Uppmätt på utvecklarens Mac. Tiden är från klicket tills arbetet är klart, mätt i sidan; "målat" är två bildrutor
+senare.
+
+| | utan sparat underlag | ur minnet |
+|---|---|---|
+| labb-iPhonens kamerarulle (55 filer), Nästa, klart | 54–59 ms | 34 ms |
+| samma, målat | 97–98 ms | 66 ms |
+| samma, klick på en rad, klart | 43–68 ms | 30–31 ms |
+| påhittad extraktion, 300 Signal-bilagor, Nästa | 37 ms | 32 ms |
+| samma, lista med 3 000, klick på rad 5 / 1 500 / 2 999 | 88 / 303 / 90 ms | 93 / 264 / 87 ms |
+
+- **Vinsten är liten på det som gått att mäta**: bedömningen vid ett klick var redan snabb efter 1.62–1.66. Den
+  blir större där filens egna frågor tar tid; lägesraden efter en lista säger tiden per fil, och det är ungefär
+  vad ett klick kostade.
+- **Klicket mitt i en lista med 3 000 rader** tar 0,26–0,30 s med och utan sparat underlag. Det är alltså inte
+  bedömningen. Vad det är har inte mätts.
+- **Minnet**, mätt utifrån efter skräpsamling (`HeapProfiler.collectGarbage`, `Runtime.getHeapUsage`): 3 000
+  Signal-bilagor 61 MB (omkring 20 kB per fil), labb-iPhonens 54 filer 3 MB (56 kB per fil). Att visa 102 rader ur
+  minnet ökade det med 0,2 MB.
+- **Inte uppmätt:** användarens egen extraktion, Windows, och en lista så stor att taket nås på riktigt.
 
 ### Chattar (`tools/chats/`)
 
