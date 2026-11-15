@@ -808,11 +808,18 @@ const scenarios = [
             expect(stopAt >= 100 && stopAt < 3000 && stopped > 0 && missing + stopped === 3000 && missing >= stopAt && missing <= stopAt + 2, 'Avbryt nådde inte fram mitt i listan: tryckt vid ' + stopAt + ', ' + missing + ' genomgångna, ' + stopped + ' avbrutna');
             expect(f1.work.freed - f0.work.freed >= missing && inOrder(f1, many) && /^Avbruten efter \d+ av 3000 filer/.test(f1.said), 'Den avbrutna listan: ' + JSON.stringify(f1.work) + ' ' + f1.said);
             // Samma lista igen: det som hann gås igenom står kvar, resten gås igenom, och raderna står i sin ordning.
+            // Nu i vanlig takt: med en paus efter varje rad ritar webbläsaren tabellen en gång per rad, och i Edge på
+            // bygget tog de 2 900 rader som var kvar då över 90 sekunder.
+            await ev(`ProvenanceApp.listFree(${pace}), 1`);
             const f2 = await run(many, 'den långa listan igen');
             const l2 = JSON.parse(f2.list);
             expect(f2.d.rowsKept === missing && l2.every((r) => r.status === 'missing') && inOrder(f2, many), 'Den långa listan igen: ' + JSON.stringify(f2.d) + ' ' + f2.said);
             return assessed + ' filer bedömda en gång och visade igen utan läsning, två nya namn bedömda för sig, MD5 återanvänd ' + (b1.work.md5Kept - b0.work.md5Kept) + ' gånger, och 3000 namn avbrutna efter ' + missing;
         } finally {
+            // Takten går bara att ställa när ingen lista går. En lista som ännu går avbryts därför först, så att
+            // proven efter det här inte får vänta på den eller ärver pausen efter varje rad.
+            await ev(`ProvenanceApp.busy() && document.getElementById('batch-stop').click(), 1`);
+            await c.waitFor(PROV, `!ProvenanceApp.busy()`, 60000, 'listan stannar').catch(() => {});
             await ev(`ProvenanceApp.listFree(${pace}), 1`);
         }
     }],
