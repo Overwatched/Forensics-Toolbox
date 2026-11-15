@@ -469,7 +469,8 @@
     }
 
     // Läser ut en post till minnet. Returnerar { bytes, crcOk }. opts.inflate och opts.alloc kan bytas ut
-    // i testerna, och opts.piece är gränsen för vad som läses på en gång.
+    // i testerna, och opts.piece är gränsen för vad som läses på en gång. En post över den gränsen läses i
+    // bitar, och opts.onProgress(uppackade byte, alla) säger då hur långt läsningen har kommit.
     async function extract(read, entry, opts) {
         opts = opts || {};
         if (entry.report && entry.report.noData) return { bytes: noData(entry), crcOk: true };
@@ -494,6 +495,7 @@
     }
 
     // En stor post. CRC32 räknas under läsningen, så att sidan inte står still under en andra genomgång.
+    // opts.onProgress(uppackade byte, alla) anropas efter varje bit.
     async function extractInPieces(read, entry, opts) {
         var out = allocate(entry.name, entry.size, opts);
         var at = 0;
@@ -503,6 +505,7 @@
             out.set(part, at);
             at += part.length;
             c = crcUpdate(c, part);
+            if (opts.onProgress) opts.onProgress(at, entry.size);
         }, opts.piece ? { chunk: opts.piece } : null);
         return { bytes: out, crcOk: ((c ^ 0xffffffff) >>> 0) === entry.crc32 };
     }

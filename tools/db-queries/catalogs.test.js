@@ -76,6 +76,30 @@ test('Signal på Android (beta): krypterade databaser, en rekommenderad query pe
     const roles = (id) => signalAndroid.databases.find((d) => d.id === id).queries.filter((q) => q.hidden && !/^chat-/.test(q.role)).map((q) => q.role).sort();
     assert.deepStrictEqual(roles('signal-android-main').filter((r) => !/^chat-/.test(r)), ['attachments', 'coverage', 'messages', 'recipients']);
     assert.deepStrictEqual(roles('signal-android-logs'), ['coverage', 'log']);
+    // Frågan över hela loggen körs i tidsdelar (splitByTime). Det håller bara för en fråga som väljer raderna på tiden
+    // med gränserna medräknade, ger tiden i svaret, ordnar efter tiden först och sedan entydigt, och inte har någon LIMIT.
+    const log = signalAndroid.databases[1].queries.find((q) => q.role === 'log');
+    assert.strictEqual(log.splitByTime, true);
+    assert.strictEqual(log.fields.time, 'created_at');
+    assert.match(log.sql, /^SELECT\s+created_at\b/);
+    assert.match(log.sql, /\bWHERE created_at BETWEEN \{\{unixMsStart\}\} AND \{\{unixMsEnd\}\}\s+AND \(/);
+    assert.match(log.sql, /\)\s+ORDER BY created_at, _id;\s*$/);
+    assert.doesNotMatch(log.sql, /\bLIMIT\b/i);
+    for (const db of signalAndroid.databases) for (const q of db.queries) if (q !== log) assert.strictEqual(q.splitByTime, undefined, db.id + '/' + q.id + ': splitByTime');
+    // Meddelandefrågan läggs en gång i en tabell i minnet med index på tiderna (indexByTime), och varje fils fönster
+    // slås upp där. Det håller bara för en fråga som väljer raderna på just de kolumnerna i svaret med gränserna
+    // medräknade och inget annat villkor, ordnar entydigt, är en enda SELECT och inte har någon LIMIT.
+    const msg = signalAndroid.databases[0].queries.find((q) => q.role === 'messages');
+    assert.deepStrictEqual(msg.indexByTime, ['date_sent', 'date_received']);
+    assert.match(msg.sql, /^SELECT\s+m\._id, m\.date_sent, m\.date_received,/);
+    assert.match(msg.sql, /\bWHERE m\.date_sent BETWEEN \{\{unixMsStart\}\} AND \{\{unixMsEnd\}\}\s+OR m\.date_received BETWEEN \{\{unixMsStart\}\} AND \{\{unixMsEnd\}\}\s+ORDER BY m\.date_received, m\._id;\s*$/);
+    assert.strictEqual(msg.sql.split(';').length, 2, 'en enda sats');
+    assert.strictEqual(msg.sql.split(/\bWHERE\b/).length, 3, 'bara delfrågan om bilagor har ett eget WHERE');
+    assert.doesNotMatch(msg.sql, /\bLIMIT\b/i);
+    // Ingen annan fråga är märkt än: varje app får märket först när dess fråga prövats mot uppslaget.
+    for (const cat of [signalAndroid, signalIos, whatsappIos, telegramIos, whatsappAndroid, telegramAndroid, snapchat, snapchatAndroid]) {
+        for (const db of cat.databases || []) for (const q of db.queries) if (q !== msg) assert.strictEqual(q.indexByTime, undefined, db.id + '/' + q.id + ': indexByTime');
+    }
     // Fälten som signal.js läser.
     const att = signalAndroid.databases[0].queries.find((q) => q.role === 'attachments');
     for (const f of ['id', 'messageId', 'hashStart', 'hashEnd', 'sent', 'received', 'server', 'type', 'threadRecipient', 'fromId', 'toId', 'deletedBy']) assert.ok(att.fields[f], 'attachments.' + f);

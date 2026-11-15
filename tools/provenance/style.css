@@ -124,10 +124,11 @@ textarea.name-box:focus { outline: 2px solid var(--accent-soft); border-color: v
 .progress.idle { display: none; }
 .progress-track { flex: 0 1 340px; min-width: 120px; height: 6px; border-radius: 999px; background: var(--surface-hover); overflow: hidden; position: relative; }
 .progress-fill { height: 100%; width: 0; border-radius: 999px; background: var(--accent); transition: width 0.2s; }
-.progress.moving .progress-fill { position: absolute; left: -30%; width: 30%; transition: none; animation: progress-slide 1.2s linear infinite; }
+/* Markeringen flyttas med transform, som ritas utanför sidans egen tråd: den rör sig också medan en fråga i en databas pågår. */
+.progress.moving .progress-fill { width: 30%; transition: none; will-change: transform; animation: progress-slide 1.2s linear infinite; }
 .progress-text { font-size: 12.5px; color: var(--text-muted); font-variant-numeric: tabular-nums; }
-@keyframes progress-slide { from { left: -30%; } to { left: 100%; } }
-@media (prefers-reduced-motion: reduce) { .progress.moving .progress-fill { animation: none; left: 0; width: 100%; opacity: 0.45; } }
+@keyframes progress-slide { from { transform: translateX(-100%); } to { transform: translateX(334%); } }
+@media (prefers-reduced-motion: reduce) { .progress.moving .progress-fill { animation: none; transform: none; width: 100%; opacity: 0.45; } }
 /* Extraktionen öppnades eller stängdes i ett annat verktyg medan något visas här: erbjud bytet. */
 .signal-key { margin-top: 10px; display: flex; flex-direction: column; gap: 4px; }
 .signal-key-input { display: flex; gap: 8px; align-items: center; max-width: 760px; }
@@ -316,6 +317,8 @@ button.chip.on { background: var(--accent-soft); border-color: var(--accent); co
 button.chip.on .chip-n { color: inherit; }
 .batch-hits { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; margin-top: 8px; padding: 8px 12px; border-radius: 9px; background: var(--warn-soft); font-size: 13px; line-height: 1.4; }
 .batch-hits span { flex: 1 1 320px; }
+.batch-kept { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; margin-top: 8px; padding: 8px 12px; border: 1px solid var(--border); border-radius: 9px; font-size: 13px; line-height: 1.4; }
+.batch-kept span { flex: 1 1 320px; }
 .batch-nav { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-top: 10px; padding: 10px 14px; border: 1px solid var(--accent); border-radius: 12px; background: var(--accent-soft); }
 .batch-nav .grow { flex: 1; }
 

@@ -66,6 +66,15 @@ test('Snapchats user agent och Signals logg', () => {
     assert.deepStrictEqual(v.fromSignalLog(rows, 8000), { version: '8.33.2', ms: 9000 });
     assert.deepStrictEqual(v.fromSignalLog(rows, 1200), { version: '8.32.0', ms: 1000 });
     assert.strictEqual(v.fromSignalLog([], 1), null);
+    // Versionerna läses ur loggen en gång och används för varje fil: samma svar, och listan ändras inte av det.
+    const versions = v.signalLogVersions(rows);
+    assert.deepStrictEqual(versions, [{ version: '8.32.0', ms: 1000 }, { version: '8.33.2', ms: 9000 }]);
+    const got = v.fromSignalLog(rows, 8000, versions);
+    assert.deepStrictEqual(got, { version: '8.33.2', ms: 9000 });
+    got.version = 'ändrad';
+    assert.deepStrictEqual(v.fromSignalLog(rows, 8000, versions), { version: '8.33.2', ms: 9000 });
+    assert.deepStrictEqual(v.fromSignalLog(rows, 1200, versions), v.fromSignalLog(rows, 1200));
+    assert.strictEqual(v.fromSignalLog([], 1, v.signalLogVersions([])), null);
 });
 
 test('texten i protokollet', () => {

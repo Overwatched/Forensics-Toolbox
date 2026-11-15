@@ -401,6 +401,14 @@ function initToolNav() {
                 : { source: 'forensics-toolbox', type: 'provenance-files', files: data.files });
             return;
         }
+        // EXIF & karta ber Härkomst om innehållet i en fil ur extraktionen (file-need), och Härkomst svarar
+        // (file-content). Inget verktyg öppnas eller byts. Är Härkomst inte laddat får EXIF & karta veta det.
+        if (data.type === 'file-need' || data.type === 'file-content') {
+            const frame = frames.get(TOOL_PATH[data.type === 'file-need' ? 'provenance' : 'exif']);
+            if (frame && frame.dataset.ready) postToFrame(frame, data);
+            else if (data.type === 'file-need') postToFrame(frameOf(event.source), { source: 'forensics-toolbox', type: 'file-content', token: data.token, error: 'Härkomst är inte öppet, så filen kan inte läsas ur extraktionen. Öppna Härkomst och extraktionen igen.' });
+            return;
+        }
         // En rad i Queries öppnas som chatt: databasens sökväg i extraktionen, chattens och meddelandets id.
         if (data.type === 'open-chat' && typeof data.path === 'string') {
             deliver('chats', { source: 'forensics-toolbox', type: 'open-chat', path: data.path, db: data.db || '', thread: data.thread, message: data.message, zipName: data.zipName || '' });

@@ -244,16 +244,19 @@
     }
 
     // crypto.subtle nekar mer än 2 GB. Större filer räknas i JavaScript, bit för bit, utan att sidan
-    // står still. opts.subtleMax kan bytas ut i testerna.
+    // står still, och opts.onProgress(räknade byte, alla) säger hur långt det har kommit. opts.subtleMax och
+    // opts.piece kan bytas ut i testerna.
     var SUBTLE_MAX = 2000000000;
-    var HASH_PIECE = 64 * 1024 * 1024;
+    var HASH_PIECE = 16 * 1024 * 1024;
     async function sha256(bytes, opts) {
         var c = root.crypto || (typeof globalThis !== 'undefined' ? globalThis.crypto : null);
         if (!c || !c.subtle) return '';
         if (bytes.length > (opts && opts.subtleMax || SUBTLE_MAX)) {
             var hasher = dep('ToolboxHashing').createHasher('sha256');
-            for (var at = 0; at < bytes.length; at += HASH_PIECE) {
-                hasher.update(bytes.subarray(at, at + HASH_PIECE));
+            var piece = opts && opts.piece || HASH_PIECE;
+            for (var at = 0; at < bytes.length; at += piece) {
+                hasher.update(bytes.subarray(at, at + piece));
+                if (opts && opts.onProgress) opts.onProgress(Math.min(at + piece, bytes.length), bytes.length);
                 await dep('ZipRead').pause();
             }
             return hasher.digestHex();
@@ -295,10 +298,16 @@
     async function readCore(read, hit, opts) {
         var stage = opts.onStage || function () {};
         stage('read', null);
-        var dbRead = await dep('ZipRead').extract(read, hit.db);
-        var walRead = hit.wal ? await dep('ZipRead').extract(read, hit.wal) : null;
+        // En stor fil läses och räknas i bitar, och då följer andelen med: av databasen och -wal tillsammans.
+        var all = hit.db.size + (hit.wal ? hit.wal.size : 0);
+        var part = function (name, before) { return function (done) { stage(name, all ? (before + done) / all : null); }; };
+        var dbRead = await dep('ZipRead').extract(read, hit.db, { onProgress: part('read', 0) });
+        var walRead = hit.wal ? await dep('ZipRead').extract(read, hit.wal, { onProgress: part('read', hit.db.size) }) : null;
         stage('hash', null);
-        var hashes = { db: await sha256(dbRead.bytes), wal: walRead ? await sha256(walRead.bytes) : '' };
+        var hashes = {
+            db: await sha256(dbRead.bytes, { onProgress: part('hash', 0) }),
+            wal: walRead ? await sha256(walRead.bytes, { onProgress: part('hash', hit.db.size) }) : '',
+        };
         var walBytes = walRead ? walRead.bytes : new Uint8Array(0);
         // En SQLCipher-fil med okrypterat huvud (Signal på iOS) börjar som SQLite; SqlCipher känner igen den.
         var sc = deps.SqlCipher || root.SqlCipher;
@@ -397,11 +406,11 @@
             var doing = inner && inner !== 'wait' && inner !== 'copy' ? stageText(inner, frac) : '';
             text = 'väntar på ' + (label || 'databasen') + ', som ' + by + ' redan läser in' + (doing ? ' (' + doing + ')' : '…');
         } else if (stage === 'copy') text = 'hämtar ' + (label || 'databasen') + ' från ' + by + ', som redan har läst den…';
-        else if (stage === 'hash') text = 'räknar SHA-256' + (label ? ' för ' + label : '') + '…';
+        else if (stage === 'hash') text = 'räknar SHA-256' + (label ? ' för ' + label : '') + '…' + pct;
         else if (stage === 'decrypt') text = 'dekrypterar' + of + '…' + pct;
         else if (stage === 'decrypt-slow') text = 'dekrypterar' + of + ' utan webbläsarens inbyggda kryptering, så det går långsammare…' + pct;
         else if (stage === 'wal') text = 'lägger på -wal' + (label ? ' för ' + label : '') + '…';
-        else text = 'läser' + (of || ' filen') + '…';
+        else text = 'läser' + (of || ' filen') + '…' + pct;
         return label ? text.charAt(0).toUpperCase() + text.slice(1) : text;
     }
 

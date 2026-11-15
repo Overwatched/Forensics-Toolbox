@@ -693,9 +693,10 @@ const scenarios = [
             const pool = await ev(`ProvenanceApp.exif()`);
             expect(pool.working === 0 && pool.waiting === 0 && pool.workers <= 1, 'ExifTool efter ' + label + ': ' + JSON.stringify(pool));
         };
-        // Samma lista utan och med läsning i förväg. ExifTools svar glöms före varje gång, så att filerna läses båda gångerna.
+        // Samma lista utan och med läsning i förväg. ExifTools svar och listans bedömda rader glöms före varje gång,
+        // så att filerna läses och bedöms båda gångerna.
         const run = async (ahead) => {
-            await ev(`ProvenanceApp.forgetTags(), ProvenanceApp.readAhead(${ahead}), 1`);
+            await ev(`ProvenanceApp.forgetTags(), ProvenanceApp.forgetRows(), ProvenanceApp.readAhead(${ahead}), 1`);
             const before = await ev(`ProvenanceApp.work()`);
             await start();
             await sleep(300);
@@ -713,7 +714,7 @@ const scenarios = [
         expect(off.exif >= done && on.exif === off.exif && on.asked === off.asked && on.logs === off.logs, 'Arbetet utan och med läsning i förväg: ' + JSON.stringify([off, on]).replace(/"list":"(\\.|[^"])*",/g, ''));
 
         // Avbruten mitt i: det som lästes i förväg blir klart och släpps, och nästa fil bedöms som vanligt.
-        await ev(`ProvenanceApp.forgetTags(), 1`);
+        await ev(`ProvenanceApp.forgetTags(), ProvenanceApp.forgetRows(), 1`);
         await start(`setTimeout(function () { document.getElementById('batch-stop').click(); }, 30);`);
         await sleep(300);
         await idle('den avbrutna listan');
@@ -722,6 +723,98 @@ const scenarios = [
         await sleep(200);
         await waitResult(c, 'filen efter den avbrutna listan');
         return done + ' filer lika med och utan ' + usual + ' rader i förväg, ExifTool ' + on.exif + ' gånger var; ' + left + ' rader blev kvar när listan avbröts';
+    }],
+
+    ['Härkomst: en lista som är bedömd visas igen utan att läsas, bara nya namn bedöms, knappen bedömer på nytt, och en lång lista går att avbryta', async ({ c }) => {
+        await c.nav('Härkomst');
+        const ev = (e) => c.ev(PROV, e);
+        const names = ['IMG_0001.JPG', 'IMG_0002.JPG', 'IMG_0005.JPG', 'IMG_0006.JPG', 'finns-inte.jpg', 'IMG_0007.JPG'];
+        const type = (list, then) => ev(`(function () { const f = document.getElementById('filename'); f.value = ${JSON.stringify(list.join('\n'))}; f.dispatchEvent(new Event('input', { bubbles: true })); document.getElementById('run').click(); ${then || ''} return 1; })()`);
+        const listed = (n, label) => c.waitFor(PROV, `!ProvenanceApp.busy() && document.querySelectorAll('#batch-list tbody tr').length === ${n} && ProvenanceApp.exif().starting === 0`, 90000, label);
+        const state = () => ev(`({ work: ProvenanceApp.work(), list: JSON.stringify(ProvenanceApp.list()), said: document.getElementById('run-status').textContent,
+            kept: document.getElementById('batch-kept').classList.contains('display-none') ? '' : document.getElementById('batch-kept-text').textContent,
+            rows: [...document.querySelectorAll('#batch-list tbody tr')].map(t => t.getAttribute('data-i') + ' ' + t.innerText.replace(/\\s+/g, ' ').trim().split(' ')[0]) })`);
+        const inOrder = (st, list) => st.rows.join('|') === list.map((n, i) => i + ' ' + n).join('|');
+        const run = async (list, label) => { const a = await state(); await type(list); await sleep(300); await listed(list.length, label); const b = await state(); return Object.assign(b, { d: Object.fromEntries(Object.keys(b.work).map((k) => [k, b.work[k] - a.work[k]])) }); };
+        const setWindow = (v) => ev(`(function () { const w = document.getElementById('window'); w.value = ${JSON.stringify(v)}; w.dispatchEvent(new Event('change', { bubbles: true })); return 1; })()`);
+
+        // Första gången bedöms alla. Andra gången läses ingen fil och ställs ingen fråga, och listan är densamma.
+        await ev(`ProvenanceApp.forgetTags(), ProvenanceApp.forgetRows(), 1`);
+        const first = await run(names, 'listan första gången');
+        const assessed = JSON.parse(first.list).filter((r) => r.status === 'done').length;
+        expect(assessed >= 4 && first.d.rowsKept === 0 && first.d.exif >= assessed && first.d.md5 >= 1 && first.d.md5 + first.d.md5Kept >= assessed && !first.kept && inOrder(first, names), 'Första gången: ' + JSON.stringify(first.d) + ' ' + first.rows.join('|') + ' ' + first.kept);
+        const second = await run(names, 'samma lista igen');
+        expect(second.d.rowsKept === names.length && second.d.exif === 0 && second.d.exifReused === 0 && second.d.asked === 0 && second.d.reused === 0 && second.d.md5 === 0 && second.d.md5Kept === 0, 'Samma lista lästes eller frågades igen: ' + JSON.stringify(second.d));
+        expect(second.list === first.list && inOrder(second, names), 'Listan ändrades av att visas igen: ' + second.rows.join('|'));
+        expect(/^Alla 6 filer var redan bedömda med samma fönster, zon och nycklar, och lästes inte igen\. /.test(second.said), 'Lägesraden: ' + second.said);
+        expect(/^Alla 6 filer var redan bedömda med samma fönster, zon och nycklar för den här extraktionen\. De visas som de bedömdes då, utan att läsas igen\.$/.test(second.kept), 'Raden om det som redan var bedömt: ' + second.kept);
+
+        // Två namn till: bara de bedöms, och de andra står som förut.
+        const more = names.concat(['IMG_0008.JPG', 'finns-inte-heller.jpg']);
+        const third = await run(more, 'listan med två namn till');
+        expect(third.d.rowsKept === names.length && third.d.exif >= 1 && third.d.exif < assessed && third.d.md5 + third.d.md5Kept === 1, 'Bara de nya namnen ska bedömas: ' + JSON.stringify(third.d));
+        expect(JSON.stringify(JSON.parse(third.list).slice(0, names.length)) === first.list && inOrder(third, more), 'De gamla raderna ändrades: ' + third.rows.join('|'));
+        expect(/^2 filer genomgångna på .* 6 filer var redan bedömda och lästes inte igen\. /.test(third.said) && /^6 av 8 filer var redan bedömda/.test(third.kept), 'Lägesraden och raden under: ' + third.said + ' / ' + third.kept);
+
+        // En rad som visas igen öppnas som vanligt: filen bedöms då i sin helhet.
+        await ev(`document.querySelector('#batch-list tr.pick[data-i="3"]').click(), 1`);
+        await sleep(200);
+        await waitResult(c, 'raden som visades igen');
+        expect(await ev(`ProvenanceApp.model().file.filename`) === names[3], 'Klicket öppnade en annan fil');
+        await ev(`document.getElementById('batch-back').click(), 1`);
+        await sleep(200);
+
+        // Ett annat fönster gäller inte det som sparats: alla bedöms. Tillbaka till det första fönstret står de som då.
+        const usual = await ev(`document.getElementById('window').value`);
+        const other = await ev(`[...document.getElementById('window').options].map(o => o.value).find(v => v !== document.getElementById('window').value)`);
+        const w0 = await state();
+        await setWindow(other);
+        await sleep(300);
+        await listed(more.length, 'listan med ett annat fönster');
+        const w1 = await state();
+        expect(w1.work.rowsKept === w0.work.rowsKept && w1.work.exifReused > w0.work.exifReused && !w1.kept, 'Ett annat fönster ska bedöma alla: ' + JSON.stringify([w0.work, w1.work]) + ' ' + w1.kept);
+        await setWindow(usual);
+        await sleep(300);
+        await listed(more.length, 'listan med det första fönstret');
+        const w2 = await state();
+        expect(w2.work.rowsKept - w1.work.rowsKept === more.length && w2.list === third.list, 'Det första fönstret ska visa raderna som då: ' + JSON.stringify([w1.work, w2.work]));
+
+        // Knappen bedömer listan på nytt: filerna läses igen, innehållet är detsamma, och MD5 räknas inte en gång till.
+        const b0 = await state();
+        await ev(`document.getElementById('batch-fresh').click(), 1`);
+        await sleep(300);
+        await listed(more.length, 'listan bedömd på nytt');
+        const b1 = await state();
+        expect(b1.work.rowsKept === b0.work.rowsKept && b1.work.exifReused > b0.work.exifReused && !b1.kept && b1.list === third.list, 'Knappen ska bedöma alla på nytt med samma svar: ' + JSON.stringify([b0.work, b1.work]) + ' ' + b1.kept);
+        expect(b1.work.md5 === b0.work.md5 && b1.work.md5Kept - b0.work.md5Kept >= assessed + 1, 'MD5 räknades om för samma innehåll: ' + JSON.stringify([b0.work, b1.work]));
+
+        // En lång lista med namn som inte finns läser inget, och släpper ändå fram fönstret: ett klick på Avbryt mitt
+        // i listan når fram. Här släpps fönstret fram efter varje rad, så att provet inte beror på hur fort det går.
+        const many = Array.from({ length: 3000 }, (_, i) => 'saknas-' + (i + 1) + '.jpg');
+        const pace = await ev(`ProvenanceApp.listFree()`);
+        expect(pace > 0 && pace <= 100, 'Listan släpper fram fönstret var ' + pace + ':e ms');
+        await ev(`ProvenanceApp.listFree(0), 1`);
+        try {
+            const f0 = await state();
+            await type(many, `window.__stopAt = -1; const ch = new MessageChannel(); ch.port1.onmessage = function () {
+                const l = ProvenanceApp.list(), n = l ? l.filter(r => r.status === 'missing').length : 0;
+                if (ProvenanceApp.busy() && l && l.length === 3000 && n >= 100) { window.__stopAt = n; document.getElementById('batch-stop').click(); return; }
+                if (window.__stopAt < 0 && !(l && l.length === 3000 && !ProvenanceApp.busy())) ch.port2.postMessage(0); }; ch.port2.postMessage(0);`);
+            await sleep(300);
+            await listed(3000, 'den långa listan');
+            const f1 = await state();
+            const l1 = JSON.parse(f1.list), stopped = l1.filter((r) => r.status === 'stopped').length, missing = l1.filter((r) => r.status === 'missing').length;
+            const stopAt = await ev(`window.__stopAt`);
+            expect(stopAt >= 100 && stopAt < 3000 && stopped > 0 && missing + stopped === 3000 && missing >= stopAt && missing <= stopAt + 2, 'Avbryt nådde inte fram mitt i listan: tryckt vid ' + stopAt + ', ' + missing + ' genomgångna, ' + stopped + ' avbrutna');
+            expect(f1.work.freed - f0.work.freed >= missing && inOrder(f1, many) && /^Avbruten efter \d+ av 3000 filer/.test(f1.said), 'Den avbrutna listan: ' + JSON.stringify(f1.work) + ' ' + f1.said);
+            // Samma lista igen: det som hann gås igenom står kvar, resten gås igenom, och raderna står i sin ordning.
+            const f2 = await run(many, 'den långa listan igen');
+            const l2 = JSON.parse(f2.list);
+            expect(f2.d.rowsKept === missing && l2.every((r) => r.status === 'missing') && inOrder(f2, many), 'Den långa listan igen: ' + JSON.stringify(f2.d) + ' ' + f2.said);
+            return assessed + ' filer bedömda en gång och visade igen utan läsning, två nya namn bedömda för sig, MD5 återanvänd ' + (b1.work.md5Kept - b0.work.md5Kept) + ' gånger, och 3000 namn avbrutna efter ' + missing;
+        } finally {
+            await ev(`ProvenanceApp.listFree(${pace}), 1`);
+        }
     }],
 
     ['Härkomst: listan visar förloppet och faktorernas lägen i ord, går att söka och välja i, och ett namn med flera träffar blir en rad per träff', async ({ c, downloads }) => {
@@ -748,6 +841,7 @@ const scenarios = [
             new MutationObserver(function () { const t = [box.className, track.firstElementChild.style.width, track.getAttribute('aria-valuenow'), box.lastElementChild.textContent].join('|'); if (t !== last) { last = t; window.__bar.push(t); } })
                 .observe(box, { attributes: true, subtree: true, childList: true, characterData: true }); })(), 1`);
         const names = ['IMG_0001.JPG', 'IMG_0002.JPG', 'IMG_0006.JPG', 'IMG_0009.JPG', 'finns-inte.jpg'];
+        await ev(`ProvenanceApp.forgetRows(), 1`);
         await type(names);
         await listed(5, 'listan');
         const ran = await bar();
@@ -1473,6 +1567,224 @@ const scenarios = [
         expect(d.events.some((r) => /batterihistoriken, zonen antagen: Europe\/Stockholm/.test(r) && /\+camera/.test(r)), 'Raderna: ' + d.events.join(' / '));
         await noInjectedScript(c);
         return 'SSRM utan [RTC] och batterifiler utan ändringstid: raderna visas, räknas inte, och varningen säger antagandet';
+    }],
+
+    ['Samsung med Signal: inläsningen har en egen stapel under listans, loggen söks i tidsdelar med samma svar, meddelandena slås upp i en tabell i minnet, och filen kopplas till valet och meddelandet', async ({ c, fx }) => {
+        await c.nav('Härkomst');
+        const ev = (e) => c.ev(PROV, e);
+        await ev(`document.getElementById('ex-close').click(), 1`);
+        await c.setFiles(null, '#cb-input', [fx.files.samsungSignal]);
+        await c.ev(null, `document.getElementById('cb-input').dispatchEvent(new Event('change')), 1`);
+        await c.waitFor(PROV, `!ProvenanceApp.busy() && document.getElementById('ex-status').textContent.includes('Testextraktion-Samsung-med-Signal.zip') && /databas(er)? hittades/.test(document.getElementById('ex-status').textContent)`, 60000, 'Samsung-zippen med Signal');
+        await ev(`(function () { const k = document.getElementById('signal-key'); k.value = ${JSON.stringify(fx.signalAndroidKey)}; k.dispatchEvent(new Event('input', { bubbles: true })); return 1; })()`);
+        await c.waitFor(PROV, `/Den inklistrade nyckeln används/.test(document.getElementById('signal-key-note').textContent)`, 10000, 'nyckeln till Signal');
+
+        // Stegets stapel står under listans medan databaserna läses in, och är borta när listan är klar.
+        await ev(`(function () { window.__step = []; const box = document.getElementById('run-step'); let last = '';
+            new MutationObserver(function () { const t = (box.classList.contains('idle') ? 'vilar' : box.classList.contains('moving') ? 'rörlig' : 'andel') + '|' + box.lastElementChild.textContent; if (t !== last) { last = t; window.__step.push(t); } })
+                .observe(box, { attributes: true, subtree: true, childList: true, characterData: true });
+            window.__said = []; const line = document.getElementById('run-status');
+            new MutationObserver(function () { const t = line.textContent; if (t && t !== window.__said[window.__said.length - 1]) window.__said.push(t); })
+                .observe(line, { subtree: true, childList: true, characterData: true }); })(), 1`);
+        const before = await ev(`ProvenanceApp.work()`);
+        await ev(`(function () { const f = document.getElementById('filename'); f.value = ${JSON.stringify('20260312_133111.jpg\nchatt_kamera.jpg')}; f.dispatchEvent(new Event('input', { bubbles: true })); document.getElementById('run').click(); return 1; })()`);
+        await sleep(300);
+        await c.waitFor(PROV, `!ProvenanceApp.busy() && document.querySelectorAll('#batch-list tbody tr').length === 2`, 90000, 'listan med Signal');
+        const steps = await ev(`window.__step`);
+        expect(steps.some((x) => /^(rörlig|andel)\|Görs en gång för hela listan/.test(x)) && /^vilar\|/.test(steps[steps.length - 1]), 'Stegets stapel under listan: ' + steps.join(' ; '));
+        expect(await ev(`document.querySelector('#run-step .progress-track').getAttribute('role')`) === 'progressbar', 'Stegets stapel saknar sin roll');
+        // Den första filen läser in Signals databaser. För den andra står det att filen slås upp, inte att de läses igen.
+        const said = await ev(`window.__said`);
+        const read = said.findIndex((x) => /Läser Signals databaser \(beta\)/.test(x)), looked = said.findIndex((x) => /Slår upp filen i Signal \(beta\)/.test(x));
+        expect(read >= 0 && looked > read && said.filter((x) => /Läser Signals databaser/.test(x)).length === 1, 'Lägesraden för Signal: ' + said.join(' ; ').slice(0, 900));
+        const after = await ev(`ProvenanceApp.work()`);
+        expect(after.parts - before.parts > 1 && after.byRows - before.byRows === 1, 'Loggen söktes inte i delar efter antal rader: ' + JSON.stringify(before) + ' → ' + JSON.stringify(after));
+
+        // Svaret är det hela frågan ger: valet i galleriet, bilagan och meddelandet, och protokollet har frågan över hela loggen.
+        const one = await assessNamed(c, 'chatt_kamera.jpg');
+        const d = await ev(`(function(){ const m = ProvenanceApp.model(); return { events: [...document.querySelectorAll('#events tbody tr')].map(r => r.textContent), sql: [...document.querySelectorAll('#sources pre.sql')].map(p => p.textContent), kinds: m.events.filter(e => /^sig-/.test(e.kind)).map(e => e.kind + (e.isFile ? '*' : '')) }; })()`);
+        expect(d.events.some((r) => /Den bedömda filen: Signal: bild skickad till Kim/.test(r) && /meddelande 2/.test(r)), 'Meddelandet: ' + d.events.join(' / '));
+        expect(d.events.some((r) => /Signals logg: en fil väljs ur galleriet \(MediaStore-id 2\) som bilaga 7/.test(r)) && d.events.some((r) => /Signals logg: kameran och medievalet öppnas/.test(r)) && d.events.some((r) => /Signals logg: meddelande 2 skickat/.test(r)), 'Loggens rader: ' + d.events.join(' / '));
+        expect(one.model.files.includes('sig-message') && one.model.files.includes('sig-pick'), 'Filen är inte kopplad: ' + JSON.stringify(one.model.files));
+        const whole = d.sql.filter((q) => /FROM log\s+WHERE created_at BETWEEN 0 AND 4102444800000/.test(q));
+        expect(whole.length === 1 && !d.sql.some((q) => /FROM log\s+WHERE created_at BETWEEN (?!0 AND 4102444800000)/.test(q)), 'Protokollet ska ha frågan över hela loggen en gång: ' + d.sql.filter((q) => /FROM log/.test(q)).join(' / ').slice(0, 600));
+        const again = await ev(`ProvenanceApp.work()`);
+        expect(again.parts === after.parts, 'Loggen söktes igen för samma extraktion: ' + JSON.stringify(again));
+
+        // Meddelandena hämtas en gång till en tabell i minnet, och varje fil slås upp där. Protokollet har frågan mot
+        // databasen med filens fönster, och källan säger hur svaret hämtades.
+        expect(again.indexBuilt - before.indexBuilt === 1 && again.indexed - before.indexed === 3, 'Tabellen byggs en gång och används för varje fil: ' + JSON.stringify(before) + ' → ' + JSON.stringify(again));
+        expect(again.indexChecked - before.indexChecked >= 1 && again.indexChecked - before.indexChecked < again.indexed - before.indexed, 'Uppslaget prövas mot databasen tills ett fönster med rader stämt: ' + JSON.stringify(again));
+        const msgSql = d.sql.filter((q) => /FROM message m\s+LEFT JOIN thread t/.test(q) && /WHERE m\.date_sent BETWEEN \d+ AND \d+/.test(q));
+        expect(msgSql.length === 1 && !/BETWEEN 0 AND 4102444800000/.test(msgSql[0]) && !d.sql.some((q) => /ft_index/.test(q)), 'Protokollet ska ha meddelandefrågan mot databasen med filens fönster: ' + d.sql.filter((q) => /message/.test(q)).join(' / ').slice(0, 600));
+        const src = await ev(`({ lookup: [...document.querySelectorAll('#sources dt')].filter(x => x.textContent === 'Uppslag').map(x => x.nextElementSibling.textContent), warnings: ProvenanceApp.model().warnings, report: ProvenanceReport.protocol(ProvenanceApp.model(), ProvenanceApp.meta()) })`);
+        expect(src.lookup.length === 1 && /^Svaret på role-messages över hela tiden \(\d+ rader\) lades en gång i en tabell i minnet med index på date_sent och date_received, och filens fönster slogs upp där\./.test(src.lookup[0]), 'Källans rad om uppslaget: ' + JSON.stringify(src.lookup));
+        expect(src.report.includes(src.lookup[0]), 'Raden om uppslaget saknas i protokollet');
+        expect(!src.warnings.some((w) => /direkt i databasen/.test(w)), 'Tabellen i minnet togs ur bruk: ' + src.warnings.join(' / '));
+
+        // Samma nyckel klistrad en gång till: Signals databaser står kvar, så inget läses in och loggen söks inte igen.
+        const paste = (key) => ev(`(function () { const k = document.getElementById('signal-key'); k.value = ${JSON.stringify(key)}; k.dispatchEvent(new Event('input', { bubbles: true })); return 1; })()`);
+        const signalNow = async () => { const a = await assessNamed(c, 'chatt_kamera.jpg'); return { msg: a.model.files.includes('sig-message'), work: await ev(`ProvenanceApp.work()`), report: await ev(`ProvenanceReport.protocol(ProvenanceApp.model(), ProvenanceApp.meta())`) }; };
+        const k0 = await signalNow();
+        expect(k0.msg && /signal-logs\.db/.test(k0.report), 'Signal före nyckelbytet: ' + JSON.stringify(k0.work));
+        await paste(fx.signalAndroidKey);
+        const k1 = await signalNow();
+        expect(k1.msg && k1.work.loaded === k0.work.loaded && k1.work.parts === k0.work.parts && k1.work.indexBuilt === k0.work.indexBuilt, 'Samma nyckel läste in Signals databaser igen: ' + JSON.stringify(k0.work) + ' → ' + JSON.stringify(k1.work));
+        // Protokollet utan klockslaget det skapades och utan de ritade bilderna, där klockslaget också står.
+        const undated = (t) => t.replace(/\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} UTC/g, '').replace(/src="data:image\/png;base64,[^"]*"/g, '');
+        expect(undated(k1.report) === undated(k0.report), 'Protokollet ändrades av att samma nyckel klistrades in igen: ' + k0.report.length + ' och ' + k1.report.length + ' tecken');
+        // Listan som bedömdes med nyckeln visas igen utan läsning, eftersom nycklarna är desamma.
+        const twoNames = () => ev(`(function () { const f = document.getElementById('filename'); f.value = ${JSON.stringify('20260312_133111.jpg\nchatt_kamera.jpg')}; f.dispatchEvent(new Event('input', { bubbles: true })); document.getElementById('run').click(); return 1; })()`);
+        const twoListed = async (label) => { await sleep(300); await c.waitFor(PROV, `!ProvenanceApp.busy() && document.querySelectorAll('#batch-list tbody tr').length === 2`, 90000, label); return ev(`({ work: ProvenanceApp.work(), list: JSON.stringify(ProvenanceApp.list()) })`); };
+        await twoNames();
+        const l1 = await twoListed('listan med samma nyckel');
+        expect(l1.work.rowsKept - k1.work.rowsKept === 2, 'Listan med samma nyckel bedömdes igen: ' + JSON.stringify(l1.work));
+        // Utan nyckel är databaserna inte inlästa: filen bedöms utan Signal, protokollet nämner dem inte som lästa, och
+        // listan bedöms på nytt i stället för att visas som med nyckeln.
+        await paste('');
+        await c.waitFor(PROV, `!/Den inklistrade nyckeln används/.test(document.getElementById('signal-key-note').textContent)`, 10000, 'nyckeln borttagen');
+        const k2 = await signalNow();
+        expect(!k2.msg && k2.work.loaded === k1.work.loaded && !/role-messages/.test(k2.report), 'Utan nyckel ska Signal inte vara med: ' + JSON.stringify(k2.work));
+        await twoNames();
+        const l2 = await twoListed('listan utan nyckel');
+        expect(l2.work.rowsKept === l1.work.rowsKept && l2.list !== l1.list, 'Listan utan nyckel visades som med nyckeln: ' + JSON.stringify(l2.work));
+        // Samma nyckel tillbaka: databaserna tas fram igen utan att läsas in, och svaret är det förra.
+        await paste(fx.signalAndroidKey);
+        const k3 = await signalNow();
+        expect(k3.msg && undated(k3.report) === undated(k0.report) && k3.work.loaded === k1.work.loaded && k3.work.parts === k1.work.parts && k3.work.indexBuilt === k1.work.indexBuilt, 'Nyckeln tillbaka läste in Signals databaser igen: ' + JSON.stringify(k1.work) + ' → ' + JSON.stringify(k3.work));
+        await twoNames();
+        const l3 = await twoListed('listan med nyckeln tillbaka');
+        expect(l3.work.rowsKept - l2.work.rowsKept === 2 && l3.list === l1.list, 'Listan med nyckeln tillbaka: ' + JSON.stringify(l3.work));
+        // En annan nyckel stänger databaserna. Med den rätta nyckeln igen läses de in på nytt.
+        await paste(fx.signalAndroidKey.replace(/^[0-9a-f]{4}/, (x) => (x === '0000' ? '1111' : '0000')));
+        const k4 = await signalNow();
+        expect(!k4.msg, 'En annan nyckel gav ändå Signals meddelanden');
+        await paste(fx.signalAndroidKey);
+        const k5 = await signalNow();
+        expect(k5.msg && k5.work.loaded - k4.work.loaded === 2 && k5.work.indexBuilt - k4.work.indexBuilt === 1, 'Efter en annan nyckel ska Signals två databaser läsas in igen: ' + JSON.stringify(k4.work) + ' → ' + JSON.stringify(k5.work));
+
+        // Ett uppslag som inte ger frågans rader upptäcks vid det första fönstret: tabellen tas ur bruk, källan får en
+        // varning, och svaret kommer från databasen som förut.
+        await ev(`(function () { const real = ProvenanceRoles.timeIndex; window.__realTimeIndex = real;
+            ProvenanceRoles.timeIndex = function (q) { const spec = real(q); return spec && Object.assign({}, spec, { lookup: function (win) { return spec.lookup(win).replace(' ORDER BY rowid', ' ORDER BY rowid LIMIT 0'); } }); }; })(), 1`);
+        try {
+            await ev(`document.getElementById('ex-close').click(), 1`);
+            await c.setFiles(null, '#cb-input', [fx.files.samsungSignal]);
+            await c.ev(null, `document.getElementById('cb-input').dispatchEvent(new Event('change')), 1`);
+            await c.waitFor(PROV, `!ProvenanceApp.busy() && /databas(er)? hittades/.test(document.getElementById('ex-status').textContent)`, 60000, 'Samsung-zippen med Signal en gång till');
+            await ev(`(function () { const k = document.getElementById('signal-key'); k.value = ${JSON.stringify(fx.signalAndroidKey)}; k.dispatchEvent(new Event('input', { bubbles: true })); return 1; })()`);
+            const wrong = await assessNamed(c, 'chatt_kamera.jpg');
+            const w = await ev(`({ warnings: ProvenanceApp.model().warnings, events: [...document.querySelectorAll('#events tbody tr')].map(r => r.textContent), lookup: [...document.querySelectorAll('#sources dt')].filter(x => x.textContent === 'Uppslag').length, work: ProvenanceApp.work() })`);
+            expect(w.warnings.filter((x) => /Tabellen i minnet över meddelandena gav inte samma rader som frågan mot databasen, så den används inte\. Varje fil söks i stället direkt i databasen\./.test(x)).length === 1, 'Varningen om uppslaget saknas: ' + w.warnings.join(' / '));
+            expect(w.events.some((r) => /Den bedömda filen: Signal: bild skickad till Kim/.test(r) && /meddelande 2/.test(r)) && wrong.model.files.includes('sig-message'), 'Svaret ska komma från databasen: ' + w.events.join(' / ').slice(0, 600));
+            expect(w.lookup === 0, 'Källan säger att uppslaget användes fast det togs ur bruk');
+            // Nästa fil frågar databasen direkt, utan att bygga tabellen igen.
+            await assessNamed(c, '20260312_133111.jpg');
+            const w2 = await ev(`ProvenanceApp.work()`);
+            expect(w2.indexBuilt === w.work.indexBuilt && w2.indexed === w.work.indexed, 'Tabellen användes eller byggdes igen efter felet: ' + JSON.stringify(w.work) + ' → ' + JSON.stringify(w2));
+        } finally {
+            await ev(`ProvenanceRoles.timeIndex = window.__realTimeIndex, 1`);
+        }
+        await noInjectedScript(c);
+        return 'stapeln ' + steps.length + ' lägen, loggen i ' + (after.parts - before.parts) + ' delar, meddelandena ur tabellen i minnet (' + (again.indexed - before.indexed) + ' uppslag), filen kopplad till val och meddelande';
+    }],
+
+    ['Härkomst → EXIF & karta: listan lämnas över som hänvisningar och läses fil för fil, Signals bilaga dekrypteras med bilagenyckeln, och utan nyckel eller extraktion står skälet på raden', async ({ c, fx }) => {
+        const EXIF = 'exif-viewer/index.html';
+        const NAMES = ['part7.mms', 'chatt_kamera.jpg', '20260312_133111.jpg'];
+        const ev = (e) => c.ev(PROV, e);
+        const open = async (key) => {
+            await c.nav('Härkomst');
+            await ev(`document.getElementById('ex-close').click(), 1`);
+            await c.setFiles(null, '#cb-input', [fx.files.samsungSignal]);
+            await c.ev(null, `document.getElementById('cb-input').dispatchEvent(new Event('change')), 1`);
+            await c.waitFor(PROV, `!ProvenanceApp.busy() && document.getElementById('ex-status').textContent.includes('Testextraktion-Samsung-med-Signal.zip') && /databas(er)? hittades/.test(document.getElementById('ex-status').textContent)`, 60000, 'Samsung-zippen med Signal');
+            await ev(`(function () { const k = document.getElementById('signal-key'); k.value = ${JSON.stringify(key)}; k.dispatchEvent(new Event('input', { bubbles: true })); return 1; })()`);
+            await c.waitFor(PROV, `/Den inklistrade nyckeln används/.test(document.getElementById('signal-key-note').textContent)`, 10000, 'nyckeln till Signal');
+        };
+        const card = () => ev(`({ rows: Object.fromEntries([...document.querySelectorAll('#file-card dt')].map(dt => [dt.textContent, dt.nextElementSibling.textContent])), text: document.getElementById('file-card').textContent,
+            media: !!document.querySelector('#file-card #preview-media'), entry: ProvenanceApp.meta().fileEntry, exif: ProvenanceApp.meta().exifRows.length, report: ProvenanceReport.protocol(ProvenanceApp.model(), ProvenanceApp.meta()) })`);
+        const toExif = async () => {
+            await c.nav('Härkomst');
+            await ev(`(function () { const f = document.getElementById('filename'); f.value = ${JSON.stringify(NAMES.join('\n'))}; f.dispatchEvent(new Event('input', { bubbles: true })); document.getElementById('run').click(); return 1; })()`);
+            await sleep(300);
+            await c.waitFor(PROV, `!ProvenanceApp.busy() && document.querySelectorAll('#batch-list tbody tr').length === 3`, 90000, 'listan med tre filer');
+            await ev(`document.getElementById('batch-exif').click(), 1`);
+            await c.waitFor(PROV, `/skickades till EXIF/.test(document.getElementById('run-status').textContent)`, 20000, 'listan till EXIF & karta');
+            return ev(`document.getElementById('run-status').textContent`);
+        };
+        // Raderna i EXIF & karta för filerna ur den här extraktionen: flaggorna, miniatyren och radens text.
+        const exifRows = () => c.ev(EXIF, `Object.fromEntries([...document.querySelectorAll('table.files tbody tr')].filter(tr => /Testextraktion-Samsung-med-Signal\.zip/.test(tr.innerText)).map(tr => [tr.querySelector('.name').textContent,
+            { pending: tr.classList.contains('pending'), flags: [...tr.querySelectorAll('.flag')].map(f => f.textContent), reasons: [...tr.querySelectorAll('.flag')].map(f => f.title).join(' '), thumb: (tr.querySelector('.row-thumb') || {}).src || '', text: tr.innerText }]))`);
+        const exifDone = (label) => c.waitFor(EXIF, `(function(){ const rows = [...document.querySelectorAll('table.files tbody tr')].filter(tr => /Testextraktion-Samsung-med-Signal\.zip/.test(tr.innerText)); return rows.length === 3 && rows.every(tr => !tr.classList.contains('pending')); })()`, 60000, label);
+
+        // Utan bilagenyckeln: bilagans fil läses och summorna räknas, och kortet och protokollet säger varför innehållet inte visas.
+        await open(fx.signalAndroidKey);
+        await assessNamed(c, 'part7.mms');
+        let k = await card();
+        expect(k.entry && k.entry.sha256 === fx.signalAndroidPartSums.file, 'Filens summa ska vara den för filen som den ligger: ' + JSON.stringify(k.entry));
+        expect(/en av Signals bilagor och ligger krypterad i zippen\. Bilagenyckeln \(modernKey\) saknas/.test(k.rows['Innehållet'] || '') && !k.media && k.exif === 0, 'Kortet utan bilagenyckel: ' + JSON.stringify(k.rows) + ' ' + k.exif);
+        expect(/<b>Innehållet:<\/b> Filen lästes, men den är en av Signals bilagor och ligger krypterad/.test(k.report), 'Protokollet säger inte att bilagan ligger krypterad');
+
+        // Listan till EXIF & karta: alla tre filerna kommer fram, ingen läses i Härkomst, och bilagan står som krypterad.
+        let said = await toExif();
+        expect(/^3 filer skickades till EXIF & karta, som läser dem en i taget ur zippen\.$/.test(said), 'Härkomsts rad om överlämningen: ' + said);
+        await exifDone('de tre filerna i EXIF & karta');
+        let rows = await exifRows();
+        expect(NAMES.every((n) => rows[n]), 'Alla tre filerna ska stå i EXIF & karta: ' + Object.keys(rows).join(', '));
+        expect(rows['part7.mms'].flags.includes('Krypterad') && /Bilagenyckeln \(modernKey\) saknas/.test(rows['part7.mms'].reasons), 'Bilagan utan nyckel: ' + JSON.stringify(rows['part7.mms']));
+        expect(!rows['chatt_kamera.jpg'].flags.includes('Fel') && !rows['chatt_kamera.jpg'].flags.includes('Krypterad'), 'Bilden ur galleriet: ' + JSON.stringify(rows['chatt_kamera.jpg']));
+        // Den lilla bilden görs när filen läses, och innehållet ligger inte kvar på raden.
+        await c.waitFor(EXIF, `(function(){ const tr = [...document.querySelectorAll('table.files tbody tr')].find(tr => /Testextraktion-Samsung-med-Signal\.zip/.test(tr.innerText) && tr.querySelector('.name').textContent === 'chatt_kamera.jpg'); const t = tr && tr.querySelector('img.row-thumb'); return !!t && /^blob:/.test(t.src) && t.naturalWidth > 0; })()`, 20000, 'miniatyren för en fil ur extraktionen');
+
+        // Med bilagenyckeln efter databasnyckeln: EXIF och bilden läses ur det dekrypterade innehållet, summan jämförs
+        // med databasens, och filens egna summor är fortfarande de för filen som den ligger.
+        await open(fx.signalAndroidKey + ' ' + fx.signalAndroidModernKey);
+        await assessNamed(c, 'part7.mms');
+        k = await card();
+        expect(k.entry.sha256 === fx.signalAndroidPartSums.file, 'Filens summa ändrades av dekrypteringen: ' + k.entry.sha256);
+        expect(/Det som visas är det dekrypterade innehållet/.test(k.rows['Innehållet'] || '') && k.rows['Innehållet'].includes('SHA-256 ' + fx.signalAndroidPartSums.content) && /Summan är densamma som data_hash_end i signal\.db\./.test(k.rows['Innehållet']), 'Raden om innehållet: ' + JSON.stringify(k.rows));
+        expect(k.media && k.exif > 0, 'Bilden och taggarna ur det dekrypterade innehållet saknas: ' + k.media + ' ' + k.exif);
+        expect(k.report.includes('EXIF-tagg i det dekrypterade innehållet') && k.report.includes(k.rows['Innehållet']) && k.report.includes('SHA-256 ' + fx.signalAndroidPartSums.file), 'Protokollet ska ha både filens summa och raden om innehållet');
+
+        // Samma lista en gång till: raden som stod som krypterad läses om och visar det dekrypterade innehållet.
+        await toExif();
+        await c.waitFor(EXIF, `[...document.querySelectorAll('table.files tbody tr')].some(tr => tr.querySelector('.name') && tr.querySelector('.name').textContent === 'part7.mms' && [...tr.querySelectorAll('.flag')].some(f => f.textContent === 'Dekrypterat innehåll'))`, 60000, 'bilagan dekrypterad i EXIF & karta');
+        await exifDone('listan en gång till');
+        rows = await exifRows();
+        const part = rows['part7.mms'];
+        expect(!part.flags.includes('Krypterad') && !part.flags.includes('Fel filändelse') && !part.flags.includes('Fel') && /JPEG/.test(part.text), 'Bilagan med nyckel: ' + JSON.stringify(part));
+        expect(part.reasons.includes('SHA-256 ' + fx.signalAndroidPartSums.content) && /Summan är densamma som data_hash_end/.test(part.reasons), 'Flaggans skäl: ' + part.reasons);
+        expect(Object.keys(rows).length === 3, 'Raderna ska inte dubbleras när listan skickas igen: ' + Object.keys(rows).join(', '));
+
+        // Raden öppnas: bilden hämtas ur extraktionen då, och knappen i raden högst upp bedömer filen i Härkomst på namnet.
+        await c.ev(EXIF, `[...document.querySelectorAll('table.files tbody tr')].find(tr => /Testextraktion-Samsung-med-Signal\.zip/.test(tr.innerText) && tr.querySelector('.name').textContent === 'part7.mms').click(), 1`);
+        await c.waitFor(EXIF, `(function(){ const m = document.querySelector('#detail-media img.media-view'); return !!m && /^blob:/.test(m.src) && m.naturalWidth > 0; })()`, 20000, 'bilden i detaljvyn');
+        const note = await c.ev(EXIF, `document.getElementById('detail-media').textContent + ' | ' + document.getElementById('detail-summary').textContent`);
+        expect(/Innehållet läses ur extraktionen genom Härkomst/.test(note) && /Det som visas är det dekrypterade innehållet/.test(note) && /Tredje tiden i zippen|Ändrad i filsystemet/.test(note), 'Detaljvyn för bilagan: ' + note.slice(0, 500));
+        await c.ev(EXIF, `document.getElementById('detail-close').click(), 1`);
+        await c.ev(EXIF, `[...document.querySelectorAll('table.files tbody tr')].find(tr => /Testextraktion-Samsung-med-Signal\.zip/.test(tr.innerText) && tr.querySelector('.name').textContent === 'chatt_kamera.jpg').click(), 1`);
+        await c.waitFor(null, `document.getElementById('cb-file-name').textContent === 'chatt_kamera.jpg'`, 10000, 'filen i raden högst upp');
+        await c.ev(null, `document.querySelector('#cb-file [data-to="provenance"]').click(), 1`);
+        await waitResult(c, 'chatt_kamera.jpg från EXIF & karta');
+        expect(await ev(`ProvenanceApp.model().file.filename`) === 'chatt_kamera.jpg', 'Härkomst bedömde inte filen från EXIF & karta');
+
+        // Filen som visas i Härkomst lämnas över med knappen i raden högst upp, och öppnas i EXIF & karta.
+        await assessNamed(c, '20260312_133111.jpg');
+        await c.ev(null, `document.querySelector('#cb-file [data-to="exif"]').click(), 1`);
+        await c.waitFor(EXIF, `document.getElementById('detail-name').textContent === '20260312_133111.jpg' && !document.getElementById('detail').classList.contains('display-none')`, 20000, 'filen öppnad i EXIF & karta');
+
+        // Stängs extraktionen går filen inte att hämta, och detaljvyn säger varför i stället för att stå tom.
+        await c.nav('Härkomst');
+        await ev(`document.getElementById('ex-close').click(), 1`);
+        await c.nav('EXIF & karta');
+        await c.ev(EXIF, `document.getElementById('detail-close').click(), 1`);
+        await c.ev(EXIF, `[...document.querySelectorAll('table.files tbody tr')].find(tr => /Testextraktion-Samsung-med-Signal\.zip/.test(tr.innerText) && tr.querySelector('.name').textContent === 'chatt_kamera.jpg').click(), 1`);
+        const gone = await c.waitFor(EXIF, `(function(){ const m = document.querySelector('#detail-media .media-miss'); return m ? m.textContent : ''; })()`, 20000, 'skälet när extraktionen är stängd');
+        expect(/Innehållet kunde inte visas: Extraktionen som filen kom ifrån är inte längre öppen i Härkomst\. Öppna den där igen, så kan filen läsas\./.test(gone), 'Skälet: ' + gone);
+        await c.ev(EXIF, `document.getElementById('detail-close').click(), 1`);
+        await noInjectedScript(c);
+        return 'tre filer som hänvisningar, bilagan krypterad utan nyckel och dekrypterad med, summan lika med databasens, skälet står när extraktionen är stängd';
     }],
 
     ['Laboration: standardflöden blir steg, tangenterna loggar dem med klockan, väntan stoppar trycken, och tabellen, CSV-filen och loggen stämmer', async ({ c, downloads }) => {

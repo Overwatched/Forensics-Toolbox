@@ -16,6 +16,12 @@
     function baseName(name) { var s = String(name || ''); return s.slice(s.lastIndexOf('/') + 1); }
     function extOf(name) { var m = /\.([^./]+)$/.exec(baseName(name)); return m ? m[1].toLowerCase() : ''; }
     function mimeOf(name) { return MIME[extOf(name)] || 'application/octet-stream'; }
+    // Ändelsen för en typ som databasen anger ('image/jpeg' -> '.jpg'), eller '' för en typ som inte visas här.
+    function extForMime(mime) {
+        var m = String(mime || '').toLowerCase().split(';')[0].trim();
+        var ext = Object.keys(MIME).filter(function (e) { return MIME[e] === m; })[0];
+        return ext ? '.' + ext : '';
+    }
 
     // 'image' (visas direkt), 'heic' (behöver tumnagel), 'video', eller null för okänd typ.
     function kindOf(name) {
@@ -468,7 +474,7 @@
 
     var api = {
         decodeUserComment: decodeUserComment, samsungTrailer: samsungTrailer, capturedApp: capturedApp, screenshotApp: screenshotApp, trailerRows: trailerRows, trailerUtc: trailerUtc,
-        kindOf: kindOf, mimeOf: mimeOf, baseName: baseName, thumbnailSuffix: thumbnailSuffix, suffixKeeper: suffixKeeper, pickBySuffix: pickBySuffix,
+        kindOf: kindOf, mimeOf: mimeOf, extForMime: extForMime, baseName: baseName, thumbnailSuffix: thumbnailSuffix, suffixKeeper: suffixKeeper, pickBySuffix: pickBySuffix,
         previewPlan: previewPlan, exifSummary: exifSummary, cardGroups: cardGroups, timesGroup: timesGroup, reportRows: reportRows, parseLocal: parseLocal, parseWhen: parseWhen, dateText: dateText, timeText: timeText, dayRange: dayRange, zoneOffsetAt: zoneOffsetAt, toUtcMs: toUtcMs, exifTakenMs: exifTakenMs, exifZone: exifZone,
         nearestFirst: nearestFirst, deltaText: deltaText, mediaKeeper: mediaKeeper, entryMs: entryMs, dataUrl: dataUrl, THUMB_FILE: THUMB_FILE,
     };

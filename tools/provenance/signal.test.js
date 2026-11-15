@@ -111,6 +111,34 @@ test('originalet i galleriet: skickat i meddelande 7, valt i loggen, och skickat
     assert.strictEqual(recv.text, 'Signal: bild mottagen från Kim (meddelande 12); avsändarens klocka ' + wall(at(120.488)) + ', servern ' + wall(at(118.993)));
 });
 
+test('loggen och bilagorna tolkas en gång för hela listan: samma svar för varje fil som när de tolkas om', () => {
+    const prepared = sig.prepare(ATTACHMENTS, LOG);
+    const before = JSON.stringify(prepared);
+    const files = [
+        { sha256: hex('kamerabild'), mediaId: 1000000094, fileName: '2026-11-02-18-48-36-195.jpg' },
+        { sha256: hex('mottagen'), mediaId: 55, fileName: 'signal-2026-11-02-18-50-00-488.jpg' },
+        { sha256: hex('hd'), mediaId: null, fileName: 'IMG_1.jpg' },
+        { sha256: hex('ingen bilaga'), mediaId: 1000000094, fileName: 'annan.jpg' },
+        { sha256: hex('ingen bilaga'), mediaId: null, fileName: 'part2114.mms', filePath: 'data/data/org.thoughtcrime.securesms/app_parts/part2114.mms' },
+    ];
+    const keep = (ms) => ms >= at(40) && ms <= at(210);
+    // Filerna bedöms två gånger om, i olika ordning, så att en fil inte kan lämna något efter sig till nästa.
+    for (const f of files.concat(files.slice().reverse())) {
+        for (const more of [{}, { keep }, { messages: [], linkOnly: true }]) {
+            const ctx = Object.assign({ attachments: ATTACHMENTS, messages: MESSAGES, recipients: RECIPIENTS, log: LOG, wall }, f, more);
+            assert.deepStrictEqual(sig.build(Object.assign({ prepared }, ctx)), sig.build(ctx), f.fileName + ' ' + Object.keys(more).join());
+        }
+    }
+    assert.strictEqual(JSON.stringify(prepared), before, 'det förberedda ändras inte av filerna');
+    // Den första genomgången (linkOnly) ger samma koppling som den hela, utan händelserna ur loggen.
+    const ctx = { sha256: hex('kamerabild'), mediaId: 1000000094, fileName: '2026-11-02-18-48-36-195.jpg', attachments: ATTACHMENTS, messages: [], recipients: RECIPIENTS, log: LOG, wall, prepared };
+    assert.deepStrictEqual(sig.build(Object.assign({ linkOnly: true }, ctx)).link, sig.build(ctx).link);
+    // Det förberedda gäller bara de rader det gjordes av: med andra rader tolkas de om.
+    const other = LOG.slice(0, 9);
+    assert.deepStrictEqual(sig.build(Object.assign({}, ctx, { log: other })), sig.build(Object.assign({}, ctx, { log: other, prepared: undefined })));
+    assert.strictEqual(sig.build(Object.assign({}, ctx, { log: other })).link.picks.length, 1);
+});
+
 test('sparad ur Signal: samma innehåll som den mottagna bilagan, sparad i loggen, filnamnet bär avsändarens tid', () => {
     const name = 'signal-' + wall(at(120.488)).replace(' ', '-').replace(/:/g, '-').replace('.', '-') + '.jpg';
     const out = sig.build({ sha256: hex('mottagen'), mediaId: 1000000096, fileName: name, fileAddedMs: at(135), savedBySignal: true, attachments: ATTACHMENTS, messages: MESSAGES, recipients: RECIPIENTS, log: LOG, wall });
@@ -163,6 +191,12 @@ test('Signals egen krypterade fil kopplas med data_file, eftersom summan aldrig 
     const recv = build(dir + 'part1043.mms');
     assert.deepStrictEqual(recv.link.matches.map((m) => [m.attachmentId, m.messageId, m.on, m.direction]), [[6, 12, 'file', 'in'], [15, 19, 'file', 'out']]);
     assert.ok(recv.events.some((e) => e.kind === 'sig-message' && e.messageId === 12 && e.isFile), 'meddelandet är märkt som filens');
+    // Med bilagorna uppslagna i förväg (prepare) pekas samma rader ut, i samma ordning, och en fil utan rad ger inga.
+    const prepared = sig.prepare(ATTACHMENTS, []);
+    for (const part of ['part1043.mms', 'part2114.mms', 'part9999.mms', 'toString']) {
+        assert.deepStrictEqual(sig.match(hex('x'), ATTACHMENTS, dir + part, prepared), sig.match(hex('x'), ATTACHMENTS, dir + part), part);
+    }
+    assert.strictEqual(sig.match(hex('x'), ATTACHMENTS, dir + 'part1043.mms', prepared).length, 2);
     const onlyRecv = sig.build({ sha256: hex('x'), filePath: dir + 'part1043.mms', attachments: ATTACHMENTS.slice(1, 2), messages: MESSAGES, recipients: RECIPIENTS, log: [], wall });
     const f = core.factorSignal(input(onlyRecv.link), other);
     assert.deepStrictEqual([f.state, f.verdictText], ['info', 'Mottagen i Signal']);
@@ -334,4 +368,13 @@ test('Signal på iOS: faktorn säger länkad enhet och öppnad', () => {
     const f = core.factorSignal({ file: { createdMs: iat(0) }, format: fmt, signal: { link: link } }, { type: 'camera' });
     assert.match(f.items[0].text, /öppnad .* \(expireStartedAt\)/);
     assert.match(f.items[1].text, /skickad från en länkad enhet/);
+});
+
+test('Signals egen fil för bilagor känns igen på mappen, och bara hos Signal', () => {
+    assert.strictEqual(sig.ownPart('data/data/org.thoughtcrime.securesms/app_parts/part7.mms'), 'part7.mms');
+    assert.strictEqual(sig.ownPart('/data/user/0/org.thoughtcrime.securesms/app_parts/part2114.mms'), 'part2114.mms');
+    assert.strictEqual(sig.ownPart('data/data/im.molly.app/app_parts/part7.mms'), null);
+    assert.strictEqual(sig.ownPart('data/data/org.thoughtcrime.securesms/app_parts/under/part7.mms'), null);
+    assert.strictEqual(sig.ownPart('data/media/0/Pictures/part7.mms'), null);
+    assert.strictEqual(sig.ownPart(null), null);
 });

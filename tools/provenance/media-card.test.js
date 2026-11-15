@@ -310,3 +310,13 @@ test('Samsungs bilaga: tagningstiden i UTC ur Image_UTC_Data', () => {
     assert.strictEqual(media.trailerUtc(withTrailer([[0x0a01, 'Image_UTC_Data', '17733']])), null, 'inte millisekunder');
     assert.strictEqual(media.trailerUtc(Uint8Array.from([0xff, 0xd8, 0xff, 0xd9])), null);
 });
+
+test('ändelsen för en innehållstyp, så att en dekrypterad bilaga visas som det den är', () => {
+    assert.strictEqual(media.extForMime('image/jpeg'), '.jpg');
+    assert.strictEqual(media.extForMime('IMAGE/PNG; charset=binary'), '.png');
+    assert.strictEqual(media.kindOf('part7.mms' + media.extForMime('image/jpeg')), 'image');
+    assert.strictEqual(media.kindOf('part8.mms' + media.extForMime('video/mp4')), 'video');
+    // En typ som inte är känd, eller ingen alls, ger ingen ändelse: filen visas då inte som bild.
+    assert.strictEqual(media.extForMime('application/x-signal-okänd'), '');
+    assert.strictEqual(media.extForMime(null), '');
+});

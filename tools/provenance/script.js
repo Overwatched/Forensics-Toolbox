@@ -9,7 +9,6 @@
     // Inne i Forensics Toolbox öppnas extraktionen i raden högst upp, och vissa knappar finns bara där.
     if (window.parent !== window) document.body.classList.add('in-hub');
     var MAX_MEDIA = 200 * 1024 * 1024;
-    var MAX_HANDOVER = 1024 * 1024 * 1024;   // högst så mycket läses ur zippen åt EXIF & karta på en gång
     var MAX_PREVIEW = 24 * 1024 * 1024;   // originalet visas direkt upp till så här stort, annars telefonens tumnagel
     var MAX_THUMB = 4 * 1024 * 1024;      // större "tumnaglar" läses inte
     var MAX_ROW_THUMB = 8 * 1024 * 1024;  // originalbilder som får bli tumnagel i vallistan
@@ -17,6 +16,11 @@
     var TIME_KEYS = ['created', 'added', 'modified', 'trashedAt', 'adjustedAt'];
     var SLOW_QUERY_MS = 50;               // en fråga som tar längre än så räknas som långsam (se loadDb)
     var PAINT_BYTES = 8 * 1024 * 1024;    // en databas från den storleken får lägesraden ritad före frågorna (se loadDb)
+    var fileRound = 0;                    // vilken fil i ordningen som bedöms (se loadDb)
+
+    // rows: listans bedömda rader (takeKept). md5: MD5 per SHA-256 (md5For). parked: Signals databaser medan nyckeln
+    // är borttagen (dropCipherDbs). Allt ligger i minnet och släpps när extraktionen stängs.
+    function newKept() { return { rows: new Map(), md5: new Map(), parked: {} }; }
 
     var state = {
         sources: null, databases: null, targets: null, toolVersion: '',
@@ -25,6 +29,7 @@
         exif: null,          // ExifTools workrar och kön till dem (exifPool)
         tags: { map: new Map(), size: 0, early: new Map() },   // ExifTools svar per fil (readTags)
         ahead: null,         // filer som läses i förväg medan en lista bedöms (assessRows)
+        kept: newKept(),     // det som redan är bedömt och uträknat för extraktionen som är öppen (se takeKept)
         model: null, meta: null, pngs: [],
         ownFor: null,        // filen (zip + rad eller sökväg) som undersökarens ruta och bockar gäller
         checked: {},         // faktor-id -> när undersökaren bockade i Kontrollerad (ms)
@@ -74,6 +79,25 @@
         else track.removeAttribute('aria-valuenow');
         box.lastElementChild.textContent = text || '';
         box.classList.remove('idle');
+    }
+
+    // Ett långt steg inom en bedömning (en databas läses in, en stor logg söks igenom) har en egen stapel, med
+    // tiden steget har tagit. part som i setProgress; null när steget är klart. I en lista står den under listans
+    // stapel, som räknar filer och står still under tiden. För en enda fil är det stapeln under lägesraden.
+    var stepStarted = 0;
+    function step(part) {
+        var list = !!(state.batch && state.batch.running);
+        if (part == null) {
+            stepStarted = 0;
+            setProgress('run-step', null);
+            if (!list && isBusy()) setProgress('run-progress', -1);
+            return;
+        }
+        if (!stepStarted) stepStarted = performance.now();
+        var took = performance.now() - stepStarted;
+        var time = took >= 3000 ? secondsText(took) : '';
+        if (list) setProgress('run-step', part, 'Görs en gång för hela listan' + (time ? ' · ' + time : ''));
+        else setProgress('run-progress', part, time);
     }
 
     // ---------- Appnamn och kameraappar ur App-ID-katalogen ----------
@@ -285,6 +309,9 @@
         if (state.zip) toHub({ type: 'current-file', name: null });
         Object.keys(state.loaded).forEach(function (k) { if (state.loaded[k].sqlDb) state.loaded[k].sqlDb.close(); });
         state.loaded = {};
+        Object.keys(state.kept.parked).forEach(function (k) { if (state.kept.parked[k].sqlDb) state.kept.parked[k].sqlDb.close(); });
+        state.kept = newKept();
+        keyStates.clear();
         state.tags = { map: new Map(), size: 0, early: new Map() };
         state.ahead = null;
         state.zip = null;
@@ -379,32 +406,33 @@
         toHub({ type: 'current-file', name: m.file.filename, path: meta.mediaEntry.name, place: ProvenanceCopies.classifyPath(meta.mediaEntry.name, placeOpts()).label });
     }
 
-    // Poster ur zippen som filer åt EXIF & karta: varje fil högst MAX_MEDIA och sammanlagt högst
-    // MAX_HANDOVER. Sökvägen säger vilken zip och vilken post filen kommer från.
-    async function entriesAsFiles(entries) {
+    // Poster ur zippen åt EXIF & karta, som hänvisningar: zippen, postens plats i den, namnet, storleken och tiderna.
+    // Inget innehåll läses här. EXIF & karta ber om en fil i taget när den ska läsas eller visas (fileNeeded), så
+    // listan får vara hur lång som helst och ingen fil är för stor för att följa med.
+    function entriesAsRefs(entries) {
         var z = state.zip;
-        var out = [], total = 0, skipped = 0;
-        for (var i = 0; i < entries.length; i++) {
-            var e = entries[i];
-            if (e.size > MAX_MEDIA || total + e.size > MAX_HANDOVER) { skipped++; continue; }
-            if (entries.length > 1) progress('Läser ' + (i + 1) + ' av ' + entries.length + ' ur ' + Z() + '…');
-            var r = await ExtractionCore.readEntry(z.read, e);
-            total += e.size;
+        z.handed = z.handed || new Map();
+        return entries.map(function (e) {
+            var key = ProvenanceHashSearch.keyOf(e);
+            z.handed.set(key, e);
             var t = ProvenanceMedia.entryMs(e, searchZone());
-            var zt = ExtractionCore.entryTimes(e);
-            out.push({ file: new File([r.bytes], ExtractionCore.baseName(e.name), t && t.ms ? { lastModified: t.ms } : {}), path: z.file.name + ' › ' + e.name,
-                times: { modified: zt.modified, created: zt.created, changed: zt.changed, third: zt.third, accessed: zt.accessed, field: zt.field } });
-        }
-        return { files: out, skipped: skipped };
+            return {
+                ref: { zip: { name: z.file.name, size: z.file.size, lastModified: z.file.lastModified }, key: key, entry: e.name },
+                name: ExtractionCore.baseName(e.name), size: e.size, lastModified: t && t.ms ? t.ms : 0, path: z.file.name + ' › ' + e.name, times: handoverTimes(e),
+            };
+        });
+    }
+
+    function handoverTimes(e) {
+        var zt = ExtractionCore.entryTimes(e);
+        return { modified: zt.modified, created: zt.created, changed: zt.changed, third: zt.third, accessed: zt.accessed, field: zt.field };
     }
 
     // Huvudfönstret ber om filen som visas, för att visa den i EXIF & karta.
     async function handOver(to) {
         var meta = state.meta;
         if (to !== 'exif' || !state.zip || !meta || !meta.mediaEntry) return;
-        var got = await entriesAsFiles([meta.mediaEntry]);
-        if (!got.files.length) { showToast('Filen är för stor för att visas i EXIF & karta'); return; }
-        toHub({ type: 'file-for', to: 'exif', files: got.files });
+        toHub({ type: 'file-for', to: 'exif', files: entriesAsRefs([meta.mediaEntry]) });
     }
 
     // Listan i EXIF & karta: filerna som lästes ur zippen, med alla taggar och positionerna på kartan.
@@ -413,14 +441,60 @@
         if (!b || !z || isBusy()) return;
         var wanted = {};
         b.rows.forEach(function (r) { if (r.status === 'done' && r.summary && r.summary.path) wanted[r.summary.path] = true; });
-        if (!Object.keys(wanted).length) { setStatus('run-status', 'Ingen fil i listan lästes ur ' + Z() + '.', 'warn'); return; }
+        var asked = Object.keys(wanted).length;
+        if (!asked) { setStatus('run-status', 'Ingen fil i listan lästes ur ' + Z() + '.', 'warn'); return; }
         busy(true);
         try {
             var entries = await ExtractionCore.find(z.read, z.file.size, function (name) { return wanted[name] === true; });
-            var got = await entriesAsFiles(entries);
-            setStatus('run-status', got.files.length + (got.files.length === 1 ? ' fil skickades' : ' filer skickades') + ' till EXIF & karta.' + (got.skipped ? ' ' + got.skipped + ' var för stora och hoppades över.' : ''));
-            if (got.files.length) toHub({ type: 'file-for', to: 'exif', files: got.files });
+            var found = {};
+            entries.forEach(function (e) { found[e.name] = true; });
+            var gone = Object.keys(wanted).filter(function (name) { return !found[name]; });
+            // Varje fil i listan följer med. Innehållet läses av EXIF & karta, en fil i taget, så inget läses om här.
+            setStatus('run-status', escapeHtml(num(entries.length) + (entries.length === 1 ? ' fil skickades' : ' filer skickades') + ' till EXIF & karta, som läser dem en i taget ur ' + Z() + '.' +
+                (gone.length ? ' ' + num(gone.length) + (gone.length === 1 ? ' fil hittades inte längre i ' : ' filer hittades inte längre i ') + Z() + ': ' + gone.slice(0, 5).join(', ') + (gone.length > 5 ? ' med flera.' : '.') : '')), gone.length ? 'warn' : '');
+            if (entries.length) toHub({ type: 'file-for', to: 'exif', files: entriesAsRefs(entries) });
         } finally { busy(false); }
+    }
+
+    // EXIF & karta ber om innehållet i en fil som den fått en hänvisning till. Svaret är filen som den ligger i
+    // zippen, eller för en av Signals bilagor det dekrypterade innehållet med en rad som säger det, eller skälet
+    // till att filen inte kunde läsas. Zippen måste vara den som hänvisningen gäller. Frågorna besvaras en i taget.
+    var needChain = Promise.resolve();
+    function fileNeeded(msg) {
+        needChain = needChain.then(function () { return answerNeed(msg); }).then(function (reply) {
+            toHub(Object.assign({ type: 'file-content', token: msg.token }, reply));
+        });
+    }
+
+    async function answerNeed(msg) {
+        try {
+            var z = state.zip, ref = msg.ref || {};
+            var gone = 'Extraktionen som filen kom ifrån är inte längre öppen i Härkomst. Öppna den där igen, så kan filen läsas.';
+            if (!z || !ref.zip || !sameZipFile(z.file, ref.zip)) return { error: gone };
+            var e = z.handed && z.handed.get(ref.key);
+            if (!e) {
+                // Extraktionen har öppnats på nytt sedan listan skickades: posten letas upp igen på namn och plats.
+                var again = await ExtractionCore.find(z.read, z.file.size, function (name) { return name === ref.entry; });
+                e = again.filter(function (x) { return ProvenanceHashSearch.keyOf(x) === ref.key; })[0];
+                if (e) (z.handed = z.handed || new Map()).set(ref.key, e);
+            }
+            if (!e) return { error: 'Filen finns inte i ' + Z() + ' som är öppen i Härkomst.' };
+            var r = await ExtractionCore.readEntry(z.read, e);
+            if (state.zip !== z) return { error: gone };
+            var name = ExtractionCore.baseName(e.name);
+            var t = ProvenanceMedia.entryMs(e, searchZone());
+            var out = { times: handoverTimes(e), note: '', state: '' };
+            if (r.crcOk === false) out.note = 'CRC32 stämmer inte med zippens uppgift, så filen kan vara skadad. ';
+            var inner = await signalContent(e, r.bytes, true);
+            if (state.zip !== z) return { error: gone };
+            var bytes = r.bytes, type = '';
+            if (inner && inner.bytes) { bytes = inner.bytes; type = inner.contentType; out.state = 'decrypted'; out.note += inner.note; }
+            else if (inner) { out.state = 'encrypted'; out.note += inner.reason + '.'; }
+            out.file = new File([bytes], name, Object.assign({ type: type }, t && t.ms ? { lastModified: t.ms } : {}));
+            return out;
+        } catch (err) {
+            return { error: 'Filen kunde inte läsas ur extraktionen: ' + (err && err.message ? err.message : String(err)) };
+        }
     }
 
     // Filer från EXIF & karta: samma innehåll letas upp i extraktionen, som med bilder från disk.
@@ -512,24 +586,35 @@
     // och frågorna som den som anropar kör direkt efteråt) får sin rad ritad först i en stor databas, så att
     // raden inte står kvar på ett steg som redan är klart, som dekrypteringen. I en liten databas är det klart
     // innan raden hade hunnit visas, och ritningen kostar en bildruta.
+    // En redan inläst databas får raden ritad bara om någon fråga i den tog tid för den här filen eller filen före.
+    // I en lista svarar de flesta frågor ur det som redan är hämtat, och en bildruta per databas och fil blir då
+    // det mesta av tiden per fil (uppmätt: 50 av 70 ms).
     async function loadDb(hit, label, cipher) {
         var key = hit.db.name;
         var had = state.loaded[key];
         if (had) {
-            if (had.slow) await ZipRead.painted();
+            if (had.slowRound >= fileRound - 1) await ZipRead.painted();
             return had;
         }
         await loadSql();
         var zip = state.zip;
-        var loaded = await ExtractionCore.loadDatabase(zip.read, hit, [zip.zipLine], {
-            cipher: cipher || null,
-            // Har ett annat verktyg redan läst databasen ur samma extraktion hämtas den därifrån, utan ny läsning
-            // och dekryptering.
-            share: { file: zip.file },
-            onStage: function (stage, frac, by, inner) { progress(escapeHtml(ExtractionCore.stageText(stage, frac, by, label, inner))); },
-        });
+        var loaded;
+        step(-1);
+        try {
+            loaded = await ExtractionCore.loadDatabase(zip.read, hit, [zip.zipLine], {
+                cipher: cipher || null,
+                // Har ett annat verktyg redan läst databasen ur samma extraktion hämtas den därifrån, utan ny läsning
+                // och dekryptering.
+                share: { file: zip.file },
+                onStage: function (stage, frac, by, inner) {
+                    progress(escapeHtml(ExtractionCore.stageText(stage, frac, by, label, inner)));
+                    step(typeof frac === 'number' ? frac : -1);
+                },
+            });
+        } finally { step(null); }
         loaded.label = label;
         loaded.keySource = cipher ? cipher.source : null;
+        if (cipher) cipherOf.set(loaded, cipher.profile + '\n' + cipher.passphrase);
         var big = loaded.bytes.length >= PAINT_BYTES;
         // Härkomst läser bara ur databasen, så arrayen lämnas över utan kopia.
         try { loaded.sqlDb = new SQL.Database(ExtractionCore.noCopy(loaded.bytes)); }
@@ -546,16 +631,21 @@
         // Bara läsning efter det: avbilden förblir som den lästes, också för verktygen som får en kopia av den.
         loaded.sqlDb.run('PRAGMA query_only = ON');
         state.loaded[key] = loaded;
+        loaded.seq = ++work.loaded;
         progress('Söker i ' + escapeHtml(label) + '…');
         if (big) await ZipRead.painted();
         return loaded;
     }
 
     // Hur mycket som gjorts och hur mycket som återanvänts, för provkörningarna (ProvenanceApp.work).
-    var work = { asked: 0, reused: 0, exif: 0, exifReused: 0, logs: 0, logsReused: 0 };
+    // loaded: databaser inlästa. rowsKept: rader i en lista som redan var bedömda. md5, md5Kept: MD5 uträknad och återanvänd.
+    // freed: gånger en lista släppt fram fönstret. byRows: frågor i delar som skurits efter antal rader.
+    var work = { byRows: 0, asked: 0, reused: 0, parts: 0, exif: 0, exifReused: 0, logs: 0, logsReused: 0, indexBuilt: 0, indexed: 0, indexChecked: 0, loaded: 0, rowsKept: 0, md5: 0, md5Kept: 0, freed: 0 };
 
     // Hela tiden: en fråga med det fönstret gäller hela loggen, inte den enskilda filen.
     var ALL_TIME = Object.freeze({ startMs: 0, endMs: 4102444800000 });
+    // En logg som saknas: samma tomma lista varje gång, så att det som bygger på den känns igen.
+    var NO_ROWS = Object.freeze([]);
 
     // Kör en rollquery och ger raderna med fältkartans namn. Varje körning sparas till protokollet.
     // En fråga som inte gäller den enskilda filen (alla bilagor, alla kontakter, en loggs täckning) har samma svar
@@ -563,32 +653,51 @@
     // Protokollet får frågan som förut. Det sparade svaret är fryst, så att ingen fil kan ändra en annans underlag.
     function runRole(loaded, query, values, timeKeys, run) {
         var sql = ProvenanceRoles.fill(query.sql, values);
-        var keys = Object.keys(values || {});
-        var shared = !keys.length || keys.length === 1 && values.window === ALL_TIME;
-        var key = shared ? query.id + '\n' + (timeKeys || []).join() + '\n' + sql : null;
+        var key = sharedKey(query, values, timeKeys, sql);
         var answer = key && loaded.answers ? loaded.answers[key] : null;
         if (answer) work.reused++;
         else {
             work.asked++;
-            answer = askRole(loaded, query, sql, timeKeys);
-            if (key) {
-                answer.rows.forEach(function (r) { if (r._raw) Object.freeze(r._raw); Object.freeze(r); });
-                Object.freeze(answer.rows);
-                (loaded.answers = loaded.answers || {})[key] = answer;
-            }
+            var started = performance.now();
+            var res = execRole(loaded, query, sql);
+            // En databas vars frågor tar tid: nästa gång ritas lägesraden innan de körs (loadDb).
+            if (performance.now() - started > SLOW_QUERY_MS) loaded.slowRound = fileRound;
+            answer = keepAnswer(loaded, key, shapeAnswer(query, res, timeKeys));
         }
+        return noteRun(loaded, query, sql, answer, run);
+    }
+
+    // Nyckeln till ett svar som gäller hela extraktionen, eller null för en fråga om den enskilda filen.
+    function sharedKey(query, values, timeKeys, sql) {
+        var keys = Object.keys(values || {});
+        var shared = !keys.length || keys.length === 1 && values.window === ALL_TIME;
+        return shared ? query.id + '\n' + (timeKeys || []).join() + '\n' + sql : null;
+    }
+
+    function keepAnswer(loaded, key, answer) {
+        if (key) {
+            answer.rows.forEach(function (r) { if (r._raw) Object.freeze(r._raw); Object.freeze(r); });
+            Object.freeze(answer.rows);
+            (loaded.answers = loaded.answers || {})[key] = answer;
+        }
+        return answer;
+    }
+
+    function noteRun(loaded, query, sql, answer, run) {
         // Ett komprimerat arkiv går inte att öppna i Queries, så det får ingen sökväg (ingen knapp).
         run.queries.push({ id: query.id, db: loaded.label, title: query.title, sql: sql, path: loaded.gz ? null : loaded.dbEntry.name, walPath: loaded.walEntry ? loaded.walEntry.name : null, timeColumns: answer.timeColumns, times: answer.times });
         return { rows: answer.rows, result: answer.result, sql: sql };
     }
 
-    function askRole(loaded, query, sql, timeKeys) {
+    // Svaret på den sista satsen, eller null när den inte gav några rader.
+    function execRole(loaded, query, sql) {
         var all;
-        var started = performance.now();
         try { all = loaded.sqlDb.exec(sql); } catch (err) { throw schemaError(err, loaded, query); }
-        // En databas vars frågor tar tid: nästa gång ritas lägesraden innan de körs (loadDb).
-        if (performance.now() - started > SLOW_QUERY_MS) loaded.slow = true;
-        var res = all.length ? all[all.length - 1] : { columns: [], values: [] };
+        return all.length ? all[all.length - 1] : null;
+    }
+
+    function shapeAnswer(query, res, timeKeys) {
+        res = res || { columns: [], values: [] };
         // Sökvägen i zippen följer med, så att queryn kan öppnas och köras i Queries.
         var timeColumns = (timeKeys || []).map(function (k) { return ProvenanceRoles.fieldSpec(query, k); })
             .filter(function (t, i, a) { return t && a.findIndex(function (x) { return x && x.col === t.col; }) === i; });
@@ -599,6 +708,153 @@
             if (i >= 0) res.values.forEach(function (row) { var ms = ProvenanceRoles.toMs(row[i], t.epoch); if (ms !== null) times.add(ms); });
         });
         return { rows: ProvenanceRoles.mapRows(query, res, timeKeys), result: res, timeColumns: timeColumns, times: times };
+    }
+
+    // Frågan över hela loggen kan ta minuter i en logg på flera GB, och en fråga i sql.js går varken att följa eller
+    // att släppa fram ritningen under. En fråga som katalogen säger går att dela efter tid (splitByTime) körs därför
+    // i tidsdelar i följd, med lägesraden och stapeln ritade emellan (ProvenanceRoles.inParts). Svaret är rad för
+    // rad detsamma som för hela frågan, sparas som det och protokollet får hela frågan. span() ger loggens första
+    // och sista tid. Utan dem, eller när tiden inte slås upp i ett index, körs hela frågan på en gång som förut.
+    // Delarna skärs efter antal rader när indexet kan säga var den n:te raden ligger (rowEdge), annars efter tid.
+    // En logg är tät i vissa perioder och gles i andra, så delar med lika många rader tar ungefär lika lång tid,
+    // vilket delar med lika lång tid inte gör.
+    async function runRoleInParts(loaded, query, timeKeys, run, span) {
+        var values = { window: ALL_TIME };
+        var sql = ProvenanceRoles.fill(query.sql, values);
+        var key = sharedKey(query, values, timeKeys, sql);
+        if (loaded.answers && loaded.answers[key] || !ProvenanceRoles.canSplit(query)) return runRole(loaded, query, values, timeKeys, run);
+        var ends = span() || {};
+        var first = Number(ends.firstMs), last = Number(ends.lastMs);
+        if (ends.firstMs == null || ends.lastMs == null || !(last > first) || !searchesByTime(loaded, query, first)) return runRole(loaded, query, values, timeKeys, run);
+        work.asked++;
+        var started = performance.now(), shownAt = started, every = 200;
+        var edge = rowEdge(loaded, query, first);
+        if (edge) work.byRows++;
+        var res;
+        try {
+            res = await ProvenanceRoles.inParts(query, ALL_TIME, {
+                span: { firstMs: first, lastMs: last, rows: edge ? Number(ends.rows) : 0 },
+                aimMs: PART_MS,
+                edge: edge,
+                now: function () { return performance.now(); },
+                exec: function (part) { return execRole(loaded, query, part); },
+                between: async function (frac) {
+                    var now = performance.now();
+                    // Efter varje del släpps fönstret fram, så att ett klick eller en annan vy inte väntar längre än en
+                    // del. Lägesraden och stapeln ritas om några gånger i sekunden, vilket räcker för ögat.
+                    if (now - shownAt < every) { await ZipRead.pause(); return; }
+                    progress('Söker i ' + escapeHtml(loaded.label) + '… ' + Math.floor(100 * frac) + ' %');
+                    step(frac);
+                    await ZipRead.painted();
+                    // Ett fönster som inte ritas (det är skymt) låter varje ritning vänta ut sin tid: då ritas det mer sällan.
+                    every = performance.now() - now > 100 ? 2000 : 200;
+                    shownAt = performance.now();
+                },
+            });
+        } finally { step(null); }
+        work.parts += res.parts;
+        if (performance.now() - started > SLOW_QUERY_MS) loaded.slowRound = fileRound;
+        return noteRun(loaded, query, sql, keepAnswer(loaded, key, shapeAnswer(query, res, timeKeys)), run);
+    }
+
+    // Meddelandena i en fils fönster. Appens databas har inget index på meddelandenas tider, så frågan i katalogen
+    // läser igenom hela meddelandetabellen för varje fil. En fråga som katalogen märkt med indexByTime körs därför
+    // en gång över hela tiden, och svaret läggs i en tabell med index på tiderna i en minnesdatabas som bifogas
+    // anslutningen (ProvenanceRoles.timeIndex). Varje fils fönster slås sedan upp där. Avbilden rörs inte: det enda
+    // som skrivs är den bifogade minnesdatabasen, och skrivskyddet är av bara medan den byggs.
+    // Uppslaget ska ge exakt frågans svar, rad för rad. Det prövas mot frågan i databasen för varje fönster tills ett
+    // fönster med rader har stämt. Skiljer sig svaren tas tabellen bort, källan får en varning och frågan körs mot
+    // databasen för varje fil som förut. Protokollet får frågan mot databasen, som går att köra om där, och källan
+    // en rad om uppslaget (timeIndexLine). Ett fönster utanför det tabellen byggdes för frågas direkt i databasen.
+    async function runRoleByTime(loaded, query, win, timeKeys, run) {
+        var spec = ProvenanceRoles.timeIndex(query);
+        if (!spec || win.startMs < ALL_TIME.startMs || win.endMs > ALL_TIME.endMs) return runRole(loaded, query, { window: win }, timeKeys, run);
+        var all = loaded.timeIndexes = loaded.timeIndexes || {};
+        var idx = all[query.id] || (all[query.id] = await buildTimeIndex(loaded, query, spec));
+        if (idx.off) return runRole(loaded, query, { window: win }, timeKeys, run);
+        var sql = ProvenanceRoles.fill(query.sql, { window: win });
+        var res = execRole(loaded, query, spec.lookup(win));
+        work.indexed++;
+        if (!idx.checkedRows) {
+            var direct = execRole(loaded, query, sql);
+            work.indexChecked++;
+            if (JSON.stringify(res) !== JSON.stringify(direct)) {
+                dropTimeIndex(loaded, idx, 'Tabellen i minnet över meddelandena gav inte samma rader som frågan mot databasen, så den används inte.');
+                res = direct;
+            } else if (res) idx.checkedRows = true;
+        }
+        return noteRun(loaded, query, sql, shapeAnswer(query, res, timeKeys), run);
+    }
+
+    // Bygget går utan paus, så lägesraden ritas först i en stor databas.
+    async function buildTimeIndex(loaded, query, spec) {
+        var idx = { id: query.id, spec: spec, columns: query.indexByTime.slice(), off: false, checkedRows: false, rows: 0, ms: 0 };
+        var db = loaded.sqlDb;
+        progress('Ordnar meddelandena i ' + escapeHtml(loaded.label) + ' efter tid…');
+        step(-1);
+        try {
+            if (loaded.dbEntry.size >= PAINT_BYTES) await ZipRead.painted();
+            var started = performance.now();
+            db.run('PRAGMA query_only = OFF');
+            try {
+                if (!loaded.indexAttached) db.run("ATTACH DATABASE ':memory:' AS " + spec.schema);
+                loaded.indexAttached = true;
+                db.run(spec.drop);
+                spec.build(ALL_TIME).forEach(function (sql) { db.run(sql); });
+            } finally { db.run('PRAGMA query_only = ON'); }
+            idx.rows = Number(db.exec('SELECT count(*) FROM ' + spec.schema + '."' + spec.table + '"')[0].values[0][0]);
+            idx.ms = performance.now() - started;
+            work.indexBuilt++;
+        } catch (err) {
+            dropTimeIndex(loaded, idx, 'Meddelandena kunde inte läggas i en tabell i minnet (' + (err && err.message ? err.message : String(err)) + ').');
+        } finally { step(null); }
+        return idx;
+    }
+
+    function dropTimeIndex(loaded, idx, why) {
+        idx.off = true;
+        var db = loaded.sqlDb;
+        try {
+            db.run('PRAGMA query_only = OFF');
+            if (loaded.indexAttached) db.run(idx.spec.drop);
+        } catch (err) { console.warn(err); }
+        try { db.run('PRAGMA query_only = ON'); } catch (err2) { console.warn(err2); }
+        loaded.warnings.push(loaded.label + ': ' + why + ' Varje fil söks i stället direkt i databasen. Svaret är detsamma, men det tar längre tid.');
+    }
+
+    // Raden om uppslaget under källan i protokollet.
+    function timeIndexLine(loaded) {
+        return Object.keys(loaded.timeIndexes || {}).map(function (id) { return loaded.timeIndexes[id]; }).filter(function (idx) { return !idx.off; }).map(function (idx) {
+            return 'Svaret på ' + idx.id + ' över hela tiden (' + idx.rows + ' rader) lades en gång i en tabell i minnet med index på ' + idx.columns.join(' och ') +
+                ', och filens fönster slogs upp där. Uppslaget prövades mot frågan i databasen och gav samma rader. Frågan under SQL är den mot databasen.';
+        }).join(' ');
+    }
+
+    function searchesByTime(loaded, query, ms) {
+        try {
+            var plan = loaded.sqlDb.exec('EXPLAIN QUERY PLAN ' + ProvenanceRoles.fill(query.sql, { window: { startMs: ms, endMs: ms + 1 } }));
+            return plan.length === 1 && ProvenanceRoles.searchesByTime(query, plan[0].values);
+        } catch (err) { return false; }
+    }
+
+    // Så länge får en del av en fråga i delar ta, som mål: fönstret står still så länge åt gången.
+    var PART_MS = 50;
+
+    // Tiden hos den n:te raden efter en tid, för att dela en fråga efter antal rader (ProvenanceRoles.inParts).
+    // null när tabellen inte går att läsa ur frågeplanen eller gränsen inte slås upp i indexet: då delas frågan
+    // efter tid som förut. Ett fel under vägen ger inget svar, och resten av frågan går då i en del.
+    function rowEdge(loaded, query, ms) {
+        try {
+            var db = loaded.sqlDb;
+            var spec = ProvenanceRoles.edgeQuery(query, db.exec('EXPLAIN QUERY PLAN ' + ProvenanceRoles.fill(query.sql, { window: { startMs: ms, endMs: ms + 1 } }))[0].values);
+            if (!spec || !spec.inIndex(db.exec('EXPLAIN QUERY PLAN ' + spec.sql(ms, 1000))[0].values)) return null;
+            return function (afterMs, n) {
+                try {
+                    var r = db.exec(spec.sql(afterMs, n));
+                    return r.length && r[0].values.length ? Number(r[0].values[0][0]) : null;
+                } catch (err) { console.warn(err); return null; }
+            };
+        } catch (err) { return null; }
     }
 
     // En rollquery som saknar en tabell eller kolumn i databasen är nästan alltid skriven för en
@@ -645,7 +901,10 @@
     // ExifTool körs i workrar, en fil i taget per worker. En ensam fil använder en worker. En lista läser de
     // närmaste filerna i förväg (assessRows), och då startas fler, upp till EXIF_WORKERS. Varje jobb har ett eget
     // nummer och ligger antingen i kön eller hos precis en worker, så ett svar kan inte hamna hos en annan fil.
-    var EXIF_WORKERS = Math.max(1, Math.min(4, ((typeof navigator !== 'undefined' && navigator.hardwareConcurrency) || 2) - 1));
+    // Högst fyra, och sex på en dator med tolv kärnor eller fler. Uppmätt på tolv kärnor: sex gav en femtedel kortare
+    // tid per fil än fyra, åtta och tolv gav inget mer (varje ExifTool går långsammare när fler arbetar samtidigt).
+    var CORES = (typeof navigator !== 'undefined' && navigator.hardwareConcurrency) || 2;
+    var EXIF_WORKERS = Math.max(1, Math.min(CORES >= 12 ? 6 : 4, CORES - 1));
     // Varje fil får en ny Perl-instans i workern (scripts/exiftool/worker-entry.mjs), och de gamla instansernas minne
     // städas bort först när webbläsaren finner tid. Efter så här många filer byts workern mot en ny, och då lämnas
     // allt dess minne tillbaka på en gång.
@@ -898,7 +1157,7 @@
             await tick();
         }
         var sha = await ExtractionCore.sha256(r.bytes);
-        return { bytes: r.bytes, crcOk: r.crcOk, sha256: sha, md5: md5Hex(r.bytes), line: r.line };
+        return { bytes: r.bytes, crcOk: r.crcOk, sha256: sha, md5: md5For(sha, r.bytes), line: r.line };
     }
 
     // Live Photo-videon till en bild, med SHA-256 så att ExifTools svar känns igen.
@@ -956,16 +1215,27 @@
         };
         var name = t.kind === 'row' ? t.row.filename : ExtractionCore.baseName(media.entry.name);
         var store = state.tags;
-        var wait = function (read, tagName) {
+        var wait = function (read, tagName, own) {
             // Uppgiften är klar när ExifTool har svarat, så att inget arbete är kvar när listan avslutas.
             var task = read.then(function (r) {
                 if (!r.bytes || !r.sha256) return null;
+                // En av Signals bilagor: ExifTool ska läsa det dekrypterade innehållet, inte filen som den ligger.
+                // Det görs i förväg när databasen redan är inläst, och bedömningen tar över samma svar (r.inner).
+                // Annars väntar både dekrypteringen och ExifTool till bedömningen av filen.
+                if (own) {
+                    if (!signalLoaded()) return null;
+                    r.inner = r.inner || signalContent(own, r.bytes);
+                    return r.inner.then(function (inner) {
+                        if (!inner || !inner.bytes || !inner.sha256) return null;
+                        return readTags(inner.bytes, tagName, inner.sha256, true).then(function () { return store.early.get(inner.sha256 + '\n' + tagName); });
+                    });
+                }
                 return readTags(r.bytes, tagName, r.sha256, true).then(function () { return store.early.get(r.sha256 + '\n' + tagName); });
             }).then(function () {}, function () {});
             a.tasks.add(task);
             task.then(function () { a.tasks.delete(task); });
         };
-        wait(hold('m:' + ProvenanceHashSearch.keyOf(media.entry), media.entry.size, function () { return readMediaNow(media.entry, true); }), name);
+        wait(hold('m:' + ProvenanceHashSearch.keyOf(media.entry), media.entry.size, function () { return readMediaNow(media.entry, true); }), name, ProvenanceSignal.ownPart(media.entry.name) ? media.entry : null);
         if (paired) wait(hold('p:' + ProvenanceHashSearch.keyOf(paired), paired.size, function () { return readPairedNow(paired); }), ExtractionCore.baseName(paired.name));
         return true;
     }
@@ -995,6 +1265,17 @@
     function md5Hex(bytes) {
         try { return window.ToolboxHashing ? window.ToolboxHashing.hashBytes(bytes, ['md5']).md5 : ''; } catch (e) { return ''; }
     }
+    // MD5 räknas i JavaScript och tar längre tid än allt annat som görs med en fil som redan är läst. SHA-256 räknas
+    // varje gång en fil läses, och två läsningar med samma SHA-256 har samma innehåll och därmed samma MD5: den
+    // räknas då en gång per innehåll och extraktion.
+    function md5For(sha, bytes) {
+        var had = sha ? state.kept.md5.get(sha) : null;
+        if (had) { work.md5Kept++; return had; }
+        var md5 = md5Hex(bytes);
+        work.md5++;
+        if (sha && md5) state.kept.md5.set(sha, md5);
+        return md5;
+    }
     function sha1Hex(bytes) {
         try { return window.ToolboxHashing ? window.ToolboxHashing.hashBytes(bytes, ['sha1']).sha1 : ''; } catch (e) { return ''; }
     }
@@ -1003,7 +1284,9 @@
     // Medan en bedömning pågår går det inte att byta eller stänga zippen, fylla med testdata eller
     // starta en ny körning: annars kunde svar ur två extraktioner hamna i samma protokoll.
     var BUSY_IDS = ['run', 'run-time', 'ex-pick', 'ex-close', 'disk-pick', 'fill-sample', 'fill-sample-snap', 'fill-sample-android',
-        'batch-copy', 'batch-save', 'batch-exif', 'batch-back', 'batch-prev', 'batch-next', 'batch-expand'];
+        'batch-copy', 'batch-save', 'batch-exif', 'batch-back', 'batch-prev', 'batch-next', 'batch-expand', 'batch-fresh',
+        // En ny nyckel stänger Signals databaser, och det får inte ske medan en bedömning läser i dem.
+        'signal-key', 'signal-keyfile-pick'];
     var busyCount = 0;
     var redoPending = false;
     function busy(on) {
@@ -1125,6 +1408,7 @@
         var sigFactor = state.model && (state.model.factors || []).find(function (f) { return f.id === 'signal'; });
         if (sigFactor && sigFactor.verdictText !== 'Inte i Signal') rows.push(['Signal', sigFactor.plain]);
         if (!meta.fileEntry) rows.push(['Bildfilen', meta.fileMissingReason || 'lästes inte ur ' + Z()]);
+        if (meta.fileEntry && (meta.fileEntry.contentNote || meta.fileMissingReason)) rows.push(['Innehållet', meta.fileEntry.contentNote || meta.fileMissingReason]);
         var mediaHtml;
         if (pv && pv.url && state.showMedia) {
             mediaHtml = pv.kind === 'video'
@@ -1247,6 +1531,7 @@
     // ---------- Bedömningen ----------
 
     async function assess(fileRow, fileQuery, windowMs, run) {
+        fileRound++;
         var z = state.zip;
         var platform = z.platform;
         // Android: kopplingen till Snapchats Memories görs först, så att tagningstiden, kameran,
@@ -1306,11 +1591,20 @@
                     if (sefUtc) input.samsungUtc = { ms: sefUtc };
                 }
                 var tags = null;
-                if (read.bytes) {
+                // En av Signals bilagor ligger krypterad. Med nycklarna läses EXIF och bilden ur det dekrypterade
+                // innehållet, och raden om innehållet säger det. Summorna ovan gäller filen som den ligger i zippen.
+                var inner = read.bytes ? await (read.inner || signalContent(media.entry, read.bytes)) : null;
+                var shown = inner && inner.bytes ? { bytes: inner.bytes, sha256: inner.sha256, name: media.entry.name + ProvenanceMedia.extForMime(inner.contentType), size: inner.bytes.length } : { bytes: read.bytes, sha256: read.sha256, name: media.entry.name, size: media.entry.size };
+                if (inner && inner.bytes) meta.fileEntry.contentNote = inner.note;
+                if (inner && inner.reason) {
+                    input.exif = { read: false, notParsed: true };
+                    input.fileMissingReason = inner.reason;
+                    meta.fileMissingReason = inner.reason + '.';
+                } else if (read.bytes) {
                     progress('Läser EXIF ur bildfilen…');
                     // Filen är läst och summorna räknade, också när ExifTool inte kan tolka den. ExifTool ger då bara ett
                     // allmänt fel, som för en krypterad fil eller en okänd filtyp.
-                    try { tags = await readTags(read.bytes, fileRow.filename, read.sha256); }
+                    try { tags = await readTags(shown.bytes, fileRow.filename, shown.sha256); }
                     catch (e) {
                         input.exif = { read: false, notParsed: true };
                         input.fileMissingReason = 'Filen lästes, men ExifTool kunde inte tolka innehållet' + (/^Unknown error$/.test(e.message) ? ' (okänd filtyp eller krypterad fil)' : ': ' + e.message);
@@ -1337,8 +1631,10 @@
                     meta.fileMissingReason = read.reason;
                 }
                 if (!run.quiet) {
-                    try { await loadPreview(media.entry, read.bytes, run.mediaEntry ? null : fileRow, platform, meta); }
+                    try { await loadPreview({ name: shown.name, size: shown.size }, shown.bytes, run.mediaEntry ? null : fileRow, platform, meta); }
                     catch (e) { state.preview = { source: 'none', kind: null, note: 'Bilden kunde inte visas: ' + e.message, url: null }; }
+                    if (inner && inner.bytes && state.preview && state.preview.url) state.preview.note += ' Ur det dekrypterade innehållet.';
+                    if (inner && inner.reason && state.preview && !state.preview.url) state.preview.note = inner.reason + '.';
                 }
                 if (media.paired && media.paired.size <= MAX_MEDIA) {
                     try {
@@ -1580,7 +1876,7 @@
                 walPath: l.walEntry ? l.walEntry.name : '', walCrc32: l.walEntry ? ExtractionCore.hex(l.walEntry.crc32) : '', walSha256: l.hashes.wal, walSummary: ExtractionCore.walSummary(l), warnings: l.warnings,
                 cipher: l.stats && l.stats.cipher ? SqlCipher.summary(l.stats, l.keySource) : '', derived: l.derived ? l.derived.line : '',
                 // Avbilden kom från ett annat verktygs läsning: raden säger vilket och när.
-                shared: l.sharedLine || '',
+                shared: l.sharedLine || '', indexed: timeIndexLine(l),
             });
         });
         meta.extraction = { name: z.file.name, size: z.file.size, lastModified: new Date(z.file.lastModified).toISOString() };
@@ -2197,6 +2493,81 @@
         return { profile: profile, passphrase: keys ? keys.dbKey : null, source: keys ? keys.source : null, hint: AppSecrets.keyHint(profile) };
     }
 
+    // Signals bilagenyckel (modernKey) ur samma källor som databasnyckeln, eller null.
+    function signalModernKey() {
+        var keys = AppSecrets.signalKeys([state.signalManual].concat(chosenKeys(), (state.zip && state.zip.secrets) || []));
+        return keys && keys.modernKey ? SqlCipher.base64ToBytes(keys.modernKey) : null;
+    }
+
+    // Innehållet i en av Signals bilagefiler på Android. Bilagans nyckel: HMAC-SHA256(modernKey, data_random);
+    // AES-256-CTR med noll-IV. Filen är utfylld på slutet, och data_size säger hur långt innehållet är.
+    async function signalPartPlain(modern, a, bytes) {
+        var key = SqlCipher.hmac('sha256', modern, [a.random instanceof Uint8Array ? a.random : new Uint8Array(a.random)]);
+        var plain = await SqlCipher.ctrAsync(key, new Uint8Array(16), bytes);
+        return a.size != null ? plain.subarray(0, Number(a.size)) : plain;
+    }
+
+    // En fil under Signals app_parts/ ligger krypterad i extraktionen. Med bilagenyckeln och bilagans rad i signal.db
+    // (data_file pekar ut filen) går innehållet att läsa, och dess SHA-256 jämförs med data_hash_end i samma rad.
+    // null: filen är inte en sådan bilaga. { bytes, sha256, contentType, note }: innehållet och raden som säger
+    // vad det är. { reason }: varför det inte gick, utan punkt sist.
+    // foreign: frågan kommer från ett annat verktyg, medan Härkomst kan hålla på med annat. Databasen läses då
+    // först när ingen bedömning pågår, och knapparna är spärrade så länge.
+    // Signals databas är redan inläst, så att en bilaga går att dekryptera utan att något läses in.
+    function signalLoaded() {
+        var hit = hitFor(SIGNAL_KEYS.main);
+        return !!(hit && state.loaded[hit.db.name]);
+    }
+
+    async function signalContent(entry, bytes, foreign) {
+        var part = ProvenanceSignal.ownPart(entry.name);
+        if (!part) return null;
+        var lies = 'den är en av Signals bilagor och ligger krypterad i ' + Z();
+        var mainSrc = sourceByKey(SIGNAL_KEYS.main), hit = hitFor(SIGNAL_KEYS.main);
+        if (!mainSrc || !hit) return { reason: 'Filen lästes, men ' + lies + ', och Signals databas (signal.db) finns inte där, så bilagans nyckel går inte att räkna fram' };
+        var cipher = signalCipher();
+        if (!cipher.passphrase) return { reason: 'Filen lästes, men ' + lies + '. Nyckeln till Signals databas saknas, så innehållet kunde inte läsas' };
+        var modern = signalModernKey();
+        if (!modern) return { reason: 'Filen lästes, men ' + lies + '. Bilagenyckeln (modernKey) saknas, så innehållet kunde inte läsas. Den står i nyckelfilen tillsammans med databasnyckeln och kan klistras in efter den' };
+        var db = state.loaded[hit.db.name], rows;
+        try {
+            if (!db && foreign) {
+                while (isBusy()) await new Promise(function (resolve) { setTimeout(resolve, 250); });
+                db = state.loaded[hit.db.name];
+                if (!db) {
+                    var status = $('run-status').innerHTML;
+                    busy(true);
+                    try { db = await loadDb(hit, mainSrc.title, cipher); }
+                    finally { $('run-status').innerHTML = status; busy(false); }
+                }
+            }
+            if (!db) db = await loadDb(hit, mainSrc.title, cipher);
+            // Bilagorna är desamma för varje fil: raden slås upp på filens namn i en tabell som görs en gång.
+            // Frågan står i protokollet där Signal bedöms (addSignal), så den skrivs inte dit en gång till härifrån.
+            rows = runRole(db, mainSrc.roles.attachments, {}, ['sent', 'received', 'server', 'upload'], { queries: [] }).rows;
+        } catch (e) {
+            return { reason: 'Filen lästes, men ' + lies + '. Signals databas kunde inte läsas (' + (e && e.message ? e.message : String(e)).replace(/[.\s]+$/, '') + '), så bilagans nyckel går inte att räkna fram' };
+        }
+        if (!db.signalParts || db.signalParts.rows !== rows) {
+            var map = new Map();
+            rows.forEach(function (a) { if (a.dataFile) map.set(String(a.dataFile).split('/').pop(), a); });
+            db.signalParts = { rows: rows, map: map };
+        }
+        var a = db.signalParts.map.get(part);
+        if (!a) return { reason: 'Filen lästes, men ' + lies + '. Ingen rad i signal.db pekar ut filen (data_file), så bilagans nyckel går inte att räkna fram' };
+        if (!a.random) return { reason: 'Filen lästes, men ' + lies + '. Bilagans rad i signal.db (attachment._id ' + a.id + ') saknar data_random, så bilagans nyckel går inte att räkna fram' };
+        var plain = await signalPartPlain(modern, a, bytes);
+        var sha = await ExtractionCore.sha256(plain);
+        var listed = ProvenanceSignal.b64ToHex(a.hashEnd);
+        var check = !sha || !listed ? ' signal.db har ingen summa att jämföra innehållet med.'
+            : sha === listed ? ' Summan är densamma som data_hash_end i signal.db.'
+                : ' Summan stämmer INTE med data_hash_end i signal.db, så nyckeln kan vara fel eller filen ändrad.';
+        return {
+            bytes: plain, sha256: sha, contentType: a.contentType ? String(a.contentType) : '', attachmentId: a.id, checked: !sha || !listed ? null : sha === listed,
+            note: 'Filen ligger krypterad i ' + Z() + ' (Signals bilaga, attachment._id ' + a.id + '). Det som visas är det dekrypterade innehållet: ' + num(plain.length) + ' byte' + (sha ? ', SHA-256 ' + sha : '') + '.' + check,
+        };
+    }
+
     // Nyckelfiler som valts i Härkomst eller kommit från navet (raden högst upp eller Queries). Varje
     // fil tolkas efter innehållet; en fil som inte är en nyckelfil sägs under nyckelrutan. forFile: extraktionen de hör till.
     async function useKeyFiles(files, share, forFile) {
@@ -2214,11 +2585,52 @@
         if (share) toHub({ type: 'extraction-keys', files: Array.from(files || []) });
     }
 
-    // Inlästa krypterade databaser läses in igen med den nya nyckeln.
+    // Vilken nyckel varje krypterad databas är dekrypterad med (profilen och nyckeln). Finns bara här i sidans minne.
+    var cipherOf = new WeakMap();
+    var CIPHER_DB = /org\.thoughtcrime\.securesms\/|\/grdb\/signal\.sqlite$/;
+
+    // Nyckeln kan ha ändrats: inklistrad, vald i en fil eller borttagen. En databas som är dekrypterad med nyckeln som
+    // gäller nu står kvar. Samma nyckel ger samma databas, och att läsa in Signals logg på flera GB och söka igenom
+    // den tar minuter. Med en annan nyckel stängs databasen och läses in igen vid nästa bedömning. Utan nyckel ställs
+    // den undan: den är då inte inläst och står inte bland protokollets källor, men kommer tillbaka om samma nyckel gör det.
     function dropCipherDbs() {
+        keyChanges++;
+        var c = signalCipher();
+        var now = c.passphrase ? c.profile + '\n' + c.passphrase : null;
+        var parked = state.kept.parked;
         Object.keys(state.loaded).forEach(function (k) {
-            if (/org\.thoughtcrime\.securesms\/|\/grdb\/signal\.sqlite$/.test(k)) { if (state.loaded[k].sqlDb) state.loaded[k].sqlDb.close(); delete state.loaded[k]; }
+            if (!CIPHER_DB.test(k)) return;
+            var l = state.loaded[k];
+            if (now !== null && cipherOf.get(l) === now) { l.keySource = c.source; return; }
+            delete state.loaded[k];
+            if (now === null && cipherOf.has(l)) parked[k] = l;
+            else if (l.sqlDb) l.sqlDb.close();
         });
+        if (now === null) return;
+        var back = false;
+        Object.keys(parked).forEach(function (k) {
+            var l = parked[k];
+            delete parked[k];
+            if (cipherOf.get(l) === now && !state.loaded[k]) { l.keySource = c.source; state.loaded[k] = l; back = true; }
+            else if (l.sqlDb) l.sqlDb.close();
+        });
+        if (!back) return;
+        // Databaserna står i den ordning de lästes in, så att protokollet räknar upp källorna som förut.
+        var all = state.loaded;
+        state.loaded = {};
+        Object.keys(all).sort(function (a, b) { return all[a].seq - all[b].seq; }).forEach(function (k) { state.loaded[k] = all[k]; });
+    }
+
+    // Nyckelläget som ett nummer: profilen, databasnyckeln, bilagenyckeln och varifrån nyckeln kom. En bedömning
+    // gäller för det nyckelläge den gjordes i. Texten med nycklarna finns bara här i sidans minne.
+    var keyStates = new Map();
+    var keyChanges = 0;   // gånger nyckeln kan ha ändrats (dropCipherDbs)
+    function keyState() {
+        var c = signalCipher();
+        var all = AppSecrets.signalKeys([state.signalManual].concat(chosenKeys(), (state.zip && state.zip.secrets) || []));
+        var text = JSON.stringify([c.profile, c.passphrase, c.source, all && all.modernKey ? all.modernKey : null]);
+        if (!keyStates.has(text)) keyStates.set(text, keyStates.size + 1);
+        return keyStates.get(text);
     }
 
     // Raden under databaslistan: varifrån nyckeln kom, eller rutan att klistra in den i.
@@ -2240,6 +2652,13 @@
             : what + ' ' + AppSecrets.missingKeyText({ profile: c.profile, word: Z(), search: state.zip && state.zip.keySearch })) + (bad.length ? ' ' + bad.join(' ') : '');
     }
 
+    // Lägesraden för en chattapp. Den första filen läser in appens databaser. För filerna efter den läses inget
+    // igen: filen slås upp i det som redan är inläst, och raden säger det.
+    function appProgress(keys, app, reading) {
+        var hit = hitFor(keys.main);
+        progress(hit && state.loaded[hit.db.name] ? 'Slår upp filen i ' + app + ' (beta)…' : reading);
+    }
+
     // Meddelandena och loggen i fönstret, och bilagorna (alla) mot filens SHA-256. Ligger meddelandet
     // eller valet i Signal utanför fönstren läggs ett eget fönster till kring den tiden.
     async function addSignal(input, meta, windowMs, run, sha256, zone) {
@@ -2248,7 +2667,7 @@
             input.signal = { error: 'Signals databas är krypterad och nyckeln saknas. Välj ' + cipher.hint + ' med Nyckelfil… under 1. Extraktion, eller klistra in nyckeln.' };
             return;
         }
-        progress('Läser Signals databaser (beta)…');
+        appProgress(SIGNAL_KEYS, 'Signal', 'Läser Signals databaser (beta)…');
         var fileRow = input.file;
         var mainSrc = sourceByKey(SIGNAL_KEYS.main);
         var mainDb = await loadDb(hitFor(SIGNAL_KEYS.main), mainSrc.title, cipher);
@@ -2257,14 +2676,17 @@
         var attachments = runRole(mainDb, mainSrc.roles.attachments, {}, ['sent', 'received', 'server', 'upload'], run).rows;
         var recipients = {};
         runRole(mainDb, mainSrc.roles.recipients, {}, [], run).rows.forEach(function (r) { recipients[String(r.id)] = { name: r.name, groupTitle: r.groupTitle || null, type: r.type }; });
-        var logRows = [];
+        var logRows = NO_ROWS;
         var logHit = hitFor(SIGNAL_KEYS.logs);
         var logSrc = sourceByKey(SIGNAL_KEYS.logs);
         if (logHit && logSrc) {
             try {
                 var logDb = await loadDb(logHit, logSrc.title, cipher);
-                // Loggen sparas bara några dagar: hela urvalet läses, och fönstren väljs efteråt.
-                logRows = runRole(logDb, logSrc.roles.log, { window: ALL_TIME }, ['time'], run).rows;
+                // Loggen sparas bara några dagar: hela urvalet läses, och fönstren väljs efteråt. En stor logg söks i
+                // tidsdelar, efter loggens första och sista tid (täckningen, som protokollet får på sin vanliga plats nedan).
+                logRows = (await runRoleInParts(logDb, logSrc.roles.log, ['time'], run, function () {
+                    return logSrc.roles.coverage ? runRole(logDb, logSrc.roles.coverage, {}, ['first', 'last'], { queries: [] }).rows[0] : null;
+                })).rows;
                 if (logSrc.roles.coverage) {
                     var lc = runRole(logDb, logSrc.roles.coverage, {}, ['first', 'last'], run).rows[0];
                     if (lc) meta.coverage.push(['Signals logg', lc.firstMs ? ProvenanceCore.formatUtc(lc.firstMs) : '', lc.lastMs ? ProvenanceCore.formatUtc(lc.lastMs) : '', Number(lc.rows)]);
@@ -2272,13 +2694,20 @@
                 input.warnings = input.warnings.concat(logDb.warnings);
             } catch (e) { input.warnings.push('Signals logg (signal-logs.db) kunde inte läsas: ' + e.message); }
         }
+        // Loggen och bilagorna är desamma för varje fil: de tolkas och slås upp en gång per inläst databas.
+        var once = mainDb.signalOnce && mainDb.signalOnce.attachments === attachments && mainDb.signalOnce.logRows === logRows ? mainDb.signalOnce : null;
+        if (!once) {
+            progress('Tolkar Signals logg och bilagor…');
+            if (logRows.length > 5000) await ZipRead.painted();
+            once = mainDb.signalOnce = { attachments: attachments, logRows: logRows, prepared: ProvenanceSignal.prepare(attachments, logRows), versions: ProvenanceAppVersions.signalLogVersions(logRows) };
+        }
         var base = {
             sha256: sha256, filePath: meta.fileEntry ? meta.fileEntry.path : '', mediaId: fileRow.pk != null && fileRow.pk !== '' ? Number(fileRow.pk) : null, fileName: fileRow.filename, fileAddedMs: fileRow.addedMs,
-            savedBySignal: fileRow.importer === ProvenanceSignal.APP, attachments: attachments, recipients: recipients, log: logRows, wall: wall, centerMs: fileRow.createdMs,
+            savedBySignal: fileRow.importer === ProvenanceSignal.APP, attachments: attachments, recipients: recipients, log: logRows, prepared: once.prepared, wall: wall, centerMs: fileRow.createdMs,
             sources: { main: { db: 'signal.db', table: 'message', queryId: mainSrc.roles.messages.id }, attachmentsQueryId: mainSrc.roles.attachments.id, log: { db: 'signal-logs.db', table: 'log', queryId: logSrc && logSrc.roles.log ? logSrc.roles.log.id : 'role-log' } },
         };
         // Första varvet ger kopplingen; fönstren kring meddelandet och valet läggs till före andra varvet.
-        var first = ProvenanceSignal.build(Object.assign({}, base, { messages: [] }));
+        var first = ProvenanceSignal.build(Object.assign({}, base, { messages: [], linkOnly: true }));
         var extra = [];
         first.link.matches.forEach(function (m) {
             var c = m.direction === 'in' ? m.receivedMs : m.sentMs;
@@ -2288,12 +2717,12 @@
         if (extra.length) fileRow.extraWindows = (fileRow.extraWindows || []).concat(extra);
         var wins = ProvenanceCore.windows(fileRow, windowMs);
         var range = wins.length ? { startMs: Math.min.apply(null, wins.map(function (w) { return w.startMs; })), endMs: Math.max.apply(null, wins.map(function (w) { return w.endMs; })) } : null;
-        var messages = range ? runRole(mainDb, mainSrc.roles.messages, { window: range }, ['sent', 'received', 'server'], run).rows : [];
+        var messages = range ? (await runRoleByTime(mainDb, mainSrc.roles.messages, range, ['sent', 'received', 'server'], run)).rows : [];
         var out = ProvenanceSignal.build(Object.assign({}, base, { messages: messages, keep: function (ms) { return ProvenanceCore.inWindows(ms, wins); } }));
         input.extraEvents = (input.extraEvents || []).concat(out.events);
         input.extraNotes = (input.extraNotes || []).concat(out.notes);
         input.signal = { link: out.link, keySource: cipher.source, shaMissing: !sha256 };
-        input.signalLogVersion = ProvenanceAppVersions.fromSignalLog(logRows, fileRow.createdMs);
+        input.signalLogVersion = ProvenanceAppVersions.fromSignalLog(logRows, fileRow.createdMs, once.versions);
         if (!sha256) input.warnings.push('Filens SHA-256 kunde inte räknas, så den jämfördes inte med Signals bilagor. Bara Signals logg (MediaStore-id) användes.');
         if (mainSrc.roles.coverage) {
             var cov = runRole(mainDb, mainSrc.roles.coverage, {}, ['first', 'last'], run).rows[0];
@@ -2310,7 +2739,7 @@
             input.signal = { error: 'Signals databas är krypterad och nyckeln saknas. Välj ' + cipher.hint + ' med Nyckelfil… under 1. Extraktion, eller klistra in nyckeln.' };
             return;
         }
-        progress('Läser Signals databas (beta)…');
+        appProgress(SIGNAL_IOS_KEYS, 'Signal', 'Läser Signals databas (beta)…');
         var fileRow = input.file;
         var src = sourceByKey(SIGNAL_IOS_KEYS.main);
         var db = await loadDb(hitFor(SIGNAL_IOS_KEYS.main), src.title, cipher);
@@ -2333,7 +2762,7 @@
         if (extra.length) fileRow.extraWindows = (fileRow.extraWindows || []).concat(extra);
         var wins = ProvenanceCore.windows(fileRow, windowMs);
         var range = wins.length ? { startMs: Math.min.apply(null, wins.map(function (w) { return w.startMs; })), endMs: Math.max.apply(null, wins.map(function (w) { return w.endMs; })) } : null;
-        var messages = range ? runRole(db, src.roles.messages, { window: range }, ['sent', 'received', 'server', 'expireStarted'], run).rows : [];
+        var messages = range ? (await runRoleByTime(db, src.roles.messages, range, ['sent', 'received', 'server', 'expireStarted'], run)).rows : [];
         var stories = range && src.roles.stories ? runRole(db, src.roles.stories, { window: range }, ['sent'], run).rows : [];
         var out = ProvenanceSignal.buildIos(Object.assign({}, base, { messages: messages, stories: stories, keep: function (ms) { return ProvenanceCore.inWindows(ms, wins); } }));
         input.extraEvents = (input.extraEvents || []).concat(out.events);
@@ -2399,7 +2828,7 @@
     // WhatsApp på iOS: mediefilerna (alla) mot filens SHA-256, bildbibliotekets post och sökväg, och
     // meddelandena i fönstret.
     async function addWhatsApp(input, meta, windowMs, run, sha256, zone) {
-        progress('Läser WhatsApps databas (beta)…');
+        appProgress(WHATSAPP_KEYS, 'WhatsApp', 'Läser WhatsApps databas (beta)…');
         var fileRow = input.file;
         var src = sourceByKey(WHATSAPP_KEYS.main);
         var hit = await whatsappHit();
@@ -2419,7 +2848,7 @@
         if (extra.length) fileRow.extraWindows = (fileRow.extraWindows || []).concat(extra);
         var wins = ProvenanceCore.windows(fileRow, windowMs);
         var range = wins.length ? { startMs: Math.min.apply(null, wins.map(function (w) { return w.startMs; })), endMs: Math.max.apply(null, wins.map(function (w) { return w.endMs; })) } : null;
-        var messages = range ? runRole(db, src.roles.messages, { window: range }, ['date', 'sent'], run).rows : [];
+        var messages = range ? (await runRoleByTime(db, src.roles.messages, range, ['date', 'sent'], run)).rows : [];
         var extLog = [];
         try { extLog = await whatsappExtensionLog(hit); } catch (e) { input.warnings.push('WhatsApps ServiceExtension-logg kunde inte läsas: ' + e.message); }
         var stanzaIds = extLog.length && src.roles.stanzas ? runRole(db, src.roles.stanzas, {}, [], run).rows.map(function (r) { return r.id; }) : [];
@@ -2486,7 +2915,7 @@
     // Telegram på iOS: resurserna (alla) mot filens sökväg, lagringsdatabasens val ur bildbiblioteket mot
     // filens ZUUID, och meddelandena i fönstret.
     async function addTelegram(input, meta, windowMs, run, sha256) {
-        progress('Läser Telegrams databaser (beta)…');
+        appProgress(TELEGRAM_KEYS, 'Telegram', 'Läser Telegrams databaser (beta)…');
         var fileRow = input.file;
         var hits = telegramHits();
         var src = sourceByKey(TELEGRAM_KEYS.main);
@@ -2525,7 +2954,7 @@
         if (extra.length) fileRow.extraWindows = (fileRow.extraWindows || []).concat(extra);
         var wins = ProvenanceCore.windows(fileRow, windowMs);
         var range = wins.length ? { startMs: Math.min.apply(null, wins.map(function (w) { return w.startMs; })), endMs: Math.max.apply(null, wins.map(function (w) { return w.endMs; })) } : null;
-        var messages = range ? runRole(db, src.roles.messages, { window: range }, ['time'], run).rows : [];
+        var messages = range ? (await runRoleByTime(db, src.roles.messages, range, ['time'], run)).rows : [];
         var out = ProvenanceTelegram.build(Object.assign({}, base, { messages: messages, keep: function (ms) { return ProvenanceCore.inWindows(ms, wins); } }));
         input.extraEvents = (input.extraEvents || []).concat(out.events);
         input.extraNotes = (input.extraNotes || []).concat(out.notes);
@@ -2559,7 +2988,7 @@
     // WhatsApp på Android: mediefilerna (alla) mot filens SHA-256, originalets SHA-256 och sökvägen, och meddelandena i
     // fönstret. WhatsApps filer står också i MediaStore, så en fil ur biblioteket kan vara WhatsApps egen.
     async function addWhatsAppAndroid(input, meta, windowMs, run, sha256) {
-        progress('Läser WhatsApps databaser (beta)…');
+        appProgress(WHATSAPP_ANDROID_KEYS, 'WhatsApp', 'Läser WhatsApps databaser (beta)…');
         var fileRow = input.file;
         var src = sourceByKey(WHATSAPP_ANDROID_KEYS.main);
         var db = await loadDb(hitFor(WHATSAPP_ANDROID_KEYS.main), src.title);
@@ -2578,7 +3007,7 @@
         if (extra.length) fileRow.extraWindows = (fileRow.extraWindows || []).concat(extra);
         var wins = ProvenanceCore.windows(fileRow, windowMs);
         var range = wins.length ? { startMs: Math.min.apply(null, wins.map(function (w) { return w.startMs; })), endMs: Math.max.apply(null, wins.map(function (w) { return w.endMs; })) } : null;
-        var messages = range ? runRole(db, src.roles.messages, { window: range }, ['date', 'received'], run).rows : [];
+        var messages = range ? (await runRoleByTime(db, src.roles.messages, range, ['date', 'received'], run)).rows : [];
         var out = ProvenanceWhatsApp.buildAndroid(Object.assign({}, base, { messages: messages, keep: function (ms) { return ProvenanceCore.inWindows(ms, wins); } }));
         input.extraEvents = (input.extraEvents || []).concat(out.events);
         input.extraNotes = (input.extraNotes || []).concat(out.notes);
@@ -2598,7 +3027,7 @@
     // Telegram på Android: en av Telegrams egna bildfiler bär bildens id i namnet, och id:t söks i meddelandenas
     // blobbar. För alla filer läses meddelandena i fönstret.
     async function addTelegramAndroid(input, meta, windowMs, run) {
-        progress('Läser Telegrams databas (beta)…');
+        appProgress(TELEGRAM_ANDROID_KEYS, 'Telegram', 'Läser Telegrams databas (beta)…');
         var fileRow = input.file;
         var src = sourceByKey(TELEGRAM_ANDROID_KEYS.main);
         var db = await loadDb(hitFor(TELEGRAM_ANDROID_KEYS.main), src.title);
@@ -2617,7 +3046,7 @@
         if (extra.length) fileRow.extraWindows = (fileRow.extraWindows || []).concat(extra);
         var wins = ProvenanceCore.windows(fileRow, windowMs);
         var range = wins.length ? { startMs: Math.min.apply(null, wins.map(function (w) { return w.startMs; })), endMs: Math.max.apply(null, wins.map(function (w) { return w.endMs; })) } : null;
-        var messages = range ? runRole(db, src.roles.messages, { window: range }, ['time'], run).rows : [];
+        var messages = range ? (await runRoleByTime(db, src.roles.messages, range, ['time'], run)).rows : [];
         var out = ProvenanceTelegram.buildAndroid(Object.assign({}, base, { messages: messages, keep: function (ms) { return ProvenanceCore.inWindows(ms, wins); } }));
         input.extraEvents = (input.extraEvents || []).concat(out.events);
         input.extraNotes = (input.extraNotes || []).concat(out.notes);
@@ -3048,11 +3477,15 @@
                 try {
                     var r = await readMedia(entry);
                     runLog.mediaRead = r;
-                    var tags = await readTags(r.bytes, name, r.sha256);
-                    var sum = ExifCore.summarize(tags, name);
-                    var taken = exifTakenMs(sum.taken, zone0);
-                    if (taken.ms) { fileRow.createdMs = taken.ms; tSource = { db: 'bildfilen', table: name, column: sum.taken.source }; }
-                    if (taken.ms && taken.assumed) runLog.timeNote = 'Filen har ingen registerrad, och tiden i filen anger ingen tidszon. T är tolkad i ' + zone0.label + ' och flyttas om en annan zon väljs.';
+                    // En av Signals bilagor ligger krypterad i zippen. Filen som den ligger har ingen tid att läsa, så
+                    // ExifTool frågas inte om den, och T blir zippens ändringstid som för andra filer utan tid i sig.
+                    if (!ProvenanceSignal.ownPart(entry.name)) {
+                        var tags = await readTags(r.bytes, name, r.sha256);
+                        var sum = ExifCore.summarize(tags, name);
+                        var taken = exifTakenMs(sum.taken, zone0);
+                        if (taken.ms) { fileRow.createdMs = taken.ms; tSource = { db: 'bildfilen', table: name, column: sum.taken.source }; }
+                        if (taken.ms && taken.assumed) runLog.timeNote = 'Filen har ingen registerrad, och tiden i filen anger ingen tidszon. T är tolkad i ' + zone0.label + ' och flyttas om en annan zon väljs.';
+                    }
                 } catch (e) { /* ingen EXIF */ }
             }
             // Zippens ändringstid: Unix-tid när den finns, annars DOS-tid utan zon, tolkad som i sökningen på tid.
@@ -3321,7 +3754,6 @@
     async function signalHashLookup(hashes, entries) {
         var cipher = signalCipher();
         if (!cipher.passphrase) return { found: {}, note: 'Signals bilagor söktes inte: databasen är krypterad och nyckeln saknas.' };
-        var keys = AppSecrets.signalKeys([state.signalManual].concat(state.zip.secrets || []));
         var mainSrc = sourceByKey(SIGNAL_KEYS.main);
         var db = await loadDb(hitFor(SIGNAL_KEYS.main), mainSrc.title, cipher);
         var run = { queries: [] };
@@ -3332,8 +3764,7 @@
         var ctx = { recipients: recipients, wall: function (ms) { return fmt(ms); } };
         var parts = {};
         entries.forEach(function (e) { if (/org\.thoughtcrime\.securesms\/app_parts\//.test(e.name)) parts[ExtractionCore.baseName(e.name)] = e; });
-        var modern = keys && keys.modernKey ? SqlCipher.base64ToBytes(keys.modernKey) : null;
-        var zero = new Uint8Array(16);
+        var modern = signalModernKey();
         var out = await ProvenanceSignal.findByHash(hashes, attachments, {
             algoOf: ProvenanceHashSearch.algoOf,
             hasher: function (a) { return ToolboxHashing.createHasher(a); },
@@ -3341,11 +3772,7 @@
             plain: async function (a) {
                 var e = parts[String(a.dataFile).split('/').pop()];
                 if (!e || !modern || !a.random) return null;
-                var bytes = (await ExtractionCore.readEntry(state.zip.read, e)).bytes;
-                // Bilagans nyckel: HMAC-SHA256(modernKey, data_random); AES-256-CTR med noll-IV.
-                var key = SqlCipher.hmac('sha256', modern, [a.random instanceof Uint8Array ? a.random : new Uint8Array(a.random)]);
-                var plain = SqlCipher.ctr(SqlCipher.expandKey(key), zero, bytes);
-                return a.size != null ? plain.subarray(0, Number(a.size)) : plain;
+                return signalPartPlain(modern, a, (await ExtractionCore.readEntry(state.zip.read, e)).bytes);
             },
         });
         out.ctx = ctx;
@@ -3682,6 +4109,10 @@
         return ExtractionCore.baseName(it.entry.name);
     }
 
+    // Radernas element i listan, i radernas ordning. Att slå upp rad i med tbody.rows[i] letar från listans början
+    // varje gång en rad har bytts ut, och 20 000 rader stod då still i åtta sekunder.
+    var batchEls = [];
+
     function clearBatch() {
         var b = state.batch;
         if (b) {
@@ -3689,6 +4120,7 @@
             b.urls.forEach(function (u) { URL.revokeObjectURL(u); });
         }
         state.batch = null;
+        batchEls = [];
         $('batch-box').classList.add('display-none');
         $('batch-list').innerHTML = '';
         $('batch-nav').classList.add('display-none');
@@ -3732,7 +4164,13 @@
     // flera träffar har blivit en rad per träff.
     async function assessRows(b) {
         var at = [];
-        b.rows.forEach(function (r, i) { if (r.status === 'waiting') at.push(i); });
+        var keys = { id: keyState(), changes: keyChanges };
+        var had = 0;
+        b.rows.forEach(function (r, i) {
+            if (r.status !== 'waiting') return;
+            if (takeKept(r, b, keys)) had++; else at.push(i);
+        });
+        work.rowsKept += had;
         b.stop = false;
         b.running = true;
         busy(true);
@@ -3741,7 +4179,7 @@
         renderBatch();
         var t0 = performance.now();
         var done = 0;
-        var toolsAt = t0;
+        var toolsAt = t0, freeAt = t0;
         var ends = [];   // när varje fil blev klar, för tiden som är kvar
         // plan.rows[n] är rad n uppslagen; plan.next och plan.started säger hur långt uppslagningen och läsningen har nått.
         var plan = { next: 0, started: 0, rows: [], ahead: newAhead() };
@@ -3763,10 +4201,14 @@
                 if (performance.now() - toolsAt > 250) { renderBatchTools(); toolsAt = performance.now(); }
                 await lookAhead(b, at, n, plan);
                 await batchOne(b.rows[i], b, plan.rows[n]);
+                keepRow(b.rows[i], b, keys);
                 releaseAhead(plan.ahead, plan.rows[n]);
                 plan.rows[n] = null;
                 ends.push(performance.now());
                 done++;
+                // Rader som inte behöver läsa något (namn som inte finns) väntar aldrig på något av sig själva. Fönstret
+                // släpps därför fram med jämna mellanrum, så att stapeln rör sig och Avbryt går att trycka på.
+                if (performance.now() - freeAt >= listFreeMs) { await ZipRead.pause(); work.freed++; freeAt = performance.now(); }
             }
         } finally {
             // Det som lästes i förväg men inte hann bedömas (listan avbröts) väntas in och släpps, så att inget
@@ -3785,12 +4227,69 @@
         renderBatch();
         var secs = (performance.now() - t0) / 1000;
         var c = ProvenanceBatch.counts(b.rows);
-        var text = (b.stop ? 'Avbruten efter ' + done + ' av ' + at.length + ' filer' : at.length + ' filer genomgångna') +
-            ' på ' + secs.toFixed(1).replace('.', ',') + ' s' + (done ? ' (' + (secs / done).toFixed(secs / done < 0.95 ? 2 : 1).replace('.', ',') + ' s per fil)' : '') + '. ' +
+        var before = !had ? '' : (had === 1 ? 'En fil var redan bedömd' : had + ' filer var redan bedömda') + ' och lästes inte igen. ';
+        var text = (!at.length && had ? 'Alla ' + had + ' filer var redan bedömda med samma fönster, zon och nycklar, och lästes inte igen. '
+            : (b.stop ? 'Avbruten efter ' + done + ' av ' + at.length + ' filer' : at.length + (at.length === 1 ? ' fil genomgången' : ' filer genomgångna')) +
+            ' på ' + secs.toFixed(1).replace('.', ',') + ' s' + (done ? ' (' + (secs / done).toFixed(secs / done < 0.95 ? 2 : 1).replace('.', ',') + ' s per fil)' : '') + '. ' + before) +
             c.done + ' bedömda' + (c.missing ? ', ' + c.missing + ' finns inte' : '') + (c.ambiguous ? ', ' + c.ambiguous + ' med flera träffar' : '') + (c.error ? ', ' + c.error + ' kunde inte bedömas' : '') +
             '. Klicka på en rad för att se underlaget och skriva din egen bedömning.';
         setStatus('run-status', escapeHtml(text));
         fillBatchThumbs(b).catch(function () {});
+    }
+
+    // Så ofta släpper en lista fram fönstret medan den bedöms (assessRows), i millisekunder.
+    var listFreeMs = 50;
+
+    // Vad en post i listan är, som text: samma text är samma sak att bedöma. null: posten känns inte igen nästa gång.
+    // En fil från disk känns igen så länge det är samma val av filen, inte på namnet.
+    var diskIds = new WeakMap(), diskCount = 0;
+    function itemKey(it) {
+        var pick = '\n' + (it.pk != null ? it.pk : '') + '\n' + (it.path || '') + '\n' + (it.foundBy ? it.foundBy.algo + ':' + it.foundBy.value : '');
+        if (it.kind === 'name') return 'namn\n' + it.name + pick;
+        if (it.kind === 'row') return 'rad\n' + it.row.filename + '\n' + (it.row.pk != null ? it.row.pk : '') + pick;
+        if (it.kind === 'entry') return 'post\n' + ProvenanceHashSearch.keyOf(it.entry) + pick;
+        if (it.kind === 'hash') return 'summa\n' + it.algo + ':' + it.hash + pick;
+        if (it.kind === 'disk' && it.file) {
+            if (!diskIds.has(it.file)) diskIds.set(it.file, ++diskCount);
+            return 'disk\n' + diskIds.get(it.file) + pick;
+        }
+        return null;
+    }
+
+    // En rad som är bedömd sparas i minnet med det som styrde bedömningen: posten, fönstret, zonen och nyckelläget.
+    // Avbilden ändras inte och läses på samma sätt varje gång, så samma post med samma fönster, zon och nycklar ger
+    // samma underlag. Kommer raden igen (samma lista en gång till, en lista med fler namn, fönstret ställt tillbaka)
+    // visas den som den bedömdes, utan att filen läses och frågorna ställs igen, och bara de nya raderna bedöms.
+    // Det som sparas är det listan visar och det ett klick behöver (vilken post raden gäller). Hela underlaget
+    // sparas inte: det är omkring 0,45 MB per fil, och ett klick på raden tar fram det igen. En rad som inte kunde
+    // bedömas eller avbröts sparas inte. Raden under listan säger hur många rader som var bedömda förut, och knappen
+    // där bedömer hela listan på nytt.
+    function keptKey(row, b, keys) {
+        var item = itemKey(row.item);
+        return item === null ? null : keys.id + '\n' + b.window + '\n' + b.zone + '\n' + item;
+    }
+    function takeKept(row, b, keys) {
+        var key = state.kept.rows.size ? keptKey(row, b, keys) : null;
+        var had = key === null ? null : state.kept.rows.get(key);
+        if (!had) return false;
+        row.status = had.status; row.note = had.note; row.summary = had.summary; row.key = had.key; row.target = had.target;
+        row.kept = true;
+        return true;
+    }
+    // Byttes nyckeln medan listan bedömdes sparas inget mer ur den: raden kan vara bedömd med en annan nyckel än listans.
+    function keepRow(row, b, keys) {
+        if (keys.changes !== keyChanges || (row.status !== 'done' && row.status !== 'missing' && row.status !== 'ambiguous')) return;
+        var key = keptKey(row, b, keys);
+        if (key !== null) state.kept.rows.set(key, { status: row.status, note: row.note, summary: row.summary, key: row.key, target: row.target });
+    }
+
+    // Hela listan bedöms på nytt: det som sparats för dess rader glöms först.
+    function freshBatch() {
+        var b = state.batch;
+        if (!b || b.running || isBusy()) return;
+        var keys = { id: keyState() };
+        b.rows.forEach(function (r) { var key = keptKey(r, b, keys); if (key !== null) state.kept.rows.delete(key); });
+        runBatch(b.rows.map(function (r) { return r.item; }), b.origin, { filter: b.filter }).catch(batchFailed);
     }
 
     // Träffarna för en rad med flera träffar: det som skiljer dem åt, eller inget när raden inte går att dela.
@@ -3964,6 +4463,8 @@
         $('batch-list').innerHTML = '<table class="batch-table"><thead><tr><th class="thumb-col">Bild</th><th>Fil</th><th>T</th><th>Typ</th>' +
             cols.map(function (c) { return '<th class="f-col" title="' + escapeHtml(c[2]) + '">' + escapeHtml(c[1]) + '</th>'; }).join('') +
             '<th>Undersökaren</th></tr></thead><tbody>' + b.rows.map(function (r, i) { return batchRowHtml(r, i, b); }).join('') + '</tbody></table>';
+        batchEls = [];
+        for (var tr = $('batch-list').querySelector('tbody').firstElementChild; tr; tr = tr.nextElementSibling) batchEls.push(tr);
         renderBatchNote();
     }
 
@@ -3997,6 +4498,10 @@
         var filtered = !!(b.filter.text.trim() || b.filter.group);
         $('batch-shown').textContent = !filtered ? '' : 'Visar ' + b.rows.filter(function (r) { return ProvenanceBatch.matches(r, b.filter); }).length + ' av ' + b.rows.length +
             '. Exporterna tar hela listan.';
+        var kept = b.running ? 0 : b.rows.filter(function (r) { return r.kept; }).length;
+        $('batch-kept').classList.toggle('display-none', !kept);
+        if (kept) $('batch-kept-text').textContent = (kept === b.rows.length ? 'Alla ' + kept + ' filer' : kept + ' av ' + b.rows.length + ' filer') +
+            ' var redan bedömda med samma fönster, zon och nycklar för den här extraktionen. De visas som de bedömdes då, utan att läsas igen.';
         var hits = b.running ? [] : b.rows.map(function (r) { return hitChoices(r).length; }).filter(function (k) { return k > 1; });
         $('batch-hits').classList.toggle('display-none', !hits.length);
         if (hits.length) {
@@ -4009,18 +4514,20 @@
     // Urvalet har ändrats: raderna som inte hör till det göms, på sin plats i listan.
     function applyBatchFilter() {
         var b = state.batch;
-        var body = $('batch-list').querySelector('tbody');
-        if (!b || !body) return;
-        b.rows.forEach(function (r, i) { if (body.rows[i]) body.rows[i].classList.toggle('display-none', !ProvenanceBatch.matches(r, b.filter)); });
+        if (!b) return;
+        b.rows.forEach(function (r, i) { if (batchEls[i]) batchEls[i].classList.toggle('display-none', !ProvenanceBatch.matches(r, b.filter)); });
         renderBatchTools();
     }
 
     // En rad ritas om på sin plats i listan.
     function renderBatchRow(i) {
         var b = state.batch;
-        var body = $('batch-list').querySelector('tbody');
-        var tr = b && b.rows[i] && body ? body.rows[i] : null;
-        if (tr) tr.outerHTML = batchRowHtml(b.rows[i], i, b);
+        var tr = b && b.rows[i] ? batchEls[i] : null;
+        if (!tr || !tr.parentNode) return;
+        var holder = document.createElement('tbody');
+        holder.innerHTML = batchRowHtml(b.rows[i], i, b);
+        batchEls[i] = holder.firstElementChild;
+        tr.parentNode.replaceChild(batchEls[i], tr);
     }
 
     function renderBatchNote() {
@@ -4071,7 +4578,8 @@
                 var url = URL.createObjectURL(new Blob([r.bytes], { type: mime }));
                 b.urls.push(url);
                 w2.row.thumbUrl = url;
-                var img = $('batch-list').querySelector('tr[data-i="' + b.rows.indexOf(w2.row) + '"] td.thumb-col');
+                var tr = batchEls[b.rows.indexOf(w2.row)];
+                var img = tr ? tr.querySelector('td.thumb-col') : null;
                 if (img) img.innerHTML = '<img class="row-thumb" alt="" src="' + url + '">';
             } catch (err) { /* raden får ingen tumnagel */ }
         }
@@ -4171,8 +4679,7 @@
         b.rows.forEach(function (r, i) { if (touched[i] || r.key && keys[r.key]) renderBatchRow(i); });
         renderBatchNote();
         $('batch-box').classList.remove('display-none');
-        var body = $('batch-list').querySelector('tbody');
-        var tr = body ? body.rows[was] : null;
+        var tr = batchEls[was];
         if (tr) tr.scrollIntoView({ block: 'center' });
     }
 
@@ -4824,8 +5331,8 @@
             return '<div class="source-block"><h4>' + escapeHtml(s.label) + '</h4><dl>' +
                 '<dt>Sökväg</dt><dd>' + escapeHtml(s.path) + '</dd><dt>CRC32</dt><dd>' + escapeHtml(s.crc32) + (s.crcOk === false ? ' <span class="err">STÄMMER INTE</span>' : '') + '</dd><dt>SHA-256</dt><dd>' + escapeHtml(s.sha256) + '</dd>' +
                 (s.walPath ? '<dt>-wal</dt><dd>' + escapeHtml(s.walPath) + '</dd><dt>-wal SHA-256</dt><dd>' + escapeHtml(s.walSha256) + '</dd>' : '') +
-                '<dt>WAL</dt><dd>' + escapeHtml(s.walSummary) + '</dd>' + (s.cipher ? '<dt>Kryptering</dt><dd>' + escapeHtml(s.cipher) + '</dd>' : '') + (s.derived ? '<dt>Avkodning</dt><dd>' + escapeHtml(s.derived) + '</dd>' : '') + (s.shared ? '<dt>Läsning</dt><dd>' + escapeHtml(s.shared) + '</dd>' : '') + (s.warnings.length ? '<dt>Varning</dt><dd class="warn">' + escapeHtml(s.warnings.join(' ')) + '</dd>' : '') + '</dl></div>';
-        }).join('') + (meta.fileEntry ? '<div class="source-block"><h4>Bildfilen</h4><dl><dt>Sökväg</dt><dd>' + escapeHtml(meta.fileEntry.path) + '</dd><dt>CRC32</dt><dd>' + escapeHtml(meta.fileEntry.crc32) + '</dd><dt>SHA-256</dt><dd>' + escapeHtml(meta.fileEntry.sha256) + '</dd></dl></div>' : '') +
+                '<dt>WAL</dt><dd>' + escapeHtml(s.walSummary) + '</dd>' + (s.cipher ? '<dt>Kryptering</dt><dd>' + escapeHtml(s.cipher) + '</dd>' : '') + (s.derived ? '<dt>Avkodning</dt><dd>' + escapeHtml(s.derived) + '</dd>' : '') + (s.shared ? '<dt>Läsning</dt><dd>' + escapeHtml(s.shared) + '</dd>' : '') + (s.indexed ? '<dt>Uppslag</dt><dd>' + escapeHtml(s.indexed) + '</dd>' : '') + (s.warnings.length ? '<dt>Varning</dt><dd class="warn">' + escapeHtml(s.warnings.join(' ')) + '</dd>' : '') + '</dl></div>';
+        }).join('') + (meta.fileEntry ? '<div class="source-block"><h4>Bildfilen</h4><dl><dt>Sökväg</dt><dd>' + escapeHtml(meta.fileEntry.path) + '</dd><dt>CRC32</dt><dd>' + escapeHtml(meta.fileEntry.crc32) + '</dd><dt>SHA-256</dt><dd>' + escapeHtml(meta.fileEntry.sha256) + '</dd>' + (meta.fileEntry.contentNote ? '<dt>Innehållet</dt><dd>' + escapeHtml(meta.fileEntry.contentNote) + '</dd>' : '') + '</dl></div>' : '') +
             '<h4>SQL</h4>' + meta.queries.map(function (q) {
                 return '<div class="sql-head"><span><strong>' + escapeHtml(q.id) + '</strong> <span class="muted">' + escapeHtml(q.db) + '</span></span>' +
                     (state.zip && q.path ? '<button type="button" class="secondary to-queries"' + queryAttrs(q) + '>Kör i Queries</button>' : '') + '</div><pre class="sql">' + escapeHtml(q.sql) + '</pre>';
@@ -4966,7 +5473,7 @@
     }
 
     $('ex-pick').addEventListener('click', function () { $('ex-input').click(); });
-    // En inklistrad nyckel till Signals databaser gäller från nästa bedömning: de läses då in igen.
+    // En inklistrad nyckel till Signals databaser gäller från nästa bedömning. Är nyckeln en annan läses de då in igen.
     $('signal-key').addEventListener('input', function () {
         var v = $('signal-key').value.trim();
         state.signalManual = v ? Object.assign({ source: 'inklistrad' }, AppSecrets.parseManual(v)) : null;
@@ -5035,6 +5542,7 @@
         applyBatchFilter();
     });
     $('batch-expand').addEventListener('click', function () { expandHits().catch(batchFailed); });
+    $('batch-fresh').addEventListener('click', freshBatch);
     $('batch-back').addEventListener('click', backToList);
     $('batch-prev').addEventListener('click', function () { var b = state.batch; var i = b ? nextOpenable(b, b.open, -1) : -1; if (i >= 0) openBatchRow(i); });
     $('batch-next').addEventListener('click', function () { var b = state.batch; var i = b ? nextOpenable(b, b.open, 1) : -1; if (i >= 0) openBatchRow(i); });
@@ -5101,6 +5609,7 @@
         if (data.type === 'extraction-keys') useKeyFiles(Array.isArray(data.files) ? data.files : [], false, data.file).catch(function (err) { console.warn('Nyckelfilerna kunde inte läsas', err); });
         if (data.type === 'deliver-file') handOver(data.to).catch(function (err) { console.warn(err); });
         if (data.type === 'provenance-files') receiveFiles(data.files);
+        if (data.type === 'file-need') fileNeeded(data);
         if (data.type === 'provenance-names' && Array.isArray(data.names)) receiveNames(data.names.map(String), data.zipName || '');
     });
 
@@ -5129,6 +5638,15 @@
         // Glömmer ExifTools sparade svar, så att provkörningen kan läsa samma filer en gång till.
         forgetTags: function () {
             if (!isBusy()) state.tags = { map: new Map(), size: 0, early: new Map() };
+        },
+        // Glömmer listans bedömda rader och uträknade MD5, så att provkörningen kan bedöma samma lista en gång till.
+        forgetRows: function () {
+            if (!isBusy()) { state.kept.rows = new Map(); state.kept.md5 = new Map(); }
+        },
+        // Så ofta en lista släpper fram fönstret, i millisekunder. 0: efter varje rad. Utan värde: det som gäller.
+        listFree: function (ms) {
+            if (ms !== undefined && !isBusy()) listFreeMs = Math.max(0, Number(ms) || 0);
+            return listFreeMs;
         },
     };
 

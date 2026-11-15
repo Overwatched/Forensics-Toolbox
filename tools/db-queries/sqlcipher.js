@@ -417,6 +417,19 @@
 
     // ---------- Samma sak med WebCrypto ----------
 
+    // CTR som ctr(), men med webbläsarens AES när den finns: då räknas det utanför sidans egen tråd. Räknaren är
+    // hela blocket (length 128), som i Java. Utan WebCrypto, eller om anropet nekas, räknas det i JavaScript.
+    async function ctrAsync(key, iv, data, opts) {
+        var subtle = subtleOf(opts);
+        if (subtle) {
+            try {
+                var k = await subtle.importKey('raw', key, { name: 'AES-CTR' }, false, ['encrypt']);
+                return new Uint8Array(await subtle.encrypt({ name: 'AES-CTR', counter: iv, length: 128 }, k, data));
+            } catch (e) { /* räknas i JavaScript nedan */ }
+        }
+        return ctr(expandKey(key), iv, data);
+    }
+
     // Sidor per anrop till AES (8 MB med sidor på 4096 byte).
     var BATCH_PAGES = 2048;
     var SUBTLE_HASH = { sha1: 'SHA-1', sha256: 'SHA-256', sha512: 'SHA-512' };
@@ -646,7 +659,7 @@
     var api = {
         PROFILES: PROFILES, isPlain: isPlain, isEncrypted: isEncrypted, decryptDatabase: decryptDatabase, decryptDatabaseAsync: decryptDatabaseAsync, decryptPage: decryptPage, keysFor: keysFor, open: open, openAsync: openAsync, summary: summary, badText: badText,
         lockPage: function (profileName, opts) { return lockPageOf(profileOf(profileName), opts); },
-        expandKey: expandKey, encryptBlock: encryptBlock, decryptBlock: decryptBlock, cbcDecrypt: cbcDecrypt, ctr: ctr,
+        expandKey: expandKey, encryptBlock: encryptBlock, decryptBlock: decryptBlock, cbcDecrypt: cbcDecrypt, ctr: ctr, ctrAsync: ctrAsync,
         hmac: hmac, pbkdf2: pbkdf2, hexToBytes: hexToBytes, bytesToHex: bytesToHex, base64ToBytes: base64ToBytes, utf8: utf8, reserveOf: reserveOf,
     };
     if (typeof module !== 'undefined' && module.exports) module.exports = api;

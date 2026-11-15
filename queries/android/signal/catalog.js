@@ -133,6 +133,10 @@ window.SIGNAL_ANDROID_CATALOG = {
             "timeEnd"
           ],
           "epoch": "unixMs",
+          "indexByTime": [
+            "date_sent",
+            "date_received"
+          ],
           "fields": {
             "id": "_id",
             "sent": "date_sent",
@@ -148,7 +152,7 @@ window.SIGNAL_ANDROID_CATALOG = {
             "attachments": "n_attachments",
             "hasBody": "has_body"
           },
-          "sql": "SELECT\n  m._id, m.date_sent, m.date_received, m.date_server, m.type, m.thread_id, t.recipient_id AS thread_recipient,\n  m.from_recipient_id, m.to_recipient_id, m.view_once, m.deleted_by,\n  (SELECT count(*) FROM attachment a WHERE a.message_id = m._id) AS n_attachments,\n  CASE WHEN length(m.body) > 0 THEN 1 ELSE 0 END AS has_body\nFROM message m\nLEFT JOIN thread t ON t._id = m.thread_id\nWHERE m.date_sent BETWEEN {{unixMsStart}} AND {{unixMsEnd}}\n   OR m.date_received BETWEEN {{unixMsStart}} AND {{unixMsEnd}}\nORDER BY m.date_received;"
+          "sql": "SELECT\n  m._id, m.date_sent, m.date_received, m.date_server, m.type, m.thread_id, t.recipient_id AS thread_recipient,\n  m.from_recipient_id, m.to_recipient_id, m.view_once, m.deleted_by,\n  (SELECT count(*) FROM attachment a WHERE a.message_id = m._id) AS n_attachments,\n  CASE WHEN length(m.body) > 0 THEN 1 ELSE 0 END AS has_body\nFROM message m\nLEFT JOIN thread t ON t._id = m.thread_id\nWHERE m.date_sent BETWEEN {{unixMsStart}} AND {{unixMsEnd}}\n   OR m.date_received BETWEEN {{unixMsStart}} AND {{unixMsEnd}}\nORDER BY m.date_received, m._id;"
         },
         {
           "id": "role-recipients",
@@ -364,6 +368,7 @@ window.SIGNAL_ANDROID_CATALOG = {
             "timeEnd"
           ],
           "epoch": "unixMs",
+          "splitByTime": true,
           "fields": {
             "time": "created_at",
             "body": "body"

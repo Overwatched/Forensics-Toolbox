@@ -1,5 +1,24 @@
 Automatiskt byggd från commit `{{SHA}}`.
 
+## Nytt i 1.66
+
+**Härkomst visar förloppet medan stora Signal-databaser läses, gör inte om det som redan är gjort och lämnar hela listan till EXIF & karta.**
+
+- **Förloppet syns:** det som görs en gång för hela listan (läsa databaserna, räkna SHA-256, dekryptera och söka i Signals logg) har en egen stapel med procent och förfluten tid. Förut stod bara databasens namn, och med en logg på 4,2 GB rörde sig ingenting på flera minuter.
+- **Fönstret svarar under loggsökningen:** sökningen i Signals logg görs i små delar. Uppmätt väntade en tangenttryckning som längst 50 ms. Förut stod fönstret still under hela sökningen, omkring 90 sekunder. Svaret är rad för rad detsamma som förut.
+- **Signals logg tolkas en gång:** förut tolkades loggens träffar om för varje fil i listan, 3,9 sekunder per fil. Nu görs det en gång per inlästa databaser.
+- **Meddelandena hämtas en gång (Signal på Android):** meddelandena läggs i en tabell i minnet, och varje fils tidsfönster slås upp där. Uppslaget jämförs med databasen, och protokollet visar frågan mot databasen som förut. Inget skrivs till extraktionen eller till disken.
+- **Samma nyckel läser inte om databaserna:** att klistra in samma nyckel igen, eller ta bort den och sätta tillbaka den, tog förut 144 sekunder med de stora databaserna och tar nu 0,6. En annan nyckel läser in dem på nytt.
+- **Listan minns sina rader:** samma lista en gång till visas direkt (300 filer: 0,3 sekunder mot 5,0 första gången), och läggs namn till bedöms bara de nya. Det står under listan när rader visas utan att läsas igen, och knappen "Bedöm listan på nytt" läser allt igen. Ett klick på en rad bedömer filen i sin helhet som förut.
+- **Mycket långa listor går att avbryta:** en lista med 20 000 namn frös förut fönstret i 8–9 sekunder i ett stycke. Nu tar den omkring 6 sekunder i stycken på upp till en sekund, och Avbryt listan fungerar under tiden.
+- **Hela listan till EXIF & karta:** knappen lämnar över alla filer i listan. Förut kom bara så många med som rymdes i 1 GB, och filerna lästes en gång till först. Nu hämtar EXIF & karta en fil i taget.
+- **Signals bilagor går att läsa:** bilagor som Signal på Android har krypterat (`.mms`) dekrypteras med nyckeln och jämförs med kontrollsumman i Signals databas innan EXIF läses. Utan nyckel står raden som Krypterad med skälet. Filens egna summor gäller filen som den ligger i extraktionen.
+- **Sex ExifTool på en gång** på datorer med tolv kärnor eller fler, annars fyra som förut. Tre andra väntetider per fil är borta, så att de extra faktiskt används.
+- **Uppmätt:** på en påhittad extraktion med en Signal-logg på 4,2 GB, en Signal-databas på 1,4 GB och 3 000 krypterade bilagor tar det som görs en gång omkring 145 sekunder, och därefter tog 300 filer 5 sekunder och 2 600 filer 56 sekunder.
+- **Provat:** enhetstesterna, röktestet i appen och html-versionen i Chrome på macOS. Listan med 20 000 namn är mätt på en Samsung ur en egen laboration.
+- **Inte provat:** riktiga Signal-data från en Android-telefon (de påhittade är krypterade efter Signals beskrivna metod), och hur mycket minne de sparade raderna tar. Windows och Linux provas först i bygget.
+- **Kvar:** medan tabellen med meddelanden byggs står fönstret still i omkring 3,6 sekunder, och på två andra ställen omkring en sekund. Det som görs en gång tar lika lång tid som förut.
+
 ## Nytt i 1.65
 
 **Härkomst går mycket fortare med långa listor, och Laboration har en ruta att fotografera, större steg och en knapp för att avbryta.**

@@ -171,6 +171,132 @@
         return out;
     }
 
+    // En fråga som katalogen märkt med splitByTime väljer raderna vars tid (fältet time, i millisekunder) ligger i
+    // fönstret, gränserna medräknade, och ordnar dem efter tiden först och sedan entydigt. Svaret för ett fönster är
+    // då svaren för fönstrets delar i följd, och en fråga över en stor logg kan köras i delar med paus emellan.
+    function canSplit(query) {
+        var t = query && query.splitByTime && query.epoch === 'unixMs' ? fieldSpec(query, 'time') : null;
+        return !!t && t.epoch === 'unixMs';
+    }
+
+    // Säger frågeplanen (raderna ur EXPLAIN QUERY PLAN, texten sist i varje rad) att tiden slås upp i ett index,
+    // utan att någon tabell läses rakt igenom? Annars skulle varje del läsa hela tabellen.
+    function searchesByTime(query, planRows) {
+        var col = fieldSpec(query, 'time').col;
+        var texts = (planRows || []).map(function (r) { return String(r[r.length - 1]); });
+        return texts.some(function (t) { return /^SEARCH /.test(t) && t.indexOf('(' + col + '>? AND ' + col + '<?)') >= 0; }) &&
+            !texts.some(function (t) { return /^SCAN /.test(t); });
+    }
+
+    // Frågan som ger tiden hos den n:te raden efter en tid, i tidsordning, ur tabellen som frågeplanen säger att
+    // tiden slås upp i (inParts, opts.edge). null när planen inte säger vilken tabell det är. plan(sql) säger om
+    // en plan för den frågan går i indexet utan att sortera: annars läste varje gräns hela tabellen.
+    function edgeQuery(query, planRows) {
+        var col = fieldSpec(query, 'time').col;
+        var table = null;
+        (planRows || []).forEach(function (r) {
+            var m = /^SEARCH (?:TABLE )?(\w+) USING (?:COVERING )?INDEX /.exec(String(r[r.length - 1]));
+            if (m && String(r[r.length - 1]).indexOf('(' + col + '>? AND ' + col + '<?)') >= 0) table = m[1];
+        });
+        if (!table) return null;
+        var sql = function (afterMs, n) {
+            return 'SELECT "' + col + '" FROM "' + table + '" WHERE "' + col + '" > ' + Number(afterMs) + ' ORDER BY "' + col + '" LIMIT 1 OFFSET ' + Math.max(0, Math.floor(n) - 1);
+        };
+        return { table: table, sql: sql, inIndex: function (rows) {
+            var texts = (rows || []).map(function (r) { return String(r[r.length - 1]); });
+            return texts.length > 0 && texts.every(function (t) { return /^SEARCH /.test(t) && / INDEX /.test(t); });
+        } };
+    }
+
+    // Kör en fråga som går att dela efter tid (canSplit) i delar och ger samma { columns, values } som hela frågan.
+    // opts.exec(sql) kör en del och ger { columns, values } eller null när delen saknar rader. opts.span säger var
+    // raderna ligger ({ firstMs, lastMs }): det styr bara delarnas bredd. Den första delen börjar där fönstret
+    // börjar och den sista slutar där det slutar, så rader utanför span kommer också med. Delarna möts i en
+    // gemensam gräns, och raderna i gränsen, som då kommer två gånger, tas bara med första gången. Bredden följer
+    // hur lång tid en del tog (opts.aimMs per del): den växer försiktigt, eftersom raderna kan ligga tätt efter en
+    // gles sträcka, och blir aldrig så smal att delarna blir fler än PARTS_MAX.
+    // opts.between(andel) anropas mellan delarna och väntas in.
+    // Raderna i en logg ligger tätt en stund och glest en annan, och en del som är lagom bred i en gles sträcka kan
+    // ta många sekunder i en tät. Med opts.edge(efterMs, n), som ger tiden hos den n:te raden efter efterMs i
+    // tidsordning (null när färre återstår), och antalet rader i opts.span.rows delas frågan därför efter antal rader
+    // i stället: varje del är n rader lång, och n följer hur lång tid delen före tog. Var gränserna hamnar ändrar
+    // inte svaret, bara hur länge en del tar. Ger edge inget som går att använda tas resten i en enda del.
+    var PARTS_MAX = 20000;
+    async function inParts(query, win, opts) {
+        var col = fieldSpec(query, 'time').col;
+        var start = Math.floor(win.startMs), end = Math.ceil(win.endMs);
+        var lo = Math.max(start, Math.floor(opts.span.firstMs)), hi = Math.min(end, Math.ceil(opts.span.lastMs));
+        var now = opts.now || Date.now;
+        var aim = opts.aimMs || 100;
+        var narrowest = Math.max(1, Math.ceil((hi - lo) / PARTS_MAX));
+        var width = Math.max(narrowest, Math.round((hi - lo) / 200));
+        var total = typeof opts.edge === 'function' && opts.span.rows > 0 ? Number(opts.span.rows) : 0;
+        var fewest = Math.max(1, Math.ceil(total / PARTS_MAX));
+        var count = Math.max(fewest, 500), asked = 0, after = start - 1;
+        var out = { columns: [], values: [], parts: 0 };
+        var from = start, next = lo, edge = null, at = -1;
+        for (;;) {
+            var last, to;
+            if (total) {
+                var nth = opts.edge(after, count);
+                last = !(typeof nth === 'number' && nth > after && Math.ceil(nth) < end);
+                to = last ? end : Math.ceil(nth);
+                asked += count;
+            } else {
+                next += width;
+                last = !(next < hi);
+                to = last ? end : next;
+            }
+            var started = now();
+            var res = opts.exec(fill(query.sql, { window: { startMs: from, endMs: to } }));
+            var took = now() - started;
+            out.parts++;
+            if (res && res.values.length) {
+                if (at < 0) {
+                    out.columns = res.columns;
+                    at = res.columns.indexOf(col);
+                    if (at < 0) throw new Error('Frågan ' + query.id + ' ger inte kolumnen ' + col + ' och kan inte köras i delar');
+                }
+                var skip = 0;
+                if (edge !== null) while (skip < res.values.length && res.values[skip][at] === edge) skip++;
+                for (var i = skip; i < res.values.length; i++) out.values.push(res.values[i]);
+            }
+            if (last) return out;
+            edge = from = after = to;
+            var pace = Math.min(2, Math.max(0.125, aim / Math.max(took, 1)));
+            width = Math.max(narrowest, Math.round(width * pace));
+            count = Math.max(fewest, Math.round(count * pace));
+            if (opts.between) await opts.between(total ? Math.min(asked / total, 1 - 1e-9) : (to - lo) / (hi - lo));
+        }
+    }
+
+    // En fråga som katalogen märkt med indexByTime (svarets tidskolumner) väljer raderna där någon av de kolumnerna
+    // ligger i fönstret, gränserna medräknade, och ordnar dem entydigt. Svaret över hela tiden kan då läggas en gång i
+    // en egen tabell med index på tiderna, i en minnesdatabas bifogad under namnet INDEX_SCHEMA, och ett fönster slås
+    // sedan upp där i stället för att källans tabell läses igenom för varje fil. Raderna ligger i tabellen i frågans
+    // ordning, så uppslaget ordnar efter rowid och ger samma rader i samma ordning som frågan.
+    // Ger { schema, table, build(fönster) -> satser, lookup(fönster) -> sats, drop }, eller null för en annan fråga.
+    var INDEX_SCHEMA = 'ft_index';
+    function timeIndex(query) {
+        var cols = query && query.indexByTime;
+        if (!Array.isArray(cols) || !cols.length || !cols.every(function (c) { return /^[A-Za-z_][A-Za-z0-9_]*$/.test(c); })) return null;
+        // Fönstret är frågans enda platshållare, i en enda epok: samma platshållare fylls i uppslaget.
+        var tokens = (String(query.sql).match(/\{\{\w+\}\}/g) || []).filter(function (t, i, a) { return a.indexOf(t) === i; }).sort().join();
+        var unit = ['unixMs', 'unix', 'cocoa'].filter(function (u) { return tokens === '{{' + u + 'End}},{{' + u + 'Start}}'; })[0];
+        if (!unit) return null;
+        var table = 'q_' + String(query.id).replace(/\W/g, '_');
+        var name = INDEX_SCHEMA + '."' + table + '"';
+        var where = cols.map(function (c) { return '"' + c + '" BETWEEN {{' + unit + 'Start}} AND {{' + unit + 'End}}'; }).join(' OR ');
+        return {
+            schema: INDEX_SCHEMA, table: table, drop: 'DROP TABLE IF EXISTS ' + name,
+            build: function (win) {
+                return ['CREATE TABLE ' + name + ' AS ' + fill(query.sql, { window: win }).replace(/;\s*$/, '')]
+                    .concat(cols.map(function (c, i) { return 'CREATE INDEX ' + INDEX_SCHEMA + '."' + table + '_' + (i + 1) + '" ON "' + table + '" ("' + c + '")'; }));
+            },
+            lookup: function (win) { return fill('SELECT * FROM ' + name + ' WHERE ' + where + ' ORDER BY rowid', { window: win }); },
+        };
+    }
+
     // Kolumn och epok för ett fält i fältkartan.
     function fieldSpec(query, key) {
         var spec = query.fields && query.fields[key];
@@ -219,7 +345,7 @@
         return Math.round(n * 1000);
     }
 
-    var api = { collect: collect, databases: databases, rolesFor: rolesFor, photosBandFromSchema: photosBandFromSchema, fill: fill, fieldSpec: fieldSpec, mapRows: mapRows, toMs: toMs, COCOA_EPOCH: COCOA_EPOCH };
+    var api = { collect: collect, databases: databases, rolesFor: rolesFor, photosBandFromSchema: photosBandFromSchema, fill: fill, canSplit: canSplit, edgeQuery: edgeQuery, searchesByTime: searchesByTime, inParts: inParts, timeIndex: timeIndex, fieldSpec: fieldSpec, mapRows: mapRows, toMs: toMs, COCOA_EPOCH: COCOA_EPOCH };
     if (typeof module !== 'undefined' && module.exports) module.exports = api;
     else root.ProvenanceRoles = api;
 })(typeof window !== 'undefined' ? window : this);

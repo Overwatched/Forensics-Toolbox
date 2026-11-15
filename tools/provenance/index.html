@@ -103,6 +103,7 @@
             </div>
             <div id="run-status" class="status"></div>
             <div id="run-progress" class="progress idle"><div class="progress-track" role="progressbar" aria-label="Förlopp" aria-valuemin="0" aria-valuemax="100"><div class="progress-fill"></div></div><span class="progress-text"></span></div>
+            <div id="run-step" class="progress idle"><div class="progress-track" role="progressbar" aria-label="Förlopp i steget som pågår" aria-valuemin="0" aria-valuemax="100"><div class="progress-fill"></div></div><span class="progress-text"></span></div>
             <button type="button" class="secondary display-none" id="batch-stop" title="Filen som bedöms nu blir klar, sedan stannar listan">Avbryt listan</button>
             <div class="batch-nav display-none" id="batch-nav">
                 <button type="button" class="secondary" id="batch-back">← Tillbaka till listan</button>
@@ -126,6 +127,10 @@
                 </div>
             </div>
             <p class="muted" id="batch-note"></p>
+            <div class="batch-kept display-none" id="batch-kept">
+                <span id="batch-kept-text"></span>
+                <button type="button" class="secondary" id="batch-fresh" title="Varje fil i listan läses och bedöms igen">Bedöm listan på nytt</button>
+            </div>
             <div class="batch-hits display-none" id="batch-hits">
                 <span id="batch-hits-text"></span>
                 <button type="button" class="secondary" id="batch-expand" title="Varje träff bedöms som en egen fil och får en egen rad i listan"></button>

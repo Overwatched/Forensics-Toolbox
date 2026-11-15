@@ -22,7 +22,7 @@ test('AES-256: FIPS-197 C.3 åt båda hållen', () => {
     assert.strictEqual(sc.bytesToHex(back), '00112233445566778899aabbccddeeff');
 });
 
-test('CBC och CTR som Nodes crypto, HMAC och PBKDF2 likaså', () => {
+test('CBC och CTR som Nodes crypto, HMAC och PBKDF2 likaså', async () => {
     const key = crypto.randomBytes(32);
     const iv = crypto.randomBytes(16);
     const plain = crypto.randomBytes(4048);
@@ -38,6 +38,15 @@ test('CBC och CTR som Nodes crypto, HMAC och PBKDF2 likaså', () => {
     const nearWrap = Buffer.from('000000000000000000000000000000ff', 'hex');
     const ctr2 = crypto.createCipheriv('aes-256-ctr', key, nearWrap);
     assert.deepStrictEqual(Buffer.from(sc.ctr(sc.expandKey(key), nearWrap, odd)), Buffer.concat([ctr2.update(odd), ctr2.final()]));
+    // Samma svar med webbläsarens AES och utan den, också när räknaren går över en bytegräns och hela vägen runt.
+    const wraps = Buffer.from('ffffffffffffffffffffffffffffffff', 'hex');
+    for (const start of [zero, nearWrap, wraps]) {
+        const want = crypto.createCipheriv('aes-256-ctr', key, start);
+        const expected = Buffer.concat([want.update(odd), want.final()]);
+        assert.deepStrictEqual(Buffer.from(await sc.ctrAsync(key, start, odd)), expected, 'med WebCrypto');
+        assert.deepStrictEqual(Buffer.from(await sc.ctrAsync(key, start, odd, { subtle: null })), expected, 'utan WebCrypto');
+        assert.deepStrictEqual(Buffer.from(await sc.ctrAsync(key, start, odd, { subtle: { importKey: () => Promise.reject(new Error('nekas')) } })), expected, 'när anropet nekas');
+    }
 
     for (const id of ['sha1', 'sha256']) {
         const k = crypto.randomBytes(id === 'sha1' ? 100 : 32);

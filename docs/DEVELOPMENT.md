@@ -162,9 +162,13 @@ npm test
 - Mellan verktygen: raden ber verktyget som har filen om den (`{ type: 'deliver-file', to }`), verktyget
   svarar `{ type: 'file-for', to, files: [{ file, path }] }`, och huvudfönstret öppnar målet och skickar
   `exif-files` (EXIF & karta läser filerna som från disk och öppnar en ensam fil) eller `provenance-files`
-  (Härkomst letar upp samma innehåll i extraktionen). Härkomst läser filen ur zippen först när den behövs
-  (`entriesAsFiles()`, högst 1 GB åt gången). Queries skickar filnamnen i ett resultat med `ZFILENAME`,
+  (Härkomst letar upp samma innehåll i extraktionen). Queries skickar filnamnen i ett resultat med `ZFILENAME`,
   `_display_name` eller `filename` som `{ type: 'names-for', to: 'provenance', names, zipName }`.
+- Från Härkomst går inget innehåll med i `file-for`, bara hänvisningar (`entriesAsRefs()`): zippens namn, storlek
+  och ändringstid, postens nyckel och namn, och filens namn, storlek och tider. EXIF & karta ber om en fil i taget
+  med `{ type: 'file-need', token, ref }`, huvudfönstret lämnar frågan till Härkomsts ram utan att byta verktyg, och
+  Härkomst svarar `{ type: 'file-content', token, file, times, note, state }` eller `{ …, error }`. Se "Listan till
+  EXIF & karta" under Härkomst.
 
 #### Databaserna läses en gång (`tools/_shared/db-share.js`)
 
@@ -188,14 +192,17 @@ Härkomst och Queries samma databas var för sig. Sedan 1.57 (2026-11-10) delar 
   uppgifterna om läsningen (`usable`). Annars läser verktyget själv.
 - Protokollet och spårbarheten säger att läsningen är delad (`sharedLine`): "Läst ur zippen av Chattar 2026-11-10
   12:00:00 UTC. Verktygen delar på läsningen: …". Härkomst visar raden också under Källor, som Läsning.
-- Lägesraden kommer ur `ExtractionCore.stageText`: läser, räknar SHA-256, dekrypterar med procent, lägger på `-wal`,
-  väntar på ett annat verktyg (med dess skede) eller hämtar en kopia.
+- Lägesraden kommer ur `ExtractionCore.stageText`: läser, räknar SHA-256 och dekrypterar, alla tre med procent
+  (sedan 1.66; `ZipRead.extract` ger `onProgress` för poster som läses i bitar, och `sha256` räknar i bitar om
+  `HASH_PIECE` över 2 GB), lägger på `-wal`, väntar på ett annat verktyg (med dess skede) eller hämtar en kopia.
 - Härkomsts lägesrad ritas före det som går utan paus i en databas från 8 MB (`PAINT_BYTES`): Telegrams avkodning
   ("Avkodar Telegrams meddelanden i …") och frågorna efter läsningen ("Söker i …"). Förut stod raden kvar på
   "Dekrypterar signal.sqlite (Signal)… 99 %" medan frågorna gick och sidan stod still. En databas där en fråga tar över
-  50 ms (`SLOW_QUERY_MS`) får raden ritad först också nästa gång, då med texten som källan har satt ("Läser Signals
-  databas (beta)…"). `ZipRead.painted()` väntar på en riktig ritning (en bildruta och en paus, i ett dolt fönster bara
-  pausen). Queries skriver "Kör queryn…" på samma sätt.
+  50 ms (`SLOW_QUERY_MS`) får raden ritad först också nästa gång, då med texten som källan har satt. Den texten är
+  "Läser Signals databas (beta)…" för filen som läser in databasen och "Slår upp filen i Signal (beta)…" för filerna
+  efter den (`appProgress`, sedan 1.66): i en lista såg det annars ut som om databaserna lästes om för varje fil.
+  `ZipRead.painted()` väntar på en riktig ritning (en bildruta och en paus, i ett dolt fönster bara pausen). Queries
+  skriver "Kör queryn…" på samma sätt.
 - Kommer inget svar inom 10 s (`ACK_MS`), eller ingen kopia inom 30 s (`GIVE_MS`), läser verktyget själv. Väntan på ett
   verktyg som läser in har ingen gräns. Därför säger det som läser alltid till (`sharedCore`): när det är klart, när
   läsningen går fel och när avbilden inte går att dela. En fil under 100 byte, som en tom databas, delas inte: varje
@@ -750,7 +757,7 @@ efter för 104 filer på båda telefonerna.
 - **`ProvenanceApp.work()`** räknar körda och återanvända frågor och ExifTool-anrop. Röktestet läser det: samma fil
   en gång till, och ett klick i listan, läser inte ExifTool igen, och underlaget och protokollets frågor är desamma.
 - **Kvar:** hela bedömningen per rad sparas inte (omkring 0,45 MB per fil), så ett klick räknar om filen ur det
-  som redan är läst.
+  som redan är läst. Sedan 1.66 sparas det listan visar om raden, se "Det som redan är gjort görs inte om".
 
 #### Långa listor i Härkomst (1.65)
 
@@ -766,7 +773,8 @@ minuter. Två saker tog tiden, och ingen av dem syntes i mätningen för 1.62, s
 
 Det som byggdes ovanpå det:
 
-- **Flera ExifTool (`exifPool`).** Upp till `EXIF_WORKERS` workrar (kärnorna minus en, högst fyra) med en kö
+- **Flera ExifTool (`exifPool`).** Upp till `EXIF_WORKERS` workrar (kärnorna minus en, högst fyra; sex från tolv kärnor sedan 1.66, se "Fler
+  workrar" nedan) med en kö
   (`askExifTool`, `exifPump`). En worker startas först när en fil väntar och ingen är ledig. Efter `EXIF_RENEW`
   (100) filer avslutas workern och en ny tar över, så att minnet efter de gamla Perl-instanserna lämnas tillbaka på
   en gång (uppmätt: sidans minne nådde 4,2 GB på 1 127 filer utan bytet och 2,8 GB med). När listan är klar
@@ -801,6 +809,267 @@ ungefär 17 räknande i fönstrets egen tråd, och det är golvet nu.
   avbruten lista.
 - **Inte uppmätt:** 3 000 filer (labbet har 1 127 namn; minnet i fönstret växte med omkring 0,6 MB per fil), en
   Windows-dator, och användarens egen extraktion.
+
+#### Stora Signal-databaser i Härkomst: förloppet och loggen (1.66)
+
+En användare körde en lista i 1.65 mot en Android-extraktion med en `signal-logs.db` på 4,2 GB. Programmet stod i
+omkring fem minuter med "signal-logs.db" på lägesraden utan att något rörde sig. Samsungen i tvåtelefonslabbet har
+ingen läsbar Signal, så mätningarna för 1.62 och 1.65 hade ingen sådan kostnad alls. Det här är uppmätt på en
+påhittad extraktion på utvecklarens Mac (`signal-logs.db` 4,2 GB med 14,9 miljoner rader, `signal.db` 1,4 GB):
+
+| Skede för `signal-logs.db` | 1.65 | 1.66 |
+| --- | --- | --- |
+| Läser ur zippen | 10 s, ingen procent | 10 s, procent |
+| Räknar SHA-256 | 24 s, ingen procent | 24 s, procent |
+| Dekrypterar | 12 s, procent | 13 s, procent |
+| Söker (frågan över hela loggen) | 90 s, sidan står still | 83 s, procent, sidan står still högst 0,6 s åt gången |
+| Varje fil därefter | 3,9 s, sidan står still | omkring 0,15 s |
+
+Sex namn tog 164 s kallt och 23,5 s varmt i 1.65, och 142 s och 0,9 s i 1.66. `ProvenanceApp.list()` är lika tecken
+för tecken i de fyra körningarna.
+
+- **Stegets stapel (`step(part)` i `script.js`, `#run-step`).** Ett långt steg inom en bedömning har en egen stapel
+  med andelen och tiden steget har tagit. I en lista står den under listans stapel, som räknar filer och därför
+  står på "0 av N klara" medan databaserna läses in, med texten "Görs en gång för hela listan". För en enda fil
+  är det stapeln under lägesraden. `loadDb` och `runRoleInParts` sätter den, och tar bort den i sin `finally`.
+- **Den rörliga markören** (ett steg utan känd andel) flyttas med `transform` i stället för `left`, så att den kan
+  fortsätta röra sig medan fönstrets tråd är upptagen. Det är inte kontrollerat med ögat under en fråga som
+  blockerar.
+- **Frågan över hela loggen i tidsdelar (`splitByTime`).** En fråga i sql.js går varken att följa eller att avbryta,
+  och frågan över Signals logg tog en och en halv minut. En rollquery kan därför ha `"splitByTime": true` i
+  katalogen. Det är ett löfte om frågans form: den väljer rader vars tid (`fields.time`, `unixMs`) ligger i fönstret
+  med gränserna inräknade, sorterar på tiden först och sedan entydigt, och har ingen `LIMIT`.
+  `ProvenanceRoles.inParts` kör den då för tidsdelar i följd som delar gräns: del k är [a, b] och del k+1 är
+  [b, c], och raderna i nästa del med tiden lika med gränsen hoppas över, så att ingen rad tappas eller dubbleras
+  också när tiden inte är ett heltal. Delarnas bredd följer tiden de tar (mål 100 ms, högst en fördubbling per del,
+  aldrig smalare än en `PARTS_MAX`-del av loggens tid). Mellan delarna ritas lägesraden och stapeln, högst var
+  200:e ms. Svaret är rad för rad det hela frågan ger, sparas under samma nyckel som den (`loaded.answers`), och
+  protokollet får den hela frågan, så att den går att köra i Queries som förut.
+- **När den inte delas:** loggens första och sista tid kommer ur rollen `coverage`. Saknas de, eller slår databasen
+  inte upp tiden i ett index (`EXPLAIN QUERY PLAN` ska ha en rad `SEARCH … (tid>? AND tid<?)` och ingen `SCAN`,
+  `ProvenanceRoles.searchesByTime`), körs hela frågan på en gång som förut. Utan index skulle varje del läsa hela
+  tabellen.
+- **Tolkningen en gång per extraktion (`ProvenanceSignal.prepare`).** Varje fil tolkade om hela den matchade loggen
+  och slog upp bilagorna på nytt: 3,9 s per fil med 75 000 loggrader. Nu görs det en gång per inlästa databaser
+  (`prepared` på det som `addSignal` sparar), och bedömningen av en fil tar bara händelserna i sitt fönster
+  (`ctx.keep`). Appversionerna ur loggen (`AppVersions.signalLogVersions`) likaså. `signal.test.js` jämför svaret
+  med och utan det förberedda.
+- **Tester:** `roles.test.js` kör katalogens fråga mot en riktig sql.js-databas hel och i delar, med fyra olika
+  klockor och spann och rader precis på gränserna, och jämför rad för rad. `catalogs.test.js` håller fast formen
+  på den märkta frågan. Röktestet 'Samsung med Signal: …' har Signals två databaser krypterade som på Android
+  (`signalAndroidEntries` i `tests/app/fixtures.js`, tabellerna påhittade efter frågornas kolumner) och ser stegets
+  stapel, att loggen söktes i flera delar (`work.parts`), och att filen kopplas till valet i galleriet och meddelandet.
+- **Inte gjort:** sökningen i loggen tar lika lång tid som förut. Den läser varje rads text mot sexton mönster, och
+  ingen snabbare fråga med samma svar är funnen. Två enkla byten gav samma rader men ingen vinst över en tiondel av
+  den påhittade loggen: `LIKE` 8,4 s, `GLOB` 10,9 s (och skiljer på stora och små bokstäver), ett JavaScript-mönster
+  per rad genom `create_function` 7,6 s; att bara läsa raderna tog 0,6 s. Att spara svaret på disk mellan körningarna skulle lägga uppgifter
+  ur ärendet utanför extraktionen, och är inte gjort (underhållaren ville inte ha det, 2026-11-13).
+- **Inte uppmätt:** användarens egen extraktion och en Windows-dator.
+
+#### Meddelandena i en tabell i minnet (`indexByTime`, 1.66)
+
+Signals `message` på Android har inget index på tiderna frågan väljer på, så frågan efter meddelandena i en fils
+fönster (`role-messages`) läste igenom hela tabellen för varje fil: 0,17–0,23 s per fil mot en påhittad `signal.db`
+på 1,4 GB med en miljon meddelanden. Underhållaren ville inte ha dolda gränser eller något sparat på disk, utan att
+uppgifterna görs sökbara i minnet.
+
+- **Katalogen:** `"indexByTime": ["date_sent", "date_received", …]` på en rollquery är ett löfte om frågans form:
+  den väljer raderna där någon av de kolumnerna i svaret ligger i fönstret, gränserna medräknade, har fönstret som
+  enda platshållare och ordnar raderna entydigt. Bara Signal på Android är märkt. `catalogs.test.js` håller fast
+  formen.
+- **Bygget (`ProvenanceRoles.timeIndex`, `buildTimeIndex` i `script.js`):** frågan körs en gång över hela tiden,
+  och svaret läggs med `CREATE TABLE … AS` i en minnesdatabas som bifogas anslutningen (`ATTACH ':memory:' AS
+  ft_index`), med ett index per tidskolumn. Avbilden av databasen rörs inte: `PRAGMA query_only` är av bara medan
+  tabellen byggs. Lägesraden säger "Ordnar meddelandena i signal.db (Signal) efter tid…".
+- **Uppslaget (`runRoleByTime`):** en fils fönster slås upp i tabellen, ordnat efter `rowid`, vilket är frågans
+  ordning. Svaret jämförs med frågan mot databasen för varje fönster tills ett fönster med rader har gett samma
+  svar tecken för tecken. Skiljer de sig, eller går tabellen inte att bygga, tas den bort, källan får en varning,
+  och varje fil frågas direkt som förut. Inga trösklar: tabellen byggs alltid när frågan är märkt.
+- **Protokollet** har frågan mot databasen, som går att köra om i Queries, och källan har raden "Uppslag" som
+  säger att svaret lades i en tabell i minnet, hur många rader, och att uppslaget prövades mot frågan.
+- **Uppmätt** på den påhittade extraktionen (utvecklarens Mac): bygget 3 s en gång och omkring 70 MB per miljon
+  meddelanden i sql.js minne. Sex namn: 142 s kallt som förut, 0,5 s varmt (0,9 s utan tabellen). 600 av Signals
+  bilagor i en lista: 196 s med tabellen och 271 s utan, alltså 0,09 s per fil mot 0,22 s efter att databaserna
+  lästs in (omkring 145 s, en gång). Listorna är lika med och utan.
+- **Tester:** `roles.test.js` bygger tabellen i en riktig sql.js-databas och jämför uppslaget med frågan för många
+  fönster, också med rader precis på gränserna. Röktestet 'Samsung med Signal: …' ser att tabellen byggdes en gång
+  (`work.indexBuilt`), att uppslagen gick dit (`work.indexed`) och att ett prövades mot databasen
+  (`work.indexChecked`).
+
+#### Listan till EXIF & karta: hänvisningar, och Signals bilagor dekrypterade (1.66)
+
+En användare hade 3000 filer i Härkomsts lista och tryckte på knappen till EXIF & karta. Härkomst läste då in
+filerna i minnet tills en gräns på 1 GB var nådd (104 filer), lämnade över dem, och EXIF & karta kunde inte visa
+något: filerna var Signals bilagor (`app_parts/part….mms`), som ligger krypterade i extraktionen.
+
+- **Hänvisningar i stället för innehåll (`entriesAsRefs` i Härkomst).** Varje fil lämnas över som zippens namn,
+  storlek och ändringstid, postens nyckel och namn, och filens namn, storlek och tider. Ingen gräns för antal eller
+  storlek, och inget läses i Härkomst vid knapptrycket. Härkomsts lägesrad säger hur många som skickades, och
+  hur många som inte längre finns i zippen, med de fem första vid namn.
+- **EXIF & karta ber om en fil i taget** (`content(row)`): `{ type: 'file-need', token, ref }` till huvudfönstret,
+  som lämnar frågan till Härkomsts ram utan att öppna eller byta verktyg. Härkomst (`fileNeeded`, `answerNeed`)
+  svarar i tur och ordning med `{ type: 'file-content', token, file, times, note, state }` eller `{ …, error }`.
+  Innehållet hålls bara medan ExifTool läser det (`row.held`). En liten bild (240 punkter, `keepThumb`) sparas till
+  listan när bilder visas, och detaljvyn hämtar innehållet på nytt när raden öppnas. Video får ingen bild i listan.
+- **När det inte går** står skälet på raden (flaggan "Fel" och raden "Läsningen" i detaljvyn med "Försök igen"):
+  en annan extraktion är öppen i Härkomst, Härkomst är inte öppet, filen finns inte i zippen, eller läsningen gick
+  fel. Skickas listan igen läses sådana rader om, liksom rader som låg krypterade utan nyckel.
+- **Signals bilagor (`signalContent`).** En fil under `org.thoughtcrime.securesms/app_parts/` slås upp på namnet i
+  `attachment.data_file`. Nyckeln är HMAC-SHA256(bilagenyckeln `modernKey`, `data_random`), innehållet AES-256-CTR
+  med noll-IV, kapat vid `data_size`. Innehållets SHA-256 jämförs med `data_hash_end` i samma rad, och raden
+  "Innehållet" på filkortet och i protokollet säger om summan är densamma, inte stämmer eller saknas. Filens egna
+  CRC32, MD5 och SHA-256 är fortfarande de för filen som den ligger i zippen. EXIF och bilden läses ur det
+  dekrypterade innehållet, och protokollets tabell heter då "EXIF-tagg i det dekrypterade innehållet". I EXIF &
+  karta får raden flaggan "Dekrypterat innehåll", och flaggan "Fel filändelse" tas bort (`.mms` är Signals namn på
+  filen, inte en ändelse för innehållet).
+- **Utan nyckel eller rad** sägs skälet i klartext ("Bilagenyckeln (modernKey) saknas…", "Ingen rad i signal.db
+  pekar ut filen…"), ExifTool frågas inte, och raden i EXIF & karta får flaggan "Krypterad".
+- **T ändras inte.** En bilaga utan rad i galleriet har zippens ändringstid som T, som förut; tiden i det
+  dekrypterade innehållet står bland filens tider men flyttar inte T. Förut frågades ExifTool om den krypterade
+  filen två gånger per bilaga utan att kunna få svar (när T bestämdes och i förväg); nu frågas det en gång, om
+  innehållet, och läsningen i förväg dekrypterar när `signal.db` redan är inläst (`r.inner`).
+- **Uppmätt** på en påhittad extraktion (utvecklarens Mac: `signal-logs.db` 4,2 GB, `signal.db` 1,4 GB, 3000
+  bilagor på 150 kB–50 MB, 1,8 GB sammanlagt): Härkomsts lista med alla 3000 tog 767 s med två ExifTool-anrop per
+  bilaga och 474 s med ett (omkring 145 s inläsning en gång, sedan 0,11 s per fil; fönstret stod still sammanlagt
+  80 s, mest under sökningen i loggen, längst 3,7 s). Raderna stod i EXIF & karta efter 2 s, alla 3000 var lästa och
+  dekrypterade efter 451 s (0,15 s per fil), detaljvyn visade en bilaga på 50 MB efter 0,8 s. Av tiden stod
+  fönstret still omkring 90 s i stycken på högst 1,2 s: EXIF & karta ritar om hela tabellen var 1,5:e sekund medan
+  filer läses, och det tar längre ju fler rader som finns. Det gäller också filer från disk och är inte ändrat.
+- **Tester:** röktestet 'Härkomst → EXIF & karta: …' (också i HTML-utgåvan) har en bilaga krypterad med Nodes
+  `crypto`, inte med programmets egen kod (`signalAndroidPart` i `tests/app/fixtures.js`), och går igenom: utan
+  bilagenyckel, listan som hänvisningar, med bilagenyckel, listan en gång till, detaljvyn, knapparna i raden högst
+  upp åt båda håll, och extraktionen stängd. `FT_ONLY=<text>` kör bara delarna med den texten i namnet.
+- **Inte gjort:** Signals bilagor på iOS, bilder i listan för video, och gränsen på 200 MB för Härkomsts egen
+  EXIF-läsning (som säger till när den slår till). **Inte uppmätt:** användarens egen extraktion och Windows.
+
+#### Fler workrar gav inget förrän tre andra saker var ändrade (1.66)
+
+Frågan var om fyra ExifTool-workrar kunde bli åtta eller tolv. Uppmätt på samma påhittade extraktion som ovan
+(utvecklarens Mac, tolv kärnor, 600 av bilagorna, tiden per fil efter inläsningen):
+
+| | 1 worker | 4 | 6 | 8 | 12 |
+|---|---|---|---|---|---|
+| som det var | 0,113 s | 0,088 s | | 0,086 s | 0,088 s |
+| efter de tre ändringarna | | 0,024 s | 0,019 s | 0,019 s | 0,018 s |
+
+Med fyra workrar arbetade i snitt 1,6 av dem, och ingen fil väntade på en ledig. Tiden gick på annat:
+
+- **Bilagans rad letades fram bland alla bilagor för varje fil** (`ProvenanceSignal.match`, hälften av tiden i en
+  profil med 62 500 bilagor). `prepare` gör nu ett uppslag på filens namn i `app_parts/` (`byFile`), en gång.
+  Utan `prepared` letar `match` som förut, och `signal.test.js` jämför de två vägarna.
+- **Dekrypteringen räknades i JavaScript i sidans egen tråd** (en sjundedel). `SqlCipher.ctrAsync` använder
+  webbläsarens AES-CTR (räknaren är hela blocket, `length: 128`) och räknar i JavaScript om WebCrypto saknas eller
+  nekar. `sqlcipher.test.js` jämför båda vägarna med Nodes `aes-256-ctr`, också när räknaren slår runt.
+- **Lägesraden ritades före varje uppslag i en databas som en gång varit långsam** (`loadDb`, `had.slow`): en
+  bildruta per databas och fil, omkring 50 av de 70 ms som återstod per fil, medan både sidans tråd och workrarna
+  stod lediga. Nu ritas raden först bara om en fråga i databasen tog över `SLOW_QUERY_MS` för den här filen eller
+  filen före (`slowRound` mot `fileRound`, som räknas upp i `assess`). En databas som frågas långsamt för varje fil
+  får alltså raden ritad som förut. Inget eget test: det som går att se är tiden, och den beror på datorn.
+
+Först efter det arbetade alla fyra workrar (3,7 i snitt, filer väntade på en ledig i 88 % av proven). Sex gav en
+femtedel kortare tid per fil. Åtta och tolv gav inget mer: varje ExifTool-anrop tog längre ju fler som arbetade
+(91 ms med fyra, 102 med sex, 116 med åtta, 142 med tolv), och sidans egen tråd var upptagen till hälften.
+`EXIF_WORKERS` är därför sex på en dator med tolv kärnor eller fler och som förut annars. Det är uppmätt på en
+dator; med färre kärnor är sex inte prövat, och därför inte valt där.
+
+Hela listan med 3000 bilagor: 474 s före, **217 s** efter (omkring 145 s inläsning en gång, sedan 0,023 s per fil;
+sidans tråd upptagen 72 % av den tiden, så med så många rader är det åter den och inte workrarna som sätter
+takten). Inläsningen, nästan bara sökningen i loggen på 4,2 GB, är orörd och är det mesta av tiden för listor upp
+till ett par tusen filer. **Inte uppmätt:** användarens egen extraktion, Windows, riktiga Signal-data, och hur
+mycket minne sex workrar tar jämfört med fyra.
+
+#### Det som redan är gjort görs inte om (1.66)
+
+Fyra ändringar efter en genomgång av vad Härkomst läser och räknar flera gånger. Allt ligger i minnet och försvinner
+när extraktionen stängs (`closeZip`). Inget skrivs till disk, och avbildningen läses bara.
+
+- **Signals databaser släpps inte när nyckeln är densamma (`dropCipherDbs`).** Varje ändring i nyckelrutan, också
+  samma nyckel inklistrad en gång till, stängde de dekrypterade databaserna, och nästa bedömning läste, räknade
+  summor, dekrypterade och sökte loggen igen. Nu minns varje dekrypterad databas vilken profil och nyckel den
+  öppnades med (`cipherOf`, en `WeakMap`, så nyckeln står inte i `state.loaded`), och den stängs bara när nyckeln
+  är en annan. Tas nyckeln bort ställs databaserna undan (`state.kept.parked`): de står då inte i `state.loaded`
+  och därmed inte bland protokollets källor, och bedömningen säger som förut att nyckeln saknas. Kommer samma
+  nyckel tillbaka sätts de in igen, i den ordning de lästes (`loaded.seq`), så att protokollet räknar upp källorna
+  som förut. En annan nyckel stänger dem.
+- **Listans rader sparas (`state.kept.rows`).** En rad som är klar (`done`, `missing` eller `ambiguous`) sparas med
+  det listan visar om den: läge, anmärkning, sammanfattning, nyckel och mål. Nyckeln är vad raden pekar på
+  (`itemKey`: namn, biblioteksrad, post, summa eller fil från disk, med vald rad eller sökväg), tidsfönstret, zonen
+  och nyckelläget (`keyState`: Signals profil, nyckel och källa, och bilagenyckeln). Samma lista en gång till, en
+  lista med fler namn och ett fönster som undersökaren redan har haft läser därför bara de filer som inte är
+  bedömda. Ett fel sparas inte, och en nyckel som ändras medan listan går gör att resten av den listan inte sparas
+  (`keyChanges`).
+  - **Det syns.** Raden `#batch-kept` under listan säger hur många filer som visas som de bedömdes förut, och
+    knappen "Bedöm listan på nytt" (`freshBatch`) glömmer de raderna och bedömer dem igen. Lägesraden säger också
+    hur många som inte lästes. Utan det skulle ett tillfälligt läsfel eller en ändring utanför programmet inte gå
+    att få bort annat än genom att stänga extraktionen.
+  - **Det sparas inte:** hela bedömningen (`{ model, meta }`, omkring 0,45 MB per fil), så ett klick på en rad och
+    Nästa bedömer filen i sin helhet, som förut. En enskild fil (`run()`) sparas inte heller. Exporten av listan
+    (`exportBatch`) nämner inga databaser och är densamma för en sparad rad som för en nybedömd.
+- **MD5 per SHA-256 (`md5For`, `state.kept.md5`).** SHA-256 räknas alltid på det som lästes. MD5, som räknas i
+  JavaScript i sidans tråd, tas ur minnet när samma SHA-256 har setts förut i samma extraktion.
+- **Listan ritas utan att leta och släpper fram fönstret.** `renderBatchRow` slog upp raden med `tbody.rows[i]`
+  efter att ha bytt `outerHTML`, och det uppslaget går från tabellens början varje gång: 20 000 namn tog 8–9 s med
+  fönstret fruset i ett stycke. Raderna hålls nu i `batchEls` och byts med `replaceChild`. En lista som inte
+  behöver läsa något från disk väntade heller aldrig, så den gick inte att avbryta. `assessRows` släpper nu fram
+  fönstret (`ZipRead.pause()`) när det har gått `listFreeMs` (50 ms) sedan sist.
+- **Loggsökningen i delar efter antal rader.** Delar med lika lång tid tog olika länge, eftersom en logg är tät i
+  vissa perioder: den längsta stod still i över tre sekunder. När frågeplanen säger i vilken tabell och vilket
+  index tiden slås upp (`ProvenanceRoles.edgeQuery`) frågar `rowEdge` efter tiden hos den n:te raden efter den
+  förra gränsen (`ORDER BY tid LIMIT 1 OFFSET n-1`, som går i indexet), och `inParts` skär där. Antalet rader per
+  del följer tiden delen tog (mål `PART_MS`, 50 ms). Gränserna styr bara hur länge en del tar: raderna i svaret är
+  desamma, och raderna i en gräns tas med en gång som förut. Går tabellen inte att läsa ur planen, eller går
+  gränsfrågan inte i indexet, delas frågan efter tid som i avsnittet ovan.
+- **Räknare och krokar.** `ProvenanceApp.work()` har fått `loaded` (inlästa databaser), `rowsKept` (rader tagna ur
+  minnet), `md5` och `md5Kept`, `freed` (gånger en lista släppt fram fönstret) och `byRows` (frågor delade efter
+  antal rader). `forgetRows()` glömmer de sparade raderna och summorna, och `listFree(ms)` sätter `listFreeMs`
+  (0 = efter varje rad), båda för provkörningen.
+- **Tester:** `roles.test.js` jämför frågan hel, i tidsdelar och i delar efter antal rader, rad för rad. Röktestet
+  'Härkomst: en lista som är bedömd visas igen utan att läsas …' ser att samma lista inte läser något, att bara
+  nya namn bedöms, att knappen bedömer på nytt med MD5 ur minnet, och att 3 000 namn går att avbryta (stoppet
+  utlöses av antalet klara rader, inte av en tid). 'Samsung med Signal: …' klistrar in samma nyckel igen, tar bort
+  den, sätter tillbaka den och byter den, och jämför antalet inlästa databaser och protokollet (utan tiden det
+  skapades och de ritade bilderna, som också bär tiden).
+
+Uppmätt på utvecklarens Mac, på den påhittade extraktionen från avsnitten ovan (signal-logs.db 4,2 GB, signal.db
+1,4 GB, 3 000 krypterade bilagor):
+
+| | före | efter |
+|---|---|---|
+| samma nyckel inklistrad igen, sedan en fil | 144 s | 0,6 s |
+| nyckeln borttagen och inklistrad igen, sedan en fil | 144 s | 0,6 s |
+| en lista med 300 filer en gång till | allt utom ExifTool om igen | 0,3 s (5,0 s första gången) |
+| samma lista med 100 namn tillagda | alla 400 om igen | 2,1 s, bara de 100 nya |
+| ett fönster som listan redan har haft (400 filer) | 2,2 s | 0,4 s |
+| alla 3 000 en gång till | | 0,6 s (56 s för de 2 600 som var nya) |
+| en tangenttryckning under loggsökningen, längsta väntan | delar på upp till 0,6 s | 50 ms (median 22 ms) |
+
+- **Loggsökningen** gick i 1 660–1 681 delar efter antal rader. Väntan är mätt med en riktig tangenttryckning
+  genom fönstrets inmatning (`Input.dispatchKeyEvent`) med oregelbundna mellanrum, 321 stycken under sökningen,
+  som tiden från att händelsen skapades till att sidan hanterade den. En klocka i sidan (`setTimeout`) fick vänta
+  tre delar i taget och säger alltså för mycket: mät med inmatning. Det som görs en gång tar lika lång tid som
+  förut (143–145 s).
+- **Stopp som är kvar i det som görs en gång:** bygget av meddelandetabellen i minnet (`buildTimeIndex`, en enda
+  `INSERT … SELECT`, 3,6 s), frågan efter loggens första och sista tid och antal rader (omkring 1 s), 0,7 s när
+  signal.db lämnas till SHA-256, och två enstaka på 0,4 s. SHA-256 över loggen går i bitar som en tangenttryckning
+  väntade högst 0,09 s på.
+- **Ett klick på en rad** tar 0,2–0,3 s och Nästa 0,2 s per fil, eftersom hela bedömningen inte sparas. ExifTools
+  svar och MD5 tas ur minnet, filen läses och SHA-256 räknas.
+- **20 000 namn som inte finns** (Samsungen ur tvåtelefonslabbet): förut 8–9 s med fönstret fruset i ett stycke
+  och utan möjlighet att avbryta. Nu 5,3–5,9 s i stycken på upp till 1,0 s, med 35 ritade bildrutor, och Avbryt
+  listan stoppade 1,1 s efter klicket. 1 000 namn tar 0,3 s och 5 000 tar 0,8 s. Samma 20 000 en gång till: 0,9 s.
+  - **Det som är kvar är webbläsarens eget arbete, inte programmets.** I en profil är 1,2 s av 6,2 JavaScript.
+    Resten är layout och målning: att byta en enda rad i en tabell med 20 000 rader kostar omkring 0,1 s (53 ms
+    layout och 51 ms bildruta, uppmätt i vila), och under körningen 0,2–0,4 s per bildruta. `table-layout: fixed`,
+    en rubrikrad utan `position: sticky` och `contain` på raderna ändrade ingenting.
+  - **Kortare tid mellan gångerna fönstret släpps fram gör det långsammare**, eftersom varje gång blir en
+    bildruta: 10 ms gav 17,5 s och efter varje rad 49 s. Därför 50 ms.
+  - Under det går det inte att komma med alla rader i sidan. Det som återstår är att bara ha de rader som syns
+    i sidan (en lista som ritar sitt synliga utsnitt). Det är inte byggt.
+- **Listan med 3 000 filer:** fönstrets tråd var upptagen 39,5 av 56 s, och i profilen var 41 av 63 s webbläsarens
+  eget arbete. Med 600 filer tog listan 9,8 s både med tabellen synlig och dold (`display: none`), så där är det
+  inte ritningen som sätter takten. Vid 3 000 rader kan den göra det, och det är inte uppmätt hur mycket.
+- **Inte uppmätt:** användarens egen extraktion, Windows, riktiga Signal-data, och hur mycket minne de sparade
+  raderna tar (`performance.memory` gav samma tal i varje prov och säger inget).
 
 ### Chattar (`tools/chats/`)
 

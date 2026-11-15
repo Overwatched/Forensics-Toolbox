@@ -95,7 +95,7 @@
 
     // meta: { extraction: { name, size, lastModified }, deviceLabel, zoneLabel, zoneNote, toolVersion, createdText,
     //         format(ms), formatUtc(ms), fileRows: [[kolumn, värde]], exifRows: [[tagg, värde]], fileEntry: { path, size, mtime, crc32, sha256 } | null,
-    //         sources: [{ label, path, size, mtime, crc32, sha256, walPath, walCrc32, walSha256, walSummary, cipher, derived, warnings: [] }],
+    //         sources: [{ label, path, size, mtime, crc32, sha256, walPath, walCrc32, walSha256, walSummary, cipher, derived, shared, indexed, warnings: [] }],
     //         queries: [{ id, db, title, sql }], coverage: [[ström, första, sista, rader]], timelinePngs: [dataUrl per fönster],
     //         appVersionsText: appversionerna i klartext (ProvenanceAppVersions.text) }
     function protocol(model, meta) {
@@ -138,7 +138,11 @@
             }
             // Bilden bara när undersökaren bett om det (meta.previewPng), förminskad.
             if (meta.previewPng) out += imageHtml(meta.previewPng, 'Bilden', 360) + p('<i>' + esc(meta.previewNote || '') + '</i>');
-            if (meta.exifRows && meta.exifRows.length) out += table(['EXIF-tagg i filen', 'Värde'], meta.exifRows);
+            // En av Signals bilagor: taggarna är lästa ur det dekrypterade innehållet, och summorna ovan gäller filen som den ligger.
+            if (fe.contentNote) out += p('<b>Innehållet:</b> ' + esc(fe.contentNote));
+            // Filen lästes och summorna räknades, men innehållet gick inte att tolka: skälet står här.
+            else if (meta.fileMissingReason && !(meta.exifRows && meta.exifRows.length)) out += p('<b>Innehållet:</b> ' + esc(meta.fileMissingReason));
+            if (meta.exifRows && meta.exifRows.length) out += table([fe.contentNote ? 'EXIF-tagg i det dekrypterade innehållet' : 'EXIF-tagg i filen', 'Värde'], meta.exifRows);
             if (fe.trailerRows && fe.trailerRows.length) out += table(['Samsungs bilaga sist i filen', 'Värde'], fe.trailerRows);
         } else if (meta.fileMissingReason) {
             out += p('<b>Bildfilen:</b> ' + esc(meta.fileMissingReason));
@@ -229,6 +233,7 @@
             if (s.cipher) rows.push(['Kryptering', s.cipher]);
             if (s.derived) rows.push(['Avkodning', s.derived]);
             if (s.shared) rows.push(['Läsning', s.shared]);
+            if (s.indexed) rows.push(['Uppslag', s.indexed]);
             if (s.warnings && s.warnings.length) rows.push(['Varningar', s.warnings.join(' ')]);
             out += kv(rows);
         });

@@ -360,6 +360,11 @@ test('stageText: vad som händer, kort i en rad som redan säger databasen och a
     assert.strictEqual(core.stageText('read', null, '', X), 'Läser Signal (signal.sqlite)…');
     assert.strictEqual(core.stageText('hash'), 'räknar SHA-256…');
     assert.strictEqual(core.stageText('hash', null, '', X), 'Räknar SHA-256 för Signal (signal.sqlite)…');
+    // En stor fil läses och räknas i bitar, och då står andelen efter.
+    assert.strictEqual(core.stageText('read', 0.25), 'läser filen… 25 %');
+    assert.strictEqual(core.stageText('read', 0.5, '', X), 'Läser Signal (signal.sqlite)… 50 %');
+    assert.strictEqual(core.stageText('hash', 0.75, '', X), 'Räknar SHA-256 för Signal (signal.sqlite)… 75 %');
+    assert.strictEqual(core.stageText('wait', 0.4, 'Chattar', X, 'read'), 'Väntar på Signal (signal.sqlite), som Chattar redan läser in (läser filen… 40 %)');
     assert.strictEqual(core.stageText('decrypt', 0.5), 'dekrypterar… 50 %');
     assert.strictEqual(core.stageText('decrypt', 0.999, '', X), 'Dekrypterar Signal (signal.sqlite)… 100 %');
     assert.strictEqual(core.stageText('decrypt-slow', 0.25, '', X), 'Dekrypterar Signal (signal.sqlite) utan webbläsarens inbyggda kryptering, så det går långsammare… 25 %');

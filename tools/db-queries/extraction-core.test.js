@@ -155,6 +155,13 @@ test('SHA-256 över gränsen för crypto.subtle räknas i JavaScript och ger sam
     const want = require('node:crypto').createHash('sha256').update(bytes).digest('hex');
     assert.strictEqual(await core.sha256(bytes), want);
     assert.strictEqual(await core.sha256(bytes, { subtleMax: 1000 }), want);
+    // I bitar följer det med hur långt räkningen har kommit. Summan är densamma hur bitarna än delas.
+    const seen = [];
+    assert.strictEqual(await core.sha256(bytes, { subtleMax: 1000, piece: 30000, onProgress: (done, total) => seen.push([done, total]) }), want);
+    assert.deepStrictEqual(seen, [30000, 60000, 90000, 120000, 150000, 180000, 200000].map((done) => [done, 200000]));
+    const quiet = [];
+    await core.sha256(bytes, { onProgress: (done) => quiet.push(done) });
+    assert.deepStrictEqual(quiet, [], 'crypto.subtle räknar allt på en gång');
 });
 
 test('en databas lämnas till sql.js utan kopia, läses rätt och kan skrivas i', { skip: !DatabaseSync && 'node:sqlite saknas' }, async () => {

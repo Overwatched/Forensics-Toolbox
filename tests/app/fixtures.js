@@ -13,7 +13,7 @@
 // Samsung: en Android-extraktion utan usagestats, med SSRM-loggen och batterihistoriken. Kamerabilden togs när
 // bara batterihistoriken täcker tiden, en bild i en chattapp när SSRM gör det, tre bilder där eRR.p säger att telefonen var
 // avstängd, inte upplåst eller just startade, och en bild när batterihistorikens klocka
-// flyttades. Namnen i loggarna bär HTML.
+// flyttades. Namnen i loggarna bär HTML. Samma telefon finns också med Signals krypterade databaser och logg.
 'use strict';
 
 const crypto = require('node:crypto');
@@ -32,6 +32,7 @@ const TG = require(path.join(ROOT, 'tools', 'db-queries', 'fixtures', 'postbox-e
 const { powerlogDb } = require(path.join(ROOT, 'tools', 'db-queries', 'fixtures', 'powerlog-fixture.js'));
 
 const COCOA = 978307200;
+const PAGE = 4096;
 const T = Date.UTC(2024, 5, 1, 12, 34, 56) / 1000;   // tiden i exif-sample.jpg (14:34:56 +02:00)
 const XSS = '<img src=x onerror="window.__ftxss=1;try{top.__ftxss=1}catch(e){}">';
 const T2 = T + 3 * 86400;                              // Signal och WhatsApp
@@ -130,15 +131,7 @@ function routinedDb(SQL) {
 // Signals databas på iOS: en kontakt med HTML i profilnamnet och en mottagen bild (samma bytes som
 // IMG_0006.JPG). Krypterad som SQLCipher 4 med rå nyckel och 32 byte okrypterat huvud.
 function signalDb(SQL, imageSha) {
-    const page = 4096, reserve = 80;
-    const head = Buffer.alloc(page);
-    head.write('SQLite format 3\0', 0, 'latin1');
-    head.writeUInt16BE(page, 16);
-    head[18] = 1; head[19] = 1; head[20] = reserve; head[21] = 64; head[22] = 32; head[23] = 32;
-    head.writeUInt32BE(1, 24); head.writeUInt32BE(1, 28); head.writeUInt32BE(4, 44); head.writeUInt32BE(1, 56);
-    head.writeUInt32BE(1, 92); head.writeUInt32BE(3045000, 96);
-    head[100] = 0x0d; head.writeUInt16BE(page - reserve, 105);
-    const db = new SQL.Database(new Uint8Array(head));
+    const db = emptyDb(SQL, 80);
     Object.values(chatSchemas['signal-ios']).forEach((sql) => db.run(sql));
     const ms = (sec) => Math.round((T2 + sec) * 1000);
     insert(db, 'model_TSThread', { id: 1, recordType: 27, uniqueId: 'tråd-1', contactUUID: 'aci-kim', shouldThreadBeVisible: 1, creationDate: T2 - 600,
@@ -151,20 +144,38 @@ function signalDb(SQL, imageSha) {
     const plain = Buffer.from(db.export());
     db.close();
     const key = SIGNAL_KEY.subarray(0, 32), salt = SIGNAL_KEY.subarray(32, 48);
-    const macKey = crypto.pbkdf2Sync(key, Buffer.from(salt.map((b) => b ^ 0x3a)), 2, 32, 'sha512');
+    return cipherPages(plain, { reserve: 80, hmac: 'sha512', key, salt, first: plain.subarray(0, 32) });
+}
+
+// En tom databas med sidor om 4096 byte och reserve byte lediga sist i varje sida, som SQLCipher behöver.
+function emptyDb(SQL, reserve) {
+    const head = Buffer.alloc(PAGE);
+    head.write('SQLite format 3\0', 0, 'latin1');
+    head.writeUInt16BE(PAGE, 16);
+    head[18] = 1; head[19] = 1; head[20] = reserve; head[21] = 64; head[22] = 32; head[23] = 32;
+    head.writeUInt32BE(1, 24); head.writeUInt32BE(1, 28); head.writeUInt32BE(4, 44); head.writeUInt32BE(1, 56);
+    head.writeUInt32BE(1, 92); head.writeUInt32BE(3045000, 96);
+    head[100] = 0x0d; head.writeUInt16BE(PAGE - reserve, 105);
+    return new SQL.Database(new Uint8Array(head));
+}
+
+// Krypterar sidorna som SQLCipher: AES-256-CBC, och sist i sidan IV och HMAC över data, IV och sidnumret.
+// o.first är det som står okrypterat först i filen (saltet, eller hela det okrypterade huvudet).
+function cipherPages(plain, o) {
+    const macKey = crypto.pbkdf2Sync(o.key, Buffer.from(o.salt.map((b) => b ^ 0x3a)), 2, 32, o.hmac);
     const pages = [];
-    for (let p = 1; p * page <= plain.length; p++) {
-        const src = plain.subarray((p - 1) * page, p * page);
-        const start = p === 1 ? 32 : 0;
+    for (let p = 1; p * PAGE <= plain.length; p++) {
+        const src = plain.subarray((p - 1) * PAGE, p * PAGE);
+        const start = p === 1 ? o.first.length : 0;
         const iv = crypto.randomBytes(16);
-        const c = crypto.createCipheriv('aes-256-cbc', key, iv);
+        const c = crypto.createCipheriv('aes-256-cbc', o.key, iv);
         c.setAutoPadding(false);
-        const data = Buffer.concat([c.update(src.subarray(start, page - reserve)), c.final()]);
+        const data = Buffer.concat([c.update(src.subarray(start, PAGE - o.reserve)), c.final()]);
         const pn = Buffer.alloc(4); pn.writeUInt32LE(p);
-        const mac = crypto.createHmac('sha512', macKey).update(data).update(iv).update(pn).digest();
-        const out = Buffer.alloc(page);
-        if (p === 1) src.copy(out, 0, 0, 32);
-        data.copy(out, start); iv.copy(out, page - reserve); mac.copy(out, page - reserve + 16);
+        const mac = crypto.createHmac(o.hmac, macKey).update(data).update(iv).update(pn).digest();
+        const out = Buffer.alloc(PAGE);
+        if (p === 1) o.first.copy(out);
+        data.copy(out, start); iv.copy(out, PAGE - o.reserve); mac.copy(out, PAGE - o.reserve + 16);
         pages.push(out);
     }
     return Buffer.concat(pages);
@@ -442,6 +453,76 @@ function samsungNoZoneEntries(SQL, jpeg) {
     }).concat([{ name: 'data/property/persistent_properties', data: props }]);
 }
 
+// Samma telefon med Signal: signal.db och signal-logs.db, krypterade som Signal gör på Android (nyckeln ur
+// lösenordet i ett varv PBKDF2, HMAC-SHA1, 48 byte reserv, saltet först i filen). Tabellerna är påhittade och har
+// bara kolumnerna som Härkomsts frågor läser. Bilden i chattappen väljs ur galleriet två minuter efter att den
+// togs och skickas till en kontakt med HTML i namnet. Loggen har rader över två månader, med index på tiden
+// som i appen, så att frågan över hela loggen körs i flera tidsdelar.
+const SIGNAL_ANDROID_KEY = crypto.createHash('sha256').update('påhittad nyckel till Signal på Android').digest('hex');
+// Bilagenyckeln (modernKey) och bilagans fil under app_parts/, krypterad som Signal gör på Android: nyckeln är
+// HMAC-SHA256(modernKey, data_random), AES-256-CTR med noll-IV, och filen är utfylld efter innehållet. Gjord med
+// Nodes crypto, inte med programmets egen kod, så att testet inte jämför programmet med sig självt.
+const SIGNAL_ANDROID_MODERN = crypto.createHash('sha256').update('påhittad bilagenyckel till Signal på Android').digest();
+const SIGNAL_ANDROID_PART = 'data/data/org.thoughtcrime.securesms/app_parts/part7.mms';
+
+function signalAndroidPart(picture, random) {
+    const key = crypto.createHmac('sha256', SIGNAL_ANDROID_MODERN).update(random).digest();
+    const cipher = crypto.createCipheriv('aes-256-ctr', key, Buffer.alloc(16));
+    return Buffer.concat([cipher.update(Buffer.concat([picture, Buffer.alloc(37)])), cipher.final()]);
+}
+
+function signalAndroidCipher(plain, name) {
+    const salt = crypto.createHash('sha256').update('salt ' + name).digest().subarray(0, 16);
+    return cipherPages(plain, { reserve: 48, hmac: 'sha1', key: crypto.pbkdf2Sync(Buffer.from(SIGNAL_ANDROID_KEY, 'utf8'), salt, 1, 32, 'sha1'), salt, first: salt });
+}
+
+function signalAndroidEntries(SQL, jpeg) {
+    const entries = samsungEntries(SQL, jpeg);
+    const picture = entries.find((e) => /chatt_kamera\.jpg$/.test(e.name)).data;
+    const hash = crypto.createHash('sha256').update(picture).digest('base64');
+    const ms = (sec) => (TS2 + sec) * 1000;
+
+    const main = emptyDb(SQL, 48);
+    main.run('CREATE TABLE recipient (_id INTEGER PRIMARY KEY, type INTEGER DEFAULT 0, nickname_joined_name TEXT, system_joined_name TEXT, profile_joined_name TEXT, username TEXT, e164 TEXT)');
+    main.run('CREATE TABLE groups (_id INTEGER PRIMARY KEY, recipient_id INTEGER, title TEXT)');
+    main.run('CREATE TABLE thread (_id INTEGER PRIMARY KEY, recipient_id INTEGER)');
+    main.run('CREATE TABLE message (_id INTEGER PRIMARY KEY, date_sent INTEGER, date_received INTEGER, date_server INTEGER, type INTEGER, thread_id INTEGER, from_recipient_id INTEGER, to_recipient_id INTEGER, view_once INTEGER DEFAULT 0, deleted_by INTEGER, body TEXT)');
+    main.run('CREATE TABLE attachment (_id INTEGER PRIMARY KEY, message_id INTEGER, content_type TEXT, file_name TEXT, data_size INTEGER, width INTEGER, height INTEGER, data_file TEXT, data_random BLOB, data_hash_start TEXT, data_hash_end TEXT, upload_timestamp INTEGER, transform_properties TEXT, fast_preflight_id TEXT)');
+    insert(main, 'recipient', { _id: 1, type: 0, profile_joined_name: 'Telefonens ägare' });
+    insert(main, 'recipient', { _id: 2, type: 0, profile_joined_name: 'Kim ' + XSS });
+    insert(main, 'thread', { _id: 1, recipient_id: 2 });
+    // Ett äldre meddelande, så att databasen täcker tiden före bilden, och meddelandet med bilden (typ 23: skickat).
+    insert(main, 'message', { _id: 1, date_sent: ms(-40 * 86400), date_received: ms(-40 * 86400), date_server: ms(-40 * 86400) + 150, type: 10485783, thread_id: 1, from_recipient_id: 1, to_recipient_id: 2, body: 'x' });
+    insert(main, 'message', { _id: 2, date_sent: ms(125), date_received: ms(125), date_server: ms(125) + 150, type: 10485783, thread_id: 1, from_recipient_id: 1, to_recipient_id: 2, body: 'x' });
+    insert(main, 'attachment', { _id: 7, message_id: 2, content_type: 'image/jpeg', data_size: picture.length, width: 8, height: 8, data_file: '/data/user/0/org.thoughtcrime.securesms/app_parts/part7.mms',
+        data_random: new Uint8Array(32), data_hash_start: hash, data_hash_end: hash, upload_timestamp: ms(126) });
+    const mainBytes = Buffer.from(main.export());
+    main.close();
+
+    const logs = emptyDb(SQL, 48);
+    logs.run('CREATE TABLE log (_id INTEGER PRIMARY KEY, created_at INTEGER, keep_longer INTEGER DEFAULT 0, body TEXT, size INTEGER)');
+    logs.run('CREATE INDEX log_created_at_keep_longer_index ON log (created_at, keep_longer)');
+    const line = (t, text) => '[8.33.2] [main ] ' + new Date(t + 7200000).toISOString().replace('T', ' ').replace('Z', '') + ' GMT+02:00 I ' + text;
+    const add = logs.prepare('INSERT INTO log (created_at, body, size) VALUES (?, ?, ?)');
+    const row = (t, text) => add.run([t, line(t, text), 200]);
+    // Rader som frågan inte letar efter, en var halvtimme från 40 dygn före bilden till 20 dygn efter.
+    for (let t = ms(-40 * 86400); t <= ms(20 * 86400); t += 1800000) row(t, 'IncomingMessageObserver: Network: true, Foreground: 0, FCM: true, Registered: true');
+    row(ms(110), 'BaseActivity: [MediaSendV3Activity] onCreate()');
+    row(ms(120), 'AttachmentTable: Inserting attachment content://media/external/images/media/2 for pre-upload.');
+    row(ms(120) + 200, 'AttachmentTable: [insertAttachmentWithData] Inserted attachment at AttachmentId::7');
+    row(ms(125) + 900, 'IndividualSendJobV2: [' + ms(125) + '][2] Sent message.');
+    add.free();
+    const logBytes = Buffer.from(logs.export());
+    logs.close();
+
+    const dir = 'data/data/org.thoughtcrime.securesms/databases/';
+    return entries.concat([
+        { name: SIGNAL_ANDROID_PART, data: signalAndroidPart(picture, Buffer.alloc(32)) },
+        { name: dir + 'signal.db', data: signalAndroidCipher(mainBytes, 'signal.db') },
+        { name: dir + 'signal-logs.db', data: signalAndroidCipher(logBytes, 'signal-logs.db'), deflate: true },
+    ]);
+}
+
 async function build() {
     const SQL = await loadSql();
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ft-provkorning-'));
@@ -518,6 +599,7 @@ async function build() {
         powerlogArchive: path.join(dir, 'powerlog_2024-06-06_ABCDEF12.PLSQL.gz'),
         samsung: path.join(dir, 'Testextraktion-Samsung.zip'),
         samsungNoZone: path.join(dir, 'Testextraktion-Samsung-utan-zon.zip'),
+        samsungSignal: path.join(dir, 'Testextraktion-Samsung-med-Signal.zip'),
     };
     fs.writeFileSync(files.zip, zip);
     fs.writeFileSync(files.ufdr, buildUfdr(reportRows(entries, keychainPlist())).buf);
@@ -540,7 +622,11 @@ async function build() {
     fs.writeFileSync(files.powerlogArchive, require('node:zlib').gzipSync(powerlog(SQL)));
     fs.writeFileSync(files.samsung, buildZip(samsungEntries(SQL, jpeg)));
     fs.writeFileSync(files.samsungNoZone, buildZip(samsungNoZoneEntries(SQL, jpeg)));
-    return { files, T: T * 1000, imageName: 'IMG_0001.JPG', T2: T2 * 1000, waMedia: 'mottagen.jpg', T3: T3 * 1000, tgMedia: TG_MEDIA, TS: TS * 1000, TS2: TS2 * 1000, TS3: TS3 * 1000,
+    const signalEntries = signalAndroidEntries(SQL, jpeg);
+    fs.writeFileSync(files.samsungSignal, buildZip(signalEntries));
+    const sum = (data) => crypto.createHash('sha256').update(data).digest('hex');
+    const signalAndroidPartSums = { file: sum(signalEntries.find((e) => e.name === SIGNAL_ANDROID_PART).data), content: sum(signalEntries.find((e) => /chatt_kamera\.jpg$/.test(e.name)).data) };
+    return { files, signalAndroidKey: SIGNAL_ANDROID_KEY, signalAndroidModernKey: SIGNAL_ANDROID_MODERN.toString('base64'), signalAndroidPartSums, T: T * 1000, imageName: 'IMG_0001.JPG', T2: T2 * 1000, waMedia: 'mottagen.jpg', T3: T3 * 1000, tgMedia: TG_MEDIA, TS: TS * 1000, TS2: TS2 * 1000, TS3: TS3 * 1000,
         longChat: { count: LONG.count, needles: LONG.needles, gapAfter: LONG.gapAfter, timeMs: (i) => longTime(i) * 1000 } };
 }
 

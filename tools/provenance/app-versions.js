@@ -81,17 +81,26 @@
         return m ? m[1] : null;
     }
 
-    // Signals loggrader börjar med versionen: "[8.33.2] [tråd] 2026-11-02 …". Versionen på raden
-    // närmast T. rows: [{ timeMs, body }]. Returnerar { version, ms } eller null.
-    function fromSignalLog(rows, T) {
-        var best = null;
+    // Signals loggrader börjar med versionen: "[8.33.2] [tråd] 2026-11-02 …". Versionen och tiden på
+    // varje rad som har en, i radernas ordning. rows: [{ timeMs, body }].
+    function signalLogVersions(rows) {
+        var out = [];
         (rows || []).forEach(function (r) {
             var m = /^\[(\d+(?:\.\d+)+)\]/.exec(String(r.body || ''));
             var ms = Number(r.timeMs != null ? r.timeMs : r.time);
-            if (!m || !isFinite(ms)) return;
-            if (!best || (T != null && Math.abs(ms - T) < Math.abs(best.ms - T))) best = { version: m[1], ms: ms };
+            if (m && isFinite(ms)) out.push({ version: m[1], ms: ms });
         });
-        return best;
+        return out;
+    }
+
+    // Versionen på raden närmast T. Returnerar { version, ms } eller null. versions är signalLogVersions(rows),
+    // om det redan är gjort: loggen är densamma för varje fil och behöver inte läsas om.
+    function fromSignalLog(rows, T, versions) {
+        var best = null;
+        (versions || signalLogVersions(rows)).forEach(function (v) {
+            if (!best || (T != null && Math.abs(v.ms - T) < Math.abs(best.ms - T))) best = v;
+        });
+        return best ? { version: best.version, ms: best.ms } : null;
     }
 
     // En mening per app till protokollet. list: [{ app, version, build, versionCode, source, note }].
@@ -103,7 +112,7 @@
         }).join('. ') + ((list || []).length ? '.' : '');
     }
 
-    var api = { fromInfoPlist: fromInfoPlist, fromPackagesXml: fromPackagesXml, fromUserAgent: fromUserAgent, fromSignalLog: fromSignalLog, text: text };
+    var api = { fromInfoPlist: fromInfoPlist, fromPackagesXml: fromPackagesXml, fromUserAgent: fromUserAgent, signalLogVersions: signalLogVersions, fromSignalLog: fromSignalLog, text: text };
     if (typeof module !== 'undefined' && module.exports) module.exports = api;
     else root.ProvenanceAppVersions = api;
 })(typeof window !== 'undefined' ? window : this);

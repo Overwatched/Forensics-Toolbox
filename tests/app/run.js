@@ -15,6 +15,7 @@
 //   npm run test:app -- --facit     bara labbtesterna (kräver minst en labbzipp)
 //   npm run test:app -- --samsung   bara Samsungs loggar (kräver FT_LAB_SAMSUNG_REPORT eller FT_LAB_SAMSUNG_ZIP)
 //   FT_SHOTS=<mapp>                 skärmdumpar efter varje del
+//   FT_ONLY=<text>                  bara delarna med den texten i namnet, medan man arbetar med en av dem
 'use strict';
 
 const fs = require('node:fs');
@@ -100,6 +101,7 @@ async function main() {
         for (const [group, list] of groups) {
             console.log(group);
             for (const [name, fn] of list) {
+                if (process.env.FT_ONLY && !name.includes(process.env.FT_ONLY)) continue;
                 ran++;
                 const t0 = Date.now();
                 const before = c.errors.length;

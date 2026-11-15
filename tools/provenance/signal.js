@@ -86,18 +86,24 @@
     }
 
     // Bilagor vars original eller lagrade fil har filens SHA-256, eller vars krypterade fil är den bedömda filen.
-    function match(sha256Hex, attachments, filePath) {
+    // prep (från prepare) har summorna uppslagna, så att de inte räknas om för varje fil.
+    function match(sha256Hex, attachments, filePath, prep) {
         var want = String(sha256Hex || '').toLowerCase();
         var part = ownPart(filePath);
-        if (part) return (attachments || []).filter(function (a) { return a.dataFile && String(a.dataFile).split('/').pop() === part; }).map(function (a) { return { row: a, on: 'file', transformed: false }; });
+        if (part) {
+            var own = prep ? (prep.byFile[part] || []).map(function (i) { return prep.attachments[i]; })
+                : (attachments || []).filter(function (a) { return a.dataFile && String(a.dataFile).split('/').pop() === part; });
+            return own.map(function (a) { return { row: a, on: 'file', transformed: false }; });
+        }
         if (!/^[0-9a-f]{64}$/.test(want)) return [];
         var out = [];
-        (attachments || []).forEach(function (a) {
-            var s = b64ToHex(a.hashStart), e = b64ToHex(a.hashEnd);
+        function one(a, s, e) {
             var onStart = s === want, onEnd = e === want;
             if (!onStart && !onEnd) return;
             out.push({ row: a, on: onStart && onEnd ? 'both' : onStart ? 'start' : 'end', transformed: !!(s && e && s !== e) });
-        });
+        }
+        if (prep) (prep.byHash[want] || []).forEach(function (i) { one(prep.attachments[i], prep.hashStart[i], prep.hashEnd[i]); });
+        else (attachments || []).forEach(function (a) { one(a, b64ToHex(a.hashStart), b64ToHex(a.hashEnd)); });
         return out;
     }
 
@@ -161,15 +167,23 @@
             else if (/MultiselectForwardActiv: State change: SendPending/.test(t)) out.push({ ms: ms, kind: 'forward' });
         });
         // "Radera för alla": bilagorna tas bort och RemoteDeleteSendJob skickas inom en sekund.
-        out.forEach(function (e, i) {
+        var remote = out.filter(function (x) { return x.kind === 'remote-delete'; });
+        out.forEach(function (e) {
             if (e.kind !== 'delete') return;
-            e.forAll = out.some(function (x) { return x.kind === 'remote-delete' && Math.abs(x.ms - e.ms) <= 1500; });
+            e.forAll = remote.some(function (x) { return Math.abs(x.ms - e.ms) <= 1500; });
         });
         // En bild från Signals kamera som lades in, togs bort och ersattes av en ny blob inom samma
-        // session är en redigering: den nya bilagan är den redigerade versionen.
-        out.forEach(function (e, i) {
-            if (e.kind !== 'pick' || e.source !== 'capture' || e.discarded) return;
-            var before = out.slice(0, i).reverse().find(function (x) { return x.kind === 'pick' && e.ms - x.ms < 120000; });
+        // session är en redigering: den nya bilagan är den redigerade versionen. Valet närmast före,
+        // inom två minuter. Bara valen gås igenom, och står de i tidsordning räcker det närmaste.
+        var picks = out.filter(function (x) { return x.kind === 'pick'; });
+        var inOrder = picks.every(function (x, i) { return isFinite(x.ms) && (!i || x.ms >= picks[i - 1].ms); });
+        picks.forEach(function (e, i) {
+            if (e.source !== 'capture' || e.discarded) return;
+            var before = null;
+            for (var j = i - 1; j >= 0 && !before; j--) {
+                if (e.ms - picks[j].ms < 120000) before = picks[j];
+                else if (inOrder) break;
+            }
             if (before && before.discarded && before.source === 'capture') { e.edited = true; e.original = before; before.replacedByEdit = true; }
         });
         return out.filter(function (e) { return e.kind !== 'remote-delete'; });
@@ -177,8 +191,38 @@
 
     // ---------- Kopplingen och händelserna ----------
 
+    // Det som är detsamma för varje fil i extraktionen: loggen tolkad, bilagorna uppslagna på meddelande, id
+    // och SHA-256, och det som slås upp i loggen. En lista med många filer gör det en gång (ctx.prepared i
+    // build) i stället för en gång per fil. Inget här beror på den bedömda filen.
+    function prepare(attachments, logRows) {
+        var list = attachments || [];
+        var prep = { attachments: attachments, logRows: logRows, byMessage: {}, attById: {}, byHash: Object.create(null), byFile: Object.create(null), hashStart: [], hashEnd: [],
+            log: parseLog(logRows), picksByMedia: {}, saveEvents: [], deleted: {} };
+        list.forEach(function (a, i) {
+            (prep.byMessage[a.messageId] = prep.byMessage[a.messageId] || []).push(a);
+            prep.attById[a.id] = a;
+            var s = b64ToHex(a.hashStart), e = b64ToHex(a.hashEnd);
+            prep.hashStart.push(s);
+            prep.hashEnd.push(e);
+            if (s) (prep.byHash[s] = prep.byHash[s] || []).push(i);
+            if (e && e !== s) (prep.byHash[e] = prep.byHash[e] || []).push(i);
+            // Bilagans krypterade fil, på namnet i app_parts/, så att en lista av sådana filer inte går igenom alla bilagor per fil.
+            var file = a.dataFile ? String(a.dataFile).split('/').pop() : '';
+            if (file) (prep.byFile[file] = prep.byFile[file] || []).push(i);
+        });
+        prep.log.forEach(function (e) {
+            if (e.kind === 'pick' && e.mediaId != null) (prep.picksByMedia[e.mediaId] = prep.picksByMedia[e.mediaId] || []).push(e);
+            if (e.kind === 'delete') prep.deleted[e.messageId] = true;
+        });
+        // "Save attachments completed" är när filen fanns i galleriet; "Saving …" används om den saknas.
+        prep.saveEvents = prep.log.filter(function (e) { return e.kind === 'saved'; });
+        if (!prep.saveEvents.length) prep.saveEvents = prep.log.filter(function (e) { return e.kind === 'save'; });
+        return prep;
+    }
+
     // ctx: { sha256, mediaId, fileName, fileAddedMs, savedBySignal, attachments, messages, recipients,
-    //        log, sources: { main, log }, centerMs, wall(ms) -> 'ÅÅÅÅ-MM-DD TT:MM:SS.mmm' i vald zon }
+    //        log, sources: { main, log }, centerMs, wall(ms) -> 'ÅÅÅÅ-MM-DD TT:MM:SS.mmm' i vald zon,
+    //        prepared: prepare(attachments, log) om det redan är gjort, linkOnly: bara kopplingen behövs }
     // Returnerar { events, notes, link }.
     function build(ctx) {
         var events = [];
@@ -188,49 +232,45 @@
         var srcLog = ctx.sources && ctx.sources.log || { db: 'signal-logs.db', table: 'log', queryId: 'role-log' };
         var wall = ctx.wall || function (ms) { return new Date(ms).toISOString().replace('T', ' ').replace('Z', ''); };
         var attachments = ctx.attachments || [];
-        var byMessage = {};
-        attachments.forEach(function (a) { (byMessage[a.messageId] = byMessage[a.messageId] || []).push(a); });
+        // Det förberedda gäller bara för just de här bilagorna och den här loggen.
+        var prep = ctx.prepared && ctx.prepared.attachments === ctx.attachments && ctx.prepared.logRows === ctx.log ? ctx.prepared : prepare(ctx.attachments, ctx.log);
+        var byMessage = prep.byMessage;
 
-        var matches = match(ctx.sha256, attachments, ctx.filePath);
+        var matches = match(ctx.sha256, attachments, ctx.filePath, prep);
         var matchedMessages = {};
         matches.forEach(function (x) { matchedMessages[x.row.messageId] = true; });
-        var log = parseLog(ctx.log);
-        var picks = ctx.mediaId != null ? log.filter(function (e) { return e.kind === 'pick' && e.mediaId === Number(ctx.mediaId); }) : [];
-        var sentByMessage = {};
-        log.forEach(function (e) { if (e.kind === 'sent') sentByMessage[e.messageId] = e; });
-        var attById = {};
-        attachments.forEach(function (a) { attById[a.id] = a; });
+        var log = prep.log;
+        var picks = ctx.mediaId != null ? prep.picksByMedia[Number(ctx.mediaId)] || [] : [];
         // Valet i galleriet leder till en bilaga, och bilagan till ett meddelande (eller inte, om det raderats).
-        picks.forEach(function (p) {
-            var a = p.attachmentId != null ? attById[p.attachmentId] : null;
-            p.messageId = a ? a.messageId : null;
-            if (p.messageId != null) matchedMessages[p.messageId] = true;
-            if (p.messageId == null && p.attachmentId != null) {
+        // Det står här och inte på loggens händelser, som är desamma för alla filer.
+        var pickInfo = picks.map(function (p) {
+            var a = p.attachmentId != null ? prep.attById[p.attachmentId] : null;
+            var info = { messageId: a ? a.messageId : null, sentLater: null, deletedLater: null };
+            if (info.messageId != null) matchedMessages[info.messageId] = true;
+            if (info.messageId == null && p.attachmentId != null) {
                 // Utan bilaga kvar: meddelandet som skickades närmast efter valet (inom två minuter), ur loggen.
                 var sent = log.find(function (e) { return e.kind === 'sent' && e.ms >= p.ms && e.ms - p.ms <= 120000 && !log.some(function (x) { return x.kind === 'pick' && x !== p && x.ms > p.ms && x.ms < e.ms; }); });
-                if (sent) p.sentLater = sent;
+                if (sent) info.sentLater = sent;
                 var del = sent ? log.find(function (e) { return e.kind === 'delete' && e.messageId === sent.messageId; }) : null;
-                if (del) p.deletedLater = del;
+                if (del) info.deletedLater = del;
                 if (sent) matchedMessages[sent.messageId] = true;
             }
+            return info;
         });
-        // "Save attachments completed" är när filen fanns i galleriet; "Saving …" används om den saknas.
-        var saveEvents = log.filter(function (e) { return e.kind === 'saved'; });
-        if (!saveEvents.length) saveEvents = log.filter(function (e) { return e.kind === 'save'; });
-        var savedHere = ctx.savedBySignal && ctx.fileAddedMs != null ? saveEvents.find(function (e) { return Math.abs(e.ms - ctx.fileAddedMs) <= SAVE_LINK_MS; }) : null;
+        var savedHere = ctx.savedBySignal && ctx.fileAddedMs != null ? prep.saveEvents.find(function (e) { return Math.abs(e.ms - ctx.fileAddedMs) <= SAVE_LINK_MS; }) : null;
 
         // Filnamnet för en sparad bilaga bär meddelandets date_sent.
         var nameTime = savedNameTime(ctx.fileName);
         var nameMatch = null;
         if (nameTime) {
-            matches.concat(attachments.map(function (a) { return { row: a }; })).some(function (x) {
-                var a = x.row;
+            var named = function (a) {
                 if (a.sentMs == null) return false;
                 var w = wall(a.sentMs);
                 var hit = nameTime.ms ? w.slice(0, 23) === nameTime.text : w.slice(0, 19) === nameTime.text;
                 if (hit) nameMatch = { attachment: a, text: nameTime.text };
                 return hit;
-            });
+            };
+            if (!matches.some(function (x) { return named(x.row); })) attachments.some(named);
         }
 
         // Meddelandena i fönstret.
@@ -265,10 +305,12 @@
                 text: text, plain: plain, source: Object.assign({}, srcMain, { column: own ? 'date_sent' : 'date_received (date_sent, date_server)' }) });
         });
 
-        // Loggen i fönstret.
+        // Loggen i fönstret. En händelse har loggradens tid, så raderna utanför fönstret (ctx.keep) behöver inte
+        // bli händelser som sedan sorteras bort.
         var known = {};
         (ctx.messages || []).forEach(function (m) { known[m.id] = true; });
-        log.forEach(function (e) {
+        var shown = ctx.linkOnly ? [] : typeof ctx.keep === 'function' ? log.filter(function (e) { return ctx.keep(e.ms); }) : log;
+        shown.forEach(function (e) {
             var src = Object.assign({}, srcLog, { column: 'created_at, body' });
             var base = { ms: e.ms, lane: 'signal', app: APP, source: src, logKind: e.kind };
             switch (e.kind) {
@@ -306,7 +348,7 @@
                     if (known[e.messageId]) {
                         events.push(Object.assign(base, { kind: 'sig-log', text: 'Signals logg: meddelande ' + e.messageId + ' skickat' + (e.group ? ' till en grupp' : ''), plain: null }));
                     } else {
-                        events.push(Object.assign(base, { kind: 'sig-log', text: 'Signals logg: meddelande ' + e.messageId + ' skickat (finns inte i databasens fönster' + (log.some(function (x) { return x.kind === 'delete' && x.messageId === e.messageId; }) ? ', raderat senare' : '') + ')',
+                        events.push(Object.assign(base, { kind: 'sig-log', text: 'Signals logg: meddelande ' + e.messageId + ' skickat (finns inte i databasens fönster' + (prep.deleted[e.messageId] ? ', raderat senare' : '') + ')',
                             plain: 'Ett meddelande skickas i Signal' }));
                     }
                     break;
@@ -355,9 +397,10 @@
                     sentMs: a.sentMs, receivedMs: a.receivedMs, serverMs: a.serverMs, uploadMs: a.uploadMs, viewOnce: Number(a.viewOnce) === 1, deleted: a.deletedBy != null && a.deletedBy !== '',
                 };
             }),
-            picks: picks.map(function (p) {
-                return { ms: p.ms, source: p.source, attachmentId: p.attachmentId, messageId: p.messageId, discarded: p.discarded,
-                    sentLater: p.sentLater ? { ms: p.sentLater.ms, messageId: p.sentLater.messageId } : null, deletedLater: p.deletedLater ? { ms: p.deletedLater.ms, forAll: p.deletedLater.forAll } : null };
+            picks: picks.map(function (p, i) {
+                var info = pickInfo[i];
+                return { ms: p.ms, source: p.source, attachmentId: p.attachmentId, messageId: info.messageId, discarded: p.discarded,
+                    sentLater: info.sentLater ? { ms: info.sentLater.ms, messageId: info.sentLater.messageId } : null, deletedLater: info.deletedLater ? { ms: info.deletedLater.ms, forAll: info.deletedLater.forAll } : null };
             }),
             saved: savedHere ? { ms: savedHere.ms } : null,
             nameTime: nameTime ? nameTime.text : null,
@@ -619,7 +662,7 @@
     var api = {
         findByHash: findByHash, attachmentText: attachmentText, attachmentTextIos: attachmentTextIos,
         APP: APP, APP_IOS: APP_IOS, isSignalApp: isSignalApp, isSignalIosApp: isSignalIosApp, b64ToHex: b64ToHex, direction: direction, directionIos: directionIos, kindOf: kindOf, savedNameTime: savedNameTime,
-        match: match, matchIos: matchIos, uriInfo: uriInfo, lineText: lineText, parseLog: parseLog, build: build, buildIos: buildIos, counterpart: counterpart, counterpartIos: counterpartIos,
+        match: match, matchIos: matchIos, uriInfo: uriInfo, lineText: lineText, parseLog: parseLog, prepare: prepare, build: build, buildIos: buildIos, counterpart: counterpart, counterpartIos: counterpartIos, ownPart: ownPart,
     };
     if (typeof module !== 'undefined' && module.exports) module.exports = api;
     else root.ProvenanceSignal = api;

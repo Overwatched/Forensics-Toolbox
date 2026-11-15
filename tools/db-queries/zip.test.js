@@ -80,6 +80,20 @@ for (const method of ['lagrad', 'deflate']) {
         const bad = await zip.extract(reader(buf), Object.assign({}, e, { crc32: (e.crc32 ^ 1) >>> 0 }), { piece: 4096 });
         assert.strictEqual(bad.crcOk, false);
     });
+
+    test('läsningen i bitar säger hur långt den har kommit, hela vägen till slutet (' + method + ')', async () => {
+        const buf = buildZip([{ name: 'stor.db', data: BIG, deflate: method === 'deflate' }]);
+        const e = (await zip.scan(reader(buf), buf.length, () => true)).entries[0];
+        const seen = [];
+        await zip.extract(reader(buf), e, { piece: 4096, onProgress: (done, total) => seen.push([done, total]) });
+        assert.ok(seen.length > 2, 'flera besked');
+        assert.ok(seen.every(([done, total], i) => total === BIG.length && done > 0 && done <= total && (!i || done > seen[i - 1][0])), 'beskeden växer och håller sig inom filen');
+        assert.strictEqual(seen[seen.length - 1][0], BIG.length);
+        // En post som ryms i en läsning är klar direkt och säger inget på vägen.
+        const quiet = [];
+        await zip.extract(reader(buf), e, { onProgress: (done) => quiet.push(done) });
+        assert.deepStrictEqual(quiet, []);
+    });
 }
 
 test('en post som är större eller mindre än zippen anger ger fel, i bitar också', async () => {

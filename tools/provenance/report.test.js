@@ -305,3 +305,17 @@ test('händelsetabellen: en rad med osäker tid står med råraden, och värdet 
     assert.ok(html.includes('+top=u0a128:'));
     assert.ok(/tiden osäker\)<\/td><td[^>]*>tänd<\/td>/.test(html), 'Värdet saknas i raden om skärmen');
 });
+
+test('en dekrypterad bilaga: protokollet säger att taggarna är ur innehållet, och utan nyckel står skälet i stället för taggar', () => {
+    const note = 'Filen ligger krypterad i zippen (Signals bilaga, attachment._id 7). Det som visas är det dekrypterade innehållet: 680 byte, SHA-256 ' + 'e'.repeat(64) + '. Summan är densamma som data_hash_end i signal.db.';
+    const open = report.protocol(model(), Object.assign({}, META, { fileEntry: Object.assign({}, META.fileEntry, { contentNote: note }) }));
+    assert.ok(open.includes('<b>Innehållet:</b> ' + note));
+    assert.ok(open.includes('EXIF-tagg i det dekrypterade innehållet') && !open.includes('EXIF-tagg i filen'));
+    // Filens egen summa står kvar bredvid: den gäller filen som den ligger.
+    assert.ok(open.includes(SHA) && open.includes('e'.repeat(64)));
+    const reason = 'Filen lästes, men den är en av Signals bilagor och ligger krypterad i zippen. Bilagenyckeln (modernKey) saknas.';
+    const shut = report.protocol(model(), Object.assign({}, META, { exifRows: [], fileMissingReason: reason }));
+    assert.ok(shut.includes('<b>Innehållet:</b> ' + reason) && !shut.includes('EXIF-tagg i'));
+    // En vanlig fil har ingen sådan rad.
+    assert.ok(!report.protocol(model(), META).includes('<b>Innehållet:</b>') && report.protocol(model(), META).includes('EXIF-tagg i filen'));
+});

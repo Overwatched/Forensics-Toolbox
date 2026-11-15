@@ -13,6 +13,8 @@
         { id: 'edited', label: 'Tecken på redigering' },
         { id: 'app', label: 'Filnamnsmönster' },
         { id: 'warning', label: 'Fel och varningar' },
+        { id: 'decrypted', label: 'Dekrypterat innehåll' },
+        { id: 'encrypted', label: 'Krypterade' },
     ];
 
     function $(id) { return document.getElementById(id); }
@@ -203,19 +205,35 @@
         var fresh = [];
         if (!busy && !queue.length) batch = { total: 0, done: 0, started: Date.now() };
         items.forEach(function (it) {
-            var file = it.file;
-            if (SKIP_NAMES.test(file.name)) { skipped++; return; }
-            var path = it.path || file.name;
-            var key = path + '|' + file.size + '|' + file.lastModified;
+            // En fil från disk, eller en hänvisning från Härkomst till en fil i extraktionen (ref): då finns namnet,
+            // storleken och tiden här, och innehållet hämtas när filen ska läsas eller visas.
+            var file = it.file || null;
+            var name = file ? file.name : String(it.name || '');
+            var size = file ? file.size : Number(it.size) || 0;
+            var modifiedMs = file ? file.lastModified : Number(it.lastModified) || 0;
+            if (SKIP_NAMES.test(name)) { skipped++; return; }
+            var path = it.path || name;
+            var key = path + '|' + size + '|' + modifiedMs;
             if (seen[key]) {
                 var had = rows.filter(function (r) { return r.key === key && !removed.has(r.id); })[0];
                 if (had) out.push(had);
+                // En fil som inte gick att läsa ur extraktionen förra gången, eller som låg krypterad utan nyckel,
+                // läses igen när listan skickas på nytt.
+                if (had && it.ref && (had.readError || had.contentState === 'encrypted') && queue.indexOf(had) < 0 && had !== busy) {
+                    had.ref = it.ref;
+                    had.readError = '';
+                    had.status = 'queued';
+                    had.tags = had.tagsAll = had.tagsKnown = had.summary = null;
+                    queue.push(had);
+                    fresh.push(had);
+                    added++;
+                }
                 return;
             }
             seen[key] = true;
             var row = {
-                id: nextId++, key: key, path: path, name: file.name, size: file.size,
-                modified: localTime(file.lastModified), file: file, status: 'queued', tags: null, summary: null, hay: '',
+                id: nextId++, key: key, path: path, name: name, size: size,
+                modified: localTime(modifiedMs), file: file, ref: file ? null : it.ref, status: 'queued', tags: null, summary: null, hay: '',
                 zipTimes: it.times || null, fsTimes: null,
             };
             rows.push(row);
@@ -280,6 +298,86 @@
         return out;
     }
 
+    // Innehållet i en rad: filen från disk, eller för en hänvisning filen som Härkomst läser ur extraktionen
+    // när den behövs. Med svaret följer postens tider, och för en av Signals bilagor om innehållet är dekrypterat.
+    var needs = {};
+    var needSeq = 0;
+    function hasContent(row) { return !!(row.file || row.ref); }
+    function content(row) {
+        if (row.file) return Promise.resolve(row.file);
+        if (!row.ref || !inToolbox()) return Promise.reject(new Error('Filen finns inte kvar att läsa.'));
+        return new Promise(function (resolve, reject) {
+            var token = 'f' + (++needSeq);
+            needs[token] = { row: row, resolve: resolve, reject: reject };
+            window.parent.postMessage({ source: 'forensics-toolbox', type: 'file-need', token: token, ref: row.ref }, '*');
+        });
+    }
+
+    function contentArrived(data) {
+        var need = needs[data.token];
+        if (!need) return;
+        delete needs[data.token];
+        if (data.error || !data.file) { need.reject(new Error(data.error || 'Filen kunde inte läsas ur extraktionen.')); return; }
+        if (data.times) need.row.zipTimes = data.times;
+        need.row.contentNote = data.note || '';
+        need.row.contentState = data.state || '';
+        need.resolve(data.file);
+    }
+
+    // En fil ur extraktionen som inte gick att läsa: skälet står på raden, och raden läses inte om av sig själv.
+    function failRead(row, text) {
+        row.readError = text;
+        storeTags(row, { 'ExifTool:Error': text }, !busyUnknown);
+        busy = null;
+        busyFrom = null;
+        complete(row, { 'ExifTool:Error': text }, busyUnknown);
+        pump();
+    }
+
+    // En liten bild åt listan och kartan för en fil ur extraktionen, så att innehållet inte ligger kvar i minnet.
+    var THUMB_SIDE = 240;
+    function smallImage(file) {
+        return new Promise(function (resolve) {
+            var url = URL.createObjectURL(file);
+            var img = new Image();
+            var done = function (blob) { URL.revokeObjectURL(url); resolve(blob || null); };
+            img.onload = function () {
+                try {
+                    var scale = Math.min(1, THUMB_SIDE / Math.max(img.naturalWidth, img.naturalHeight, 1));
+                    var c = document.createElement('canvas');
+                    c.width = Math.max(1, Math.round(img.naturalWidth * scale));
+                    c.height = Math.max(1, Math.round(img.naturalHeight * scale));
+                    c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+                    c.toBlob(done, 'image/jpeg', 0.8);
+                } catch (err) { done(null); }
+            };
+            img.onerror = function () { done(null); };
+            img.src = url;
+        });
+    }
+
+    function keepThumb(row, file) {
+        row.thumbTried = true;
+        return smallImage(file).then(function (blob) {
+            if (!blob) return;
+            row.thumb = blob;
+            scheduleRender();
+        });
+    }
+
+    // Visningen av bilder slogs på efter inläsningen: bilderna hämtas då en i taget för raderna som saknar en.
+    var thumbChain = Promise.resolve();
+    function fetchThumbs() {
+        rows.forEach(function (row) {
+            if (!row.ref || row.thumbTried || row.status !== 'done' || mediaKind(row) !== 'image') return;
+            row.thumbTried = true;
+            thumbChain = thumbChain.then(function () {
+                if (!showMedia || rows.indexOf(row) < 0) { row.thumbTried = false; return null; }
+                return content(row).then(function (file) { return keepThumb(row, file); }, function () {});
+            });
+        });
+    }
+
     function pump() {
         if (busy || !engine.ready) return;
         var row = null;
@@ -307,6 +405,22 @@
         busyUnknown = showUnknown;
         var unknown = busyUnknown;
         var send = function (file) { engine.worker.postMessage({ type: 'parse', id: row.id, file: file, unknown: unknown }); };
+        // En hänvisning: innehållet hämtas ur extraktionen, hålls medan filen läses och släpps sedan.
+        if (!row.file) {
+            content(row).then(function (file) {
+                if (busy !== row) return null;
+                row.held = file;
+                if (!engine.blobsBlocked) { send(file); return null; }
+                return file.arrayBuffer().then(function (buf) { send({ name: file.name, data: new Uint8Array(buf) }); });
+            }).catch(function (err) {
+                if (busy !== row) return;
+                var text = String(err && err.message || err);
+                if (from === 'reread') finish(row, { ok: false, error: text, unknown: unknown });
+                else failRead(row, text);
+            });
+            updateProgress();
+            return;
+        }
         // WebKit kan inte läsa en File i workern under file://. Då läses filen här och bytena skickas.
         if (engine.blobsBlocked) {
             row.file.arrayBuffer().then(function (buf) { send({ name: row.file.name, data: new Uint8Array(buf) }); }, function (err) {
@@ -328,8 +442,9 @@
     }
 
     function withOffice(row, tags) {
-        if (String(tags['File:FileTypeExtension'] || '').toLowerCase() !== 'zip' || !row.file) return Promise.resolve(tags);
-        return ExifCore.readZipEntries(row.file.size, readRange(row.file), inflateRaw, ExifCore.OFFICE_FILES)
+        var file = row.file || row.held;
+        if (String(tags['File:FileTypeExtension'] || '').toLowerCase() !== 'zip' || !file) return Promise.resolve(tags);
+        return ExifCore.readZipEntries(file.size, readRange(file), inflateRaw, ExifCore.OFFICE_FILES)
             .then(function (files) { return Object.assign({}, tags, ExifCore.officeTags(files)); })
             .catch(function () { return tags; });
     }
@@ -340,6 +455,7 @@
         busy = null;
         busyFrom = null;
         if (!msg.ok) {
+            row.held = null;
             if (from === 'reread') {
                 showToast('Kunde inte läsa om ' + row.name);
                 rereadDone++;
@@ -353,6 +469,8 @@
             return;
         }
         withOffice(row, msg.tags).then(function (tags) {
+            var held = row.held;
+            row.held = null;
             if (rows.indexOf(row) < 0) {
                 updateProgress();
                 pump();
@@ -360,6 +478,7 @@
             }
             storeTags(row, tags, unknown);
             publish(row);
+            if (held && showMedia && !row.thumb && mediaKind(row) === 'image') keepThumb(row, held);
             noteParse(row, from);
             updateProgress();
             scheduleRender();
@@ -382,6 +501,14 @@
         row.summary.appHit = ExifCore.matchApp(tags, (window.AppIds && AppIds.APPS) || []);
         row.status = 'done';
         var s = row.summary;
+        // En av Signals bilagor ur extraktionen: raden säger om taggarna är lästa ur det dekrypterade innehållet
+        // eller om filen ligger krypterad. Namnet är Signals eget (.mms), så det är inte en fel filändelse.
+        if (row.contentState === 'decrypted') {
+            s.flags = s.flags.filter(function (f) { return f.id !== 'ext'; });
+            s.mismatch = false;
+            s.flags.push({ id: 'decrypted', label: 'Dekrypterat innehåll', reason: row.contentNote });
+        } else if (row.contentState === 'encrypted') s.flags.push({ id: 'encrypted', label: 'Krypterad', reason: row.contentNote });
+        else if (row.contentNote) s.flags.push({ id: 'warning', label: 'Varning', reason: row.contentNote });
         row.hay = [
             row.path, s.type, s.mime, s.taken && s.taken.text, s.device && s.device.text, s.software && s.software.text,
             s.flags.map(function (f) { return f.label; }).join(' '),
@@ -394,8 +521,8 @@
         var have = showUnknown ? row.tagsAll : row.tagsKnown;
         if (from === 'queue') batch.done++;
         else if (have) rereadDone++;
-        if (row.file && have) return;
-        if (!row.file || row.status === 'queued' || reread.indexOf(row) >= 0) return;
+        if (hasContent(row) && have) return;
+        if (!hasContent(row) || row.status === 'queued' || reread.indexOf(row) >= 0) return;
         reread.push(row);
         rereadTotal++;
     }
@@ -414,7 +541,7 @@
     }
 
     function cancel() {
-        queue.forEach(function (r) { delete seen[r.path + '|' + r.size + '|' + (r.file && r.file.lastModified)]; });
+        queue.forEach(function (r) { delete seen[r.key]; });
         var dropped = queue.length;
         queue = [];
         rows = rows.filter(function (r) { return r.status !== 'queued' || r === busy; });
@@ -626,7 +753,7 @@
             : Promise.resolve('');
         ready.then(function (src) {
             var blob = !src;
-            if (blob && row.file) src = URL.createObjectURL(row.file);
+            if (blob && (row.file || row.thumb)) src = URL.createObjectURL(row.file || row.thumb);
             if (gen !== thumbGeneration || !el.isConnected || !src) {
                 if (blob && src) URL.revokeObjectURL(src);
                 return;
@@ -639,7 +766,8 @@
     function fileCell(row) {
         var file = make('td', 'cell-file');
         var line = make('div', 'file-line');
-        var kind = showMedia && row.file ? mediaKind(row) : '';
+        // En fil ur extraktionen visas med den lilla bilden som gjordes när filen lästes. Video därifrån har ingen.
+        var kind = !showMedia ? '' : row.file ? mediaKind(row) : row.thumb ? 'image' : '';
         if (kind) {
             var thumb = document.createElement(kind === 'video' ? 'video' : 'img');
             thumb.className = 'row-thumb';
@@ -879,7 +1007,7 @@
             },
             getFile: function (id) {
                 var row = rows.filter(function (r) { return r.id === id; })[0];
-                return row ? row.file : null;
+                return row ? row.file || row.thumb || null : null;
             },
             copy: copyText,
             openExternal: openExternal,
@@ -974,8 +1102,36 @@
         clearMediaNode();
         if (!showMedia || !host) return;
         var kind = mediaKind(row);
-        if (!kind || !row.file) {
+        if (!kind || !hasContent(row)) {
             host.append(make('p', 'media-note', 'Den här filen är inte en bild eller video.'));
+            return;
+        }
+        var show = function (src) {
+            var el = document.createElement(kind === 'video' ? 'video' : 'img');
+            el.className = 'media-view';
+            if (kind === 'image') el.alt = '';
+            if (kind === 'video') {
+                el.controls = true;
+                el.preload = 'metadata';
+            }
+            el.addEventListener('error', function () {
+                if (el.parentNode) el.remove();
+                if (!host.querySelector('.media-miss')) host.append(make('p', 'media-note media-miss', 'Innehållet kunde inte visas. Filen är orörd.'));
+            });
+            el.src = src;
+            host.append(el);
+        };
+        // En fil ur extraktionen: innehållet hämtas genom Härkomst när filen öppnas.
+        if (!row.file) {
+            host.append(make('p', 'media-note', 'Innehållet läses ur extraktionen genom Härkomst, och extraktionen ändras inte.' + (row.contentState === 'decrypted' ? ' Det som visas är det dekrypterade innehållet.' : '')));
+            content(row).then(function (file) {
+                if (token !== mediaToken || selected !== row || !showMedia) return;
+                mediaObjectUrl = URL.createObjectURL(file);
+                show(mediaObjectUrl);
+            }, function (err) {
+                if (token !== mediaToken || selected !== row) return;
+                host.append(make('p', 'media-note media-miss', 'Innehållet kunde inte visas: ' + (err && err.message || err)));
+            });
             return;
         }
         host.append(make('p', 'media-note', 'Källfilen skrivs inte och ändringstiden står kvar. Åtkomsttiden kan uppdateras av operativsystemet när innehållet visas (utom i Linux). Stäng av visningen om åtkomsttiden ska bevaras.'));
@@ -991,23 +1147,26 @@
                 mediaObjectUrl = URL.createObjectURL(row.file);
                 src = mediaObjectUrl;
             }
-            var el = document.createElement(kind === 'video' ? 'video' : 'img');
-            el.className = 'media-view';
-            if (kind === 'image') el.alt = '';
-            if (kind === 'video') {
-                el.controls = true;
-                el.preload = 'metadata';
-            }
-            el.addEventListener('error', function () {
-                if (el.parentNode) el.remove();
-                if (!host.querySelector('.media-miss')) host.append(make('p', 'media-note media-miss', 'Innehållet kunde inte visas. Filen är orörd.'));
-            });
-            el.src = src;
-            host.append(el);
+            show(src);
         }).catch(function () {
             if (token !== mediaToken || selected !== row || !host) return;
             host.append(make('p', 'media-note media-miss', 'Innehållet kunde inte visas. Filen är orörd.'));
         });
+    }
+
+    // Läser en fil ur extraktionen igen, efter att den inte gick att läsa (extraktionen var till exempel stängd).
+    function retryRead(row) {
+        if (!row.readError || rows.indexOf(row) < 0 || queue.indexOf(row) >= 0 || busy === row) return;
+        row.readError = '';
+        row.status = 'queued';
+        row.tags = row.tagsAll = row.tagsKnown = row.summary = null;
+        if (!busy && !queue.length) batch = { total: 0, done: 0, started: Date.now() };
+        batch.total++;
+        queue.push(row);
+        updateProgress();
+        scheduleRender();
+        renderDetail();
+        pump();
     }
 
     function renderDetail() {
@@ -1021,7 +1180,7 @@
         var s = row.summary;
         summaryRow(dl, 'Storlek', humanSize(row.size) + ' (' + row.size.toLocaleString('sv-SE') + ' byte)');
         if (s) {
-            if (showUnknown && row.file && !row.tagsAll) summaryRow(dl, 'Taggar', 'Läser alla värden, även okända…');
+            if (showUnknown && hasContent(row) && !row.tagsAll) summaryRow(dl, 'Taggar', 'Läser alla värden, även okända…');
             var type = summaryRow(dl, 'Filtyp', [s.type, s.mime].filter(Boolean).join(' · '), 'File:FileType');
             if (type && s.mismatch) type.append(make('div', 'reason bad', s.flags.filter(function (f) { return f.id === 'ext'; })[0].reason));
             // Tiderna inuti filen som de står där, med samma tid i UTC, så att de går att jämföra med filsystemets.
@@ -1035,6 +1194,12 @@
         var fsRows = timeRows(row);
         if (fsRows.length) dl.append(make('dt', 'summary-group', row.zipTimes ? 'Filsystemets tider, sparade i ' + (row.zipTimes.field === 'report.xml' ? 'rapporten' : 'zippen') : 'Filsystemets tider för filen på den här datorn'));
         fsRows.forEach(function (t) { summaryRow(dl, t[0], t[1] + (t[3] ? ' = ' + t[3] : ''), t[2]); });
+        if (row.readError) {
+            var again = make('span');
+            again.append(make('div', '', 'Filen kunde inte läsas ur extraktionen.'));
+            again.append(linkButton('Försök igen', function () { retryRead(row); }));
+            summaryRow(dl, 'Läsningen', again);
+        }
         if (!s) {
             summaryRow(dl, 'Status', row === busy ? 'Läser…' : 'Väntar på ExifTool');
             $('detail-groups').textContent = '';
@@ -1246,7 +1411,7 @@
         var withFiles = pts.length <= FILE_CAP;
         if (withFiles) {
             var files = {};
-            done.forEach(function (r) { files[r.id] = r.file; });
+            done.forEach(function (r) { files[r.id] = r.file || r.thumb; });
             pts.forEach(function (p) { if (files[p.id]) p.file = files[p.id]; });
         }
         pts.forEach(function (p) {
@@ -1278,9 +1443,11 @@
             else showToast('Bilden finns inte kvar i listan.');
             return;
         }
-        // Filer från Härkomst (lästa ur extraktionen): de läses som filer från disk, och en ensam fil öppnas.
+        if (data.type === 'file-content') { contentArrived(data); return; }
+        // Filer från Härkomst, som hänvisningar till filerna i extraktionen: innehållet hämtas när en fil ska läsas
+        // eller visas. En ensam fil öppnas.
         if (data.type === 'exif-files' && Array.isArray(data.files)) {
-            var got = addFiles(data.files.filter(function (f) { return f && f.file; }));
+            var got = addFiles(data.files.filter(function (f) { return f && (f.file || (f.ref && f.name)); }));
             if (got && got.length) {
                 showToast(got.length === 1 ? got[0].name + ' från Härkomst' : got.length + ' filer från Härkomst');
                 if (data.open && got.length === 1) openDetail(got[0]);
@@ -1290,6 +1457,10 @@
         // Huvudfönstret vill bedöma den öppnade filen i Härkomst.
         if (data.type === 'deliver-file' && data.to === 'provenance' && announced && announced.file) {
             window.parent.postMessage({ source: 'forensics-toolbox', type: 'file-for', to: 'provenance', files: [{ file: announced.file, path: announced.path }] }, '*');
+        }
+        // En fil som kom från extraktionen bedöms där på sitt namn, som när den skrivs in i Härkomst.
+        if (data.type === 'deliver-file' && data.to === 'provenance' && announced && !announced.file && announced.ref) {
+            window.parent.postMessage({ source: 'forensics-toolbox', type: 'names-for', to: 'provenance', names: [announced.name], zipName: announced.ref.zip.name }, '*');
         }
     });
 
@@ -1336,10 +1507,10 @@
         catch (err) { /* inställningen gäller bara den här visningen */ }
         syncUnknownBoxes();
         reread = reread.filter(function (row) {
-            return row.file && rows.indexOf(row) >= 0 && !(on ? row.tagsAll : row.tagsKnown);
+            return hasContent(row) && rows.indexOf(row) >= 0 && !(on ? row.tagsAll : row.tagsKnown);
         });
         rows.forEach(function (row) {
-            if (!row.file || row.status === 'queued') return;
+            if (!hasContent(row) || row.status === 'queued') return;
             if (on ? row.tagsAll : row.tagsKnown) {
                 publish(row);
                 return;
@@ -1375,6 +1546,7 @@
         syncMediaButton();
         if (!showMedia) releaseMedia();
         else if (selected) renderMedia(selected);
+        if (showMedia) fetchThumbs();
         render();
     });
     $('detail-close').addEventListener('click', closeDetail);
