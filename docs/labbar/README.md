@@ -23,3 +23,27 @@ Två telefoner, en iPhone och en Samsung, som är vänner i Snapchat. Labben ger
 **Del 2** (`snapchat-memories-del2.json`, 13 steg, koder N01–N13). Gör den efter att del 1 är extraherad. Snapchat avinstalleras och installeras igen på båda telefonerna. Då finns de sparade snapsen bara på Snapchats server, utom den som öppnas i steg N06 och N10. Extrahera telefonerna igen efteråt. Jämför med del 1: vad finns kvar i `scdb-27`, `gallery.encrypteddb`, `memories.db` och cachen när filen inte har hämtats.
 
 Skriv lösenkoden till My Eyes Only i labbens anteckningar, inte här.
+
+### En telefon (OnePlus)
+
+`snapchat-memories-oneplus-del1.json` (14 steg, P01–P14) och `snapchat-memories-oneplus-del2.json` (7 steg, Q01–Q07) är samma labb för en enda telefon. Bilden och videon som skickas ur Memories går till en vän i Snapchat, ett annat konto. Skriv vännens användarnamn i anteckningarna. Det som bara går med två telefoner (att den andra öppnar snappen) är borttaget.
+
+### Extraktion med root (inte provad)
+
+Toolbox läser en zip. Ta bara med det labben behöver: en egen telefon har mycket annat i `/data`, och det ska inte med. Gör extraktionen efter steget med flygplansläge, med Snapchat stängt.
+
+1. Kontrollera roten och vilket paket bildbiblioteket (MediaStore) har:
+   `adb shell su -c id` och `adb shell su -c 'ls /data/data' | grep providers.media`
+2. Hämta delarna som ett tar-arkiv, med filernas tider. Byt paketnamnet mot det som steg 1 visade:
+   ```
+   adb exec-out "su -c 'tar -cf - -C / data/data/com.snapchat.android data/data/com.google.android.providers.media.module/databases data/system/usagestats data/system/appops/discrete data/media/0/DCIM/Snapchat data/media/0/DCIM/Camera'" > oneplus-del1.tar
+   ```
+   `DCIM/Camera` behövs för klockbilderna. Den har också telefonens andra bilder; ta bort de andra ur arkivet om de inte ska med.
+3. Gör om arkivet till en zip utan att packa upp det. `tar` på macOS och Windows 10 och senare är bsdtar, som skriver filernas ändringstid i zippens UT-fält:
+   ```
+   tar -cf oneplus-del1.zip --format zip @oneplus-del1.tar
+   ```
+   Kontrollerat 2026-11-16 med bsdtar 3.5.3 på macOS: tiderna kom med på sekunden.
+4. Räkna SHA-256 på tar-arkivet och zippen och skriv dem i anteckningarna. Spara loggen från Laboration bredvid zippen.
+
+Extraktionerna och loggen hör inte hemma i repot.
