@@ -249,17 +249,21 @@
         return wins;
     }
 
-    // Kolumnen för en av filsystemets tider, efter fältet den kommer ur.
-    var FS_COLUMNS = {
-        'NTFS-fältet': { created: 'skapad', modified: 'ändrad', accessed: 'åtkomst' },
+    // Källan för en av filsystemets tider: vad tiden är i klartext, och inom parentes var den står. Namnet i
+    // filen står med där det finns ett. I UT-fältet står skapandetiden och ctime på platser som fältets
+    // beskrivning inte nämner, så där står platsen med.
+    var FS_WORDS = { created: 'filens skapandetid', modified: 'filens ändringstid', accessed: 'senast läst', changed: 'metadata ändrad', third: 'tredje tiden' };
+    var FS_NAMES = {
+        'UT-fältet': { created: 'fjärde tiden', changed: 'tredje tiden' },
         'report.xml': { created: 'CreationTime', modified: 'ModifyTime', accessed: 'AccessTime', changed: 'ChangeTime' },
         'metadata.msgpack': { created: 'btime', modified: 'mtime', accessed: 'atime', changed: 'ctime' },
     };
-    var FS_ORDINALS = { created: 'fjärde tiden', modified: 'första tiden', accessed: 'andra tiden', changed: 'tredje tiden', third: 'tredje tiden' };
-    function fsColumn(field, which) { return (FS_COLUMNS[field] || {})[which] || FS_ORDINALS[which]; }
+    function fsColumn(field, which) {
+        var name = (FS_NAMES[field] || {})[which];
+        return FS_WORDS[which] + (field ? ' (' + field + (name ? ', ' + name : '') + ')' : '');
+    }
     function fsSource(fe, which) {
-        var db = fe.timeField === 'report.xml' ? 'Rapporten' : 'Zippen';
-        return fe.timeField ? { db: db, table: fe.timeField, column: fsColumn(fe.timeField, which) } : { db: db, column: fsColumn(fe.timeField, which) };
+        return { db: fe.timeField === 'report.xml' ? 'Rapporten' : 'Zippen', column: fsColumn(fe.timeField, which) };
     }
 
     // Filens tid i filsystemet som egen tidpunkt: en tid inuti filen kan vara år gammal när filen är ny på
@@ -405,7 +409,7 @@
         var tInFile = fileSrc.db === 'bildfilen';
         var tInFs = isFsSource(fileSrc);
         var created = { ms: file.createdMs, kind: 'file-created', lane: 'file', bold: true,
-            text: tInFile ? 'Tiden i filen (' + (fileSrc.column || 'EXIF') + ')' : tInFs ? 'Ändrad i filsystemet (' + (fileSrc.column || 'ändringstid') + ')'
+            text: tInFile ? 'Tiden i filen (' + (fileSrc.column || 'EXIF') + ')' : tInFs ? 'Ändrad i filsystemet'
                 : 'Skapad (' + (fileSrc.column || (input.platform === 'Android' ? 'datetaken' : 'ZDATECREATED')) + ')',
             // För en fil i Snapchats cache berättar Snapchat-händelsen vad som hände, så raden här får ingen egen mening.
             plain: type.type === 'snapchat' ? null : noun + ' ' + file.filename + ' ' + fileVerb(type, input.platform) +
@@ -426,7 +430,7 @@
         }
         if (input.fileEntry && input.fileEntry.mtimeMs && !tInFs) {
             add({ ms: input.fileEntry.mtimeMs, kind: 'fs-mtime', lane: 'file', text: 'Ändrad i filsystemet', plain: null,
-                source: { db: input.container || 'zippen', table: input.fileEntry.name, column: input.fileEntry.timeField === 'report.xml' ? 'ModifyTime' : input.fileEntry.timeField === 'metadata.msgpack' ? 'mtime' : 'ändringstid' } });
+                source: { db: input.container || 'zippen', table: input.fileEntry.name, column: fsColumn(input.fileEntry.timeField, 'modified') } });
         }
         // Filens skapandetid, när den är en egen tidpunkt: annars skulle tidslinjen sakna det den visar.
         var fsWin = wins.filter(function (w) { return w.id === 'filesystem'; })[0];
@@ -747,13 +751,13 @@
             add('fs-created', fe.createdMs, 'Skapad i filsystemet', fs('created'));
             add('fs-third', fe.thirdMs, 'Tredje tiden i zippen (skapad eller ctime)', fs('third'), 'Zippen säger inte vilken av dem det är.');
             if (fe.mtimeMs) add('fs-modified', fe.mtimeMs, 'Ändrad i filsystemet', fs('modified'), '', tInFs);
-            else if (tInFs) add('fs-modified', T, 'Ändrad i filsystemet', { db: 'Zippen', column: 'DOS-tid' }, 'I zippen: ' + (fe.mtimeText || '') + '. Zippen anger ingen tidszon.', true);
-            else if (fe.mtimeText) missing.push({ id: 'fs-modified', ms: null, label: 'Ändrad i filsystemet', source: { db: 'Zippen', column: 'DOS-tid' }, note: '', isT: false, text: fe.mtimeText });
+            else if (tInFs) add('fs-modified', T, 'Ändrad i filsystemet', { db: 'Zippen', column: 'filens ändringstid (DOS-tid)' }, 'I zippen: ' + (fe.mtimeText || '') + '. Zippen anger ingen tidszon.', true);
+            else if (fe.mtimeText) missing.push({ id: 'fs-modified', ms: null, label: 'Ändrad i filsystemet', source: { db: 'Zippen', column: 'filens ändringstid (DOS-tid)' }, note: '', isT: false, text: fe.mtimeText });
             if (named && !fe.changedMs) absent('fs-changed', 'Metadata ändrad (ctime)', 'Rapporten anger ingen sådan tid för filen.');
             else add('fs-changed', fe.changedMs, 'Metadata ändrad (ctime)', fs('changed'), 'Flyttas också när filens metadata ändras, så den säger inte när filen kom till.');
             add('fs-accessed', fe.accessedMs, 'Senast läst i filsystemet', fs('accessed'));
         } else if (tInFs) {
-            add('fs-modified', T, 'Ändrad i filsystemet', { db: inReport ? 'Rapporten' : 'Zippen', column: src.column || 'ändringstid' }, '', true);
+            add('fs-modified', T, 'Ändrad i filsystemet', { db: inReport ? 'Rapporten' : 'Zippen', column: src.column || 'filens ändringstid' }, '', true);
         } else {
             absent('fs', 'Filsystemets tider', inReport ? 'Filen finns inte i rapporten.' : 'Filen hittades inte i zippen.');
         }
@@ -2031,7 +2035,7 @@
 
     var api = {
         flagText: flagText, stamper: stamper, fileTimes: fileTimes, gapText: gapText, isQuickTimeTag: isQuickTimeTag,
-        classify: classify, windows: windows, fsMoment: fsMoment, momentEvents: momentEvents, intervalsFromEvents: intervalsFromEvents, mergeIntervals: mergeIntervals,
+        classify: classify, windows: windows, fsMoment: fsMoment, fsColumn: fsColumn, momentEvents: momentEvents, intervalsFromEvents: intervalsFromEvents, mergeIntervals: mergeIntervals,
         buildEvents: buildEvents, narrative: narrative, build: build, summaryText: summaryText, hypothesis: hypothesis, FACTOR_WORDS: FACTOR_WORDS,
         formatWithOffset: formatWithOffset, formatUtc: formatUtc, duration: duration, appName: appName, isCameraApp: isCameraApp, covers: covers,
         positions: positions, distanceM: distanceM, metres: metres, validCoord: validCoord, inWindows: inWindows, activityAt: activityAt,

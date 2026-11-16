@@ -252,10 +252,11 @@
 
     function timeOnly(fmt, ms) { return fmt(ms).slice(11, 19); }
 
+    // Raden som är den bedömda filen står i fetstil, som i nyckelhändelserna.
     function eventsTableHtml(model, meta) {
         var fmt = meta.format, fmtUtc = meta.formatUtc;
         return table(['Tid (' + meta.zoneLabel + ')', 'UTC', 'Händelse', 'Värde', 'Till', 'Källa', 'Query'], model.events.map(function (e) {
-            return [fmt(e.ms), fmtUtc(e.ms), e.text, eventValue(e), e.endMs != null ? fmt(e.endMs) + (e.openEnded ? ' (pågår)' : '') : '', sourceText(e.source), e.source && e.source.queryId || ''];
+            return [fmt(e.ms), fmtUtc(e.ms), e.bold ? { html: '<b>' + esc(e.text) + '</b>' } : e.text, eventValue(e), e.endMs != null ? fmt(e.endMs) + (e.openEnded ? ' (pågår)' : '') : '', sourceText(e.source), e.source && e.source.queryId || ''];
         }));
     }
 

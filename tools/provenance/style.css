@@ -178,12 +178,22 @@ tr.chosen td { background: var(--accent-soft); }
 .times tr.time-t td { background: var(--accent-soft); font-weight: 600; }
 .times tr.time-t .time-note { font-weight: 400; }
 .times-actions { margin: 0 0 8px; }
-/* Frågan faktorn prövar och vad svaret betyder för hypotesen i sammanvägningen. */
-.factor .question { margin: 0 0 4px; font-size: 13px; color: var(--text-muted); }
-.factor .meaning { margin: 0 0 8px; font-size: 13px; font-weight: 600; }
-.factor .meaning.support { color: var(--ok); }
-.factor .meaning.contradiction { color: var(--error); }
-.factor .meaning.missing { color: var(--warn); }
+/* Frågan faktorn prövar och svaret, i en ruta i lägets färg så att ögat hittar dit först. Under den vad svaret
+   betyder för hypotesen i sammanvägningen. */
+.factor .qa { margin: 0 0 8px; padding: 8px 10px; border-radius: 8px; border-left: 4px solid var(--border); background: var(--surface-hover); }
+.factor .qa .question { margin: 0 0 4px; font-size: 14px; font-weight: 600; line-height: 1.35; }
+.factor .qa .answer { margin: 0; display: flex; align-items: center; gap: 7px; font-size: 15px; font-weight: 700; line-height: 1.3; color: var(--text-muted); }
+.factor .qa .mark-sign { background: var(--surface); }
+.factor .qa.support { border-left-color: var(--ok); background: var(--ok-soft); }
+.factor .qa.support .answer { color: var(--ok); }
+.factor .qa.contradiction { border-left-color: var(--error); background: var(--error-soft); }
+.factor .qa.contradiction .answer { color: var(--error); }
+.factor .qa.contradiction .mark-sign { background: var(--error); color: #fff; }
+.factor .qa.missing { border-left-color: var(--warn); background: var(--warn-soft); }
+.factor .qa.missing .answer { color: var(--warn); }
+.factor .qa.info { border-left-color: var(--accent); background: var(--accent-soft); }
+.factor .qa.info .answer { color: var(--accent); }
+.factor .meaning { margin: 0 0 8px; font-size: 13px; }
 .badge { display: inline-block; font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 999px; background: var(--surface-hover); color: var(--text-muted); }
 .badge.support { background: var(--ok-soft); color: var(--ok); }
 .badge.contradiction { background: var(--error-soft); color: var(--error); }
@@ -241,6 +251,9 @@ pre.sql { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 12px; w
 #positions { max-height: 320px; margin-top: 10px; }
 #positions td.num { font-variant-numeric: tabular-nums; white-space: nowrap; }
 .pos-file td { background: var(--accent-soft); }
+/* Raden som är den bedömda filen, i nyckelhändelserna och i Händelser med källa. */
+tr.ev-file td { background: var(--accent-soft); }
+.narrative tr.ev-file td:first-child { padding-left: 6px; }
 .pos-stay td { background: rgba(191, 90, 242, 0.10); }
 .pos-keep td { font-weight: 600; }
 

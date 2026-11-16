@@ -1,5 +1,22 @@
 Automatiskt byggd från commit `{{SHA}}`.
 
+## Nytt i 1.69
+
+**Härkomst lyfter fram frågan och svaret i varje faktor och markerar filens rad i tabellerna, och appen frågar om vyerna ska rensas när extraktionen byts.**
+
+- **Frågan och svaret i en ruta:** i Härkomsts "4. Underlag för bedömning" står varje faktors fråga och svar i en egen ruta överst i faktorn. Rutan har lägets färg: grön för förenligt, röd för inte förenligt, gul för saknas och blå för upplysning. Frågan står i fetstil, och under den svaret med sitt tecken i större stil. Märket som stod i faktorns rubrik är borta, eftersom rutan säger samma sak. Meningen om vad svaret betyder står under rutan i vanlig text.
+- **Filens rad är markerad:** i "Händelser med källa" har raden som är den bedömda filen egen bakgrund och fetstil, på samma sätt som filens rad i Positioner. Raden är markerad likadant i Nyckelhändelser.
+- **Tabellen står vid filens rad:** "Händelser med källa" kan vara hundratals rader i en ruta som rullar. När den öppnas står rutan med filens rad i mitten.
+- **Till Word:** i kopian av "Händelser med källa" och i protokollet står filens rad i fetstil.
+- **Rensa vyerna?** Byter eller stänger du extraktionen medan Härkomst, Queries, EXIF & karta eller Positioner visar något från den gamla, frågar appen om vyerna ska rensas, och säger vad som står kvar i var och en. "Låt stå kvar" ändrar ingenting. "Rensa alla vyer" låter vyerna i frågan börja om, och deras inställningar går då tillbaka till utgångsläget. Ingen fråga kommer när den första extraktionen öppnas eller när ingenting står kvar.
+- **Det som står kvar är märkt:** får något stå kvar i EXIF & karta eller Positioner, står det en rad ovanför verktyget om vilken extraktion innehållet visades för, med knappen "Rensa vyn".
+- **Filsystemets tider i klartext:** källan för en fils tider skrivs nu "Zippen → filens ändringstid (UT-fältet)" i stället för bara fältets namn. Orden är filens ändringstid, filens skapandetid, senast läst och metadata ändrad, och platsen de lästes ur står inom parentes. Det gäller Härkomsts tabeller, tidslinje och protokoll och raderna i EXIF & karta. En tid som inte går att tolka säkert får inget nytt ord.
+- **Laboration:** bilden i ett spår är aldrig bredare än sin cell, så att den inte sticker ut i ett smalt fönster med rullningslist.
+- **Inget skrivs** till extraktionen eller till disken.
+- **Provat:** enhetstesterna, röktestet i appen och html-versionen i Chrome på macOS, med påhittade extraktioner. Rutan med fråga och svar och de markerade raderna är sedda i mörkt och ljust tema, i brett och smalt fönster, med testdata för iOS och för Snapchat.
+- **Inte provat:** en riktig extraktion efter de här ändringarna. Frågan om att rensa med ett verktyg som arbetar länge: en vy som inte svarar inom 1,5 sekunder står i frågan som att den arbetar. Tangentbordet i frågan i ett fönster som verkligen har fokus. Inklistring i Word av tabellen med filens rad i fetstil. Windows och Linux provas först i bygget.
+- **Kvar:** flera extraktioner öppna samtidigt finns inte. Bilderna av Härkomst i README visar det äldre utseendet.
+
 ## Nytt i 1.68
 
 **Laboration läser in en genomförd laboration och visar var varje steg står i enheterna, med länk till källan.**

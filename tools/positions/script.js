@@ -719,5 +719,11 @@
         receivePositions(data);
     });
 
+    // Positioner följer inte extraktionen: källorna står kvar när den byts eller stängs (toolkit.js).
+    if (window.toolboxHolds) window.toolboxHolds(function () {
+        var n = layers.reduce(function (sum, l) { return sum + l.points.length; }, 0);
+        return { items: layers.length ? [n + (n === 1 ? ' punkt' : ' punkter') + ' i ' + layers.length + (layers.length === 1 ? ' källa' : ' källor')] : [] };
+    });
+
     ensureMap().show();
 })();

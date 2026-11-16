@@ -170,6 +170,32 @@ npm test
   Härkomst svarar `{ type: 'file-content', token, file, times, note, state }` eller `{ …, error }`. Se "Listan till
   EXIF & karta" under Härkomst.
 
+#### Det som står kvar när extraktionen byts eller stängs
+
+Byts eller stängs extraktionen medan en vy visar något som inte hör till den nya, frågar huvudfönstret en gång
+om vyerna ska rensas (`askWhatStays()` i `src/script.js`, `#clear-modal` i `Toolbox.html`).
+
+- Bytet görs först och väntar inte på svaret. `setExtraction()` frågar efteråt, och bara när en extraktion
+  var öppen före. Öppnas den första extraktionen, eller står ingenting kvar, kommer ingen fråga.
+- Huvudfönstret frågar vyerna i `VIEW_TOOLS` (Härkomst, Queries, EXIF & karta och Positioner) med
+  `{ type: 'holds-ask', id, file, force }`, och varje vy svarar `{ type: 'holds', id, items, own }`:
+  `items` är rader i klartext om det som står kvar, och `own` säger att vyn själv skriver ut vad det hör till
+  (Härkomst och Queries). Svaret byggs av `whatStays()` i verktyget och skickas med `toolboxHolds()` i
+  `tools/_shared/toolkit.js`. En vy som inte svarar på 1,5 s räknas som att något står kvar. Chattar frågas
+  inte, för den följer alltid extraktionen, och Laboration har sina egna extraktioner.
+- "Låt stå kvar" (också Esc och klick utanför rutan) ändrar ingenting. Vyerna som inte säger det själva får
+  raden `#kept-strip` ovanför verktyget med vilken extraktion innehållet visades för, och knappen "Rensa vyn".
+  Raden tas bort när vyn säger att den är tom: verktyget skickar `holds` på eget initiativ efter klick, val och
+  släpp när svaret har ändrats, och huvudfönstret frågar om när vyn visas (`checkKept()`).
+- "Rensa alla vyer" och "Rensa vyn" låter vyn börja om (`reloadView()`): ramen tas bort och en ny skapas, så att
+  ingenting finns kvar av det verktyget hade läst in, fått eller fyllt i. Inställningarna i vyn går tillbaka till
+  utgångsläget. Bara vyerna som stod i frågan börjar om. Den nya ramen får extraktionen som gäller när den är laddad.
+- Ett nytt verktyg som behåller något över ett byte anmäler det med `toolboxHolds()` och läggs i `VIEW_TOOLS`.
+- Medan frågan visas hålls markören i den (`questionFocus`), eftersom Härkomst ställer markören i sin ruta
+  när den nya extraktionen är öppnad.
+- I testerna svarar `c.keepByDefault()` (`tests/app/cdp.js`) "Låt stå kvar" med knappen inför varje scenario.
+  Ett scenario som svarar själv sätter `window.__ftAnswer = 'self'` i huvudfönstret så länge.
+
 #### Databaserna läses en gång (`tools/_shared/db-share.js`)
 
 Varje verktyg är en egen ram med eget minne. Förut läste, kontrollerade, hashade och dekrypterade därför Chattar,
@@ -328,6 +354,13 @@ i extraktionen med `-wal` pålagd, och bygger en händelselista i UTC.
   ger varje faktor dess fråga och svar i klartext (`FACTOR_WORDS`, `describeFactor()`: `question`, `verdict`,
   `meaning` mot `hypothesis()`), och har
   förklaringens ordförråd. Allt testas i Node.
+- Frågan och svaret står i en egen ruta överst i faktorn (`.qa` med lägets klass i `render()` i `script.js`, färgerna
+  i `style.css`): frågan i fetstil, under den lägets tecken (`STATE_SIGN`) och svaret. Rutan är det ögat ska hitta
+  först, så rubriken har inget märke och meningen om vad svaret betyder (`.meaning`) står under rutan utan färg.
+- Raden som är den bedömda filen (`bold` på händelsen eller raden) har klassen `ev-file` i Nyckelhändelser och i
+  Händelser med källa, med samma bakgrund som filens rad i Positioner. Händelser med källa rullar i en ruta, så
+  `showFileRow()` ställer rutan med filens rad i mitten när tabellen öppnas och när en ny fil visas. I kopian för
+  Word och i protokollet står raden i fetstil (`eventsTableHtml()` i `report.js`).
 - Filens tider (`fileTimes()` i `timeline-core.js`, `timesHtml()` i `script.js`, `timesTableHtml()` i `report.js`): faktorn
   Skapandetid har `times`, en rad per källa i tidsordning: tiden i filen, bibliotekets tider, andra register och filsystemets
   tider, med källa (databas → tabell → kolumn, Filen → tagg eller Zippen → fält → vilken tid), skillnaden mot T och en rad för
@@ -397,6 +430,12 @@ i extraktionen med `-wal` pålagd, och bygger en händelselista i UTC.
   innehållsförteckningen; resten läses ur den lokala posten när posten läses (`extract`).
   Posten får `mtime`, `atime`, `crtime` (skapad), `ctime`, `utThird` (Unix-sekunder) och `timeField`;
   `ExtractionCore.entryTimes()` ger dem som text. Utan något av fälten finns bara DOS-tiden (lokal tid, zon okänd).
+- Källan för en av filsystemets tider skrivs i klartext, med platsen inom parentes (`fsColumn()` i `timeline-core.js`):
+  "Zippen → filens ändringstid (UT-fältet)", "Rapporten → filens skapandetid (report.xml, CreationTime)",
+  "Zippen → filens ändringstid (DOS-tid)". Orden är filens ändringstid, filens skapandetid, senast läst och metadata ändrad.
+  Namnet i filen står med där det finns ett. I UT-fältet står platsen med för skapandetiden (fjärde tiden) och ctime
+  (tredje tiden), eftersom den tolkningen är härledd. Tredje tiden av tre får inget annat ord, den är inte tolkad.
+  Härkomsts tabeller, tidslinje och protokoll och EXIF & karta får texten från samma funktion (`handoverTimes()` lämnar den i `sources`).
 - Zippar med metadata (`tools/db-queries/fs-times.js`): har zippen `metadataN/metadata.msgpack` bredvid `filesystemN/` kommer tiderna därifrån, med riktiga namn och
   på millisekunden, avrundade från nanosekunder (`timeField` `metadata.msgpack`). Zippens egna fält säger inget i de zipparna: UT-fältet har flaggorna 7 och tre lika värden, alla lika med `atime`, och
   DOS-tiden är samma tid i lokal tid. Prövat på två iPhone-extraktioner, 329 181 och 315 296 filer: alla finns i kartan, och alla fyra tider stämmer med en

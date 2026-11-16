@@ -22,6 +22,42 @@ window.toolboxWasmProblem = function () {
         'Be den som ansvarar för datorn att tillåta JIT här, eller använd skrivbordsappen.';
 };
 
+// Det som står kvar i verktyget när extraktionen byts eller stängs. Huvudfönstret frågar (holds-ask) med
+// extraktionen som gäller nu, och verktyget svarar (holds) med det det visar som inte hör till den.
+// describe({ file, force }) -> { items: [text], own }. force: verktyget följer bytet även om det visar något.
+// own: verktyget skriver själv ut vad det som står kvar hör till. Efter frågan säger verktyget också till när
+// svaret ändras, till exempel när vyn töms med verktygets egen knapp.
+window.toolboxHolds = function (describe) {
+    if (window.parent === window) return;
+    var asked = null;
+    var sent = '';
+    function answer(id) {
+        var d = describe(asked) || {};
+        var items = (d.items || []).map(String);
+        sent = items.join('\n');
+        window.parent.postMessage({ source: 'forensics-toolbox', type: 'holds', id: id, items: items, own: !!d.own }, '*');
+    }
+    window.addEventListener('message', function (event) {
+        if (event.source !== window.parent) return;
+        var data = event.data;
+        if (!data || data.source !== 'forensics-toolbox' || data.type !== 'holds-ask') return;
+        asked = { file: data.file || null, force: !!data.force };
+        answer(data.id);
+    });
+    var timer = null;
+    function later() {
+        if (!asked || timer) return;
+        timer = setTimeout(function () {
+            timer = null;
+            // Det som händer efter frågan gör undersökaren själv: då följer inget verktyg ett byte på egen hand.
+            asked.force = false;
+            var d = describe(asked) || {};
+            if ((d.items || []).map(String).join('\n') !== sent) answer(null);
+        }, 300);
+    }
+    ['click', 'change', 'drop'].forEach(function (type) { document.addEventListener(type, later, true); });
+};
+
 (function () {
     function isTheme(value) {
         return value === 'light' || value === 'dark';

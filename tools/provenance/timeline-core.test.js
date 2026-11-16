@@ -339,7 +339,7 @@ test('ctime och den osäkra tredje UT-tiden står i tabellen, utan slutsats', ()
     assert.match(c.note, /säger inte när filen kom till/);
     assert.strictEqual(c.deltaMs, D);
     assert.strictEqual(c.gap, '+1 dygn 0 h');
-    assert.deepStrictEqual(c.source, { db: 'Zippen', table: 'UT-fältet', column: 'tredje tiden' });
+    assert.deepStrictEqual(c.source, { db: 'Zippen', column: 'metadata ändrad (UT-fältet, tredje tiden)' });
     assert.ok(!ctime.items.some((i) => /ctime|kopieras, tas emot eller återställs/.test(i.text)));
     const third = core.build(input({ fileEntry: { name: 'x', size: 1, mtimeMs: T, thirdMs: T + D, timeField: 'UT-fältet' } })).factors[0];
     const t = third.times.find((r) => r.id === 'fs-third');
@@ -468,11 +468,11 @@ test('positionen: bara i databasen, och en plats satt i Bilder väger inte', () 
 test('en fil med tiderna ur metadata.msgpack: tiderna har sina namn', () => {
     const fileEntry = { name: 'x', size: 1, mtimeMs: T + 1000, createdMs: T, changedMs: T + 3000, accessedMs: T + 2000, timeField: 'metadata.msgpack' };
     const times = core.build(input({ fileEntry })).factors[0].times;
-    const src = (id) => { const r = times.find((x) => x.id === id).source; return [r.db, r.table, r.column].join(' / '); };
-    assert.strictEqual(src('fs-created'), 'Zippen / metadata.msgpack / btime');
-    assert.strictEqual(src('fs-modified'), 'Zippen / metadata.msgpack / mtime');
-    assert.strictEqual(src('fs-changed'), 'Zippen / metadata.msgpack / ctime');
-    assert.strictEqual(src('fs-accessed'), 'Zippen / metadata.msgpack / atime');
+    const src = (id) => { const r = times.find((x) => x.id === id).source; return [r.db, r.column].join(' / '); };
+    assert.strictEqual(src('fs-created'), 'Zippen / filens skapandetid (metadata.msgpack, btime)');
+    assert.strictEqual(src('fs-modified'), 'Zippen / filens ändringstid (metadata.msgpack, mtime)');
+    assert.strictEqual(src('fs-changed'), 'Zippen / metadata ändrad (metadata.msgpack, ctime)');
+    assert.strictEqual(src('fs-accessed'), 'Zippen / senast läst (metadata.msgpack, atime)');
     assert.strictEqual(times.find((x) => x.id === 'fs-changed').ms, T + 3000);
     assert.strictEqual(times.find((x) => x.id === 'fs-third'), undefined);
 });
@@ -632,7 +632,7 @@ test('utan rad i biblioteket jämförs T inte med sig själv', () => {
     assert.strictEqual(fs.factors[0].verdict, 'Kan inte jämföras');
     assert.match(fs.factors[0].plain, /bara filsystemets tider/);
     assert.strictEqual(fs.factors[0].times.find((r) => r.isT).id, 'fs-modified');
-    assert.strictEqual(fs.events.find((e) => e.kind === 'file-created').text, 'Ändrad i filsystemet (ändringstid)');
+    assert.strictEqual(fs.events.find((e) => e.kind === 'file-created').text, 'Ändrad i filsystemet');
     assert.ok(!fs.events.some((e) => e.kind === 'fs-mtime'));
     // Ingen faktor stöder att en okänd fil är en kamerabild.
     assert.strictEqual(fs.type.type, 'unknown');
@@ -692,7 +692,7 @@ test('tabellen: tidsordning, T markerad, källor och bara det som säger något'
     assert.strictEqual(by['file-time'].note, 'I filen: 2025-09-24 14:31:09.622 +02:00.');
     assert.match(by['file-IFD0:ModifyDate'].note, /Filen anger ingen tidszon, så tiden är tolkad i bildens zon\./);
     assert.match(by.modified.note, /filer som ingen har rört/);
-    assert.deepStrictEqual(by['fs-accessed'].source, { db: 'Zippen', table: 'UT-fältet', column: 'andra tiden' });
+    assert.deepStrictEqual(by['fs-accessed'].source, { db: 'Zippen', column: 'senast läst (UT-fältet)' });
     assert.ok(!rows.some((r) => r.id === 'original'), 'originaltiden visas bara när den skiljer sig');
 });
 
@@ -718,7 +718,7 @@ test('tabellen: det som saknas står kvar, och skärmdump, video, Android och DO
     assert.deepStrictEqual([android.find((r) => r.id === 'modified').label, android.find((r) => r.id === 'modified').source.column], ['Ändrad i galleriet', 'date_modified']);
     // Bara DOS-tid: ingen zon, så ingen tid att räkna med.
     const dos = timeFactor({ fileEntry: { name: 'x', size: 1, mtimeMs: null, mtimeText: '2025-09-24 14:31:09 (zon okänd)' } }).times.find((r) => r.id === 'fs-modified');
-    assert.deepStrictEqual([dos.ms, dos.text, dos.source.column], [null, '2025-09-24 14:31:09 (zon okänd)', 'DOS-tid']);
+    assert.deepStrictEqual([dos.ms, dos.text, dos.source.column], [null, '2025-09-24 14:31:09 (zon okänd)', 'filens ändringstid (DOS-tid)']);
     // Utanför biblioteket.
     const out = timeFactor({ file: cameraFile({ addedMs: null, modifiedMs: null, importedBy: null, importer: '' }), fileSource: { db: 'zippen', table: 'x', column: 'ändringstid' }, fileEntry: { name: 'x', size: 1, mtimeMs: T } }).times;
     assert.strictEqual(out.find((r) => r.id === 'library').absent, 'Filen har ingen rad där.');
@@ -738,16 +738,16 @@ test('en fil ur en rapport: tiderna har sina namn, och ctime sägs saknas', () =
     const fileEntry = { name: 'x', size: 1, mtimeMs: T + 1000, createdMs: T, accessedMs: T + 2000, changedMs: null, timeField: 'report.xml' };
     const times = core.build(input({ fileEntry, container: 'rapporten' })).factors[0].times;
     const row = (id) => times.find((r) => r.id === id);
-    const src = (id) => [row(id).source.db, row(id).source.table, row(id).source.column].join(' / ');
-    assert.strictEqual(src('fs-created'), 'Rapporten / report.xml / CreationTime');
-    assert.strictEqual(src('fs-modified'), 'Rapporten / report.xml / ModifyTime');
-    assert.strictEqual(src('fs-accessed'), 'Rapporten / report.xml / AccessTime');
+    const src = (id) => [row(id).source.db, row(id).source.column].join(' / ');
+    assert.strictEqual(src('fs-created'), 'Rapporten / filens skapandetid (report.xml, CreationTime)');
+    assert.strictEqual(src('fs-modified'), 'Rapporten / filens ändringstid (report.xml, ModifyTime)');
+    assert.strictEqual(src('fs-accessed'), 'Rapporten / senast läst (report.xml, AccessTime)');
     assert.strictEqual(row('fs-changed').ms, null);
     assert.strictEqual(row('fs-changed').absent, 'Rapporten anger ingen sådan tid för filen.');
     assert.strictEqual(row('fs-third'), undefined);
     const withCtime = core.build(input({ fileEntry: Object.assign({}, fileEntry, { changedMs: T + 3000 }), container: 'rapporten' })).factors[0].times.find((r) => r.id === 'fs-changed');
     assert.strictEqual(withCtime.ms, T + 3000);
-    assert.strictEqual(withCtime.source.column, 'ChangeTime');
+    assert.strictEqual(withCtime.source.column, 'metadata ändrad (report.xml, ChangeTime)');
 });
 
 test('T ur rapportens ModifyTime räknas som filsystemets tid, och filen utan post sägs saknas i rapporten', () => {
@@ -755,7 +755,7 @@ test('T ur rapportens ModifyTime räknas som filsystemets tid, och filen utan po
         fileSource: { db: 'rapporten', table: 'x', column: 'ModifyTime' }, fileEntry: { name: 'x', size: 1, mtimeMs: T, timeField: 'report.xml' } }));
     assert.ok(!fs.events.some((e) => e.kind === 'fs-mtime'), 'T visas inte en gång till');
     const created = fs.events.find((e) => e.kind === 'file-created');
-    assert.match(created.text, /^Ändrad i filsystemet \(ModifyTime\)/);
+    assert.match(created.text, /^Ändrad i filsystemet/);
     const gone = core.build(input({ container: 'rapporten', fileEntry: null })).factors[0].times.find((r) => r.id === 'fs');
     assert.strictEqual(gone.absent, 'Filen finns inte i rapporten.');
     const zip = core.build(input({ fileEntry: null })).factors[0].times.find((r) => r.id === 'fs');
@@ -842,12 +842,13 @@ test('filsystemets tid är en egen tidpunkt när den ligger långt från de andr
     assert.strictEqual(core.fsMoment({ name: 'x' }), null);
     const created = core.fsMoment({ createdMs: T + FAR, mtimeMs: T, timeField: 'metadata.msgpack' });
     assert.deepStrictEqual([created.id, created.label, created.centerMs], ['filesystem', 'när filen skapades i filsystemet', T + FAR]);
-    assert.deepStrictEqual(created.source, { db: 'Zippen', table: 'metadata.msgpack', column: 'btime' });
+    assert.deepStrictEqual(created.source, { db: 'Zippen', column: 'filens skapandetid (metadata.msgpack, btime)' });
     const modified = core.fsMoment({ mtimeMs: T + FAR, timeField: 'report.xml' });
     assert.strictEqual(modified.label, 'när filen ändrades i filsystemet');
-    assert.deepStrictEqual(modified.source, { db: 'Rapporten', table: 'report.xml', column: 'ModifyTime' });
-    assert.strictEqual(core.fsMoment({ createdMs: 1, timeField: 'UT-fältet' }).source.column, 'fjärde tiden');
-    assert.strictEqual(core.fsMoment({ createdMs: 1, timeField: 'NTFS-fältet' }).source.column, 'skapad');
+    assert.deepStrictEqual(modified.source, { db: 'Rapporten', column: 'filens ändringstid (report.xml, ModifyTime)' });
+    assert.strictEqual(core.fsMoment({ createdMs: 1, timeField: 'UT-fältet' }).source.column, 'filens skapandetid (UT-fältet, fjärde tiden)');
+    assert.strictEqual(core.fsMoment({ createdMs: 1, timeField: 'NTFS-fältet' }).source.column, 'filens skapandetid (NTFS-fältet)');
+    assert.strictEqual(core.fsMoment({ mtimeMs: 1 }).source.column, 'filens ändringstid');
 
     // Långt bort: en egen tidslinje, med en markering och en rad för det den visar.
     const fe = { name: 'x/a.JPG', size: 1, createdMs: T + FAR, mtimeMs: T + FAR, timeField: 'UT-fältet' };
@@ -857,7 +858,7 @@ test('filsystemets tid är en egen tidpunkt när den ligger långt från de andr
     const mark = far.events.find((e) => e.kind === 'fs-created');
     assert.strictEqual(mark.ms, T + FAR);
     assert.ok(far.narrative[1].lines.some((l) => /skapas i filsystemet/.test(l.text)), JSON.stringify(far.narrative[1].lines));
-    assert.strictEqual(far.moments[1].source.column, 'fjärde tiden');
+    assert.strictEqual(far.moments[1].source.column, 'filens skapandetid (UT-fältet, fjärde tiden)');
 
     // Nära T eller nära en annan tidpunkt: ingen egen tidslinje och ingen extra markering.
     const nearFe = { name: 'x/a.JPG', size: 1, createdMs: T + 60 * S, mtimeMs: T + 60 * S, timeField: 'UT-fältet' };

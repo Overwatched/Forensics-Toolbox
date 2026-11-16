@@ -422,6 +422,29 @@ body {
     display: none !important;
 }
 
+/* Raden ovanför en vy där något står kvar från en extraktion som har bytts eller stängts. */
+.kept-strip {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px 12px;
+    padding: 8px 18px;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--warn, #d9822b);
+    font-size: 13px;
+    line-height: 1.45;
+}
+
+.kept-strip[hidden] {
+    display: none;
+}
+
+.kept-strip span {
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+
 .cb-group {
     display: flex;
     flex-wrap: wrap;
@@ -708,6 +731,24 @@ body {
     color: var(--text-muted);
     line-height: 1.5;
     text-align: center;
+}
+
+.modal-box.modal-wide {
+    max-width: 440px;
+}
+
+.modal-list {
+    margin: 10px 0;
+    padding-left: 18px;
+    font-size: 12.5px;
+    line-height: 1.5;
+    color: var(--text);
+    overflow-wrap: anywhere;
+}
+
+.modal-box.modal-wide p {
+    text-align: left;
+    overflow-wrap: anywhere;
 }
 
 .modal-actions {

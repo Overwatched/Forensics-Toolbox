@@ -154,6 +154,11 @@ test('tabellerna för Word: nyckelhändelserna och händelserna med källa som d
     const all = report.eventsTable(m, META);
     assert.ok(all.includes('Händelser med källa') && all.includes('role-app-usage') && all.includes('2025-09-24 12:31:09 UTC'));
     assert.strictEqual(rows(all), m.events.length);
+    // Raden som är den bedömda filen står i fetstil, och ingen annan rad.
+    const fileRows = m.events.filter((e) => e.bold);
+    assert.ok(fileRows.length >= 1, 'modellen har ingen rad för filen');
+    fileRows.forEach((e) => assert.ok(all.includes('<b>' + e.text.replace(/&/g, '&amp;').replace(/</g, '&lt;') + '</b>'), 'filens rad är inte i fetstil: ' + e.text));
+    assert.strictEqual((all.match(/<b>/g) || []).length - (all.slice(0, all.indexOf('<table')).match(/<b>/g) || []).length - (all.slice(all.indexOf('<table'), all.indexOf('</tr>')).match(/<b>/g) || []).length, fileRows.length);
     assert.ok(report.protocol(m, META).includes(all.slice(all.indexOf('<table'), all.indexOf('</table>'))), 'protokollets händelsetabell ska vara samma tabell');
     assert.ok(report.plainText(key).includes('\t'), 'texten på urklippet ska ha tabbar mellan kolumnerna');
 });
@@ -237,14 +242,14 @@ test('protokollet har filens tider som tabell, med källa, UTC och skillnaden mo
     f.times = [
         { id: 'file-time', ms: f.times[0].ms, label: 'Tagen enligt EXIF', source: { db: 'Filen', column: 'ExifIFD:DateTimeOriginal' }, note: 'I filen: 2025-09-24 14:31:09 +02:00.', gap: '0 s' },
         { id: 'created', ms: m.file.createdMs, label: 'Skapad enligt biblioteket', source: { db: 'Photos.sqlite', table: 'ZASSET', column: 'ZDATECREATED' }, note: '', isT: true, gap: 'T' },
-        { id: 'fs-changed', ms: m.file.createdMs + 86400000, label: 'Metadata ändrad (ctime)', source: { db: 'Zippen', table: 'UT-fältet', column: 'tredje tiden' }, note: 'Flyttas också när filens metadata ändras.', gap: '+1 dygn 0 h' },
+        { id: 'fs-changed', ms: m.file.createdMs + 86400000, label: 'Metadata ändrad (ctime)', source: { db: 'Zippen', column: 'metadata ändrad (UT-fältet, tredje tiden)' }, note: 'Flyttas också när filens metadata ändras.', gap: '+1 dygn 0 h' },
         { id: 'library', ms: null, label: 'Bildbiblioteket', source: null, note: '', absent: 'Filen har ingen rad där.' },
     ];
     const html = report.protocol(m, META);
     const plain = report.plainText(html);
     assert.match(plain, /Tid \(Europe\/Stockholm\)\tUTC\tVad\tKälla\tMot T/);
     assert.match(plain, /Skapad enligt biblioteket \(T\)\tPhotos\.sqlite → ZASSET → ZDATECREATED\tT/);
-    assert.match(plain, /Metadata ändrad \(ctime\)\nFlyttas också när filens metadata ändras\.\tZippen → UT-fältet → tredje tiden\t\+1 dygn 0 h/);
+    assert.match(plain, /Metadata ändrad \(ctime\)\nFlyttas också när filens metadata ändras\.\tZippen → metadata ändrad \(UT-fältet, tredje tiden\)\t\+1 dygn 0 h/);
     assert.match(plain, /Filen har ingen rad där\.\t\tBildbiblioteket/);
     assert.doesNotMatch(html, /enligt zippen/);
     assert.doesNotMatch(html, /Filsystemets tider, sparade i zippen/, 'tiderna står bara i tabellen');

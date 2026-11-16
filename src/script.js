@@ -150,7 +150,9 @@ function initToolNav() {
     // Ny eller stängd extraktion. Laddade verktyg får läget direkt och följer efter sina egna regler;
     // verktyget som ändrade får numret tillbaka, så att det inte följer sin egen ändring.
     function setExtraction(file, from, source, force, keys) {
-        if (!(file ? sameFile(file, extraction.file) : !extraction.file)) {
+        const old = extraction.file;
+        const changed = !(file ? sameFile(file, old) : !old);
+        if (changed) {
             extraction = { file: file, seq: extraction.seq + 1, from: from || '', info: pendingInfo && sameFile(pendingInfo.file, file) ? pendingInfo.info : null, keys: file && keys ? keys : [] };
             pendingInfo = null;
             if (current && current.owner === TOOL_PATH.provenance) current = null;
@@ -161,12 +163,162 @@ function initToolNav() {
             if (frame === source) sendExtraction(frame);
             else if (CONTEXT_TOOLS[path] && CONTEXT_TOOLS[path] !== 'exif') sendExtraction(frame, force && path === activePath);
         });
+        // Fanns en extraktion förut kan något av den stå kvar i vyerna: då får undersökaren välja.
+        if (changed && old) askWhatStays(old, !!force);
     }
 
     function byId(id) { return document.getElementById(id); }
 
+    // ---------- Det som står kvar när extraktionen byts eller stängs ----------
+
+    // Vyerna som kan ha något kvar. Chattar följer alltid extraktionen och har inget kvar, och Laboration har sina
+    // egna extraktioner.
+    const VIEW_TOOLS = [TOOL_PATH.provenance, TOOL_PATH.queries, TOOL_PATH.exif, 'tools/positions/index.html'];
+    // Frågor som väntar på verktygens svar: frågans nummer -> den som tar emot svaret.
+    const holdsWaits = new Map();
+    let holdsSeq = 0;
+    // Vyer där något står kvar efter "Låt stå kvar" och som inte själva skriver ut vad det hör till: verktygets
+    // sökväg -> texten på raden ovanför vyn.
+    const kept = new Map();
+    // Frågan som visas: { old, now, found }. Bara den senaste ändringen frågar.
+    let question = null;
+    let changeSeq = 0;
+    let questionFocus = 0;
+
+    // Frågar de laddade vyerna vad de har som inte hör till extraktionen som gäller nu (tools/_shared/toolkit.js).
+    // Ger [{ path, title, items, own }] för dem som har något, i menyns ordning.
+    function askHolds(paths, force) {
+        const asked = paths.map((path) => frames.get(path)).filter((frame) => frame && frame.dataset.ready);
+        return new Promise((resolve) => {
+            const found = [];
+            if (!asked.length) { resolve(found); return; }
+            const id = ++holdsSeq;
+            const left = new Set(asked);
+            const finish = () => {
+                clearTimeout(timer);
+                holdsWaits.delete(id);
+                resolve(found.sort((a, b) => paths.indexOf(a.path) - paths.indexOf(b.path)));
+            };
+            // Ett verktyg som arbetar hinner inte svara. Då är det oklart vad det har kvar, och det står i frågan.
+            const timer = setTimeout(() => {
+                left.forEach((frame) => found.push({ path: frame.dataset.tool, title: frame.title, items: ['arbetar och svarar inte just nu'], own: false }));
+                finish();
+            }, 1500);
+            holdsWaits.set(id, (frame, data) => {
+                if (!left.delete(frame)) return;
+                const items = Array.isArray(data.items) ? data.items.map(String).filter(Boolean) : [];
+                if (items.length) found.push({ path: frame.dataset.tool, title: frame.title, items: items, own: !!data.own });
+                if (!left.size) finish();
+            });
+            asked.forEach((frame) => postToFrame(frame, {
+                source: 'forensics-toolbox', type: 'holds-ask', id: id, file: extraction.file, force: !!force && frame.dataset.tool === activePath,
+            }));
+        });
+    }
+
+    // data-state på dialogen säger var frågan är: asking medan vyerna svarar, open när den visas, annars tomt.
+    function questionState(state) {
+        const modal = byId('clear-modal');
+        if (modal) modal.dataset.state = state;
+    }
+
+    function closeQuestion() {
+        const modal = byId('clear-modal');
+        if (modal) modal.classList.add('display-none');
+        clearInterval(questionFocus);
+        question = null;
+        questionState('');
+    }
+
+    // Extraktionen byttes eller stängdes. Har någon vy något kvar frågas en gång om allt ska rensas. Ingenting
+    // väntar på svaret: bytet är redan gjort, och "Låt stå kvar" är det som gäller tills något annat väljs.
+    function askWhatStays(old, force) {
+        const modal = byId('clear-modal');
+        if (!modal) return;
+        closeQuestion();
+        questionState('asking');
+        const mine = ++changeSeq;
+        askHolds(VIEW_TOOLS, force).then((found) => {
+            // En senare ändring frågar själv.
+            if (mine !== changeSeq) return;
+            if (!found.length) { questionState(''); return; }
+            const now = extraction.file;
+            question = { old: old, now: now, found: found };
+            byId('clear-modal-text').textContent = (now ? old.name + ' byttes mot ' + now.name : old.name + ' stängdes') + '. Det här står kvar från förut:';
+            const list = byId('clear-modal-list');
+            list.textContent = '';
+            found.forEach((f) => {
+                const li = document.createElement('li');
+                const name = document.createElement('strong');
+                name.textContent = f.title;
+                li.appendChild(name);
+                li.appendChild(document.createTextNode(': ' + f.items.join(', ')));
+                list.appendChild(li);
+            });
+            const titles = found.map((f) => f.title);
+            byId('clear-modal-note').textContent = 'Rensa alla vyer tömmer ' + (titles.length > 1 ? titles.slice(0, -1).join(', ') + ' och ' : '') + titles[titles.length - 1] +
+                ' och ställer tillbaka inställningarna där.';
+            modal.classList.remove('display-none');
+            byId('clear-modal-keep').focus();
+            // Medan frågan visas stannar markören i den: Härkomst ställer den annars i sin ruta när den nya
+            // extraktionen är öppnad, och då når varken Esc eller det som skrivs hit.
+            questionFocus = setInterval(() => { if (!modal.contains(document.activeElement)) byId('clear-modal-keep').focus(); }, 100);
+            questionState('open');
+        });
+    }
+
+    // Vyn börjar om: ramen byts mot en ny, så att ingenting finns kvar av det verktyget hade läst in, fått eller
+    // fyllt i. Den nya ramen får extraktionen som gäller när den är laddad.
+    function reloadView(path) {
+        const frame = frames.get(path);
+        if (!frame) return;
+        if (dbShare) dbShare.forget(frame);
+        frame.remove();
+        frames.delete(path);
+        kept.delete(path);
+        if (current && current.owner === path) current = null;
+        const fresh = createFrame(path, path, frame.title);
+        if (path === activePath) showFrame(fresh);
+    }
+
+    function keepViews() {
+        const q = question;
+        if (!q) return;
+        closeQuestion();
+        const text = 'Här står det kvar som visades när ' + (q.now ? q.old.name + ' byttes mot ' + q.now.name : q.old.name + ' stängdes') + '.';
+        q.found.forEach((f) => { if (!f.own) kept.set(f.path, text); });
+        renderBar();
+    }
+
+    function clearViews() {
+        const q = question;
+        if (!q) return;
+        closeQuestion();
+        q.found.forEach((f) => reloadView(f.path));
+        renderBar();
+    }
+
+    // Raden ovanför en vy där något står kvar. När vyn visas igen frågas den, och raden tas bort om vyn är tom.
+    function renderKept() {
+        const strip = byId('kept-strip');
+        if (!strip) return;
+        const text = kept.get(activePath);
+        strip.hidden = !text;
+        byId('kept-text').textContent = text || '';
+    }
+
+    function checkKept(path) {
+        if (!kept.has(path)) return;
+        askHolds([path], false).then((found) => {
+            if (found.length || !kept.has(path)) return;
+            kept.delete(path);
+            renderKept();
+        });
+    }
+
     function renderBar() {
         renderExtraction();
+        renderKept();
         const bar = byId('context-bar');
         if (!bar) return;
         const kind = CONTEXT_TOOLS[activePath];
@@ -315,6 +467,7 @@ function initToolNav() {
         showFrame(frame);
         activePath = path;
         renderBar();
+        checkKept(path);
         return true;
     }
 
@@ -338,6 +491,18 @@ function initToolNav() {
             });
             if (frame && frame.dataset.ready) send();
             else if (frame) frame.addEventListener('load', send, { once: true });
+            return;
+        }
+        // Svaret på frågan om vad som står kvar i vyn. Ett svar utan fråga kommer när vyn har ändrats: är den tom
+        // tas raden ovanför den bort.
+        if (data.type === 'holds') {
+            const frame = frameOf(event.source);
+            const wait = holdsWaits.get(data.id);
+            if (wait) wait(frame, data);
+            else if (frame && kept.has(frame.dataset.tool) && !(Array.isArray(data.items) && data.items.length)) {
+                kept.delete(frame.dataset.tool);
+                renderKept();
+            }
             return;
         }
         if (data.type === 'show-exif') {
@@ -468,6 +633,22 @@ function initToolNav() {
             // Har målverktyget redan filen räcker det att visa verktyget; annars lämnar ägaren ut den.
             if (CONTEXT_TOOLS[current.owner] === b.dataset.to) { openTool(TOOL_PATH[b.dataset.to]); return; }
             postToFrame(frames.get(current.owner), { source: 'forensics-toolbox', type: 'deliver-file', to: b.dataset.to });
+        });
+    }
+
+    // Frågan när extraktionen har bytts eller stängts, och raden ovanför en vy där något står kvar.
+    const clearModal = byId('clear-modal');
+    if (clearModal) {
+        byId('clear-modal-keep').addEventListener('click', keepViews);
+        byId('clear-modal-clear').addEventListener('click', clearViews);
+        clearModal.addEventListener('click', (event) => { if (event.target === clearModal) keepViews(); });
+        document.addEventListener('keydown', (event) => { if (event.key === 'Escape' && question) keepViews(); });
+    }
+    if (byId('kept-clear')) {
+        byId('kept-clear').addEventListener('click', () => {
+            if (!kept.has(activePath)) return;
+            reloadView(activePath);
+            renderBar();
         });
     }
 

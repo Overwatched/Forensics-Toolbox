@@ -31,7 +31,7 @@
                 <div class="sidebar-header-text">
                     <h1>Forensics Toolbox</h1>
                     <div class="version-row">
-                        <p>Version 1.68</p>
+                        <p>Version 1.69</p>
                         <div id="net-status" class="net-status">
                             <span id="net-status-text"></span>
                         </div>
@@ -431,6 +431,12 @@
                 <input type="file" id="cb-input" accept=".zip,application/zip,.ufdr" hidden>
             </div>
 
+            <!-- Ovanför en vy där något står kvar från en extraktion som har bytts eller stängts. -->
+            <div id="kept-strip" class="kept-strip" hidden>
+                <span id="kept-text"></span>
+                <button type="button" class="cb-btn" id="kept-clear">Rensa vyn</button>
+            </div>
+
             <div id="tool-host" class="tool-host" hidden></div>
 
         </main>
@@ -455,6 +461,19 @@
             <div class="modal-actions">
                 <button id="external-link-modal-cancel" class="modal-button secondary">Avbryt</button>
                 <button id="external-link-modal-confirm" class="modal-button confirm">Fortsätt</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="clear-modal" class="modal-overlay display-none">
+        <div class="modal-box modal-wide" role="dialog" aria-modal="true" aria-labelledby="clear-modal-title">
+            <h3 id="clear-modal-title">Rensa vyerna?</h3>
+            <p id="clear-modal-text"></p>
+            <ul id="clear-modal-list" class="modal-list"></ul>
+            <p id="clear-modal-note"></p>
+            <div class="modal-actions">
+                <button type="button" id="clear-modal-keep" class="modal-button secondary">Låt stå kvar</button>
+                <button type="button" id="clear-modal-clear" class="modal-button confirm">Rensa alla vyer</button>
             </div>
         </div>
     </div>

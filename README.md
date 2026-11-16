@@ -2,11 +2,11 @@
 
 Verktyg för IT-forensik som körs på din egen dator. Inget nätverk behövs. Onlinekartan är valfri och skickar bara kartrutor, aldrig filer eller bilder.
 
-Öppna extraktionens zip-fil eller en rapport i UFDR-format, så hittar appen databaserna själv. Filen läses bara, inget packas upp, och `-wal` läses alltid med.
+Öppna extraktionens zip-fil eller en rapport i UFDR-format, så hittar appen databaserna själv. Filen läses bara, inget packas upp, och `-wal` läses alltid med. Byter eller stänger du extraktionen medan något från den står kvar i en vy, frågar appen om vyerna ska rensas. Det som får stå kvar i EXIF & karta och Positioner får en rad om vilken extraktion det visades för.
 
 ![Härkomst: bedömning av en bildfil](docs/images/harkomst-bedomning.png)
 
-**Härkomst** (ny i 1.26, positioner i 1.27) bedömer om en bildfil är förenlig med att telefonen skapade den: skapandetid, app igång och kamera igång. Varje faktor ställer en fråga (stämmer filens tider med varandra?), svarar i klartext (tiderna stämmer) och säger om svaret är förenligt med att telefonen skapade filen, inte förenligt, eller inte går att bedöma.
+**Härkomst** (ny i 1.26, positioner i 1.27) bedömer om en bildfil är förenlig med att telefonen skapade den: skapandetid, app igång och kamera igång. Varje faktor ställer en fråga (stämmer filens tider med varandra?), svarar i klartext (tiderna stämmer) och säger om svaret är förenligt med att telefonen skapade filen, inte förenligt, eller inte går att bedöma. Frågan och svaret står i en färgad ruta överst i faktorn, och raden för den bedömda filen är markerad i tidslinjens tabeller.
 
 ![Härkomst: tidslinje och förklaring](docs/images/harkomst-tidslinje.png)
 

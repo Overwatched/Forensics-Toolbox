@@ -106,6 +106,7 @@ async function main() {
                 const t0 = Date.now();
                 const before = c.errors.length;
                 try {
+                    await c.keepByDefault();
                     const note = await fn({ c, fx, downloads });
                     const errs = c.errors.slice(before).filter((e) => e.kind === 'exception');
                     if (errs.length) throw new Error('Fel i sidan: ' + errs.map((e) => e.text.split('\n')[0]).join(' | '));

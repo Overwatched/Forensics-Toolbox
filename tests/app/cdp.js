@@ -164,7 +164,22 @@ async function connect(port, opts) {
         fs.writeFileSync(file, Buffer.from(s.result.data, 'base64'));
     }
 
-    return { send, frames, ctx, ev, waitFor, nav, setFiles, drag, shot, errors, close: () => ws.close() };
+    // Frågan om vyerna ska rensas, som kommer när extraktionen byts eller stängs medan något står kvar: scenarierna
+    // svarar "Låt stå kvar" med knappen, som en undersökare som alltid väljer det. Ett scenario som svarar själv
+    // sätter window.__ftAnswer = 'self' i huvudfönstret så länge. Görs om inför varje scenario, och en gång räcker.
+    async function keepByDefault() {
+        await ev(null, `(function () {
+            const modal = document.getElementById('clear-modal');
+            if (!modal || window.__ftKeep) return 1;
+            window.__ftKeep = new MutationObserver(function () {
+                if (modal.dataset.state === 'open' && window.__ftAnswer !== 'self') document.getElementById('clear-modal-keep').click();
+            });
+            window.__ftKeep.observe(modal, { attributes: true, attributeFilter: ['data-state'] });
+            return 1;
+        })()`);
+    }
+
+    return { send, frames, ctx, ev, waitFor, nav, setFiles, drag, shot, keepByDefault, errors, close: () => ws.close() };
 }
 
 module.exports = { connect, sleep };

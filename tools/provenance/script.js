@@ -397,6 +397,29 @@
         else closeZip();
     }
 
+    // Det som står kvar här när programmets extraktion är en annan (toolkit.js): listan eller bedömningen som
+    // Härkomst behåller, och då står det på raden ovanför vad den hör till, det som är ifyllt i sökfälten, och
+    // undersökarens egna bedömningar, som finns kvar i minnet för varje zip. ask.force: Härkomst följer bytet.
+    function whatStays(ask) {
+        var items = [];
+        var cur = state.zip ? state.zip.file : null;
+        var other = ask.file ? !sameZipFile(cur, ask.file) : !!cur;
+        var follows = ask.force || !!(shared.pending && shared.pending.force);
+        if (other && !follows && showingWork()) {
+            var n = state.batch ? state.batch.rows.length : 0;
+            items.push((n ? 'en lista med ' + n + (n === 1 ? ' fil' : ' filer') : 'bedömningen av ' + state.model.file.filename) + (cur ? ' ur ' + cur.name : ''));
+        }
+        var filled = [];
+        if ($('filename').value.trim()) filled.push('filnamn');
+        if ($('when-date').value.trim() || $('when-time').value.trim()) filled.push('tidpunkt');
+        if ($('batch-filter').value.trim()) filled.push('sökning i listan');
+        if (filled.length) items.push('ifyllt i sökfälten: ' + filled.join(', '));
+        var own = Object.keys(state.examiner).length + (state.ownFor && !state.examiner[state.ownFor] && $('own-assessment').value.trim() ? 1 : 0);
+        if (own) items.push('din egen bedömning av ' + own + (own === 1 ? ' fil' : ' filer'));
+        return { items: items, own: true };
+    }
+    if (window.toolboxHolds) window.toolboxHolds(whatStays);
+
     // ---------- Mellan verktygen ----------
 
     // Filen som visas, till raden högst upp: namn, sökväg och plats. Testdata och filer som inte
@@ -424,9 +447,13 @@
         });
     }
 
+    // sources: källan för varje tid i klartext, samma ord som i Härkomsts egna tabeller. Utan fält i zippen
+    // är ändringstiden zippens DOS-tid.
     function handoverTimes(e) {
         var zt = ExtractionCore.entryTimes(e);
-        return { modified: zt.modified, created: zt.created, changed: zt.changed, third: zt.third, accessed: zt.accessed, field: zt.field };
+        var sources = {};
+        ['modified', 'created', 'changed', 'third', 'accessed'].forEach(function (which) { sources[which] = ProvenanceCore.fsColumn(zt.field || (which === 'modified' ? 'DOS-tid' : ''), which); });
+        return { modified: zt.modified, created: zt.created, changed: zt.changed, third: zt.third, accessed: zt.accessed, field: zt.field, sources: sources };
     }
 
     // Huvudfönstret ber om filen som visas, för att visa den i EXIF & karta.
@@ -3518,7 +3545,7 @@
             var em = fileRow.createdMs ? null : ProvenanceMedia.entryMs(entry, zone0);
             if (em && em.ms) {
                 fileRow.createdMs = em.ms;
-                tSource = { db: Z(), table: entry.name, column: em.assumed ? 'ändringstid (DOS-tid utan zon)' : entry.report ? 'ModifyTime' : entry.timeField === 'metadata.msgpack' ? 'mtime' : 'ändringstid' };
+                tSource = { db: Z(), table: entry.name, column: em.assumed ? 'filens ändringstid (DOS-tid utan zon)' : ProvenanceCore.fsColumn(ExtractionCore.entryTimes(entry).field, 'modified') };
                 if (em.assumed) runLog.timeNote = 'Filen har ingen registerrad och ingen tid i EXIF, så T är zippens ändringstid. Zippen anger den utan tidszon (DOS-tid), och den har tolkats i ' + zone0.label + '.';
             }
         }
@@ -5242,6 +5269,14 @@
         state.examiner[state.ownFor] = { text: text, checked: checked, includePicture: state.includePicture, filename: state.ownName || '' };
     }
 
+    // Händelser med källa kan vara hundratals rader i en ruta som rullar: rutan ställs så att filens rad syns.
+    function showFileRow() {
+        var box = $('events');
+        var row = box.querySelector('tr.ev-file');
+        if (!row || !$('details-events').open) return;
+        box.scrollTop += row.getBoundingClientRect().top - box.getBoundingClientRect().top - (box.clientHeight - row.offsetHeight) / 2;
+    }
+
     function updateCheckCount() {
         var m = state.model;
         if (!m) return;
@@ -5426,7 +5461,7 @@
                 '<span class="button-row">' + (near && near < n.lines.length ? '<button type="button" class="secondary show-all">Visa alla ' + n.lines.length + ' rader</button>' : '') +
                 (n.lines.length ? '<button type="button" class="secondary copy-key" data-i="' + i + '" title="Tabellen med datum, klockslag, händelse och källa (databas → tabell → kolumn). Bara raderna som visas.">Kopiera tabellen för Word</button>' : '') + '</span></div>' +
                 '<table>' + n.lines.map(function (l) {
-                    return '<tr class="' + (l.near ? 'near' : 'far') + '"><td class="time">' + escapeHtml(fmt(l.ms).slice(11)) + '</td><td>' + (l.bold ? '<strong>' + escapeHtml(l.text) + '</strong>' : escapeHtml(l.text)) + '</td><td class="src">' + sourceCell(l.source, l) + '</td></tr>';
+                    return '<tr class="' + (l.near ? 'near' : 'far') + (l.bold ? ' ev-file' : '') + '"><td class="time">' + escapeHtml(fmt(l.ms).slice(11)) + '</td><td>' + (l.bold ? '<strong>' + escapeHtml(l.text) + '</strong>' : escapeHtml(l.text)) + '</td><td class="src">' + sourceCell(l.source, l) + '</td></tr>';
                 }).join('') + '</table>' + (n.lines.length ? '' : '<p class="muted">Inga registreringar i fönstret.</p>') +
                 n.notes.map(function (t) { return '<p class="note">' + escapeHtml(t) + '</p>'; }).join('') + '</div></div>';
         }
@@ -5483,15 +5518,16 @@
             (m.type.flags.length ? ' · ' + escapeHtml(ProvenanceCore.flagText(m.type.flags)) : '') + ' · ' + escapeHtml(meta.deviceLabel) + ' · T = ' + escapeHtml(fmt(m.file.createdMs || 0)) + ' (' + escapeHtml(meta.zoneLabel) + ')</div>' +
             '<div class="summary-text"><span class="badge">Programmets sammanvägning</span>' + escapeHtml(m.summary) + '</div>' +
             (m.warnings.length ? '<div class="warnings">' + m.warnings.map(escapeHtml).join('<br>') + '</div>' : '');
-        // Faktorns fråga, svaret i faktorns egna ord (färgen är läget) och vad svaret betyder för hypotesen.
+        // Faktorns fråga och svaret i faktorns egna ord står i en ruta i lägets färg, så att ögat hittar dit först.
+        // Under den står vad svaret betyder för hypotesen.
         $('factors').innerHTML = m.factors.map(function (f) {
             var at = state.checked[f.id];
             var label = m.stateLabel[f.state] || f.state;
             return '<div class="factor' + (at ? ' checked' : '') + (f.times ? ' factor-times' : '') + '" data-factor="' + escapeHtml(f.id) + '"><h3>' + escapeHtml(f.title) +
-                '<span class="badge ' + escapeHtml(f.state) + '" title="' + escapeHtml(label) + '">' + escapeHtml(f.verdict || label) + '</span>' +
                 '<label class="chk" title="Bocka i när du själv har kontrollerat faktorn mot källan och SQL:en. Följer med i protokollet med klockslag."><input type="checkbox" data-factor="' + escapeHtml(f.id) + '"' + (at ? ' checked' : '') + '>Kontrollerad</label></h3>' +
-                (f.question ? '<p class="question">' + escapeHtml(f.question) + '</p>' : '') +
-                (f.meaning ? '<p class="meaning ' + escapeHtml(f.state) + '">' + escapeHtml(f.meaning) + '</p>' : '') +
+                '<div class="qa ' + escapeHtml(f.state) + '" title="' + escapeHtml(label) + '">' + (f.question ? '<p class="question">' + escapeHtml(f.question) + '</p>' : '') +
+                '<p class="answer"><span class="mark-sign" aria-hidden="true">' + escapeHtml(ProvenanceBatch.STATE_SIGN[f.state] || '') + '</span>' + escapeHtml(f.verdict || label) + '</p></div>' +
+                (f.meaning ? '<p class="meaning">' + escapeHtml(f.meaning) + '</p>' : '') +
                 (f.times ? timesHtml(f.times, meta) : '') +
                 '<ul>' + f.items.map(function (i) { return '<li>' + escapeHtml(i.text) + '</li>'; }).join('') + '</ul><div class="plain">' + escapeHtml(f.plain) + '</div></div>';
         }).join('');
@@ -5511,7 +5547,8 @@
         $('events').innerHTML = '<table><thead><tr><th>Tid (' + escapeHtml(meta.zoneLabel) + ')</th><th>UTC</th><th>Händelse</th><th>Till</th><th>Källa</th><th>Query</th></tr></thead><tbody>' +
             m.events.map(function (e) {
                 var s = e.source || {};
-                return '<tr><td>' + escapeHtml(fmt(e.ms)) + '</td><td>' + escapeHtml(ProvenanceCore.formatUtc(e.ms)) + '</td><td>' + escapeHtml(e.text) + '</td><td>' +
+                // Raden som är den bedömda filen är markerad, som i nyckelhändelserna.
+                return '<tr' + (e.bold ? ' class="ev-file"' : '') + '><td>' + escapeHtml(fmt(e.ms)) + '</td><td>' + escapeHtml(ProvenanceCore.formatUtc(e.ms)) + '</td><td>' + (e.bold ? '<strong>' + escapeHtml(e.text) + '</strong>' : escapeHtml(e.text)) + '</td><td>' +
                     (e.endMs != null ? escapeHtml(fmt(e.endMs)) + (e.openEnded ? ' (pågår)' : '') : '') + '</td><td class="path">' + escapeHtml(ProvenanceReport.sourceText(s)) + '</td><td>' + queryCell(e) + '</td></tr>';
             }).join('') + '</tbody></table>' + (m.outside ? '<p class="muted">' + m.outside + ' registreringar till finns utanför fönstren.</p>' : '');
         $('events-note').textContent = state.zip
@@ -5534,6 +5571,7 @@
         renderPositions(m, fmt);
         renderCopies(m);
         $('result').classList.remove('display-none');
+        showFileRow();
         if (!state.keepScroll) $('result').scrollIntoView({ block: 'start', behavior: 'smooth' });
         // Kartan kan ta en stund (eller ge upp efter 15 s utan kartfiler). Resultatet är redan klart.
         if (/Letar efter kopior|Läser bildfilen|Hämtar registreringar|Söker i /.test($('run-status').textContent)) setStatus('run-status', '');
@@ -5774,6 +5812,7 @@
             copyTable(ProvenanceReport.keyEventsTable(state.model, state.meta, i, all), all ? 'Händelserna' : 'Nyckelhändelserna');
         }
     });
+    $('details-events').addEventListener('toggle', showFileRow);
     $('copy-events').addEventListener('click', function () {
         if (state.model) copyTable(ProvenanceReport.eventsTable(state.model, state.meta), 'Händelserna med källa');
     });

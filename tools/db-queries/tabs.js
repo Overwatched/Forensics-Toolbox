@@ -165,6 +165,28 @@
     document.addEventListener('queries:db-change', function () { setTimeout(render, 0); });
     document.addEventListener('queries:query-change', function () { setTimeout(render, 0); });
 
+    // Flikarna som står kvar när programmets extraktion är en annan (toolkit.js): de som har en databas ur en annan
+    // zip, som behåller sin zip och säger det själva, och de som har en databas från disk. ask.force: fliken som
+    // visas följer bytet.
+    function whatStays(ask) {
+        var zips = 0, loose = 0;
+        tabs.forEach(function (t, i) {
+            var live = i === active;
+            var app = live ? window.QueriesApp.snapshot() : t.snap && t.snap.app;
+            var ex = live ? window.QueriesExtraction.snapshot() : t.snap && t.snap.ex;
+            if (!ex) return;
+            if (ex.loose) { loose++; return; }
+            var f = ex.ex && ex.ex.file;
+            var same = !!f && !!ask.file && f.name === ask.file.name && f.size === ask.file.size && f.lastModified === ask.file.lastModified;
+            if (f && !same && app && app.dbId && app.source && app.source.zip && !(live && ask.force)) zips++;
+        });
+        var items = [];
+        if (zips) items.push(zips + (zips === 1 ? ' flik' : ' flikar') + ' med en databas ur en annan extraktion');
+        if (loose) items.push(loose + (loose === 1 ? ' flik' : ' flikar') + ' med en databas från disk');
+        return { items: items, own: true };
+    }
+    if (window.toolboxHolds) window.toolboxHolds(whatStays);
+
     window.QueriesTabs = { openFromProvenance: openFromProvenance, newTab: newTab, count: function () { return tabs.length; } };
     window.QueriesApp.ready.then(render);
 })();

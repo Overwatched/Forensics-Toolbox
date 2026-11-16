@@ -276,9 +276,10 @@
     function timeRows(row) {
         var z = row.zipTimes;
         if (z) {
-            var src = (z.field === 'report.xml' ? 'rapporten' : 'zippen') + (z.field ? ', ' + z.field : '');
-            return [['Skapad i filsystemet', z.created, src], ['Tredje tiden i zippen (skapad eller ctime)', z.third, src], ['Ändrad i filsystemet', z.modified, src],
-                ['Metadata ändrad (ctime)', z.changed, src], ['Senast läst i filsystemet', z.accessed, src]].filter(function (r) { return r[1]; });
+            // Källan i klartext, som Härkomst skriver den: vad tiden är, och inom parentes var den står.
+            var src = function (which) { return (z.field === 'report.xml' ? 'rapporten' : 'zippen') + (z.sources && z.sources[which] ? ', ' + z.sources[which] : ''); };
+            return [['Skapad i filsystemet', z.created, src('created')], ['Tredje tiden i zippen (skapad eller ctime)', z.third, src('third')], ['Ändrad i filsystemet', z.modified, src('modified')],
+                ['Metadata ändrad (ctime)', z.changed, src('changed')], ['Senast läst i filsystemet', z.accessed, src('accessed')]].filter(function (r) { return r[1]; });
         }
         var here = 'filen på den här datorn';
         var t = row.fsTimes;
@@ -1432,6 +1433,12 @@
         var mapTab = document.querySelector('.view-switch [data-view="map"]');
         if (mapTab) mapTab.title = 'Visa bilderna som en källa i Positioner';
     }
+
+    // EXIF & karta följer inte extraktionen: filerna i listan står kvar när den byts eller stängs (toolkit.js).
+    if (window.toolboxHolds) window.toolboxHolds(function () {
+        var n = rows.length;
+        return { items: n ? [n + (n === 1 ? ' fil' : ' filer') + ' i listan'] : [] };
+    });
 
     window.addEventListener('message', function (e) {
         if (e.source !== window.parent) return;
