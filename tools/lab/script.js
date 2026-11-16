@@ -1,5 +1,7 @@
-// Laboration: tre vyer över samma flöde. Förbered bygger stegen, Genomför visar ett steg i taget med datorns
-// klocka och loggar trycken, Tabell visar loggen som den ska stå i protokollet. Allt räknande görs i lab-core.js.
+// Laboration. Startsidan har två val: en ny laboration eller en genomförd som läses in.
+// En ny laboration är tre vyer över samma flöde: Förbered bygger stegen, Genomför visar ett steg i taget med
+// datorns klocka och loggar trycken, Tabell visar loggen som den ska stå i protokollet. Allt räknande görs i
+// lab-core.js. En genomförd laboration läses in i trace-view.js, som jämför loggen med enheternas extraktioner.
 // Flödet och loggen sparas i webbläsarens lagring efter varje ändring, så att en omstart inte tappar något.
 // De egna mallarna sparas för sig, så att de finns kvar när flödet byts eller töms.
 (function () {
@@ -18,9 +20,10 @@
     // ruta är öppen. mark: platsen där nästa byggsten hamnar. history: flödet före varje ändring, för Ångra.
     // templates: de egna mallarna. closed: grupper vars steg är dolda. drag: det som dras just nu. quick: om det
     // färdiga upplägget visas (null: bara när flödet är tomt). note: klockan när A trycktes. remark: raden vars
-    // anmärkning ändras i tabellen. practice: antal övningstryck före start.
+    // anmärkning ändras i tabellen. practice: antal övningstryck före start. shot: koden som står i rutan att
+    // fotografera medan ett steg pågår, och qr: texten i QR-koden som är ritad.
     var state = { flow: null, run: null, setup: null, view: 'plan', edit: null, groupEdit: null, mark: null, history: [], templates: [], closed: {}, palClosed: {}, drag: null, quick: null, flash: null, focus: null, said: '',
-        note: null, remark: '', practice: 0, practiceAt: null, toast: '', wasWaiting: false, stored: true };
+        note: null, remark: '', practice: 0, practiceAt: null, toast: '', wasWaiting: false, stored: true, shot: '', qr: '' };
 
     function $(id) { return document.getElementById(id); }
 
@@ -127,20 +130,36 @@
 
     function show(view) {
         state.view = view;
+        ['start', 'plan', 'run', 'table', 'trace'].forEach(function (v) { $('view-' + v).classList.toggle('display-none', v !== view); });
         ['plan', 'run', 'table'].forEach(function (v) {
-            $('view-' + v).classList.toggle('display-none', v !== view);
             $('tab-' + v).classList.toggle('active', v === view);
             $('tab-' + v).setAttribute('aria-selected', v === view ? 'true' : 'false');
         });
+        // De tre flikarna hör till en ny laboration. Startsidan och inläsningen har dem inte.
+        $('tabs').classList.toggle('display-none', view === 'start' || view === 'trace');
+        $('nav-start').classList.toggle('display-none', view === 'start');
         dropFocus();
         if (view === 'run') { try { window.focus(); } catch (e) { /* ramen får fokus när användaren klickar */ } }
         render();
     }
 
     function render() {
-        if (state.view === 'plan') { renderSetup(); renderSteps(); }
+        if (state.view === 'start') renderStart();
+        else if (state.view === 'plan') { renderSetup(); renderSteps(); }
         else if (state.view === 'run') renderRun();
-        else renderTable();
+        else if (state.view === 'table') renderTable();
+        else window.LabTraceView.enter(state.flow, state.run);
+    }
+
+    // Startsidan: de två valen, med en rad om vad som redan finns här.
+    function renderStart() {
+        var flow = state.flow, run = state.run, n = flow.steps.length, done = run ? run.entries.length : 0;
+        $('s-new-desc').textContent = run && !Lab.isDone(flow, run) ? 'Fortsätt laborationen som pågår: ' + done + ' av ' + n + ' steg är gjorda.'
+            : run ? 'Gör ett flöde av steg och gå igenom det med klockan framme. Den senaste laborationen och dess tabell finns kvar.'
+            : n ? 'Gör ett flöde av steg och gå igenom det med klockan framme. Flödet du har börjat på finns kvar: ' + n + ' steg.'
+            : 'Gör ett flöde av steg och gå igenom det med klockan framme. Efteråt får du en tabell till protokollet.';
+        $('s-read-desc').textContent = 'Välj loggen och enheternas extraktioner, så visar programmet var varje steg står i enheterna.' +
+            (run && done ? ' Loggen från den senaste laborationen finns redan här.' : '');
     }
 
     // En knapp som behåller fokus skulle ta nästa mellanslag som ett klick på sig själv.
@@ -1009,6 +1028,7 @@
         var mode = !steps.length ? 'empty' : !run ? 'practice' : done ? 'done' : waiting ? 'wait' : 'step';
         var prev = run && run.entries.length ? steps[run.entries.length - 1] : null;
         state.wasWaiting = waiting;
+        state.shot = mode === 'step' ? s.code : '';
         $('view-run').setAttribute('data-mode', mode);
 
         var device = $('r-device');
@@ -1074,8 +1094,23 @@
         paintClock(now);
     }
 
+    // QR-koden med stegets kod och klockan. Den ritas om när sekunden byts, inte oftare: en kod som byts mitt i
+    // en exponering går inte att läsa ur bilden.
+    function paintQr(now) {
+        var qr = $('r-qr'), text = state.shot ? Lab.shotText(state.shot, now.t) : '';
+        if (text === state.qr) return;
+        state.qr = text;
+        var grid = text ? LabQr.encode(text) : null;
+        qr.classList.toggle('display-none', !grid);
+        if (!grid) return;
+        var p = LabQr.svgPath(grid);
+        qr.setAttribute('viewBox', '0 0 ' + p.size + ' ' + p.size);
+        qr.querySelector('path').setAttribute('d', p.d);
+    }
+
     function paintClock(now) {
         var run = state.run;
+        paintQr(now);
         $('r-clock').textContent = Lab.isoLocal(now.t, now.off).slice(11, 21);
         $('r-zone').textContent = Lab.dateText(now.t, now.off) + ' · UTC' + Lab.offsetText(now.off) + (ZONE ? ' · ' + ZONE : '');
         $('r-focus').classList.toggle('display-none', document.hasFocus());
@@ -1114,7 +1149,7 @@
     function renderTable() {
         var host = $('t-sheet'), run = state.run, flow = state.flow;
         host.textContent = '';
-        ['t-copy', 't-print', 't-csv', 't-save', 't-again'].forEach(function (id) { $(id).disabled = !run; });
+        ['t-copy', 't-print', 't-csv', 't-save', 't-trace', 't-again'].forEach(function (id) { $(id).disabled = !run; });
         if (!run) {
             host.appendChild(el('p', { class: 'empty', text: 'Tabellen fylls när laborationen har startat under 2 Genomför. En sparad logg öppnas under 1 Förbered.' }));
             return;
@@ -1166,6 +1201,11 @@
 
     function wire() {
         ['plan', 'run', 'table'].forEach(function (v) { $('tab-' + v).addEventListener('click', function () { show(v); }); });
+        $('nav-start').addEventListener('click', function () { show('start'); });
+        $('s-new').addEventListener('click', function () { show(state.run && !Lab.isDone(state.flow, state.run) ? 'run' : 'plan'); });
+        $('s-read').addEventListener('click', function () { show('trace'); });
+        $('t-trace').addEventListener('click', function () { show('trace'); });
+        window.LabTraceView.init({ el: el, soft: soft, copyHtml: copyHtml, printDoc: printDoc, download: download, PROGRAM: PROGRAM });
 
         $('p-name').addEventListener('input', function () { state.flow.name = Lab.clip(this.value, Lab.LIMITS.name); save(); });
         $('p-name').addEventListener('change', function () { state.flow.name = state.flow.name.trim() || 'Laboration'; this.value = state.flow.name; save(); });
@@ -1283,5 +1323,6 @@
     loadTemplates();
     if (!restore()) fresh();
     wire();
-    show(state.run && !Lab.isDone(state.flow, state.run) ? 'run' : 'plan');
+    // En laboration som pågår öppnas där den är. Annars börjar verktyget på de två valen.
+    show(state.run && !Lab.isDone(state.flow, state.run) ? 'run' : 'start');
 })();

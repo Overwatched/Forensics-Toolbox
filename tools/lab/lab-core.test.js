@@ -672,3 +672,65 @@ test('en fil med grupper i oordning rättas, och en logg som då inte stämmer m
     dup.flow.groups[1].id = dup.flow.devices[0].id;
     assert.throws(() => L.fromFile(JSON.stringify(dup)), /grupp i filen saknar ett giltigt id/);
 });
+
+// En logg så som den äldre labbsidan sparade den, med påhittade steg.
+function oldLog() {
+    const row = (kod, telefon, app, vad, sekund, more) => Object.assign({ kod, block: 'Chatt', telefon, app, vad, tryck: 'när det är gjort', vantan_s: 0, status: 'klar', sedan_forra_s: 10,
+        tid: '2026-11-12T13:00:' + String(sekund).padStart(2, '0') + '.250+01:00', utc: '2026-11-12T12:00:' + String(sekund).padStart(2, '0') + '.250Z' }, more || {});
+    return {
+        laboration: 'Prov med två telefoner', kodbokstav: 'L', klocka: 'datorns', dator: { zon: 'Europe/Stockholm', webblasare: 'x' },
+        start: { tid: '2026-11-12T13:00:00.000+01:00', utc: '2026-11-12T12:00:00.000Z' },
+        steg: [
+            row('L01', 'Samsung', 'Kamera', 'Fotografera rutan med L01 och klockan.', 5),
+            row('L02', 'Samsung', 'WhatsApp', 'Skriv L02 till iPhone.', 15),
+            row('L03', 'iPhone', 'WhatsApp', 'Öppna chatten så att meddelandet blir läst.', 25),
+            row('L04', 'iPhone', 'WhatsApp', 'Håll på L02, välj Svara och svara L04.', 35, { vantan_s: 30 }),
+            row('L05', 'Båda', 'Låst', 'Låt båda telefonerna ligga. De är låsta nu.', 45, { status: 'hoppad' }),
+            row('L06', 'iPhone', 'Signal', 'Gör något som ingen byggsten beskriver.', 55, { status: 'kvar', tid: '', utc: '' }),
+        ],
+        anteckningar: [{ kod: 'L02', text: 'Skrev fel först.', tid: '2026-11-12T13:00:17.000+01:00', utc: '2026-11-12T12:00:17.000Z' }],
+        angrade: 0,
+    };
+}
+
+test('en logg från den äldre labbsidan läses som flöde och logg, med samma koder och tider', () => {
+    const got = L.fromFile(JSON.stringify(oldLog())), steps = L.view(got.flow);
+    assert.strictEqual(got.flow.name, 'Prov med två telefoner');
+    assert.deepStrictEqual(got.flow.devices.map((d) => d.name), ['Samsung', 'iPhone']);
+    assert.deepStrictEqual(steps.map((s) => s.code), ['L01', 'L02', 'L03', 'L04', 'L05', 'L06']);
+    assert.deepStrictEqual(steps.map((s) => s.action), ['photo', 'text', 'read', 'reply', 'lock', 'custom']);
+    assert.deepStrictEqual(steps.map((s) => s.deviceName), ['Samsung', 'Samsung', 'iPhone', 'iPhone', 'Alla enheter', 'iPhone']);
+    // Ett chattsteg mellan två enheter får den andra som mottagare, och "Låst" är ingen app.
+    assert.strictEqual(steps[1].other, got.flow.devices[1].id);
+    assert.strictEqual(steps[4].app, '');
+    assert.strictEqual(steps[1].do, 'Skriv L02 till iPhone.');
+    assert.strictEqual(got.run.entries.length, 5);
+    assert.deepStrictEqual(got.run.entries.map((e) => e.status), ['klar', 'klar', 'klar', 'klar', 'hoppad']);
+    assert.strictEqual(got.run.entries[1].t, Date.UTC(2026, 10, 12, 12, 0, 15, 250));
+    assert.strictEqual(got.run.entries[1].off, 60);
+    assert.strictEqual(got.run.entries[3].wait, 30);
+    assert.strictEqual(got.run.started, T0);
+    assert.strictEqual(got.run.notes[0].text, 'L02: Skrev fel först.');
+    // Tabellen går att göra av det som lästes.
+    assert.strictEqual(L.rows(got.flow, got.run).filter((r) => r.kind === 'step').length, 4);
+    assert.ok(L.protocol(got.flow, got.run, 'Prov').html.includes('L04'));
+});
+
+test('en äldre logg vars koder inte följer ordningen eller som saknar tider avvisas', () => {
+    const gap = oldLog();
+    gap.steg[2].kod = 'L07';
+    assert.throws(() => L.fromFile(JSON.stringify(gap)), /följer inte ordningen/);
+    const noTime = oldLog();
+    noTime.steg[1].utc = 'i går';
+    assert.throws(() => L.fromFile(JSON.stringify(noTime)), /saknar en giltig tid/);
+    const empty = oldLog();
+    empty.steg = [];
+    assert.throws(() => L.fromFile(JSON.stringify(empty)), /går inte att läsa/);
+});
+
+test('texten i QR-koden är koden och klockans sekund, och bara en sådan text läses tillbaka', () => {
+    assert.strictEqual(L.shotText('L07', T0 + 999), 'L07 ' + T0 / 1000);
+    assert.deepStrictEqual(L.readShot(L.shotText('L07', T0 + 999)), { code: 'L07', t: T0 });
+    assert.deepStrictEqual(L.readShot('ÅB123 1794812345'), { code: 'ÅB123', t: 1794812345000 });
+    for (const bad of ['', null, 'https://example.org/L07 1794812345', 'L07', 'l07 1794812345', 'L07 1794812345 ', 'L7 1794812345', 'L07 17948']) assert.strictEqual(L.readShot(bad), null, String(bad));
+});

@@ -1483,9 +1483,13 @@ senare.
 
 ### Laboration (`tools/lab/`)
 
-- Ett verktyg för den som gör en egen laboration: ett flöde av steg görs under **Förbered**, gås igenom med datorns
-  klocka under **Genomför**, och blir en tabell till protokollet under **Tabell** (tid, enhet, åtgärd, kod,
-  anmärkning). Verktyget läser ingen extraktion och följer inte med mellan verktygen. Ingenting lämnar datorn.
+- Ett verktyg för den som gör en egen laboration. Det öppnas sedan 1.68 på **två val** mitt på sidan (`#view-start`):
+  **Genomför ny laboration** och **Läs in genomförd laboration**. Mer står inte där: valen är också förklaringen
+  av vad verktyget gör. Bakom det första görs ett flöde av steg under **Förbered**, gås igenom med datorns klocka
+  under **Genomför**, och blir en tabell till protokollet under **Tabell** (tid, enhet, åtgärd, kod, anmärkning).
+  Flikarna för de tre syns bara där. Bakom det andra jämförs loggen med enheternas extraktioner (se nedan).
+  `Till start` i rubriken går tillbaka. En laboration som pågår öppnas direkt i Genomför. Ingenting lämnar datorn,
+  och en extraktion läses bara.
 - **Kärnan** är `lab-core.js` (`LabCore`, utan DOM, testad i `lab-core.test.js`). Sidan (`script.js`) ritar och
   lyssnar, och räknar ingenting själv.
   - **Flödet**: `{ name, prefix, devices: [{ id, name }], groups, steps, next }`. Ett steg har `action` (ur
@@ -1566,10 +1570,57 @@ senare.
   och vyn rullar. `Avbryt laborationen` (`#r-abort`) finns bara när laborationen har börjat, frågar först och har
   ingen tangent, så att den inte trycks av misstag. `Rensa allt` (`#p-reset`) överst under Förbered tar bort namnet,
   enheterna och stegen (`fresh()`), och loggen om det finns en. De egna mallarna ligger kvar.
+- **QR-koden i rutan** (1.68, `qr-encode.js`, `LabQr`, utan DOM, testad i `qr-encode.test.js` genom att koden läses
+  tillbaka med `tools/QR2URL/jsQR.js`). Bredvid koden och klockan i `#r-shot` står en QR-kod med texten
+  `LabCore.shotText(kod, t)`: stegets kod och klockan i hela sekunder (`L03 1794481380`). Den ritas om när sekunden
+  byts och finns bara medan ett steg pågår. Med ett prefix i A–Z har texten bara versaler, siffror och mellanslag och ryms
+  då i den minsta QR-koden (version 1, 21 × 21 rutor), så att rutan kan vara liten: koden är högst 140 px bred på
+  skärmen. Ett prefix med Å, Ä eller Ö skrivs som byte och ger en något större kod.
+  `LabCore.readShot` läser texten tillbaka. Kodaren kan bara det som behövs här: version 1–6 och felrättning M.
+- **Läs in genomförd laboration** (1.68, `#view-trace`): loggen (verktygets egen efter en laboration, eller den sparade
+  filen), en extraktion per enhet, och en tabell där varje steg står med loggens tid, telefonens tid och källan.
+  Tre filer:
+  - `lab-read.js` (`LabRead.read(file, o)`) läser en extraktion till **underlaget**: meddelanden (bara koderna som
+    står i texten, tiderna och det som öppnar raden i Queries; texten sparas inte), bildbibliotekets filer från
+    laborationen med QR-koden ur bilden och en liten bild att välja efter, och lås, av och på och app i förgrunden
+    ur loggarna som Härkomst läser (knowledgeC på iOS, usagestats på Android). Databaserna hittas och läses genom
+    katalogernas roller, som i Chattar och Härkomst, och stängs när de är lästa. Bara chattar med meddelanden från
+    laborationens dygn (ett dygn åt vardera hållet) läses, och antalet står i kortet. Svaret säger också vad som
+    lästes (`read`) och vad som inte lästes och varför (`missing`); båda visas. QR-koden söks med jsQR först i en
+    förminskad bild och sedan i hela, på iOS också i telefonens JPEG-kopia (`5005.JPG`) av en HEIC-bild eller video.
+    Extraktionerna läses en i taget, och allt hålls i minnet.
+  - `lab-trace.js` (`LabTrace`, utan DOM, testad i `lab-trace.test.js`) jämför. `match(flow, run, evidence, { before,
+    after, chosen })` söker **koden först** (i meddelandets text, i gruppens namn eller i QR-koden i bilden) och
+    **tiden sedan** (ett spår av rätt sort från `before` sekunder före till `after` sekunder efter loggens tid; 180
+    och 60 från början, och båda står i fält ovanför tabellen). Märkena (`MARKS`) är **säker** (koden står i spåret),
+    **trolig** (det enda spåret av rätt sort i tiden), **flera möjliga** (det närmaste är föreslaget och användaren
+    väljer; valet ger **vald**), **inte hittad**, **söks inte** och **ingen extraktion**. Ett spår som bara hittas
+    på tiden är aldrig säkert. Ett chattsteg söks i båda enheterna: skickat hos den som gör steget, mottaget och
+    läst hos motparten. En app utan eget stöd söks som app i förgrunden på namnet i paketets id (`APP_IDS`).
+    Flygplansläge, installation och avinstallation söks inte, och inte av och på i iOS.
+  - **Klockorna**: en bild där QR-koden går att läsa bär både datorns sekund och telefonens tid för bilden.
+    Skillnaden är telefonens klocka mot datorns (`clocks`), och står i uppgifterna ovanför tabellen med antalet
+    bilder. Bara sådana bilder räknas, och tabellens tider rättas inte efter den. Uppgiften bredvid, hur långt
+    efter telefonens tid trycket kom, är medianen i de säkra stegen.
+  - `trace-view.js` (`LabTraceView`) ritar. Tabellen på skärmen har fem kolumner (Kod, Steg, Loggens tid,
+    Telefonens tid och källa, Märke) med fasta bredder, så att den aldrig rullar i sidled. `Mer` på en rad visar
+    spårets alla tider med kolumnernas namn. Märkena ovanför tabellen är också filter. **Källan** är en länk som
+    öppnar samma query med samma värden i Queries och märker ut raden på tiden (`open-query` till ramen; öppnas
+    verktygets sida för sig, utan ramen, står källan som text).
+  - **Till Word** går `LabTrace.protocol`: fem kolumner (Kod, Åtgärd, Loggens tid, Telefonens tid, Källa) med
+    inline-stilar. Mer än fem kolumner blir för brett på ett stående A4. Allt annat står i CSV-filen (`toCsv`, tolv
+    kolumner med UTC-tider, märke och hur långt efter trycket kom). Kopian, utskriften och filen tar hela listan,
+    inte bara det märke som visas.
+  - Den öppnade loggen hålls för sig (`view.log`) och rör inte verktygets eget flöde.
+  - Jämförelsen är inget facit av sig själv: den säger var programmet hittade steget. Mot det handgjorda underlaget
+    från laborationen med två telefoner (`tests/app/facit/lab-tva-telefoner.json`) gav den, i Node och genom
+    appen: av 75 steg 28 säkra, 36 troliga, 8 med flera möjliga, 2 inte hittade och 1 som inte söks. Inget test i
+    repot läser det underlaget än; röktestet går mot en påhittad extraktion (`tests/app/lab-trace-fixture.js`).
 - Electron har ingen `window.prompt`, så egna steg och anmärkningar skrivs i formulär i sidan. Utskriften går genom
   en dold ram (`#l-print`, `srcdoc`), så att bara tabellen skrivs ut.
 - Inte prövat: utskriftsdialogen i appen och inklistring i Word. Kopieringen är prövad i Chrome med ett riktigt
-  musklick (HTML och text i urklipp).
+  musklick (HTML och text i urklipp). QR-koden är läst tillbaka av jsQR från skärmen och ur en ritad bild i en
+  påhittad extraktion, men ingen riktig telefon har fotograferat den än.
 
 ### Rapporter (UFDR, `tools/db-queries/ufdr.js`)
 

@@ -621,6 +621,14 @@
         return Math.floor(s / 60) + ':' + pad(s % 60);
     }
 
+    // Texten i QR-koden i rutan att fotografera: stegets kod och datorns klocka i hela sekunder sedan 1970 (UTC).
+    // QR-koden ritas om en gång per sekund, så bilden är tagen under sekunden som börjar vid den tiden.
+    function shotText(code, t) { return code + ' ' + Math.floor(t / 1000); }
+    function readShot(text) {
+        var m = /^([A-ZÅÄÖ]{1,3}\d{2,3}) (\d{9,11})$/.exec(String(text == null ? '' : text));
+        return m ? { code: m[1], t: Number(m[2]) * 1000 } : null;
+    }
+
     // ---------- Körningen ----------
 
     // entries har en rad per steg i flödets ordning: nästa steg är alltid entries.length.
@@ -905,10 +913,68 @@
 
     function num(v, min, max) { return typeof v === 'number' && isFinite(v) && v >= min && v <= max; }
 
+    // Loggen från den fristående sidan som fanns före verktyget (labblogg-….json) har en annan form: stegen står
+    // som text, med telefonens namn. Den görs om till ett flöde och en logg i verktygets form. Stegets byggsten läses
+    // ur texten, så att programmet vet vad det ska leta efter i telefonen. Ett steg som inte känns igen blir ett eget steg.
+    var OLD_STEPS = [
+        [/^Skriv \S+ raderas /, 'text-delete'], [/^Radera meddelandet /, 'delete'], [/^Skriv \S+ i gruppen/, 'group-text'], [/^Skriv \S+ (till|i chatten) /, 'text'],
+        [/^Öppna gruppen.* svara /, 'group-reply'], [/ svara \S+\.$/, 'reply'], [/så att meddeland\S+ blir läs/, 'read'], [/^Skapa en grupp /, 'group'],
+        [/^Spela in en video .* kameran inne i /, 'video-app'], [/^Spela in en video /, 'video'], [/^Ta en bild .* kameran inne i .* skicka/, 'photo-app'], [/Snapchat.* [Tt]a en bild.* skicka /, 'photo-app'], [/^Ta en bild .* Snapchats kamera .* skicka /, 'photo-app'],
+        [/ som dokument, /, 'document'], [/^Skicka bilden .* ur /, 'photo-library'], [/^Spela in ett röstmeddelande/, 'voice'], [/^Fotografera /, 'photo'],
+        [/ ta en skärmdump\.$/, 'screenshot'], [/^Ändra datum och tid /, 'edit-date'], [/^Gå till hemskärmen och öppna /, 'open-app'], [/^Gå till hemskärmen och lås /, 'home-lock'],
+        [/ är låsta /, 'lock'], [/^Lås upp /, 'unlock'], [/^Stäng av telefonen/, 'power-off'], [/^Starta telefonen/, 'power-on'], [/ flygplansläge/, 'flight-on'],
+        [/^Stäng av .* välj /, 'zone'], [/^Slå på .* igen /, 'zone-back'],
+    ];
+    var OLD_NO_APP = { 'Låst': 1, 'Lås upp': 1, 'Stäng av': 1, 'Starta': 1, 'Flygplansläge': 1 };
+
+    function fromOldLog(o) {
+        var T = 4e12, list = o.steg;
+        if (!Array.isArray(list) || !list.length || list.length > LIMITS.steps) throw new Error('Loggen i filen går inte att läsa.');
+        // 2026-11-11T20:51:46.303+01:00 som { t, off }.
+        var clock = function (x) {
+            var m = x && /^\d{4}-\d\d-\d\dT[\d:.]+([+-])(\d\d):(\d\d)$/.exec(String(x.tid)), t = x ? Date.parse(x.utc) : NaN;
+            if (!m || !num(t, 0, T)) throw new Error('En rad i loggen saknar en giltig tid.');
+            return { t: t, off: (m[1] === '-' ? -1 : 1) * (Number(m[2]) * 60 + Number(m[3])) };
+        };
+        var names = [];
+        list.forEach(function (x) {
+            var name = clip(x && x.telefon, LIMITS.name).trim();
+            if (name && name !== 'Båda' && names.indexOf(name) < 0) names.push(name);
+        });
+        var flow = emptyFlow(o.laboration, o.kodbokstav, names), started = clock(o.start);
+        var run = { started: started.t, off: started.off, zone: clip(o.dator && o.dator.zon, LIMITS.name), entries: [], notes: [], undone: [], waitUntil: 0, waitStep: '' };
+        var idOf = function (name) { return (flow.devices.filter(function (d) { return d.name === name; })[0] || {}).id; };
+        list.forEach(function (x) {
+            var text = clip(x.vad, LIMITS.text), device = x.telefon === 'Båda' ? ALL : idOf(clip(x.telefon, LIMITS.name).trim());
+            if (!device) throw new Error('Ett steg i filen pekar på en enhet som inte finns.');
+            var hit = OLD_STEPS.filter(function (p) { return p[0].test(text); })[0], action = ACTION[hit ? hit[1] : 'custom'];
+            var other = action.chat && device !== ALL && flow.devices.length === 2 ? flow.devices.filter(function (d) { return d.id !== device; })[0].id : '';
+            var app = clip(x.app, LIMITS.name).trim();
+            // Texterna är redan utskrivna med koden och namnen, så klamrarna i dem är vanliga tecken.
+            var step = makeStep(flow, action.id, { device: device, other: other, block: x.block, app: OLD_NO_APP[app] ? '' : app, do: text.replace(/[{}]/g, ''), done: text.replace(/[{}]/g, ''),
+                press: clip(x.tryck, LIMITS.text), wait: x.vantan_s });
+            flow.steps.push(step);
+            if (x.status !== 'klar' && x.status !== 'hoppad') return;
+            if (run.entries.length !== flow.steps.length - 1) throw new Error('Loggen i filen går inte att läsa.');
+            var c = clock(x), e = { step: step.id, status: x.status, t: c.t, off: c.off };
+            if (x.status === 'klar' && step.wait) e.wait = step.wait;
+            run.entries.push(e);
+        });
+        tidy(flow);
+        var codes = view(flow);
+        list.forEach(function (x, n) { if (x.kod !== codes[n].code) throw new Error('Stegens koder i filen följer inte ordningen, så loggen går inte att läsa.'); });
+        (Array.isArray(o.anteckningar) ? o.anteckningar : []).slice(0, LIMITS.notes).forEach(function (x) {
+            var text = clip(x && x.text, LIMITS.text).trim();
+            if (text) { var c = clock(x); run.notes.push({ t: c.t, off: c.off, text: (x.kod ? clip(x.kod, 12) + ': ' : '') + text, device: '' }); }
+        });
+        return { flow: flow, run: run, templates: [] };
+    }
+
     // En fil från någon annan är indata som alla andra: allt byggs om fält för fält, och det som inte stämmer avvisas.
     function fromFile(text) {
         var o;
         try { o = JSON.parse(text); } catch (e) { throw new Error('Filen är inte JSON.'); }
+        if (o && !o.format && o.laboration && o.kodbokstav && o.start && Array.isArray(o.steg)) return fromOldLog(o);
         if (!o || o.format !== FORMAT || !o.flow) throw new Error('Filen är inte ett flöde eller en logg från Laboration.');
         if (o.version !== 1) throw new Error('Filen är skriven av en nyare version av programmet.');
         var f = o.flow;
@@ -986,7 +1052,7 @@
         TEMPLATES: TEMPLATES, cleanTemplate: cleanTemplate, templateFrom: templateFrom, mergeTemplates: mergeTemplates, templatesToFile: templatesToFile, templatesFromFile: templatesFromFile,
         buildFlow: buildFlow, cleanApps: cleanApps,
         cleanPrefix: cleanPrefix, cleanWait: cleanWait, clip: clip, esc: esc, softParts: softParts, deviceName: deviceName, view: view, estimate: estimate, checklist: checklist,
-        clockNow: clockNow, offsetText: offsetText, isoLocal: isoLocal, timeText: timeText, dateText: dateText, spanText: spanText,
+        shotText: shotText, readShot: readShot, clockNow: clockNow, offsetText: offsetText, isoLocal: isoLocal, timeText: timeText, dateText: dateText, spanText: spanText,
         newRun: newRun, isDone: isDone, isWaiting: isWaiting, press: press, undo: undo, toggleApprox: toggleApprox, addNote: addNote, cutWait: cutWait, setRemark: setRemark,
         rows: rows, cells: cells, facts: facts, protocol: protocol, toCsv: toCsv, toFile: toFile, fileName: fileName, fromFile: fromFile,
     };

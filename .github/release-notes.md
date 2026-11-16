@@ -1,5 +1,25 @@
 Automatiskt byggd från commit `{{SHA}}`.
 
+## Nytt i 1.68
+
+**Laboration läser in en genomförd laboration och visar var varje steg står i enheterna, med länk till källan.**
+
+- **Två val:** verktyget öppnas på två val mitt på sidan, "Genomför ny laboration" och "Läs in genomförd laboration". Flikarna Förbered, Genomför och Tabell finns bakom det första. En laboration som pågår öppnas direkt där den var.
+- **QR-kod i rutan:** rutan som fotograferas har en liten QR-kod med stegets kod och datorns klocka. Den byts varje sekund. En bild av rutan säger då själv vilket steg den hör till, och vad datorns klocka var när den togs.
+- **Läs in genomförd laboration:** välj loggen (den som finns kvar i verktyget, eller den sparade filen) och en extraktion per enhet. Programmet läser chattarnas databaser, bildbiblioteket och telefonens loggar över lås, av och på och app i förgrunden, och ställer varje steg mot det som står där. Rutan för varje enhet säger vad som lästes och vad som inte gick att läsa.
+- **Koden först, tiden sedan:** ett steg är **säkert** när koden står i meddelandets text, i gruppens namn eller i QR-koden i en bild. Utan kod söks ett spår av rätt sort nära loggens tid: finns ett enda är det **troligt**, finns flera är det närmaste föreslaget och du väljer det rätta (**flera möjliga**, med småbilder för foton), och finns inget står steget som **inte hittat**. Ett spår som bara hittas på tiden står aldrig som säkert.
+- **Tiden som söks syns:** från början 180 sekunder före till 60 sekunder efter loggens tid. Båda står ovanför tabellen och går att ändra.
+- **Tabellen:** kod, steg, loggens tid, telefonens tid med källa, och märke. Ett chattsteg visas i båda enheterna: skickat hos den ena, mottaget och läst hos den andra. "Mer" på en rad visar alla tider i spåret med kolumnens namn. Märkena ovanför tabellen väljer vilka steg som visas.
+- **Källan är en länk:** ett klick öppnar samma fråga mot samma extraktion i Queries, med raden märkt.
+- **Klockorna:** för en bild där QR-koden går att läsa jämförs datorns sekund med telefonens tid för bilden. Skillnaden står ovanför tabellen. Tabellens tider rättas inte efter den.
+- **Till Word:** kopian och utskriften har fem kolumner (kod, åtgärd, loggens tid, telefonens tid, källa). CSV-filen har allt, med tider i UTC. Båda tar hela listan, också när bara ett märke visas.
+- **En app utan eget stöd** söks som app i förgrunden i telefonens loggar, på appens namn.
+- **WhatsApp på iOS:** ett meddelande som tagits bort för alla (typ 14) står nu som raderat, också i Queries och Chattar.
+- **Inget skrivs** till extraktionerna eller till disken. Allt hålls i minnet.
+- **Provat:** enhetstesterna, röktestet i appen och html-versionen i Chrome på macOS, med en påhittad extraktion där QR-koden läses ur en bild. En egen laboration med två telefoner (75 steg) lästes in genom appen: 28 steg säkra, 36 troliga, 8 med flera möjliga, 2 inte hittade och 1 som inte söks. Extraktionerna lästes på 19 och 11 sekunder.
+- **Inte provat:** ingen riktig telefon har fotograferat QR-koden än, så det är inte känt hur liten eller sned den får bli i bilden. Utskriftsdialogen och inklistring i Word av den nya tabellen. Windows och Linux provas först i bygget.
+- **Kvar:** flygplansläge, installation och avinstallation söks inte, och inte av och på i iOS. En krypterad databas vars nyckel inte finns i eller bredvid extraktionen läses inte, och det finns ingen knapp för att välja nyckelfil i den här vyn. Träffarna är programmets förslag och inget facit: kontrollera dem mot källan.
+
 ## Nytt i 1.67
 
 **Härkomst öppnar en rad i listan ur minnet, utan att bedöma filen en gång till.**

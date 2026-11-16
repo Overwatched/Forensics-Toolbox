@@ -12,16 +12,32 @@
         <header class="page-header">
             <div>
                 <h1>Laboration</h1>
-                <p>Gör ett flöde av steg, gå igenom det med klockan framme och få en tabell till protokollet. Allt stannar på datorn.</p>
+                <p>Allt stannar på datorn. En extraktion läses bara, ingenting skrivs i den.</p>
             </div>
-            <div class="tabs" role="tablist">
-                <button type="button" id="tab-plan" class="tab" role="tab"><b>1</b> Förbered</button>
-                <button type="button" id="tab-run" class="tab" role="tab"><b>2</b> Genomför</button>
-                <button type="button" id="tab-table" class="tab" role="tab"><b>3</b> Tabell</button>
+            <div class="head-nav">
+                <button type="button" id="nav-start" class="secondary-btn display-none" title="Tillbaka till de två valen. Det du har gjort ligger kvar.">Till start</button>
+                <div id="tabs" class="tabs display-none" role="tablist">
+                    <button type="button" id="tab-plan" class="tab" role="tab"><b>1</b> Förbered</button>
+                    <button type="button" id="tab-run" class="tab" role="tab"><b>2</b> Genomför</button>
+                    <button type="button" id="tab-table" class="tab" role="tab"><b>3</b> Tabell</button>
+                </div>
             </div>
         </header>
 
-        <section id="view-plan" class="view workspace">
+        <section id="view-start" class="view start">
+            <div class="start-cards">
+                <button type="button" id="s-new" class="start-card">
+                    <span class="start-title">Genomför ny laboration</span>
+                    <span id="s-new-desc" class="start-desc"></span>
+                </button>
+                <button type="button" id="s-read" class="start-card">
+                    <span class="start-title">Läs in genomförd laboration</span>
+                    <span id="s-read-desc" class="start-desc"></span>
+                </button>
+            </div>
+        </section>
+
+        <section id="view-plan" class="view workspace display-none">
             <aside class="side">
                 <p id="p-locked" class="notice display-none">Laborationen har börjat, så stegen går inte att ändra. Under 2 Genomför finns Avbryt laborationen, och tabellen har en knapp för att börja om med samma flöde.</p>
                 <section class="side-block">
@@ -114,8 +130,13 @@
                 <div class="run-top">
                     <div id="r-shot" class="run-shot">
                         <div class="shot-label">Rutan att fotografera</div>
-                        <div id="r-code" class="run-code"></div>
-                        <div id="r-clock" class="clock"></div>
+                        <div class="shot-row">
+                            <svg id="r-qr" class="shot-qr display-none" role="img" aria-label="QR-kod med stegets kod och datorns klocka"><rect width="100%" height="100%" fill="#fff"/><path fill="#000"/></svg>
+                            <div>
+                                <div id="r-code" class="run-code"></div>
+                                <div id="r-clock" class="clock"></div>
+                            </div>
+                        </div>
                         <div id="r-zone" class="zone"></div>
                     </div>
                     <div class="run-what">
@@ -165,10 +186,35 @@
                 <button type="button" id="t-print" class="secondary-btn">Skriv ut / PDF…</button>
                 <button type="button" id="t-csv" class="secondary-btn">Spara som CSV</button>
                 <button type="button" id="t-save" class="secondary-btn">Spara loggen som fil</button>
+                <button type="button" id="t-trace" class="secondary-btn" title="Välj enheternas extraktioner och se var varje steg står i dem">Jämför med enheterna</button>
                 <button type="button" id="t-again" class="secondary-btn">Ny laboration med samma flöde</button>
                 <p id="t-status" class="status" role="status"></p>
             </div>
             <div id="t-sheet" class="sheet"></div>
+        </section>
+
+        <section id="view-trace" class="view trace-view display-none">
+            <div class="trace-top">
+                <section class="trace-card">
+                    <h2>1 Loggen</h2>
+                    <p id="x-log"></p>
+                    <p id="x-log-name" class="hint"></p>
+                    <p id="x-log-status" class="miss" role="status"></p>
+                    <button type="button" id="x-log-open" class="primary-btn">Öppna logg…</button>
+                    <input type="file" id="x-log-file" accept=".json,application/json" hidden>
+                </section>
+                <div id="x-devices" class="trace-devices"></div>
+            </div>
+            <div id="x-tools" class="table-head display-none">
+                <div id="x-marks" class="marks" role="group" aria-label="Stegen per märke"></div>
+                <button type="button" id="x-copy" class="primary-btn">Kopiera för Word</button>
+                <button type="button" id="x-print" class="secondary-btn">Skriv ut / PDF…</button>
+                <button type="button" id="x-csv" class="secondary-btn">Spara som CSV</button>
+                <span class="win">Ett spår utan kod söks <input type="number" id="x-before" min="0" max="86400" step="10" aria-label="Sekunder före loggens tid"> s före till
+                    <input type="number" id="x-after" min="0" max="86400" step="10" aria-label="Sekunder efter loggens tid"> s efter loggens tid</span>
+                <p id="x-status" class="status" role="status"></p>
+            </div>
+            <div id="x-sheet" class="sheet"></div>
         </section>
     </div>
 
@@ -176,7 +222,45 @@
     <iframe id="l-print" class="l-print" title="Utskrift" aria-hidden="true" tabindex="-1"></iframe>
     <datalist id="l-apps"></datalist>
 
+    <!-- Det som läser extraktionerna när en genomförd laboration läses in: samma delar som i Chattar och Härkomst. -->
+    <script src="../../queries/ios/whatsapp/catalog.js"></script>
+    <script src="../../queries/android/whatsapp/catalog.js"></script>
+    <script src="../../queries/android/telegram/catalog.js"></script>
+    <script src="../../queries/ios/signal/catalog.js"></script>
+    <script src="../../queries/android/signal/catalog.js"></script>
+    <script src="../../queries/ios/telegram/catalog.js"></script>
+    <script src="../../queries/ios/snapchat/catalog.js"></script>
+    <script src="../../queries/android/snapchat/catalog.js"></script>
+    <script src="../../queries/ios/photos-sqlite/catalog.js"></script>
+    <script src="../../queries/android/catalog.js"></script>
+    <script src="../../queries/app-usage/catalog.js"></script>
+    <script src="../hash-calculator/hashing.js"></script>
+    <script src="../ios-keychain/lib/bplist.js"></script>
+    <script src="../ios-keychain/lib/asn1.js"></script>
+    <script src="../ios-keychain/vendor/sqljs/sql-wasm-binary.js"></script>
+    <script src="../ios-keychain/vendor/sqljs/sql-wasm.js"></script>
+    <script src="../db-queries/zip.js"></script>
+    <script src="../db-queries/ufdr.js"></script>
+    <script src="../db-queries/fs-times.js"></script>
+    <script src="../db-queries/locate.js"></script>
+    <script src="../db-queries/wal.js"></script>
+    <script src="../db-queries/sqlcipher.js"></script>
+    <script src="../db-queries/postbox.js"></script>
+    <script src="../db-queries/app-secrets.js"></script>
+    <script src="../_shared/db-share.js"></script>
+    <script src="../db-queries/extraction-core.js"></script>
+    <script src="../provenance/roles.js"></script>
+    <script src="../provenance/snapchat.js"></script>
+    <script src="../provenance/android-logs.js"></script>
+    <script src="../provenance/timeline-core.js"></script>
+    <script src="../chats/chat-core.js"></script>
+    <script src="../QR2URL/jsQR.js"></script>
+
     <script src="lab-core.js"></script>
+    <script src="qr-encode.js"></script>
+    <script src="lab-trace.js"></script>
+    <script src="lab-read.js"></script>
+    <script src="trace-view.js"></script>
     <script src="script.js"></script>
 </body>
 </html>

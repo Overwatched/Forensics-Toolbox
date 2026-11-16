@@ -51,6 +51,7 @@ body {
 .page-header h1 { font-size: 20px; margin: 0; }
 .page-header p { margin: 4px 0 0; color: var(--text-muted); font-size: 13px; }
 
+.head-nav { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .tabs { display: flex; gap: 6px; }
 .tab {
     border: 1px solid var(--border); border-radius: 10px; padding: 7px 14px; font: inherit; font-size: 13px; font-weight: 650;
@@ -117,6 +118,17 @@ textarea::placeholder, input::placeholder { color: var(--text-muted); }
 .dev-all { color: var(--text-muted); }
 .chip { display: inline-block; border: 1px solid currentColor; border-radius: 999px; padding: 1px 9px; font-size: 12px; font-weight: 650; white-space: nowrap; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
 .code-in { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; background: var(--surface-hover); border-radius: 5px; padding: 0 4px; }
+
+/* Start: två val mitt på sidan. */
+.start { display: flex; align-items: center; justify-content: center; overflow: auto; }
+.start-cards { display: flex; flex-wrap: wrap; justify-content: center; gap: 20px; padding: 8px; }
+.start-card {
+    width: 310px; min-height: 160px; display: flex; flex-direction: column; justify-content: center; gap: 10px; padding: 22px 24px;
+    border: 1px solid var(--border); border-radius: 16px; background: var(--surface); color: var(--text); font: inherit; text-align: left; cursor: pointer;
+}
+.start-card:hover, .start-card:focus-visible { border-color: var(--accent); background: var(--surface-hover); }
+.start-title { font-size: 19px; font-weight: 700; line-height: 1.25; }
+.start-desc { font-size: 13px; line-height: 1.45; color: var(--text-muted); }
 
 /* Förbered: stegen */
 .main { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; gap: 8px; overflow-wrap: anywhere; }
@@ -235,15 +247,18 @@ textarea::placeholder, input::placeholder { color: var(--text-muted); }
 .run { display: flex; flex-direction: column; gap: 10px; }
 .run-main { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; gap: 10px; }
 .run-top { display: flex; flex-wrap: wrap; gap: 10px 24px; align-items: center; }
-/* Rutan som fotograferas: koden och klockan tätt ihop, så att kameran inte behöver få med hela skärmen. */
-.run-shot { flex: none; padding: 10px 22px 12px; background: var(--surface); border: 3px solid var(--text); border-radius: 14px; text-align: center; }
+/* Rutan som fotograferas: QR-koden, koden och klockan tätt ihop, så att kameran inte behöver få med hela skärmen. */
+.run-shot { flex: none; padding: 10px 16px 12px; background: var(--surface); border: 3px solid var(--text); border-radius: 14px; text-align: center; }
+.shot-row { display: flex; align-items: center; justify-content: center; gap: 14px; }
+/* QR-koden är alltid svart på vitt, också i mörkt läge, så att den går att läsa ur bilden. */
+.shot-qr { flex: none; width: 132px; height: 132px; border-radius: 6px; shape-rendering: crispEdges; }
 .shot-label { margin-bottom: 6px; font-size: 12px; font-weight: 650; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-muted); }
 .run-what { flex: 1; min-width: 9em; display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 10px 14px; }
 .run-info { flex: 1 1 12em; min-width: 0; }
 .run-shot .zone { font-size: 15px; color: var(--text); white-space: nowrap; }
 /* Avbryt står för sig, långt från tangenterna som används vid varje steg. */
 .run-abort { flex: none; padding: 5px 10px; }
-.run-code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 96px; font-weight: 800; line-height: 1; letter-spacing: 0.02em; }
+.run-code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 80px; font-weight: 800; line-height: 1; letter-spacing: 0.02em; }
 .run[data-mode="wait"] .run-code { color: var(--warn); }
 .run[data-mode="done"] .run-code { color: var(--ok); }
 .run[data-mode="practice"] .run-code, .run[data-mode="empty"] .run-code { color: var(--text-muted); }
@@ -251,7 +266,7 @@ textarea::placeholder, input::placeholder { color: var(--text-muted); }
 .run-device .chip { font-size: 22px; padding: 3px 16px; border-width: 2px; }
 .run-app { font-size: 22px; font-weight: 650; }
 .run-count { margin-top: 6px; font-size: 13px; color: var(--text-muted); }
-.clock { margin-top: 8px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 60px; font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums; }
+.clock { margin-top: 8px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 44px; font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums; }
 .zone { margin-top: 4px; font-size: 13px; color: var(--text-muted); font-variant-numeric: tabular-nums; }
 
 .focus-hint { border: 1px solid var(--warn); border-radius: 10px; background: var(--surface); color: var(--warn); font: inherit; font-size: 14px; font-weight: 650; padding: 8px 12px; cursor: pointer; text-align: left; }
@@ -313,13 +328,71 @@ kbd {
 .remark-form { margin-top: 4px; }
 .remark-form .secondary-btn { padding: 6px 10px; }
 
+/* Läs in: loggen och extraktionerna överst, tabellen under. */
+.trace-view { display: flex; flex-direction: column; gap: 10px; }
+.trace-top { flex: none; max-height: 42%; overflow: auto; display: flex; flex-wrap: wrap; gap: 10px; }
+.trace-devices { flex: 2 1 320px; min-width: 0; display: flex; flex-wrap: wrap; gap: 10px; }
+.trace-devices:empty { display: none; }
+.trace-card {
+    flex: 1 1 240px; min-width: 0; display: flex; flex-direction: column; align-items: flex-start; gap: 6px; padding: 10px 12px;
+    background: var(--surface); border: 1px solid var(--border); border-radius: 12px; overflow-wrap: anywhere;
+}
+.trace-card h2 { margin: 0; font-size: 12px; letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-muted); }
+.trace-card h2 .chip { text-transform: none; letter-spacing: 0; vertical-align: middle; }
+.trace-card p { margin: 0; font-size: 13px; line-height: 1.4; }
+.trace-card p:empty { display: none; }
+.trace-card .hint, .trace-card .x-read { font-size: 12px; color: var(--text-muted); }
+.trace-card .miss { font-size: 12px; color: var(--warn); }
+.trace-card .x-file { font-weight: 650; }
+.trace-card progress { width: 100%; height: 8px; accent-color: var(--accent); }
+.trace-card .primary-btn, .trace-card .secondary-btn { margin-top: auto; }
+.marks { display: flex; flex-wrap: wrap; gap: 6px; }
+.mark-btn { border: 1px solid var(--border); border-radius: 999px; padding: 4px 11px; background: var(--surface); color: var(--text); font: inherit; font-size: 13px; font-weight: 650; cursor: pointer; white-space: nowrap; }
+.mark-btn:hover { background: var(--surface-hover); }
+.mark-btn[aria-pressed="true"] { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+.mark { font-weight: 650; white-space: nowrap; }
+.mark-sure, .mark-chosen { color: var(--ok); }
+.mark-many { color: var(--warn); }
+.mark-none { color: var(--bad); }
+.mark-off, .mark-wait { color: var(--text-muted); }
+.win { font-size: 12px; color: var(--text-muted); }
+.win input { width: 5.5em; padding: 4px 6px; }
+/* Tabellen har fem kolumner och rullar aldrig i sidled: koden, loggens tid och märket har fast bredd, och
+   stegets text och spåren delar på resten och bryter raden. */
+.protocol.trace-table { table-layout: fixed; width: 100%; }
+.protocol.trace-table td:nth-child(2), .protocol.trace-table td:nth-child(3) { min-width: 0; }
+.trace-table th:nth-child(1) { width: 5em; }
+.trace-table th:nth-child(3) { width: 7.5em; }
+.trace-table th:nth-child(5) { width: 11em; }
+.trace-table .chip { font-size: 11px; padding: 0 7px; }
+.trace + .trace { margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--border); }
+.trace-line { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; }
+.trace-source { font-size: 12px; color: var(--text-muted); }
+.protocol .src-btn { display: block; text-align: left; color: var(--accent); font-weight: 500; overflow-wrap: anywhere; }
+.src-btn:hover { text-decoration: underline; }
+.trace-thumb { display: block; margin: 4px 0; max-width: 96px; max-height: 96px; border-radius: 6px; }
+.trace-more { margin-top: 4px; font-size: 12px; line-height: 1.5; color: var(--text-muted); }
+.opts { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; margin-top: 4px; }
+.opts-label { font-size: 12px; color: var(--warn); }
+.opt {
+    display: inline-flex; flex-direction: column; align-items: center; gap: 2px; border: 1px solid var(--border); border-radius: 8px; padding: 3px 7px;
+    background: var(--bg); color: var(--text); font: inherit; font-size: 12px; font-variant-numeric: tabular-nums; cursor: pointer; max-width: 100%;
+}
+.opt img { max-width: min(72px, 100%); max-height: 72px; border-radius: 4px; }
+.opt:hover { border-color: var(--accent); }
+.opt.proposed { border-style: dashed; border-color: var(--text-muted); }
+.opt[aria-pressed="true"] { border-color: var(--ok); box-shadow: inset 0 0 0 1px var(--ok); }
+.mark-cell .press { font-size: 12px; color: var(--text-muted); }
+.mark-cell .link-btn { display: block; }
+
 .copy-stage { position: fixed; left: -10000px; top: 0; width: 600px; height: 1px; overflow: hidden; opacity: 0; }
 .l-print { position: fixed; width: 0; height: 0; border: 0; left: -10px; top: -10px; }
 .display-none { display: none !important; }
 
 @media (max-width: 900px) {
     .run-code { font-size: 64px; }
-    .clock { font-size: 40px; }
+    .clock { font-size: 36px; }
+    .shot-qr { width: 116px; height: 116px; }
     .run-list { width: 300px; }
     .run-list li { font-size: 13px; }
     .side { width: 270px; }
@@ -331,6 +404,11 @@ kbd {
 }
 /* I ett smalt fönster ligger byggstenarna ovanför flödet i stället för bredvid, så att stegen får hela bredden. */
 @media (max-width: 700px) {
+    .trace-table th:nth-child(1) { width: 4em; }
+    .trace-table th:nth-child(3) { width: 6.2em; }
+    .trace-table th:nth-child(5) { width: 6.5em; }
+    /* En tid från och till är längre än den smala kolumnen och får brytas vid strecket. */
+    .trace-table .mark, .trace-table .trace-line .nowrap { white-space: normal; }
     /* Rutan att fotografera behåller sin bredd, så listan med stegen ligger under i stället för bredvid, och
        det som inte får plats nås genom att rulla. Steget som ska göras står direkt under rutan. */
     .run-body { flex-direction: column; overflow: auto; }

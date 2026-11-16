@@ -5,8 +5,11 @@
 'use strict';
 
 const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
 const { sleep } = require('./cdp');
+const fixtures = require('./fixtures');
+const labTrace = require('./lab-trace-fixture');
 
 const VERSION = /Version\s+(\d+\.\d+)/.exec(fs.readFileSync(path.join(__dirname, '..', '..', 'Toolbox.html'), 'utf8'))[1];
 const PROV = 'provenance/index.html';
@@ -1919,8 +1922,19 @@ const scenarios = [
         const LAB = 'lab/index.html';
         const NAME = 'Samsung <img src=x onerror=window.__ftxss=1>';
         await c.nav('Laboration');
-        await c.waitFor(LAB, `!!window.LabCore && document.querySelectorAll('#p-blocks input').length > 5`, 30000, 'Laboration laddas');
+        await c.waitFor(LAB, `!!window.LabCore && !!window.LabTraceView && !!document.getElementById('s-new')`, 30000, 'Laboration laddas');
         const ev = (e) => c.ev(LAB, e);
+        // Verktyget öppnas på två val mitt på sidan, utan flikar och utan något annat att välja på.
+        const start = await ev(`(function(){
+            const shown = (id) => !document.getElementById(id).classList.contains('display-none');
+            const cards = [...document.querySelectorAll('#view-start .start-card')], b = cards.map(x => x.getBoundingClientRect());
+            return { start: shown('view-start'), tabs: shown('tabs'), back: shown('nav-start'), titles: cards.map(x => x.querySelector('.start-title').textContent), desc: cards.every(x => x.querySelector('.start-desc').textContent.length > 20),
+                buttons: [...document.querySelectorAll('button')].filter(x => x.getClientRects().length).length,
+                middle: b.length === 2 && Math.abs((b[0].left + b[1].right) / 2 - innerWidth / 2) < 40 && Math.abs((b[0].top + b[0].bottom) / 2 - innerHeight / 2) < innerHeight * 0.2 };
+        })()`);
+        expect(start.start && !start.tabs && !start.back && start.titles.join('|') === 'Genomför ny laboration|Läs in genomförd laboration' && start.desc && start.buttons === 2 && start.middle, 'Startsidan: ' + JSON.stringify(start));
+        await ev(`document.getElementById('s-new').click(), 1`);
+        await c.waitFor(LAB, `document.querySelectorAll('#p-blocks input').length > 5 && !document.getElementById('tabs').classList.contains('display-none')`, 10000, 'Förbered öppnas från startsidan');
         const key = (k) => ev(`document.body.dispatchEvent(new KeyboardEvent('keydown', { key: ${JSON.stringify(k)}, bubbles: true, cancelable: true })), 1`);
         const text = (id) => ev(`document.getElementById(${JSON.stringify(id)}).textContent`);
         const mode = () => ev(`document.getElementById('view-run').getAttribute('data-mode')`);
@@ -1974,6 +1988,21 @@ const scenarios = [
         })()`);
         expect(shot.inside === 3 && shot.share < 0.25 && /^\d{4}-\d\d-\d\d · UTC[+-]\d\d:\d\d/.test(shot.zone) && shot.label === 'Rutan att fotografera', 'Rutan att fotografera: ' + JSON.stringify(shot));
         expect(shot.font >= 14 && !shot.cut && shot.abort, 'Listan med stegen: ' + JSON.stringify(shot));
+        // QR-koden i rutan är liten och går att läsa i den storlek den visas: stegets kod och datorns klocka i hela sekunder.
+        const qr = await ev(`(async function () {
+            const svg = document.getElementById('r-qr'), r = svg.getBoundingClientRect(), s = document.getElementById('r-shot').getBoundingClientRect();
+            const img = new Image();
+            img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(new XMLSerializer().serializeToString(svg));
+            await img.decode();
+            const side = Math.round(r.width), c = document.createElement('canvas');
+            c.width = c.height = side;
+            const g = c.getContext('2d');
+            g.drawImage(img, 0, 0, side, side);
+            const hit = jsQR(g.getImageData(0, 0, side, side).data, side, side);
+            return { text: hit ? hit.data : '', now: Math.floor(Date.now() / 1000), side: r.width, inside: r.left >= s.left && r.right <= s.right && r.top >= s.top && r.bottom <= s.bottom, hidden: svg.classList.contains('display-none') };
+        })()`);
+        const qrAt = Number((/^L01 (\d+)$/.exec(qr.text) || [])[1]);
+        expect(!qr.hidden && qr.inside && qr.side <= 140 && Math.abs(qrAt - qr.now) <= 2, 'QR-koden i rutan: ' + JSON.stringify(qr));
         // Avbryt laborationen: loggen tas bort, flödet står kvar och går att ändra, och nästa start börjar om från L01.
         await key(' ');
         expect(await text('r-code') === 'L02', 'Efter ett tryck: ' + await text('r-code'));
@@ -2048,18 +2077,33 @@ const scenarios = [
         await c.waitFor(LAB, `/^Loggen är öppnad: 16 av 16 steg har ett tryck\.$/.test(document.getElementById('p-status').textContent)`, 10000, 'loggen öppnas igen');
         const again = await ev(`[...document.querySelectorAll('.protocol tbody tr')].map(tr => tr.cells[0].textContent + tr.cells[2].textContent).join('|')`);
         expect(again === table.rows.map((r) => r[0] + r[2]).join('|'), 'Tabellen ur den öppnade loggen skiljer sig från den som sparades');
+        // Från tabellen går loggen som finns här direkt till jämförelsen med enheterna, utan att öppnas som fil.
+        await ev(`document.getElementById('t-trace').click(), 1`);
+        const here = await ev(`({ shown: !document.getElementById('view-trace').classList.contains('display-none'), tabs: !document.getElementById('tabs').classList.contains('display-none'), log: document.getElementById('x-log').textContent,
+            name: document.getElementById('x-log-name').textContent, chips: [...document.querySelectorAll('#x-devices .trace-card .chip')].map(x => x.textContent), hint: document.querySelector('#x-sheet .empty').textContent,
+            tools: !document.getElementById('x-tools').classList.contains('display-none') })`);
+        expect(here.shown && !here.tabs && !here.tools && /: 15 av 16 steg gjorda, \d{4}-\d\d-\d\d \d\d:\d\d:\d\d–\d\d:\d\d:\d\d \(UTC[+-]\d\d:\d\d\)$/.test(here.log) && here.name === 'Loggen som finns här i verktyget.', 'Loggen i jämförelsen: ' + JSON.stringify(here));
+        expect(here.chips.join('|') === NAME + '|iPhone' && /^Välj extraktionen för varje enhet\./.test(here.hint), 'Enheterna i jämförelsen: ' + JSON.stringify(here));
+        await fits('Läs in');
+        await ev(`document.getElementById('nav-start').click(), 1`);
+        const back = await ev(`({ start: !document.getElementById('view-start').classList.contains('display-none'), read: document.getElementById('s-read-desc').textContent, fresh: document.getElementById('s-new-desc').textContent })`);
+        expect(back.start && / Loggen från den senaste laborationen finns redan här\.$/.test(back.read) && / Den senaste laborationen och dess tabell finns kvar\.$/.test(back.fresh), 'Startsidan efter en laboration: ' + JSON.stringify(back));
+        await ev(`document.getElementById('s-new').click(), 1`);
+        expect(await ev(`!document.getElementById('view-plan').classList.contains('display-none')`), 'Startsidans första val öppnar inte Förbered');
         await sleep(300);
         await noInjectedScript(c);
         await ev(`document.getElementById('tab-plan').click(), document.getElementById('p-reset').click(), 1`);
         await c.nav('Härkomst');
-        return plan.steps.length + ' steg, ' + table.rows.length + ' rader i tabellen, CSV och logg';
+        return plan.steps.length + ' steg, ' + table.rows.length + ' rader i tabellen, CSV och logg, QR-koden läst ur rutan';
     }],
 
     ['Laboration: ett eget flöde byggs av mallar, steg och drag, ändringar går att ångra, och en egen mall ligger kvar efter omstart', async ({ c, downloads }) => {
         const LAB = 'lab/index.html';
         await c.nav('Laboration');
-        await c.waitFor(LAB, `!!window.LabCore && !!document.querySelector('#p-palette .pal-item')`, 30000, 'Laboration laddas');
+        await c.waitFor(LAB, `!!window.LabCore && !!document.getElementById('s-new')`, 30000, 'Laboration laddas');
         const ev = (e) => c.ev(LAB, e);
+        await ev(`document.getElementById('s-new').click(), 1`);
+        await c.waitFor(LAB, `!!document.querySelector('#p-palette .pal-item')`, 10000, 'Förbered öppnas från startsidan');
         const text = (id) => ev(`document.getElementById(${JSON.stringify(id)}).textContent`);
         const count = (selector) => ev(`document.querySelectorAll(${JSON.stringify(selector)}).length`);
         // Klickar på det första som väljaren ger, eller på knappen med den texten i det.
@@ -2192,7 +2236,10 @@ const scenarios = [
         // Efter en omstart av verktyget ligger flödet och den egna mallen kvar, och mallen går att lägga in igen.
         await ev(`location.reload(), 1`);
         await sleep(500);
-        await c.waitFor(LAB, `!!window.LabCore && !!document.querySelector('#p-palette .pal-item') && document.querySelectorAll('#p-steps .step').length === 10`, 30000, 'flödet finns kvar efter omstart');
+        await c.waitFor(LAB, `!!window.LabCore && !!document.getElementById('s-new') && !document.getElementById('view-start').classList.contains('display-none')`, 30000, 'startsidan efter omstart');
+        expect(/ Flödet du har börjat på finns kvar: 10 steg\.$/.test(await text('s-new-desc')), 'Startsidan efter omstart: ' + await text('s-new-desc'));
+        await ev(`document.getElementById('s-new').click(), 1`);
+        await c.waitFor(LAB, `!!document.querySelector('#p-palette .pal-item') && document.querySelectorAll('#p-steps .step').length === 10`, 30000, 'flödet finns kvar efter omstart');
         await ev(`window.confirm = () => true, 1`);
         expect((await own()).join() === 'Min mall' && await ev(`document.getElementById('p-quick').classList.contains('display-none')`), 'Efter omstart: ' + await own());
         // Mallen sparades ur en grupp i en annan app och åt andra hållet. Den följer appen och enheterna som är valda nu.
@@ -2230,6 +2277,118 @@ const scenarios = [
         expect(await count('#p-steps .step') === 0 && (await own()).length === 0, 'Städningen efter provet');
         await c.nav('Härkomst');
         return '3 drag, ångra, kontroll, egen mall kvar efter omstart, mallar som fil, långa namn i smalt fönster';
+    }],
+
+    ['Laboration: en genomförd laboration läses in, stegens spår hittas i extraktionen med QR-koden ur bilden, valen räknar om tabellen och källan öppnas i Queries', async ({ c, downloads }) => {
+        const LAB = 'lab/index.html';
+        const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ft-lab-'));
+        const files = labTrace.build(await fixtures.loadSql(), dir);
+        await c.nav('Laboration');
+        await c.waitFor(LAB, `!!window.LabCore && !!window.LabTraceView && !!document.getElementById('s-read')`, 30000, 'Laboration laddas');
+        const ev = (e) => c.ev(LAB, e);
+        const text = (id) => ev(`document.getElementById(${JSON.stringify(id)}).textContent`);
+        const fits = async (what) => expect(await ev(`document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1 && document.getElementById('x-sheet').scrollWidth <= document.getElementById('x-sheet').clientWidth + 1`), 'Det rullar i sidled ' + what);
+        // Tabellen som den står: per steg märket, och per spår enheten, tiden, vad tiden är, källan och valen.
+        const table = () => ev(`[...document.querySelectorAll('#x-sheet .trace-table tbody tr')].map(tr => ({
+            code: tr.dataset.code, mark: tr.dataset.mark, markText: tr.querySelector('.mark').textContent, press: (tr.querySelector('.press') || {}).textContent || '', log: tr.cells[2].textContent, step: tr.cells[1].textContent,
+            traces: [...tr.querySelectorAll('.trace')].map(t => ({ line: [...t.querySelector('.trace-line').children].map(x => x.textContent).join(' | '), source: (t.querySelector('.src-btn, .trace-source') || {}).textContent || '',
+                link: !!t.querySelector('.src-btn'), thumb: ((t.querySelector('.trace-thumb') || {}).src || '').slice(0, 22), opts: [...t.querySelectorAll('.opt')].map(o => o.textContent + (o.getAttribute('aria-pressed') === 'true' ? ' vald' : o.classList.contains('proposed') ? ' förslag' : '')),
+                more: [...t.querySelectorAll('.trace-more div')].map(x => x.textContent) })),
+        }))`);
+        const marks = () => ev(`[...document.querySelectorAll('#x-marks .mark-btn')].map(b => b.textContent + (b.getAttribute('aria-pressed') === 'true' ? ' *' : '')).join(' | ')`);
+        const row = (rows, code) => rows.find((r) => r.code === code) || { traces: [{}] };
+
+        // Det andra valet på startsidan. Utan logg finns bara en sak att göra: öppna den.
+        await ev(`window.confirm = () => true, document.getElementById('s-read').click(), 1`);
+        const empty = await ev(`({ shown: !document.getElementById('view-trace').classList.contains('display-none'), tabs: !document.getElementById('tabs').classList.contains('display-none'), open: document.getElementById('x-log-open').textContent,
+            cards: document.querySelectorAll('#x-devices .trace-card').length, hint: document.querySelector('#x-sheet .empty').textContent, tools: !document.getElementById('x-tools').classList.contains('display-none') })`);
+        expect(empty.shown && !empty.tabs && empty.open === 'Öppna logg…' && empty.cards === 0 && !empty.tools && /Börja med loggen\.$/.test(empty.hint), 'Läs in utan logg: ' + JSON.stringify(empty));
+
+        // En fil som inte är en logg säger vad som är fel, och loggen ger en ruta per enhet.
+        await c.setFiles(LAB, '#x-log-file', [files.zip]);
+        await c.waitFor(LAB, `document.getElementById('x-log-status').textContent.length > 5`, 10000, 'felet för en fil som inte är en logg');
+        await c.setFiles(LAB, '#x-log-file', [files.log]);
+        await c.waitFor(LAB, `document.querySelectorAll('#x-devices .trace-card').length === 2`, 10000, 'loggen öppnas');
+        expect(await text('x-log') === 'Prov i två enheter: 7 av 7 steg gjorda, 2026-11-12 13:00:00–13:07:00 (UTC+01:00)' && await text('x-log-name') === 'laboration-prov.json' && await text('x-log-status') === '', 'Loggens rad: ' + await text('x-log') + ' | ' + await text('x-log-name'));
+        expect(await ev(`[...document.querySelectorAll('#x-devices .trace-card .chip')].map(x => x.textContent).join('|')`) === 'iPhone|' + labTrace.XSS, 'Enheternas rutor');
+
+        // Extraktionen för den ena enheten: det som lästes står i rutan, och QR-koden är läst ur bilden av rutan.
+        await c.setFiles(LAB, '#x-devices [data-device="d1"] input[type="file"]', [files.zip]);
+        await c.waitFor(LAB, `document.querySelectorAll('#x-sheet .trace-table tbody tr').length === 7 && !document.querySelector('#x-devices progress')`, 60000, 'extraktionen läses och tabellen visas');
+        const card = await ev(`[...document.querySelectorAll('#x-devices [data-device="d1"] p')].map(p => p.textContent)`);
+        expect(card[0] === 'Prov-iPhone.zip (iOS)' && card[1] === 'Läst: ChatStorage.sqlite (WhatsApp) (1 chatt av 2, 2 meddelanden); bildbiblioteket (3 filer från laborationen, QR-koden läst i 1); knowledgeC.db (lås och app framme; av och på söks inte på iOS).' && card.length === 2, 'Extraktionens ruta: ' + JSON.stringify(card));
+        let rows = await table();
+        expect(rows.map((r) => r.code + ' ' + r.mark).join(', ') === 'L01 sure, L02 sure, L03 sure, L04 many, L05 likely, L06 likely, L07 none', 'Märkena: ' + rows.map((r) => r.code + ' ' + r.mark).join(', '));
+        expect(await marks() === '✔ 3 säker | ≈ 2 trolig | ? 1 flera möjliga | – 1 inte hittad', 'Märkenas knappar: ' + await marks());
+        expect(row(rows, 'L01').log === '13:01:00' && row(rows, 'L01').traces[0].line === 'iPhone | 13:00:50 | skickat' && row(rows, 'L01').traces[0].source === 'ChatStorage.sqlite · ZMESSAGEDATE' && row(rows, 'L01').traces[0].link, 'L01: ' + JSON.stringify(row(rows, 'L01')));
+        expect(row(rows, 'L02').traces[0].line === 'iPhone | 13:01:50 | mottaget' && row(rows, 'L02').step.includes(labTrace.XSS), 'L02: ' + JSON.stringify(row(rows, 'L02')));
+        expect(row(rows, 'L03').traces[0].line === 'iPhone | 13:02:52 | bilden tagen' && row(rows, 'L03').traces[0].thumb === 'data:image/jpeg;base64' && row(rows, 'L03').traces[0].source === 'Photos.sqlite · ZDATECREATED', 'L03: ' + JSON.stringify(row(rows, 'L03')));
+        expect(row(rows, 'L04').traces[0].opts.join(', ') === '13:03:40, 13:03:55 förslag' && /^tryckt \d+ s efter$/.test(row(rows, 'L04').press), 'L04: ' + JSON.stringify(row(rows, 'L04')));
+        expect(row(rows, 'L07').traces[0].line === 'iPhone | inte hittad' && row(rows, 'L07').markText.includes('inte hittad'), 'L07: ' + JSON.stringify(row(rows, 'L07')));
+        const facts = await ev(`Object.fromEntries([...document.querySelectorAll('#x-sheet .facts dt')].map(dt => [dt.textContent, dt.nextElementSibling.textContent]))`);
+        expect(facts['Telefonens klocka mot datorns'] === 'iPhone +1,5 s (1 bild av rutan). Varje bild är osäker en halv sekund.' && /^Median \d+ s i 2 säkra steg\.$/.test(facts['Tryck efter telefonens tid']), 'Uppgifterna: ' + JSON.stringify(facts));
+        await fits('med tabellen');
+
+        // Ett val bland de möjliga räknar om tabellen utan att extraktionen läses igen, och går att ta tillbaka.
+        await ev(`document.querySelector('#x-sheet tr[data-code="L04"] .opt').click(), 1`);
+        rows = await table();
+        expect(row(rows, 'L04').mark === 'chosen' && row(rows, 'L04').traces[0].opts.join(', ') === '13:03:40 vald, 13:03:55' && row(rows, 'L04').traces[0].line === 'iPhone | 13:03:40 | bilden tagen' && /1 vald/.test(await marks()) && !/flera möjliga/.test(await marks()), 'Efter valet: ' + JSON.stringify(row(rows, 'L04')) + ' | ' + await marks());
+        expect(!await ev(`!!document.querySelector('#x-devices progress')`), 'Extraktionen lästes om efter ett val');
+        await ev(`document.querySelector('#x-sheet tr[data-code="L04"] .opt[aria-pressed="true"]').click(), 1`);
+        rows = await table();
+        expect(row(rows, 'L04').mark === 'many', 'Valet gick inte att ta tillbaka: ' + JSON.stringify(row(rows, 'L04')));
+
+        // Söktiden står öppet och går att ändra: med 10 s före loggens tid finns bara en bild kvar för L04.
+        await ev(`(function(){ const i = document.getElementById('x-before'); i.value = '10'; i.dispatchEvent(new Event('change', { bubbles: true })); return 1; })()`);
+        rows = await table();
+        expect(row(rows, 'L04').mark === 'likely' && row(rows, 'L04').traces[0].opts.length === 0 && row(rows, 'L04').traces[0].line === 'iPhone | 13:03:55 | bilden tagen', 'Med kortare söktid: ' + JSON.stringify(row(rows, 'L04')));
+        await ev(`(function(){ const i = document.getElementById('x-before'); i.value = '180'; i.dispatchEvent(new Event('change', { bubbles: true })); return 1; })()`);
+
+        // Ett märke i raden överst visar bara de stegen, och Mer visar alla tider i meddelandet med sina kolumner.
+        await ev(`document.querySelector('#x-marks .mark-none').click(), 1`);
+        rows = await table();
+        expect(rows.length === 1 && rows[0].code === 'L07' && / \*$/.test((await marks()).split(' | ').pop()), 'Bara de som inte hittades: ' + rows.map((r) => r.code) + ' | ' + await marks());
+        await ev(`document.querySelector('#x-marks .mark-none').click(), 1`);
+        await ev(`document.querySelector('#x-sheet tr[data-code="L02"] .mark-cell .link-btn').click(), 1`);
+        rows = await table();
+        expect(rows.length === 7 && row(rows, 'L02').traces[0].more.some((m) => /: 2026-11-12 13:01:50 · .*ZMESSAGEDATE$/.test(m)) && row(rows, 'L02').traces[0].more.some((m) => /: 2026-11-12 13:02:05 · .*ZSENTDATE$/.test(m)), 'Mer om L02: ' + JSON.stringify(row(rows, 'L02')));
+        await ev(`document.querySelector('#x-sheet tr[data-code="L02"] .mark-cell .link-btn').click(), 1`);
+
+        // Ett smalt fönster: ingenting sticker ut i sidled, och ingenting sticker ut ur sin cell över cellen bredvid
+        // (den längsta texten som inte bryts är tiden för appen i förgrunden, från och till).
+        await c.send('Emulation.setDeviceMetricsOverride', { width: 820, height: 900, deviceScaleFactor: 1, mobile: false });
+        await sleep(300);
+        await fits('i ett smalt fönster');
+        const outside = await ev(`[...document.querySelectorAll('#x-sheet .trace-table td')].flatMap(td => { const r = td.getBoundingClientRect();
+            return [...td.querySelectorAll('*')].filter(e => e.getBoundingClientRect().right > r.right + 1).map(e => td.parentNode.dataset.code + ' ' + (e.className || e.tagName) + ' +' + Math.round(e.getBoundingClientRect().right - r.right)); })`);
+        expect(!outside.length && row(await table(), 'L06').traces[0].line === 'iPhone | 13:05:40–13:06:20 | appen framme', 'Det sticker ut ur sin cell i ett smalt fönster: ' + outside.join(', '));
+        await c.send('Emulation.setDeviceMetricsOverride', { width: 1600, height: 1000, deviceScaleFactor: 1, mobile: false });
+        await sleep(300);
+
+        // CSV-filen har en rad per spår, också det som inte hittades.
+        await ev(`document.getElementById('x-csv').click(), 1`);
+        const csv = await download(downloads, /^laboration-2026-11-12-Prov-i-två-enheter-spår\.csv$/);
+        const lines = csv.replace(/^\uFEFF/, '').trim().split('\r\n');
+        expect(csv.charCodeAt(0) === 0xFEFF && lines.length === 8 && /^Kod;/.test(lines[0]) && /^L01;/.test(lines[1]) && /ChatStorage\.sqlite/.test(lines[1]), 'CSV-filen: ' + lines.length + ' rader, ' + lines[0] + ' | ' + lines[1]);
+        expect(/^Sparade laboration-2026-11-12-Prov-i-två-enheter-spår\.csv$/.test(await text('x-status')), 'Raden efter CSV: ' + await text('x-status'));
+
+        // Källan: länken öppnar meddelandets rad i Queries, i samma extraktion, med raden markerad på tiden.
+        await ev(`document.querySelector('#x-sheet tr[data-code="L01"] .src-btn').click(), 1`);
+        const hit = await c.waitFor(QUER, `(function(){
+            const row = document.querySelector('#run-result tr.row-hit');
+            return row && { row: row.innerText, hits: document.querySelectorAll('#run-result tr.row-hit').length, src: document.getElementById('run-file-list').innerText, title: document.getElementById('q-title').textContent };
+        })()`, 60000, 'den markerade raden i Queries');
+        expect(hit.hits === 1 && /L01 Hej från iPhone/.test(hit.row) && /ChatStorage\.sqlite/.test(hit.src) && /: L01$/.test(hit.title), 'Raden i Queries: ' + JSON.stringify(hit));
+
+        // Tillbaka i Laboration står tabellen kvar, och en annan logg börjar om med tomma rutor.
+        await c.nav('Laboration');
+        expect((await table()).length === 7, 'Tabellen stod inte kvar efter besöket i Queries');
+        await noInjectedScript(c);
+        await ev(`document.getElementById('nav-start').click(), 1`);
+        expect(await ev(`!document.getElementById('view-start').classList.contains('display-none') && !/finns redan här/.test(document.getElementById('s-read-desc').textContent)`), 'Den öppnade loggen blev verktygets egen');
+        fs.rmSync(dir, { recursive: true, force: true });
+        await c.nav('Härkomst');
+        return '7 steg: 3 säkra med QR-koden ur bilden, val, söktid, märken, CSV och källan i Queries';
     }],
 ];
 
