@@ -152,7 +152,8 @@
             if (file.memory) {
                 var mem = file.memory;
                 reasons.push('Snapchats Memories har en ' + (mem.video ? 'video' : 'bild') + ' tagen med ' + (mem.front ? 'frontkameran' : 'bakre kameran') + ' ' + formatUtc(mem.capturedMs) +
-                    ' och sparad ' + duration(Math.abs((file.addedMs || file.createdMs) - mem.createdMs)) + ' ' + (mem.createdMs <= (file.addedMs || file.createdMs) ? 'före' : 'efter') + ' filen (snap_capture_time, create_time, front_facing)');
+                    ' och sparad ' + duration(Math.abs((file.addedMs || file.createdMs) - mem.createdMs)) + ' ' + (mem.createdMs <= (file.addedMs || file.createdMs) ? 'före' : 'efter') + ' filen (' + [memCols(mem).captured, memCols(mem).created, memCols(mem).front].join(', ') + ')' +
+                    (mem.by === 'content' ? '; filen har samma bilddata som snappens fil i Memories' : ''));
             }
         } else {
             if (file.chatTemp) {
@@ -441,10 +442,10 @@
             add({ ms: input.pairedVideo.takenMs, kind: 'paired-video', lane: 'file', text: 'Live Photo-videon ' + input.pairedVideo.name + ' (QuickTime CreateDate, UTC)',
                 plain: null, source: input.pairedVideo.source || { db: 'bildfilen', table: 'QuickTime' } });
         }
-        // Android: Snapchats Memories säger när bilden togs; Snapchat-händelsen bär meningen.
+        // Snapchats Memories säger när bilden togs; Snapchat-händelsen bär meningen.
         if (file.memory && file.capturedMs) {
             add({ ms: file.capturedMs, kind: 'file-captured', lane: 'file', bold: true,
-                text: 'Tagen enligt Snapchats Memories (snap_capture_time, ' + (file.memory.front ? 'frontkameran' : 'bakre kameran') + (file.memory.video ? ', inspelningens slut' : '') + ')',
+                text: 'Tagen enligt Snapchats Memories (' + memCols(file.memory).captured + ', ' + (file.memory.front ? 'frontkameran' : 'bakre kameran') + (file.memory.video ? ', ' + videoTimeText(file.memory) : '') + ')',
                 plain: null, source: file.memory.source || { db: 'memories.db', table: 'memories_snap', column: 'snap_capture_time' } });
         }
 
@@ -737,8 +738,8 @@
         // Andra register.
         if (file.memory && file.capturedMs) {
             var memSrc = file.memory.source || { db: 'memories.db', table: 'memories_snap', column: 'snap_capture_time' };
-            add('memory-captured', file.capturedMs, 'Tagen enligt Snapchats Memories', memSrc, file.memory.video ? 'Inspelningens slut.' : '');
-            add('memory-created', file.memory.createdMs, 'Sparad i Snapchats Memories', Object.assign({}, memSrc, { column: 'create_time' }));
+            add('memory-captured', file.capturedMs, 'Tagen enligt Snapchats Memories', memSrc, file.memory.video ? videoTimeText(file.memory).charAt(0).toUpperCase() + videoTimeText(file.memory).slice(1) + '.' : '');
+            add('memory-created', file.memory.createdMs, 'Sparad i Snapchats Memories', Object.assign({}, memSrc, { column: memCols(file.memory).created }));
         }
         if (file.snapchatCache && file.snapchatCache.messageCreatedMs) add('snap-message', file.snapchatCache.messageCreatedMs, 'Meddelandet skickades i Snapchat', { db: 'arroyo.db', column: 'creation_timestamp' });
         if (input.pairedVideo && input.pairedVideo.takenMs) add('paired-video', input.pairedVideo.takenMs, 'Live Photo-videon skapad', Object.assign({}, input.pairedVideo.source || {}, { db: 'Filen', table: input.pairedVideo.name }));
@@ -837,7 +838,11 @@
             var mdiffCap = mAnchor - file.capturedMs;
             var okMem = mdiffCap >= -TOLERANCE_MS && mdiffCap <= 10 * MINUTE;
             items.push({ state: okMem ? 'support' : 'info', text: 'Snapchats Memories: ' + (mem.video ? 'videon spelades in' : 'bilden togs') + ' ' + formatUtc(file.capturedMs) + ' med ' + (mem.front ? 'frontkameran' : 'bakre kameran') +
-                ' och sparades i Memories ' + formatUtc(mem.createdMs) + ', ' + duration(Math.abs(mAnchor - mem.createdMs)) + ' ' + (mem.createdMs <= mAnchor ? 'före' : 'efter') + ' att filen lades till i galleriet (snap_capture_time, create_time).' });
+                ' och sparades i Memories ' + formatUtc(mem.createdMs) + ', ' + duration(Math.abs(mAnchor - mem.createdMs)) + ' ' + (mem.createdMs <= mAnchor ? 'före' : 'efter') + ' att filen ' + (mem.anchor === 'cache' ? 'lades i Snapchats cache' : mem.anchor === 'memories' ? 'skrevs i Snapchats mapp memories_media' : 'lades till i galleriet') +
+                ' (' + memCols(mem).captured + ', ' + memCols(mem).created + ').' + (mem.by === 'id' ? ' Filen hör till snappen genom snappens id i cachenyckeln (EXTERNAL_KEY snap-media-…).'
+                    : mem.by === 'content' ? ' Filen hör till snappen genom att bilddatan är densamma som i snappens fil i Memories.'
+                        : mem.by === 'size' ? ' Filen hör till snappen genom att den är lika stor som snappens fil enligt memories_media.size, och ingen annan snap har den storleken.' : '') +
+                (mem.video && mem.columns ? ' Tagningstiden för en video: ' + videoTimeText(mem) + ', och inte heller vilket värde ZMEDIATYPE har för video.' : '') + (mem.typeNote ? ' ' + mem.typeNote : '') });
         }
         var scm = type.type === 'snapchat' && file.snapchatCache && file.snapchatCache.messageCreatedMs;
         var inFileName = 'Tiden i filen (' + (ex && isQuickTimeTag(ex.sourceTag) ? 'QuickTime' : 'EXIF') + ')';
@@ -968,6 +973,16 @@
 
     // ---------- Positioner ----------
 
+    // Vad tagningstiden är för en video: på Android inspelningens slut (kontrollerat), på iOS inte kontrollerat.
+    function videoTimeText(mem) {
+        return mem && mem.columns ? 'om det är inspelningens start eller slut är inte kontrollerat på iOS' : 'inspelningens slut';
+    }
+
+    // Kolumnerna som Memories tider står i: Androids memories.db, eller det memory-objektet säger (iOS: scdb-27).
+    function memCols(mem) {
+        return Object.assign({ captured: 'snap_capture_time', created: 'create_time', front: 'front_facing', position: 'latitude, longitude' }, (mem && mem.columns) || {});
+    }
+
     function validCoord(lat, lon) {
         lat = Number(lat); lon = Number(lon);
         // Photos.sqlite skriver -180 när positionen saknas.
@@ -1008,7 +1023,7 @@
             var memPos = { lat: Number(mem.latitude), lon: Number(mem.longitude) };
             if (!filePos) filePos = memPos;
             out.push({ kind: 'memory', ms: file.capturedMs || file.createdMs, lat: memPos.lat, lon: memPos.lon, accuracy: null, label: 'Bilden enligt Snapchats Memories',
-                source: mem.source || { db: 'memories.db', table: 'memories_snap', column: 'latitude, longitude' } });
+                source: mem.positionSource || mem.source || { db: 'memories.db', table: 'memories_snap', column: 'latitude, longitude' } });
         }
         (input.locations || []).forEach(function (l) {
             out.push({ kind: 'phone', ms: l.ms, lat: l.lat, lon: l.lon, accuracy: l.accuracy, locType: l.type,
@@ -1062,7 +1077,9 @@
         if (exifRow) items.push({ state: exifRow.distanceM <= 50 ? 'support' : 'contradiction', text: 'Positionen i EXIF i filen ligger ' + metres(exifRow.distanceM) + ' från positionen i databasen.' });
         var memRow = pos.list.filter(function (p) { return p.kind === 'memory'; })[0];
         if (memRow && memRow.distanceM != null) items.push({ state: memRow.distanceM <= 50 ? 'support' : 'contradiction', text: 'Positionen i Snapchats Memories ligger ' + metres(memRow.distanceM) + ' från positionen i databasen.' });
-        else if (memRow) items.push({ state: 'info', text: 'Bildens position kommer ur Snapchats Memories (latitude, longitude), inte ur MediaStore, som saknar position för filen.' });
+        else if (memRow) items.push({ state: 'info', text: input.platform === 'iOS'
+            ? 'Bildens position kommer ur Snapchats Memories (gallery.encrypteddb, snap_location_table, under snappens id), inte ur filen.'
+            : 'Bildens position kommer ur Snapchats Memories (latitude, longitude), inte ur MediaStore, som saknar position för filen.' });
         if (!phone.length) {
             items.push({ state: 'missing', text: 'Telefonen har inga registrerade positioner i fönstret' + noPhoneLog + '.' });
             if (originNote) items.push(originNote);
@@ -1154,6 +1171,11 @@
             var own = events.filter(function (e) { return /^snap-/.test(e.kind) && Math.abs(e.ms - T) <= SAME_TIME_MS; }).sort(function (a, b) { return Math.abs(a.ms - T) - Math.abs(b.ms - T); });
             var kcSnap = running.filter(function (e) { return isSnapchatApp(e.app); });
             if (own.length) items.push({ state: 'support', text: 'Snapchat skrev själv i sitt register vid tidpunkten (' + own[0].source.db + ' → ' + own[0].source.table + '), vilket förutsätter att appen kördes.' });
+            // Samma bild skickad i en chatt (bildjämförelse mot snappen i Memories, i scriptet): en upplysning, inget belägg.
+            ((file.memory && file.memory.sends) || []).forEach(function (sd) {
+                items.push({ state: 'info', text: 'Samma bild skickades i Snapchat' + (sd.to ? ' till ' + sd.to : '') + ' ' + formatUtc(sd.ms) + (sd.serverId != null ? ' (meddelande ' + sd.serverId + ')' : '') +
+                    '. Bildjämförelse mot snappen i Memories: medelskillnad ' + sd.diff.toFixed(1).replace('.', ',') + ' av 255, och bilder räknas som samma under ' + sd.limit + '. Kontrollera bilderna.' });
+            });
             if (kcSnap.length) items.push({ state: 'support', text: 'Snapchat var igång vid tidpunkten enligt ' + (isSamsungStream(kcSnap[0].stream) ? kcSnap[0].stream : kcLabel + ' (' + kcSnap[0].stream + ')') + '.' });
             else if (running.length) items.push({ state: 'info', text: (isSamsungStream(running[0].stream) ? running[0].stream : kcLabel) + ' registrerar ' + runningNames.join(', ') + ' vid tidpunkten, inte Snapchat. Snapchat kan ha skrivit i registret i bakgrunden, till exempel vid en notis.' });
             else items.push({ state: 'info', text: coverageReason(streamKey, input, T, kcLabel) });

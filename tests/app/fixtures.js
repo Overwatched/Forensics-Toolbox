@@ -14,6 +14,9 @@
 // bara batterihistoriken täcker tiden, en bild i en chattapp när SSRM gör det, tre bilder där eRR.p säger att telefonen var
 // avstängd, inte upplåst eller just startade, och en bild när batterihistorikens klocka
 // flyttades. Namnen i loggarna bär HTML. Samma telefon finns också med Signals krypterade databaser och logg.
+// Snapchat på iOS 26 (en egen zip med nyckelringen bredvid): en snap sparad i Memories, vars fil ligger krypterad i
+// cachen med nyckeln i scdb-27, positionen i den krypterade gallery.encrypteddb, och samma bild skickad i en chatt
+// strax efter, plus en annan bild skickad före.
 'use strict';
 
 const crypto = require('node:crypto');
@@ -25,7 +28,8 @@ const vm = require('node:vm');
 const ROOT = path.join(__dirname, '..', '..');
 const { buildZip } = require(path.join(ROOT, 'tools', 'db-queries', 'fixtures', 'zip-builder.js'));
 const { buildUfdr } = require(path.join(ROOT, 'tools', 'db-queries', 'fixtures', 'ufdr-builder.js'));
-const { encryptedKeychain } = require(path.join(ROOT, 'tools', 'db-queries', 'fixtures', 'keychain-builder.js'));
+const { encryptedKeychain, bplist, Uid } = require(path.join(ROOT, 'tools', 'db-queries', 'fixtures', 'keychain-builder.js'));
+const cipherBuilder = require(path.join(ROOT, 'tools', 'db-queries', 'fixtures', 'sqlcipher-builder.js'));
 const schemas = require(path.join(ROOT, 'tools', 'db-queries', 'fixtures', 'photos-schema.json'));
 const chatSchemas = require(path.join(ROOT, 'tools', 'db-queries', 'fixtures', 'chat-schemas.json'));
 const TG = require(path.join(ROOT, 'tools', 'db-queries', 'fixtures', 'postbox-encode.js'));
@@ -309,6 +313,107 @@ function brokenWal() {
 // (IMG_0002.JPG). Samma innehåll ligger en gång och listas under RelatedNodes, en tom fil har ingen post,
 // och nyckelringen och en dekrypterad kopia finns med, men är inga filer på telefonen.
 // ufed: en rapport ur en zip med extra/. Telefonens filer ligger under /root/ och har ctime, nyckelringen ligger högst upp.
+// ---------- Snapchat Memories på iOS 26 ----------
+
+const T4 = T + 7 * 86400;                              // Snapchat Memories
+const SC_APP = 'Application/5C5C5C5C-0000-4111-8222-933333333333/';
+const SC_ACCOUNT = 'a0a0a0a0-1111-4222-8333-b4b4b4b4b4b4';   // det egna kontot (mappen SCContent_<konto>)
+const SC_FRIEND = 'c1c1c1c1-5555-4666-8777-d8d8d8d8d8d8';
+const SC_CONV = 'e2e2e2e2-9999-4aaa-8bbb-f0f0f0f0f0f0';
+const SC_SNAP = 'D3D3D3D3-1234-4567-89AB-CDEF01234567';
+// En Memories-post med två snaps en timme senare: den ena har sin fil i cachen, den andra finns bara på Snapchats server.
+const SC_ENTRY2 = 'E5E5E5E5-1234-4567-89AB-CDEF01234567';
+const SC_SNAP2 = 'D4D4D4D4-1234-4567-89AB-CDEF01234567';
+const SC_SNAP3 = 'D5D5D5D5-1234-4567-89AB-CDEF01234567';
+const SC_POS3 = { lat: 59.34012, lon: 18.07021 };
+const SC_KEYS = { memory: '1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a', memory2: '6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f', lowres: '2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b', capture: '3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c', sent: '4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d', other: '5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e' };
+const SC_REFS = { sent: ['F1F1F1F1-0000-4000-8000-000000000001', 'F1F1F1F1-0000-4000-8000-000000000002'], other: ['F1F1F1F1-0000-4000-8000-000000000001', 'F1F1F1F1-0000-4000-8000-000000000003'] };
+const SC_MEDIA_KEY = Buffer.from(Array.from({ length: 32 }, (_, i) => (i * 11 + 5) & 255));   // påhittad
+const SC_MEDIA_IV = Buffer.from(Array.from({ length: 16 }, (_, i) => (i * 13 + 1) & 255));
+const SC_GALLERY_KEY = Buffer.from(Array.from({ length: 32 }, (_, i) => (i * 17 + 9) & 255));
+const SC_POS = { lat: 59.33258, lon: 18.06490 };
+
+// En PNG i en enda grå ton: en bild som inte liknar fotot.
+function grayPng(w, h, tone) {
+    const table = Array.from({ length: 256 }, (_, n) => { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1; return c >>> 0; });
+    const crc = (b) => { let c = 0xffffffff; for (const x of b) c = table[(c ^ x) & 255] ^ (c >>> 8); return (c ^ 0xffffffff) >>> 0; };
+    const chunk = (type, data) => { const len = Buffer.alloc(4); len.writeUInt32BE(data.length); const td = Buffer.concat([Buffer.from(type, 'ascii'), data]); const c = Buffer.alloc(4); c.writeUInt32BE(crc(td)); return Buffer.concat([len, td, c]); };
+    const ihdr = Buffer.alloc(13); ihdr.writeUInt32BE(w, 0); ihdr.writeUInt32BE(h, 4); ihdr[8] = 8; ihdr[9] = 0;
+    const raw = Buffer.alloc((w + 1) * h, tone); for (let y = 0; y < h; y++) raw[y * (w + 1)] = 0;
+    return Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), chunk('IHDR', ihdr), chunk('IDAT', require('node:zlib').deflateSync(raw)), chunk('IEND', Buffer.alloc(0))]);
+}
+
+// Meddelandets protobuf som i arroyo.db: 08 04 12 12 0A 10 <avsändare, 16 byte> och konversationen i fält 3.
+function snapMessageContent(sender) {
+    const id = (u) => Buffer.from(u.replace(/-/g, ''), 'hex');
+    return Buffer.concat([Buffer.from([0x08, 0x04, 0x12, 0x12, 0x0a, 0x10]), id(sender), Buffer.from([0x1a, 0x12, 0x0a, 0x10]), id(SC_CONV)]);
+}
+
+async function snapchatIosEntries(SQL, jpeg, photos) {
+    const ms = (s) => Math.round(s * 1000);
+    const capture = T4, saved = T4 + 10, sentAt = T4 + 11, otherAt = T4 - 30;
+    // cache_controller.db: filen i Memories (typ 19), förhandsbilden (26), tagningen (34) och två skickade snaps (3).
+    const cache = new SQL.Database();
+    cache.run('CREATE TABLE CACHE_FILE_CLAIM (USER_ID TEXT, CACHE_KEY TEXT, MEDIA_CONTEXT_TYPE INTEGER, EXTERNAL_KEY TEXT, IS_AUTHORITATIVE INTEGER, EXPIRATION_TIMESTAMP_MILLIS INTEGER, DELETED_TIMESTAMP_MILLIS INTEGER, CONTENT_CLAIM_METADATA BLOB, CONTENT_ATTRIBUTION BLOB, CREATION_TIMESTAMP_MILLIS INTEGER)');
+    cache.run('CREATE TABLE CACHE_FILE_METADATA (USER_ID TEXT, CACHE_KEY TEXT, STORAGE_TYPE INTEGER, TYPE INTEGER, FILE_SIZE_BYTES INTEGER, TOTAL_DISK_USED_BYTES INTEGER, KNOWN_CONTENT_LENGTH_BYTES INTEGER, LAST_READ_TIMESTAMP_MILLIS INTEGER, DELETED_TIMESTAMP_MILLIS INTEGER, CHILDREN BLOB, CONTENT_RETRIEVAL_METADATA BLOB, SHARD_INDEX INTEGER, CONTENT_LIFECYCLE INTEGER)');
+    const memoryFile = (() => { const c = crypto.createCipheriv('aes-256-cbc', SC_MEDIA_KEY, SC_MEDIA_IV); return Buffer.concat([c.update(jpeg), c.final()]); })();
+    const files = {
+        [SC_KEYS.memory]: { type: 19, ext: 'snap-media-' + SC_SNAP.toLowerCase(), at: saved + 0.1, data: memoryFile },
+        [SC_KEYS.memory2]: { type: 19, ext: 'snap-media-' + SC_SNAP2.toLowerCase(), at: T4 + 3610, data: (() => { const c = crypto.createCipheriv('aes-256-cbc', SC_MEDIA_KEY, SC_MEDIA_IV); return Buffer.concat([c.update(grayPng(48, 64, 90)), c.final()]); })() },
+        [SC_KEYS.lowres]: { type: 26, ext: 'snap-rendered-lowres-' + SC_SNAP.toLowerCase(), at: saved + 0.1, data: noise(4096) },
+        [SC_KEYS.capture]: { type: 34, ext: '9A9A9A9A-0000-4000-8000-000000000009~1', at: capture, data: Buffer.concat([jpeg, Buffer.from('tagning')]) },
+        [SC_KEYS.sent]: { type: 3, ext: SC_REFS.sent.join('~'), at: sentAt, data: Buffer.concat([jpeg, Buffer.from('skickad')]) },
+        [SC_KEYS.other]: { type: 3, ext: SC_REFS.other.join('~'), at: otherAt, data: grayPng(48, 64, 200) },
+    };
+    Object.keys(files).forEach((k) => {
+        const f = files[k];
+        cache.run('INSERT INTO CACHE_FILE_CLAIM VALUES (?, ?, ?, ?, 1, ?, NULL, NULL, NULL, ?)', [SC_ACCOUNT, k, f.type, f.ext, ms(f.at + 86400 * 30), ms(f.at)]);
+        cache.run('INSERT INTO CACHE_FILE_METADATA VALUES (?, ?, 0, 0, ?, ?, ?, ?, NULL, NULL, NULL, 0, 0)', [SC_ACCOUNT, k, f.data.length, f.data.length, f.data.length, ms(f.at)]);
+    });
+    // arroyo.db: vännen skriver först i konversationen, sedan skickas två snaps från telefonen.
+    const arroyo = new SQL.Database();
+    arroyo.run('CREATE TABLE required_values (key TEXT PRIMARY KEY, value TEXT)');
+    arroyo.run("INSERT INTO required_values VALUES ('USERID', ?)", [SC_ACCOUNT]);
+    arroyo.run('CREATE TABLE conversation_message (client_conversation_id TEXT, client_message_id INTEGER, server_message_id INTEGER, message_content BLOB, message_state_type TEXT, creation_timestamp INTEGER, read_timestamp INTEGER, local_message_references BLOB, sender_id TEXT, content_type INTEGER, created_on_device INTEGER, is_saved INTEGER)');
+    const refs = (pair) => Buffer.concat([Buffer.from('3\x02\0\0\0\0\0\0bplist00', 'latin1'), Buffer.from(pair.join('\x00'), 'ascii')]);
+    arroyo.run('INSERT INTO conversation_message VALUES (?, 1, 3, ?, ?, ?, NULL, NULL, ?, 1, 0, 0)', [SC_CONV, snapMessageContent(SC_FRIEND), 'COMMITTED', ms(T4 - 600), SC_FRIEND]);
+    arroyo.run('INSERT INTO conversation_message VALUES (?, 2, 4, ?, ?, ?, NULL, ?, ?, 0, 1, 0)', [SC_CONV, snapMessageContent(SC_ACCOUNT), 'COMMITTED', ms(otherAt) + 400, refs(SC_REFS.other), SC_ACCOUNT]);
+    arroyo.run('INSERT INTO conversation_message VALUES (?, 3, 6, ?, ?, ?, ?, ?, ?, 0, 1, 0)', [SC_CONV, snapMessageContent(SC_ACCOUNT), 'COMMITTED', ms(sentAt) + 500, ms(sentAt) + 30000, refs(SC_REFS.sent), SC_ACCOUNT]);
+    // scdb-27.sqlite3 (Core Data): snappen med Cocoa-tider och nyckeln till filen i ett arkiv.
+    const scdb = new SQL.Database();
+    scdb.run('CREATE TABLE ZGALLERYENTRY (Z_PK INTEGER PRIMARY KEY, Z_ENT INTEGER, ZENTRYID VARCHAR, ZCREATETIMEUTC TIMESTAMP)');
+    scdb.run('CREATE TABLE ZGALLERYSNAP (Z_PK INTEGER PRIMARY KEY, Z_ENT INTEGER, ZENTRY INTEGER, ZSNAPID VARCHAR, ZMEDIAID VARCHAR, ZMEDIATYPE INTEGER, ZCREATETIMEUTC TIMESTAMP, ZCAPTURETIMEUTC TIMESTAMP, ZTIMEZONENAME VARCHAR, ZWIDTH INTEGER, ZHEIGHT INTEGER, ZDURATION FLOAT, ZCAMERAFRONTFACING INTEGER, ZHASLOCATION INTEGER, ZSERVLETMEDIAFORMAT VARCHAR, ZENCRYPTION BLOB)');
+    const archive = bplist({ $version: 100000, $archiver: 'NSKeyedArchiver', $top: { root: new Uid(1) },
+        $objects: ['$null', { $class: new Uid(4), KEY: new Uid(2), IV: new Uid(3) }, SC_MEDIA_KEY, SC_MEDIA_IV, { $classname: 'SCMemoriesSnapEncryption', $classes: ['SCMemoriesSnapEncryption', 'NSObject'] }] });
+    scdb.run('INSERT INTO ZGALLERYENTRY VALUES (1, 2, ?, ?)', [SC_SNAP, saved - COCOA]);
+    scdb.run("INSERT INTO ZGALLERYSNAP VALUES (1, 6, 1, ?, ?, 0, ?, ?, 'Europe/Stockholm', 640, 480, 10.0, 0, 1, 'image_jpeg', ?)", [SC_SNAP, SC_SNAP, saved - COCOA, capture + 0.328 - COCOA, archive]);
+    scdb.run('INSERT INTO ZGALLERYENTRY VALUES (2, 2, ?, ?)', [SC_ENTRY2, T4 + 3610 - COCOA]);
+    scdb.run("INSERT INTO ZGALLERYSNAP VALUES (2, 6, 2, ?, ?, 0, ?, ?, 'Europe/Stockholm', 48, 64, 10.0, 0, 0, 'image_png', ?)", [SC_SNAP2, SC_SNAP2, T4 + 3610 - COCOA, T4 + 3600 - COCOA, archive]);
+    scdb.run("INSERT INTO ZGALLERYSNAP VALUES (3, 6, 2, ?, ?, 0, ?, ?, 'Europe/Stockholm', 1080, 1920, 10.0, 1, 1, 'image_jpeg', ?)", [SC_SNAP3, SC_SNAP3, T4 + 3612 - COCOA, T4 + 3605 - COCOA, archive]);
+    // gallery.encrypteddb: positionen under samma snap-id, krypterad med nyckeln i nyckelringen.
+    const galleryPlain = await cipherBuilder.makeSnapGallery([{ snapId: SC_SNAP, lat: SC_POS.lat, lon: SC_POS.lon, key: SC_MEDIA_KEY, iv: SC_MEDIA_IV }, { snapId: SC_SNAP3, lat: SC_POS3.lat, lon: SC_POS3.lon }]);
+    const gallery = cipherBuilder.encryptSnapGallery(galleryPlain, SC_GALLERY_KEY, Buffer.from(Array.from({ length: 16 }, (_, i) => 200 - i)));
+    const D = 'filesystem1/private/var/mobile/Containers/Data/' + SC_APP + 'Documents/';
+    const acct = '9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f';
+    const entries = [
+        { name: 'filesystem1/System/Library/CoreServices/SystemVersion.plist', data: '<?xml version="1.0"?><plist><dict><key>ProductVersion</key><string>26.4.1</string></dict></plist>' },
+        // Bildbiblioteket, som i varje riktig extraktion. Snappen finns inte där.
+        { name: 'filesystem1/private/var/mobile/Media/PhotoData/Photos.sqlite', data: photos, deflate: true },
+        { name: 'filesystem1/private/var/mobile/Containers/Data/' + SC_APP + '.com.apple.mobile_container_manager.metadata.plist', data: bplistDict({ MCMMetadataIdentifier: 'com.toyopagroup.picaboo' }) },
+        { name: D + 'global_scoped/cachecontroller/cache_controller.db', data: Buffer.from(cache.export()), deflate: true },
+        { name: D + 'global_scoped/cachecontroller/cache_controller.db-wal', data: '' },
+        { name: D + 'user_scoped/' + acct + '/arroyo/arroyo.db', data: Buffer.from(arroyo.export()), deflate: true },
+        { name: D + 'gallery_data_object/1/' + acct + '/scdb-27.sqlite3', data: Buffer.from(scdb.export()), deflate: true },
+        { name: D + 'gallery_encrypted_db/3/' + acct + '/gallery.encrypteddb', data: Buffer.from(gallery) },
+    ].concat(Object.keys(files).map((k) => ({ name: D + 'com.snap.file_manager_3_SCContent_' + SC_ACCOUNT + '/' + k, data: files[k].data, mtime: Math.round(files[k].at) })));
+    [cache, arroyo, scdb].forEach((db) => db.close());
+    const keychain = '<?xml version="1.0" encoding="UTF-8"?>\n<plist version="1.0"><dict><key>genp</key><array>' +
+        '<dict><key>agrp</key><string>3MY7A92V5W.com.toyopagroup.picaboo</string><key>svce</key><string>com.toyopagroup.picaboo</string><key>acct</key><string>egocipher.key.avoidkeyderivation</string>' +
+        '<key>v_Data</key><data>' + SC_GALLERY_KEY.toString('base64') + '</data></dict></array><key>inet</key><array/></dict></plist>\n';
+    return { entries, keychain, info: { snapId: SC_SNAP, entry2: SC_ENTRY2, snap2: SC_SNAP2, snap3: SC_SNAP3, memory2Key: SC_KEYS.memory2, snap3CaptureMs: ms(T4 + 3605), pos3: SC_POS3, memoryKey: SC_KEYS.memory, sentKey: SC_KEYS.sent, otherKey: SC_KEYS.other, friend: SC_FRIEND, captureMs: ms(capture + 0.328), savedMs: ms(saved), sentMs: ms(sentAt), pos: SC_POS,
+        contentSha256: crypto.createHash('sha256').update(jpeg).digest('hex') } };
+}
+
 function reportRows(entries, keychain, ufed) {
     const first = new Map();
     const rows = [];
@@ -576,7 +681,7 @@ async function build() {
     ];
     const zip = buildZip(entries);
     // Mappar för var nyckeln kan ligga. Zippen överst har ingen nyckelfil bredvid sig, så att det som väljs prövas.
-    ['nycklar', 'ufed', 'ufed-rapport', 'bredvid', 'flera', 'ingen'].forEach((d) => fs.mkdirSync(path.join(dir, d)));
+    ['nycklar', 'ufed', 'ufed-rapport', 'bredvid', 'flera', 'ingen', 'snapchat'].forEach((d) => fs.mkdirSync(path.join(dir, d)));
     const DEVICE = '00008030-0000000000000001';
     const files = {
         dir,
@@ -600,6 +705,9 @@ async function build() {
         samsung: path.join(dir, 'Testextraktion-Samsung.zip'),
         samsungNoZone: path.join(dir, 'Testextraktion-Samsung-utan-zon.zip'),
         samsungSignal: path.join(dir, 'Testextraktion-Samsung-med-Signal.zip'),
+        // Snapchat Memories på iOS 26, med nyckelringen bredvid (samma id i namnet).
+        snapchatIos: path.join(dir, 'snapchat', '00008030-0000000000000003_fs.zip'),
+        snapchatIosKey: path.join(dir, 'snapchat', '00008030-0000000000000003_keychain.plist'),
     };
     fs.writeFileSync(files.zip, zip);
     fs.writeFileSync(files.ufdr, buildUfdr(reportRows(entries, keychainPlist())).buf);
@@ -622,11 +730,14 @@ async function build() {
     fs.writeFileSync(files.powerlogArchive, require('node:zlib').gzipSync(powerlog(SQL)));
     fs.writeFileSync(files.samsung, buildZip(samsungEntries(SQL, jpeg)));
     fs.writeFileSync(files.samsungNoZone, buildZip(samsungNoZoneEntries(SQL, jpeg)));
+    const snapIos = await snapchatIosEntries(SQL, jpeg, photos);
+    fs.writeFileSync(files.snapchatIos, buildZip(snapIos.entries));
+    fs.writeFileSync(files.snapchatIosKey, snapIos.keychain);
     const signalEntries = signalAndroidEntries(SQL, jpeg);
     fs.writeFileSync(files.samsungSignal, buildZip(signalEntries));
     const sum = (data) => crypto.createHash('sha256').update(data).digest('hex');
     const signalAndroidPartSums = { file: sum(signalEntries.find((e) => e.name === SIGNAL_ANDROID_PART).data), content: sum(signalEntries.find((e) => /chatt_kamera\.jpg$/.test(e.name)).data) };
-    return { files, signalAndroidKey: SIGNAL_ANDROID_KEY, signalAndroidModernKey: SIGNAL_ANDROID_MODERN.toString('base64'), signalAndroidPartSums, T: T * 1000, imageName: 'IMG_0001.JPG', T2: T2 * 1000, waMedia: 'mottagen.jpg', T3: T3 * 1000, tgMedia: TG_MEDIA, TS: TS * 1000, TS2: TS2 * 1000, TS3: TS3 * 1000,
+    return { files, snapchatIos: snapIos.info, signalAndroidKey: SIGNAL_ANDROID_KEY, signalAndroidModernKey: SIGNAL_ANDROID_MODERN.toString('base64'), signalAndroidPartSums, T: T * 1000, imageName: 'IMG_0001.JPG', T2: T2 * 1000, waMedia: 'mottagen.jpg', T3: T3 * 1000, tgMedia: TG_MEDIA, TS: TS * 1000, TS2: TS2 * 1000, TS3: TS3 * 1000,
         longChat: { count: LONG.count, needles: LONG.needles, gapAfter: LONG.gapAfter, timeMs: (i) => longTime(i) * 1000 } };
 }
 

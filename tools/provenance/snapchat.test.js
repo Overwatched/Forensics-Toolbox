@@ -260,3 +260,109 @@ test('Android: chattmediets nyckel kopplas till meddelandet via id:t i protobufe
     assert.strictEqual(fileEv.plain, 'Den bedömda filen läggs i Snapchat-chattens cache');
     assert.ok(out.events.some((e) => e.kind === 'snap-message' && e.isFile && e.own === false));
 });
+
+// ---------- Memories på iOS (scdb-27) och skickade snaps i iOS 26 ----------
+
+const SNAP_ID = 'EA2FB166-0000-4000-8000-00000000AAAA';
+const OWN = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee';
+const FRIEND = 'c5ba9ace-1384-4921-bcbd-e4b50503e358';
+
+test('externa nycklar i iOS 26: Memories-filen och förhandsbilden har snappens id, en skickad snap två id:n', () => {
+    assert.deepStrictEqual(snap.parseExternalKey('snap-media-' + SNAP_ID.toLowerCase()), { kind: 'memory', snapId: SNAP_ID, part: 'media' });
+    assert.deepStrictEqual(snap.parseExternalKey('snap-rendered-lowres-' + SNAP_ID), { kind: 'memory', snapId: SNAP_ID, part: 'lowres' });
+    const sent = snap.parseExternalKey('B9870000-1111-4222-8333-444444444444~85350000-5555-4666-8777-888888888888');
+    assert.deepStrictEqual(sent, { kind: 'sent', recipient: null, mediaId: '85350000-5555-4666-8777-888888888888', refs: ['b9870000-1111-4222-8333-444444444444', '85350000-5555-4666-8777-888888888888'] });
+    // Den äldre formen med användarnamnet först är kvar.
+    assert.strictEqual(snap.parseExternalKey('erik.lind~' + SNAP_ID).recipient, 'erik.lind');
+    assert.strictEqual(snap.contextInfo(19).show, true);
+    assert.strictEqual(snap.contextInfo(26).show, false);
+});
+
+test('iOS: cachefilen med snappens id kopplas till snappen i Memories, och tiderna har scdb-27:s kolumner', () => {
+    const T = 1794427771328;
+    const mem = { id: SNAP_ID, mediaType: 0, front: 0, capturedMs: T, createdMs: T + 10026, zone: 'Europe/Stockholm', width: 1008, height: 1792, latitude: 59.3, longitude: 18.1 };
+    const other = { id: 'FFFFFFFF-0000-4000-8000-000000000000', mediaType: 0, front: 1, capturedMs: T + 5000, createdMs: T + 6000 };
+    const out = snap.build({
+        accountId: OWN, cacheRows: [
+            { key: 'ac100f66cf12423f31dc3addae6f1ab9', context: 19, external: 'snap-media-' + SNAP_ID.toLowerCase(), createdMs: T + 10100 },
+            { key: '02fe6eaa95b0baaf7eb5c3b345725244', context: 26, external: 'snap-rendered-lowres-' + SNAP_ID.toLowerCase(), createdMs: T + 10100 },
+        ],
+        memories: [other, mem], fileKey: 'ac100f66cf12423f31dc3addae6f1ab9',
+        memoryColumns: { captured: 'ZCAPTURETIMEUTC', created: 'ZCREATETIMEUTC', front: 'ZCAMERAFRONTFACING', type: 'ZMEDIATYPE' },
+        sources: { memories: { db: 'scdb-27.sqlite3', table: 'ZGALLERYSNAP' } },
+    });
+    assert.strictEqual(out.memory.row, mem, 'kopplad på id:t, inte på närmaste tid');
+    assert.strictEqual(out.memory.by, 'id');
+    assert.strictEqual(out.link.external.kind, 'memory');
+    const fileEvents = out.events.filter((e) => e.isFile);
+    assert.deepStrictEqual(fileEvents.map((e) => e.kind).sort(), ['snap-cache', 'snap-memory', 'snap-memory']);
+    const cap = out.events.find((e) => e.kind === 'snap-memory' && e.captured && e.isFile);
+    assert.match(cap.text, /bild tagen med bakre kameran \(ZCAPTURETIMEUTC\), 1008×1792/);
+    assert.strictEqual(cap.source.column, 'ZCAPTURETIMEUTC, ZCAMERAFRONTFACING, ZMEDIATYPE');
+    assert.strictEqual(cap.source.db, 'scdb-27.sqlite3');
+    assert.match(out.events.find((e) => e.kind === 'snap-memory' && !e.captured && e.isFile).text, /sparas i Memories \(ZCREATETIMEUTC\), tidszon Europe\/Stockholm/);
+    const cache = out.events.find((e) => e.kind === 'snap-cache' && e.isFile);
+    assert.match(cache.text, /typ 19 \(Memories, sparad snap\), snap EA2FB166…/);
+    assert.strictEqual(cache.plain, 'Den bedömda filen sparas i Snapchats Memories');
+    assert.ok(!out.events.some((e) => e.context === 26), 'förhandsbilden visas inte');
+    // Utan raden i Memories: ingen koppling.
+    assert.strictEqual(snap.build({ cacheRows: [{ key: 'ac100f66cf12423f31dc3addae6f1ab9', context: 19, external: 'snap-media-' + SNAP_ID, createdMs: T }], memories: [other], fileKey: 'ac100f66cf12423f31dc3addae6f1ab9' }).memory, null);
+});
+
+test('iOS 26: en skickad snap kopplas till meddelandet via local_message_references, och chatten får mottagarens namn', () => {
+    const T = 1794427782823;
+    const a = 'b9870000-1111-4222-8333-444444444444', b = '85350000-5555-4666-8777-888888888888';
+    const refs = new Uint8Array(Buffer.from('\x0a\x24' + a + '\x12\x24' + b.toUpperCase(), 'latin1'));
+    const msg = { conversation: 'c0c0c0c0-0000-4000-8000-000000000001', serverId: 6, createdMs: T + 50, content: new Uint8Array(message({ sender: Buffer.from(OWN.replace(/-/g, ''), 'hex') })), refs };
+    const out = snap.build({
+        accountId: OWN, friends: { [FRIEND.replace(/-/g, '')]: { username: 'anna.berg' } },
+        members: { 'c0c0c0c0-0000-4000-8000-000000000001': [OWN, FRIEND] },
+        cacheRows: [{ key: '254cb3fb2413cd3c24969cb8fd77be5f', context: 3, external: a.toUpperCase() + '~' + b.toUpperCase(), createdMs: T }],
+        messages: [msg], fileKey: '254cb3fb2413cd3c24969cb8fd77be5f',
+    });
+    assert.strictEqual(out.link.message, msg);
+    const e = out.events.find((x) => x.kind === 'snap-cache');
+    assert.match(e.text, /skickad till @anna\.berg \(meddelande 6, local_message_references\)/);
+    assert.strictEqual(e.plain, 'Den bedömda filen skickas till @anna.berg från den här telefonen');
+    assert.strictEqual(e.sentTo, '@anna.berg');
+    // Utan meddelandet: skickad, utan mottagare.
+    const alone = snap.build({ accountId: OWN, cacheRows: [{ key: 'x', context: 3, external: a + '~' + b, createdMs: T }] });
+    assert.match(alone.events[0].text, /typ 3 \(chattmedia\), skickad, nyckel/);
+    assert.strictEqual(alone.events[0].plain, 'En snap eller bild skickas från den här telefonen');
+});
+
+test('nyckeln till en sparad snaps fil ur arkivet i ZENCRYPTION, utfyllnaden och bildjämförelsen', () => {
+    const key = new Uint8Array(32).fill(7), iv = new Uint8Array(16).fill(9);
+    const archive = { $top: { root: { value: 1 } }, $objects: ['$null', { $class: { value: 4 }, KEY: { value: 2 }, IV: { value: 3 }, IS_ENCRYPTED: false }, key, iv, { $classname: 'SCMemoriesSnapEncryption' }] };
+    const c = snap.memoryCipher(archive);
+    assert.deepStrictEqual([c.key, c.iv, c.encrypted], [key, iv, false]);
+    const b64 = { $objects: ['$null', { KEY: Buffer.from(key).toString('base64'), IV: Buffer.from(iv).toString('base64') }] };
+    assert.deepStrictEqual(Array.from(snap.memoryCipher(b64).key), Array.from(key));
+    assert.strictEqual(snap.memoryCipher({ $objects: ['$null', { KEY: new Uint8Array(16), IV: iv }] }), null, 'fel längd');
+    assert.deepStrictEqual(Array.from(snap.unpad(new Uint8Array([1, 2, 3, 1]))), [1, 2, 3]);
+    assert.deepStrictEqual(Array.from(snap.unpad(new Uint8Array([1, 2, 2, 2]))), [1, 2], 'två byte med värdet 2');
+    assert.deepStrictEqual(Array.from(snap.unpad(new Uint8Array([1, 2, 3, 2]))), [1, 2, 3, 2], 'fel utfyllnad lämnas');
+    assert.strictEqual(snap.grayDiff([10, 20, 30], [12, 18, 30]), 4 / 3);
+    assert.strictEqual(snap.grayDiff([1, 2], [1]), null);
+    assert.strictEqual(snap.SAME_IMAGE_DIFF, 4);
+});
+
+test('JPEG utan EXIF och andra APP-segment: den exporterade bilden har samma bytes som filen i Memories', () => {
+    const seg = (m, body) => [0xff, m, (body.length + 2) >> 8, (body.length + 2) & 255, ...body];
+    const core = [...seg(0xdb, [1, 2, 3]), ...seg(0xc0, [4, 5]), ...seg(0xda, [6]), 9, 9, 9, 0xff, 0xd9];
+    const memory = new Uint8Array([0xff, 0xd8, ...core]);
+    const exported = new Uint8Array([0xff, 0xd8, ...seg(0xe1, [...Buffer.from('Exif\0\0'), 7, 7]), ...seg(0xe0, [8]), ...seg(0xfe, [1]), ...core]);
+    assert.deepStrictEqual(Array.from(snap.jpegCore(exported)), Array.from(memory));
+    assert.ok(snap.sameBytes(snap.jpegCore(exported), snap.jpegCore(memory)));
+    assert.strictEqual(snap.jpegCore(new Uint8Array([0x89, 0x50, 0x4e, 0x47])), null, 'inte en JPEG');
+    assert.strictEqual(snap.jpegCore(new Uint8Array([0xff, 0xd8, ...seg(0xe1, [1])])), null, 'ingen bilddata');
+    assert.ok(!snap.sameBytes(new Uint8Array([1, 2]), new Uint8Array([1, 3])));
+});
+
+test('video i Memories: på Android är tagningstiden inspelningens slut, på iOS är det inte kontrollerat', () => {
+    const mem = { id: SNAP_ID, mediaType: 1, front: 0, capturedMs: 1000, createdMs: 2000, duration: 5 };
+    const android = snap.build({ memories: [mem] }).events.find((e) => e.captured);
+    assert.match(android.text, /video tagen med bakre kameran \(snap_capture_time, inspelningens slut\)/);
+    const ios = snap.build({ memories: [mem], memoryColumns: { captured: 'ZCAPTURETIMEUTC', created: 'ZCREATETIMEUTC', front: 'ZCAMERAFRONTFACING', type: 'ZMEDIATYPE' } }).events.find((e) => e.captured);
+    assert.match(ios.text, /video tagen med bakre kameran \(ZCAPTURETIMEUTC, start eller slut är inte kontrollerat på iOS\)/);
+});

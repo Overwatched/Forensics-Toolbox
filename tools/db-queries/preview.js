@@ -124,7 +124,12 @@
         [/json/i, function () { return '{"arroyo_convo_id":"2b7e1d0c-3f4a-4b5c-9d6e-7f8a9b0c1d2e","arroyo_message_id":"4"}'; }],
         [/time_zone/i, function () { return 'Europe/Stockholm'; }],
         [/user_agent/i, function () { return 'Snapchat/14.30.0.54 (AC2003; Android 13#f8fb74d040#33; gzip) V/MUSHROOM'; }],
-        [/^(external_id|media_id)$/i, function (i) { return '4669844f-2375-6c4f-5de8-1489444859' + (10 + i); }],
+        [/^(external_id|media_id|memories_entry_id)$/i, function (i) { return '4669844f-2375-6c4f-5de8-1489444859' + (10 + i); }],
+        // Snapchat Memories på iOS (scdb-27.sqlite3, gallery.encrypteddb)
+        [/^(ZSNAPID|ZENTRYID|snap_id)$/i, function (i) { return '7C2E91A4-5B3D-4F60-8A17-2D9E4B6C0F' + (11 + i); }],
+        [/^(ZMEDIATYPE|ZCAMERAFRONTFACING)$/, function () { return '0'; }],
+        [/^ZHASLOCATION$/, function () { return '1'; }],
+        [/^ZSERVLETMEDIAFORMAT$/, function () { return 'image_jpeg'; }],
         [/^key$/i, pick(['67F4A4FC9E7EA492DEFC059260D154E6.media', 'C025B6FFB844EF85C721AA05B78DA32D.posted_story_snap', '7CF641F2121BC4035AC4E5296671CE44.overlay'])],
         [/^mapp$/i, pick(['memories_media', 'posted_story_snap', 'memories_overlay'])],
         [/^user_?id$/i, function () { return '9e6f7a8b-1c2d-4e3f-8a9b-0c1d2e3f4a5b'; }],

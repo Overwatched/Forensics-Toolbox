@@ -67,16 +67,17 @@
             });
         });
 
-        // Snapchat (beta): på iOS fyra databaser som hittas på suffix i appens behållare, på Android
-        // sex databaser under data/data/com.snapchat.android. Samma rollnamn på båda.
+        // Snapchat (beta): på iOS sex databaser som hittas på suffix i appens behållare, på Android
+        // sex databaser under data/data/com.snapchat.android. Samma rollnamn på båda. Memories positioner på iOS
+        // (gallery.encrypteddb) är krypterade med SQLCipher, och cipher följer med källan.
         [[catalogs.snapchat, 'iOS'], [catalogs.snapchatAndroid, 'Android']].forEach(function (pair) {
             ((pair[0] || {}).databases || []).forEach(function (db) {
                 var roles = roleMap(db.queries);
                 if (!Object.keys(roles).length) return;
                 var label = db.label.replace(/^(iOS|Android) — /, '');
                 sources.push({
-                    key: db.id, platform: pair[1], title: label, paths: db.paths || [], source: db.source, roles: roles, beta: true,
-                    databases: [{ id: db.id, family: db.id, familyTitle: label, label: label, paths: db.paths || [], ios: null }],
+                    key: db.id, platform: pair[1], title: label, paths: db.paths || [], source: db.source, roles: roles, beta: true, cipher: db.cipher || null,
+                    databases: [{ id: db.id, family: db.id, familyTitle: label, label: label, paths: db.paths || [], ios: null, cipher: db.cipher || null }],
                 });
             });
         });

@@ -15,9 +15,16 @@
     // och saltet (16). De första 32 byten i filen är okrypterade (SQLite-huvudet), så saltet står inte
     // i filen. Varje sida har HMAC-SHA512, HMAC-nyckeln tas fram med PBKDF2-HMAC-SHA512 i 2 varv och
     // reserven är IV (16) + HMAC (64) = 80. Kontrollerat mot en labbtelefon (iOS 26.4.1, 2026-11-03).
+    // Snapchats Memories på iOS (gallery.encrypteddb): en rå nyckel på 32 byte ur nyckelringen
+    // (egocipher.key.avoidkeyderivation), saltet först i filen, sidor på 1024 byte, HMAC-SHA1 med
+    // HMAC-nyckeln från PBKDF2-HMAC-SHA1 i 2 varv, och reserven IV (16) + HMAC (20) avrundat: 48.
+    // Snapchats SQLite döper de automatiska indexen till sqlcph_autoindex_… i stället för sqlite_autoindex_…,
+    // vilket en vanlig SQLite inte godtar. I det dekrypterade (i minnet) får de SQLites namn igen, med samma
+    // längd. Kontrollerat mot en labbtelefon (iOS 26.4.1, 2026-11-16): HMAC stämde för alla sidor.
     var PROFILES = {
         signal: { id: 'signal', label: 'Signal', settings: 'Signals inställningar', pageSize: 4096, kdf: 'sha1', kdfIter: 1, hmac: 'sha1', hmacLen: 20, fastIter: 2, saltMask: 0x3a, keyIsHex: true },
         'signal-ios': { id: 'signal-ios', label: 'Signal (iOS)', settings: 'Signals inställningar på iOS', pageSize: 4096, rawKey: true, kdf: 'sha512', hmac: 'sha512', hmacLen: 64, fastIter: 2, saltMask: 0x3a, header: 32 },
+        'snapchat-gallery': { id: 'snapchat-gallery', label: 'Snapchat Memories (iOS)', settings: 'Snapchats inställningar för Memories på iOS', pageSize: 1024, rawKey: true, kdf: 'sha1', hmac: 'sha1', hmacLen: 20, fastIter: 2, saltMask: 0x3a, renamedIndexes: true },
     };
     var BTREE_PAGE_TYPES = [2, 5, 10, 13];
     var HEADER = 'SQLite format 3\u0000';
@@ -397,6 +404,23 @@
         };
     }
 
+    // Snapchats namn på de automatiska indexen (sqlcph_autoindex_…) blir SQLites (sqlite_autoindex_…) i det
+    // dekrypterade, med samma längd, så att schemat går att läsa. Bara för en profil som säger det.
+    var RENAMED_INDEX = 'sqlcph_autoindex_', SQLITE_INDEX = 'sqlite_autoindex_';
+    function restoreIndexNames(bytes, profile) {
+        if (!profile.renamedIndexes) return 0;
+        var first = RENAMED_INDEX.charCodeAt(0), n = 0;
+        for (var i = 0; i + RENAMED_INDEX.length <= bytes.length; i++) {
+            if (bytes[i] !== first) continue;
+            var same = true;
+            for (var j = 1; same && j < RENAMED_INDEX.length; j++) if (bytes[i + j] !== RENAMED_INDEX.charCodeAt(j)) same = false;
+            if (!same) continue;
+            for (var k = 0; k < SQLITE_INDEX.length; k++) bytes[i + k] = SQLITE_INDEX.charCodeAt(k);
+            n++;
+        }
+        return n;
+    }
+
     // Databasen och dess -wal dekrypterade och sammanlagda. wal får vara tom. Returnerar som
     // SqliteWal.apply: { bytes, stats }, med stats.cipher = { profile, pages, badHmac, walPages, walBadHmac }.
     function cipherStatsOf(dec) {
@@ -411,6 +435,7 @@
         var cipherStats = cipherStatsOf(dec);
         var Wal = SqliteWal || root.SqliteWal || (typeof module !== 'undefined' && module.exports ? require('./wal.js') : null);
         var merged = Wal.apply(dec.bytes, wal || new Uint8Array(0), { owned: true, page: walPageDecryptor(dec.keys, dec.profile, cipherStats) });
+        if (dec.profile.renamedIndexes) cipherStats.renamedIndexes = restoreIndexNames(merged.bytes, dec.profile);
         merged.stats.cipher = cipherStats;
         return merged;
     }
@@ -629,6 +654,7 @@
             if (!r.hmacOk) cipherStats.walBadHmac++;
             return r.bytes;
         } });
+        if (dec.profile.renamedIndexes) cipherStats.renamedIndexes = restoreIndexNames(merged.bytes, dec.profile);
         merged.stats.cipher = cipherStats;
         return merged;
     }
@@ -652,6 +678,7 @@
         var text = 'Dekrypterad i minnet (SQLCipher, ' + (c.settings || c.profile + 's inställningar') + ') med ' + from + ': ' + c.pages + ' sidor' + (c.walPages ? ' och ' + c.walPages + ' sidor ur -wal' : '') + '.';
         var bad = c.badHmac + c.walBadHmac;
         text += bad ? ' Kontrollsumman (HMAC) stämde inte för ' + badText(c) + ': ' + (bad === 1 ? 'den kan vara skadad.' : 'de kan vara skadade.') : ' Kontrollsumman (HMAC) stämde för alla sidor.';
+        if (c.renamedIndexes) text += ' ' + c.renamedIndexes + ' index heter sqlcph_autoindex_… i filen och fick SQLites namn (sqlite_autoindex_…) i minnet, så att schemat går att läsa.';
         if (c.lockPage) text += ' Sida ' + c.lockPage + ' är tom och räknas inte: det är sidan vid 1 GB, som SQLite aldrig skriver på.';
         return text;
     }

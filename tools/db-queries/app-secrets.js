@@ -16,6 +16,7 @@
 
     var SIGNAL = 'org.thoughtcrime.securesms';
     var SIGNAL_IOS = 'org.whispersystems.signal';
+    var SNAPCHAT_IOS = 'com.toyopagroup.picaboo';
     var SECRETS_RE = /(^|\/)extra\/Secrets\/secrets\.json$/;
     var HEX64 = /^[0-9a-f]{64}$/i;
     var HEX96 = /^[0-9a-f]{96}$/i;
@@ -252,6 +253,19 @@
         return fieldText(it.svce) === 'GRDBKeyChainService' && fieldText(it.acct) === 'GRDBDatabaseCipherKeySpec';
     }
 
+    // Snapchats nyckel till Memories (gallery.encrypteddb) på iOS: kontot egocipher.key.avoidkeyderivation i Snapchats
+    // åtkomstgrupp, och värdet på 32 byte är databasens råa nyckel. Kontrollerat mot en labbtelefon (iOS 26.4.1, 2026-11-16).
+    function isSnapchatGalleryItem(it) {
+        return fieldText(it.acct) === 'egocipher.key.avoidkeyderivation' && /(^|\.)com\.toyopagroup\.picaboo$/.test(fieldText(it.agrp));
+    }
+
+    function addSnapchatKey(out, value, group) {
+        if (!(value instanceof Uint8Array) || value.length !== 32) return;
+        var a = appEntry(out, SNAPCHAT_IOS);
+        a.dbKey = toHex(value);
+        a.notes.push('egocipher.key.avoidkeyderivation' + (group ? ' (' + fieldText(group) + ')' : ''));
+    }
+
     function addSignalKey(out, value, group) {
         if (!(value instanceof Uint8Array) || value.length !== 48) return;
         var a = appEntry(out, SIGNAL_IOS);
@@ -270,6 +284,7 @@
         out.items = ['genp', 'inet', 'keys', 'cert'].reduce(function (n, k) { return n + (Array.isArray(p[k]) ? p[k].length : 0); }, 0);
         p.genp.forEach(function (it) {
             if (it && typeof it === 'object' && isSignalItem(it)) addSignalKey(out, it.v_Data, it.agrp);
+            else if (it && typeof it === 'object' && isSnapchatGalleryItem(it)) addSnapchatKey(out, it.v_Data, it.agrp);
         });
         return out;
     }
@@ -293,7 +308,7 @@
     // classKeyIdxToUnwrappedMetadataClassKey: { idx: nyckel } }. Extraktionsverktyget har låst upp klassnycklarna
     // och postens nyckel. Klassnyckeln öppnar postens metadatanyckel, som öppnar metadatan (DER: svce, acct, agrp),
     // och postens nyckel öppnar värdet (DER: v_Data). TamperCheck ska vara samma i posten som i det dekrypterade.
-    // Bara värdet i Signals post dekrypteras. Kontrollerat mot två iOS-extraktioner utan Signal: alla 1 496
+    // Bara värdena i Signals post och i Snapchats post för Memories dekrypteras. Kontrollerat mot två iOS-extraktioner utan Signal: alla 1 496
     // poster öppnas, och fälten heter som i plisten bredvid zippen.
     async function fromKeychainEntries(p, source, parseBinary) {
         var out = empty(source || 'nyckelringen');
@@ -313,10 +328,12 @@
                 var itemKey = await openSealed(classKeys[String(e.classKeyIdx)], e.metadata.wrappedKey, parseBinary);
                 var attrs = der.parseRecord(await openSealed(itemKey, e.metadata.ciphertext, parseBinary));
                 if (attrs.TamperCheck !== e.metadata.tamperCheck) { failed++; continue; }
-                if (!isSignalItem(attrs)) continue;
+                var snap = isSnapchatGalleryItem(attrs);
+                if (!isSignalItem(attrs) && !snap) continue;
                 var secret = der.parseRecord(await openSealed(e.data.unwrappedKey, e.data.ciphertext, parseBinary));
                 if (secret.TamperCheck !== e.data.tamperCheck) { failed++; continue; }
-                addSignalKey(out, secret.v_Data, attrs.agrp);
+                if (snap) addSnapchatKey(out, secret.v_Data, attrs.agrp);
+                else addSignalKey(out, secret.v_Data, attrs.agrp);
             } catch (err) { failed++; }
         }
         out.failed = failed;
@@ -381,6 +398,7 @@
 
     // Passar databasnyckeln appen? Android: 64 hextecken. iOS: 96 (nyckel och salt).
     function fits(app, key) { return app === SIGNAL_IOS ? HEX96.test(key) : HEX64.test(key); }
+    // Snapchats nyckel (iOS) är 32 byte, 64 hextecken, som Signals på Android.
 
     // Signals nycklar ur det som hittats, i ordning: inklistrat, secrets.json, android_keystore,
     // nyckelringen. Varje nyckel tas för sig ur den första källan som har den, så att en inklistrad
@@ -404,8 +422,10 @@
         return out;
     }
 
-    // Nycklarna för en databas efter dess SQLCipher-profil i katalogen ('signal' eller 'signal-ios').
+    // Nycklarna för en databas efter dess SQLCipher-profil i katalogen ('signal', 'signal-ios' eller 'snapchat-gallery').
+    // Snapchats nyckel tas bara ur nyckelfilerna: en inklistrad nyckel är Signals.
     function keysForProfile(found, profile) {
+        if (profile === 'snapchat-gallery') return signalKeys((found || []).filter(function (f) { return f && f.apps; }), SNAPCHAT_IOS);
         return signalKeys(found, profile === 'signal-ios' ? SIGNAL_IOS : SIGNAL);
     }
 
@@ -417,7 +437,7 @@
 
     // Var nyckeln saknas, för felet när den inte hittas.
     function keyHint(profile) {
-        return profile === 'signal-ios' ? 'nyckelringen (…_keychain.plist)' : 'nyckelfilen (…_android_keystore.zip eller secrets.json)';
+        return profile === 'signal-ios' || profile === 'snapchat-gallery' ? 'nyckelringen (…_keychain.plist)' : 'nyckelfilen (…_android_keystore.zip eller secrets.json)';
     }
 
     // Vad undersökaren får veta när nyckeln inte hittades: var programmet letade och vad som återstår.
@@ -434,7 +454,7 @@
     }
 
     var api = {
-        SIGNAL: SIGNAL, SIGNAL_IOS: SIGNAL_IOS, isSecretsPath: isSecretsPath, isKeyFileName: isKeyFileName, isExtraKeyPath: isExtraKeyPath,
+        SIGNAL: SIGNAL, SIGNAL_IOS: SIGNAL_IOS, SNAPCHAT_IOS: SNAPCHAT_IOS, isSecretsPath: isSecretsPath, isKeyFileName: isKeyFileName, isExtraKeyPath: isExtraKeyPath,
         besideKeyFiles: besideKeyFiles, deviceIdOf: deviceIdOf,
         fromSecretsFile: fromSecretsFile, fromKeystoreFile: fromKeystoreFile, fromKeychainPlist: fromKeychainPlist, fromKeyFile: fromKeyFile, readKeyBytes: readKeyBytes,
         parseXmlPlist: parseXmlPlist, parseManual: parseManual, signalKeys: signalKeys, keysForProfile: keysForProfile, hasSignalKey: hasSignalKey, keyHint: keyHint, missingKeyText: missingKeyText,

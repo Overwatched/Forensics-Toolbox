@@ -184,7 +184,8 @@
         var show = need && (!zipKey || keyWanted || !!keyInput.value.trim());
         keyRow.classList.toggle('display-none', !show);
         $('run-key-other').classList.toggle('display-none', !need || !zipKey || show);
-        keyInput.placeholder = ios ? "96 hextecken, gärna som x'…'" : '64 hextecken, eller Signal-posten ur secrets.json';
+        var snap = !!(db && db.cipher === 'snapchat-gallery');
+        keyInput.placeholder = ios ? "96 hextecken, gärna som x'…'" : snap ? '64 hextecken (egocipher.key.avoidkeyderivation i nyckelringen)' : '64 hextecken, eller Signal-posten ur secrets.json';
         var bad = window.QueriesExtraction && window.QueriesExtraction.keyFileErrors ? window.QueriesExtraction.keyFileErrors() : [];
         var looked = files.zip && window.QueriesExtraction && window.QueriesExtraction.keySearch ? window.QueriesExtraction.keySearch() : null;
         keyNote.textContent = (zipKey ? 'Går före nyckeln ur ' + c.source + '. Sparas inte.'

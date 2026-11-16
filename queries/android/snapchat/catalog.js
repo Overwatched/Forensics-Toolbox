@@ -8,7 +8,8 @@ window.SNAPCHAT_ANDROID_CATALOG = {
     "timeEnd": "Till (ÅÅÅÅ-MM-DD TT:MM)",
     "cacheKey": "Cachenyckel (filnamnet i native_content_manager-mappen)",
     "conversationId": "Konversations-id (client_conversation_id)",
-    "threadId": "Konversationens id (client_conversation_id)"
+    "threadId": "Konversationens id (client_conversation_id)",
+    "snapId": "Snap-id (_id, media_id, memories_entry_id eller external_id)"
   },
   "databases": [
     {
@@ -191,6 +192,22 @@ window.SNAPCHAT_ANDROID_CATALOG = {
             "isViewed": "is_viewed_by_user"
           },
           "sql": "SELECT\n  client_conversation_id,\n  server_message_id,\n  client_message_id,\n  creation_timestamp,\n  read_timestamp,\n  message_state_type,\n  message_content,\n  sender_id,\n  created_on_device,\n  content_type,\n  remote_media_count,\n  is_saved,\n  is_viewed_by_user\nFROM conversation_message\nWHERE creation_timestamp BETWEEN {{unixMsStart}} AND {{unixMsEnd}}\n   OR read_timestamp BETWEEN {{unixMsStart}} AND {{unixMsEnd}}\nORDER BY creation_timestamp;"
+        },
+        {
+          "id": "role-conversation-members",
+          "hidden": true,
+          "role": "conversation-members",
+          "title": "Härkomst: vilka som skrivit i en konversation",
+          "description": "Används av Härkomst. Avsändarna i hela konversationen, för att säga vem en skickad snap gick till. Det egna kontot tas bort i Härkomst.",
+          "params": [
+            "threadId"
+          ],
+          "epoch": "unixMs",
+          "fields": {
+            "conversation": "client_conversation_id",
+            "id": "sender_id"
+          },
+          "sql": "SELECT DISTINCT\n  client_conversation_id,\n  CAST(sender_id AS TEXT) AS sender_id\nFROM conversation_message\nWHERE client_conversation_id = '{{threadId}}'\n  AND sender_id IS NOT NULL\nORDER BY 2;"
         },
         {
           "id": "role-coverage",
@@ -449,7 +466,7 @@ window.SNAPCHAT_ANDROID_CATALOG = {
       "paths": [
         "data/data/com.snapchat.android/databases/memories.db"
       ],
-      "source": "Kontrollerad mot labbtelefon (Android 13, Snapchat 14.30.0.54): snap_capture_time stämde på millisekunden med kameraloggen i appops; för video är det inspelningens slut. media_type 0 = bild, 1 = video. front_facing 1 = frontkameran. En bild som sparas till kamerarullen får en rad i MediaStore (owner_package_name com.snapchat.android) med date_added strax efter create_time.",
+      "source": "Kontrollerad mot labbtelefon (Android 13, Snapchat 14.30.0.54): snap_capture_time stämde på millisekunden med kameraloggen i appops; för video är det inspelningens slut. media_type 0 = bild, 1 = video. front_facing 1 = frontkameran. En bild som sparas till kamerarullen får en rad i MediaStore (owner_package_name com.snapchat.android) med date_added strax efter create_time. En fil i memories_media har samma storlek som memories_media.size (media_id = memories_snap.media_id); en bild som exporterats till galleriet har samma bilddata som filen, med EXIF lagt till (kontrollerat 2026-11-16, Android 16).",
       "queries": [
         {
           "id": "snaps",
@@ -465,6 +482,16 @@ window.SNAPCHAT_ANDROID_CATALOG = {
           "sql": "SELECT\n  datetime(snap_capture_time / 1000, 'unixepoch', 'localtime') AS tagen_lokal,\n  datetime(create_time / 1000, 'unixepoch', 'localtime') AS sparad_lokal,\n  media_type,\n  front_facing,\n  width,\n  height,\n  duration,\n  time_zone_id,\n  has_location,\n  latitude,\n  longitude,\n  has_overlay_image,\n  snap_create_user_agent,\n  _id,\n  datetime(snap_capture_time / 1000, 'unixepoch') AS tagen_utc\nFROM memories_snap\nWHERE snap_capture_time BETWEEN {{unixMsStart}} AND {{unixMsEnd}}\n   OR create_time BETWEEN {{unixMsStart}} AND {{unixMsEnd}}\nORDER BY snap_capture_time;"
         },
         {
+          "id": "by-snap-id",
+          "title": "Sök på snap-id",
+          "subtitle": "Visar den sparade snap som har id:t, som _id, media_id, Memories-id (memories_entry_id) eller external_id. Skiftläget spelar ingen roll.",
+          "params": [
+            "snapId"
+          ],
+          "returns": "tagen, sparad, typ, frontkamera, bredd, höjd, längd, tidszon, position, user agent, id, UTC, media-id, Memories-id",
+          "sql": "SELECT\n  datetime(snap_capture_time / 1000, 'unixepoch', 'localtime') AS tagen_lokal,\n  datetime(create_time / 1000, 'unixepoch', 'localtime') AS sparad_lokal,\n  media_type,\n  front_facing,\n  width,\n  height,\n  duration,\n  time_zone_id,\n  has_location,\n  latitude,\n  longitude,\n  has_overlay_image,\n  snap_create_user_agent,\n  _id,\n  media_id,\n  memories_entry_id,\n  datetime(snap_capture_time / 1000, 'unixepoch') AS tagen_utc\nFROM memories_snap\nWHERE lower(_id) = lower('{{snapId}}')\n   OR lower(media_id) = lower('{{snapId}}')\n   OR lower(memories_entry_id) = lower('{{snapId}}')\n   OR lower(external_id) = lower('{{snapId}}')\nORDER BY snap_capture_time;"
+        },
+        {
           "id": "tables",
           "title": "Hjälp: tabeller och antal rader",
           "subtitle": "Listar tabellerna i databasen. Bra för att se om memories_snap finns i den här Snapchat-versionen.",
@@ -478,7 +505,7 @@ window.SNAPCHAT_ANDROID_CATALOG = {
           "hidden": true,
           "role": "memories",
           "title": "Härkomst: sparade snaps i tidsfönstret",
-          "description": "Används av Härkomst. Snaps tagna eller sparade i fönstret med råa tider.",
+          "description": "Används av Härkomst. Snaps tagna eller sparade i fönstret med råa tider, och storleken på filen i memories_media.",
           "params": [
             "timeStart",
             "timeEnd"
@@ -500,9 +527,75 @@ window.SNAPCHAT_ANDROID_CATALOG = {
             "longitude": "longitude",
             "overlay": "has_overlay_image",
             "userAgent": "snap_create_user_agent",
-            "externalId": "external_id"
+            "externalId": "external_id",
+            "entryId": "memories_entry_id",
+            "mediaSize": "media_size"
           },
-          "sql": "SELECT\n  _id,\n  media_id,\n  media_type,\n  create_time,\n  snap_capture_time,\n  time_zone_id,\n  width,\n  height,\n  duration,\n  front_facing,\n  has_location,\n  latitude,\n  longitude,\n  has_overlay_image,\n  snap_create_user_agent,\n  external_id\nFROM memories_snap\nWHERE snap_capture_time BETWEEN {{unixMsStart}} AND {{unixMsEnd}}\n   OR create_time BETWEEN {{unixMsStart}} AND {{unixMsEnd}}\nORDER BY snap_capture_time;"
+          "sql": "SELECT\n  s._id,\n  s.media_id,\n  s.media_type,\n  s.create_time,\n  s.snap_capture_time,\n  s.time_zone_id,\n  s.width,\n  s.height,\n  s.duration,\n  s.front_facing,\n  s.has_location,\n  s.latitude,\n  s.longitude,\n  s.has_overlay_image,\n  s.snap_create_user_agent,\n  s.external_id,\n  s.memories_entry_id,\n  m.size AS media_size\nFROM memories_snap s\nLEFT JOIN memories_media m ON m._id = s.media_id\nWHERE s.snap_capture_time BETWEEN {{unixMsStart}} AND {{unixMsEnd}}\n   OR s.create_time BETWEEN {{unixMsStart}} AND {{unixMsEnd}}\nORDER BY s.snap_capture_time;"
+        },
+        {
+          "id": "role-memory-id",
+          "hidden": true,
+          "role": "memory-id",
+          "title": "Härkomst: en sparad snap efter id",
+          "description": "Används av Härkomst. Den sparade snap som har id:t (_id, media_id, memories_entry_id eller external_id).",
+          "params": [
+            "snapId"
+          ],
+          "epoch": "unixMs",
+          "fields": {
+            "id": "_id",
+            "mediaId": "media_id",
+            "mediaType": "media_type",
+            "created": "create_time",
+            "captured": "snap_capture_time",
+            "zone": "time_zone_id",
+            "width": "width",
+            "height": "height",
+            "duration": "duration",
+            "front": "front_facing",
+            "hasLocation": "has_location",
+            "latitude": "latitude",
+            "longitude": "longitude",
+            "overlay": "has_overlay_image",
+            "userAgent": "snap_create_user_agent",
+            "externalId": "external_id",
+            "entryId": "memories_entry_id",
+            "mediaSize": "media_size"
+          },
+          "sql": "SELECT\n  s._id,\n  s.media_id,\n  s.media_type,\n  s.create_time,\n  s.snap_capture_time,\n  s.time_zone_id,\n  s.width,\n  s.height,\n  s.duration,\n  s.front_facing,\n  s.has_location,\n  s.latitude,\n  s.longitude,\n  s.has_overlay_image,\n  s.snap_create_user_agent,\n  s.external_id,\n  s.memories_entry_id,\n  m.size AS media_size\nFROM memories_snap s\nLEFT JOIN memories_media m ON m._id = s.media_id\nWHERE lower(s._id) = lower('{{snapId}}')\n   OR lower(s.media_id) = lower('{{snapId}}')\n   OR lower(s.memories_entry_id) = lower('{{snapId}}')\n   OR lower(s.external_id) = lower('{{snapId}}')\nORDER BY s.snap_capture_time;"
+        },
+        {
+          "id": "role-memory-size",
+          "hidden": true,
+          "role": "memory-size",
+          "title": "Härkomst: sparade snaps med en viss filstorlek",
+          "description": "Används av Härkomst. De sparade snaps vars fil i memories_media har storleken (memories_media.size), för att hitta snappen som en fil i galleriet exporterades från.",
+          "params": [
+            "mediaSize"
+          ],
+          "epoch": "unixMs",
+          "fields": {
+            "id": "_id",
+            "mediaId": "media_id",
+            "mediaType": "media_type",
+            "created": "create_time",
+            "captured": "snap_capture_time",
+            "zone": "time_zone_id",
+            "width": "width",
+            "height": "height",
+            "duration": "duration",
+            "front": "front_facing",
+            "hasLocation": "has_location",
+            "latitude": "latitude",
+            "longitude": "longitude",
+            "overlay": "has_overlay_image",
+            "userAgent": "snap_create_user_agent",
+            "externalId": "external_id",
+            "entryId": "memories_entry_id",
+            "mediaSize": "media_size"
+          },
+          "sql": "SELECT\n  s._id,\n  s.media_id,\n  s.media_type,\n  s.create_time,\n  s.snap_capture_time,\n  s.time_zone_id,\n  s.width,\n  s.height,\n  s.duration,\n  s.front_facing,\n  s.has_location,\n  s.latitude,\n  s.longitude,\n  s.has_overlay_image,\n  s.snap_create_user_agent,\n  s.external_id,\n  s.memories_entry_id,\n  m.size AS media_size\nFROM memories_snap s\nLEFT JOIN memories_media m ON m._id = s.media_id\nWHERE m.size = {{mediaSize}}\nORDER BY s.snap_capture_time;"
         },
         {
           "id": "role-coverage",

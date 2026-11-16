@@ -1,0 +1,227 @@
+{
+  "format": "forensics-toolbox-laboration",
+  "version": 1,
+  "sparad": "2026-11-16T21:00:00.000+01:00",
+  "program": "Forensics Toolbox",
+  "flow": {
+    "name": "Snapchat Memories del 2",
+    "prefix": "N",
+    "devices": [
+      {
+        "id": "d1",
+        "name": "iPhone"
+      },
+      {
+        "id": "d2",
+        "name": "Samsung"
+      }
+    ],
+    "groups": [
+      {
+        "id": "g3",
+        "title": "Klockorna i början",
+        "app": "",
+        "a": "",
+        "b": "",
+        "template": ""
+      },
+      {
+        "id": "g6",
+        "title": "Memories bara på servern, iPhone",
+        "app": "Snapchat",
+        "a": "",
+        "b": "",
+        "template": ""
+      },
+      {
+        "id": "g11",
+        "title": "Memories bara på servern, Samsung",
+        "app": "Snapchat",
+        "a": "",
+        "b": "",
+        "template": ""
+      },
+      {
+        "id": "g16",
+        "title": "Klockorna i slutet",
+        "app": "",
+        "a": "",
+        "b": "",
+        "template": ""
+      }
+    ],
+    "steps": [
+      {
+        "id": "s4",
+        "action": "photo",
+        "group": "g3",
+        "block": "Klockorna i början",
+        "device": "d1",
+        "other": "",
+        "app": "Kamera",
+        "do": "Fotografera rutan med koden och klockan. Resten av skärmen behöver inte komma med.",
+        "done": "Tog en bild av skärmen med kameran.",
+        "press": "när bilden är tagen",
+        "wait": 0
+      },
+      {
+        "id": "s5",
+        "action": "photo",
+        "group": "g3",
+        "block": "Klockorna i början",
+        "device": "d2",
+        "other": "",
+        "app": "Kamera",
+        "do": "Fotografera rutan med koden och klockan. Resten av skärmen behöver inte komma med.",
+        "done": "Tog en bild av skärmen med kameran.",
+        "press": "när bilden är tagen",
+        "wait": 0
+      },
+      {
+        "id": "s7",
+        "action": "uninstall",
+        "group": "g6",
+        "block": "Memories bara på servern, iPhone",
+        "device": "d1",
+        "other": "",
+        "app": "Snapchat",
+        "do": "Avinstallera {app}.",
+        "done": "Avinstallerade {app}.",
+        "press": "när appen är borta",
+        "wait": 0
+      },
+      {
+        "id": "s8",
+        "action": "install",
+        "group": "g6",
+        "block": "Memories bara på servern, iPhone",
+        "device": "d1",
+        "other": "",
+        "app": "Snapchat",
+        "do": "Installera Snapchat och logga in på samma konto som i del 1.",
+        "done": "Installerade Snapchat och loggade in på samma konto.",
+        "press": "när du är inloggad",
+        "wait": 0
+      },
+      {
+        "id": "s9",
+        "action": "custom",
+        "group": "g6",
+        "block": "Memories bara på servern, iPhone",
+        "device": "d1",
+        "other": "",
+        "app": "Snapchat",
+        "do": "Öppna Memories och låt rutnätet med de sparade snapsen visas. Öppna ingen av dem.",
+        "done": "Öppnade Memories utan att öppna någon sparad snap.",
+        "press": "när rutnätet visas",
+        "wait": 0
+      },
+      {
+        "id": "s10",
+        "action": "custom",
+        "group": "g6",
+        "block": "Memories bara på servern, iPhone",
+        "device": "d1",
+        "other": "",
+        "app": "Snapchat",
+        "do": "Öppna bara den första bilden du sparade i del 1 (utan text) i helskärm, så att den hämtas. Stäng den sedan.",
+        "done": "Öppnade den första sparade bilden från del 1 i helskärm.",
+        "press": "när bilden har visats",
+        "wait": 0
+      },
+      {
+        "id": "s12",
+        "action": "uninstall",
+        "group": "g11",
+        "block": "Memories bara på servern, Samsung",
+        "device": "d2",
+        "other": "",
+        "app": "Snapchat",
+        "do": "Avinstallera {app}.",
+        "done": "Avinstallerade {app}.",
+        "press": "när appen är borta",
+        "wait": 0
+      },
+      {
+        "id": "s13",
+        "action": "install",
+        "group": "g11",
+        "block": "Memories bara på servern, Samsung",
+        "device": "d2",
+        "other": "",
+        "app": "Snapchat",
+        "do": "Installera Snapchat och logga in på samma konto som i del 1.",
+        "done": "Installerade Snapchat och loggade in på samma konto.",
+        "press": "när du är inloggad",
+        "wait": 0
+      },
+      {
+        "id": "s14",
+        "action": "custom",
+        "group": "g11",
+        "block": "Memories bara på servern, Samsung",
+        "device": "d2",
+        "other": "",
+        "app": "Snapchat",
+        "do": "Öppna Memories och låt rutnätet med de sparade snapsen visas. Öppna ingen av dem.",
+        "done": "Öppnade Memories utan att öppna någon sparad snap.",
+        "press": "när rutnätet visas",
+        "wait": 0
+      },
+      {
+        "id": "s15",
+        "action": "custom",
+        "group": "g11",
+        "block": "Memories bara på servern, Samsung",
+        "device": "d2",
+        "other": "",
+        "app": "Snapchat",
+        "do": "Öppna bara den första bilden du sparade i del 1 (utan text) i helskärm, så att den hämtas. Stäng den sedan.",
+        "done": "Öppnade den första sparade bilden från del 1 i helskärm.",
+        "press": "när bilden har visats",
+        "wait": 0
+      },
+      {
+        "id": "s17",
+        "action": "photo",
+        "group": "g16",
+        "block": "Klockorna i slutet",
+        "device": "d1",
+        "other": "",
+        "app": "Kamera",
+        "do": "Fotografera rutan med koden och klockan. Resten av skärmen behöver inte komma med.",
+        "done": "Tog en bild av skärmen med kameran.",
+        "press": "när bilden är tagen",
+        "wait": 120
+      },
+      {
+        "id": "s18",
+        "action": "photo",
+        "group": "g16",
+        "block": "Klockorna i slutet",
+        "device": "d2",
+        "other": "",
+        "app": "Kamera",
+        "do": "Fotografera rutan med koden och klockan. Resten av skärmen behöver inte komma med.",
+        "done": "Tog en bild av skärmen med kameran.",
+        "press": "när bilden är tagen",
+        "wait": 0
+      },
+      {
+        "id": "s19",
+        "action": "flight-on",
+        "group": "g16",
+        "block": "Klockorna i slutet",
+        "device": "*",
+        "other": "",
+        "app": "",
+        "do": "Sätt båda telefonerna i flygplansläge, eller gör som du brukar inför en extraktion.",
+        "done": "Båda telefonerna sattes i flygplansläge.",
+        "press": "när båda är klara",
+        "wait": 0
+      }
+    ],
+    "next": 20
+  },
+  "run": null
+}

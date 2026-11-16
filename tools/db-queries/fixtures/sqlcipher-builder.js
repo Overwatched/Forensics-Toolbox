@@ -170,4 +170,67 @@ function encryptedWalIos(k, newer) {
     return new Uint8Array(Buffer.concat(frames));
 }
 
-module.exports = { sqlJs, PAGE, makeDb, encryptDb, encryptedWal, makeDbIos, encryptDbIos, encryptedWalIos };
+// ---------- Snapchats Memories på iOS (gallery.encrypteddb): rå nyckel på 32 byte, saltet först, sidor på 1024 ----------
+
+const PAGE_SNAP = 1024;
+
+// En tom databas på 1024 byte per sida med 48 byte reserv.
+function emptyDbSnap() {
+    const b = Buffer.alloc(PAGE_SNAP);
+    b.write('SQLite format 3\0', 0, 'latin1');
+    b.writeUInt16BE(PAGE_SNAP, 16);
+    b[18] = 1; b[19] = 1; b[20] = RESERVE; b[21] = 64; b[22] = 32; b[23] = 32;
+    b.writeUInt32BE(1, 24); b.writeUInt32BE(1, 28); b.writeUInt32BE(4, 44); b.writeUInt32BE(1, 56);
+    b.writeUInt32BE(1, 92); b.writeUInt32BE(3045000, 96);
+    b[100] = 0x0d; b.writeUInt16BE(PAGE_SNAP - RESERVE, 105);
+    return new Uint8Array(b);
+}
+
+// Tabellerna som Snapchat har, med påhittade rader: [{ snapId, lat, lon, key, iv, title }]. De automatiska
+// indexen får Snapchats namn (sqlcph_autoindex_…), som i telefonen.
+async function makeSnapGallery(rows) {
+    const S = await sqlJs();
+    const db = new S.Database(emptyDbSnap());
+    db.run('CREATE TABLE snap_location_table(snap_id STRING, latitude REAL, longitude REAL, UNIQUE (snap_id) ON CONFLICT REPLACE)');
+    db.run('CREATE INDEX snap_location_index ON snap_location_table(latitude, longitude)');
+    db.run('CREATE TABLE snap_key_iv(snap_id STRING, key BLOB, iv BLOB, encrypted INTEGER, UNIQUE (snap_id) ON CONFLICT REPLACE)');
+    db.run('CREATE TABLE snap_address_title(snap_id STRING, address_title STRING, UNIQUE (snap_id) ON CONFLICT REPLACE)');
+    for (const r of rows) {
+        if (r.lat != null) db.run('INSERT INTO snap_location_table VALUES (?, ?, ?)', [r.snapId, r.lat, r.lon]);
+        if (r.key) db.run('INSERT INTO snap_key_iv VALUES (?, ?, ?, 0)', [r.snapId, r.key, r.iv]);
+        if (r.title) db.run('INSERT INTO snap_address_title VALUES (?, ?)', [r.snapId, r.title]);
+    }
+    const bytes = Buffer.from(db.export());
+    db.close();
+    let at = 0;
+    while ((at = bytes.indexOf('sqlite_autoindex_', at, 'latin1')) >= 0) { bytes.write('sqlcph', at, 'latin1'); at += 6; }
+    return new Uint8Array(bytes);
+}
+
+function keysSnap(raw, salt) {
+    return { key: raw, macKey: crypto.pbkdf2Sync(raw, Buffer.from(salt.map((b) => b ^ 0x3a)), 2, 32, 'sha1') };
+}
+function encryptPageSnap(k, page, pgno, salt) {
+    const start = pgno === 1 ? 16 : 0;
+    const iv = crypto.randomBytes(16);
+    const c = crypto.createCipheriv('aes-256-cbc', k.key, iv);
+    c.setAutoPadding(false);
+    const data = Buffer.concat([c.update(Buffer.from(page.subarray(start, PAGE_SNAP - RESERVE))), c.final()]);
+    const pn = Buffer.alloc(4); pn.writeUInt32LE(pgno);
+    const mac = crypto.createHmac('sha1', k.macKey).update(data).update(iv).update(pn).digest();
+    const out = Buffer.alloc(PAGE_SNAP);
+    if (pgno === 1) salt.copy(out, 0);
+    data.copy(out, start);
+    iv.copy(out, PAGE_SNAP - RESERVE);
+    mac.copy(out, PAGE_SNAP - RESERVE + 16);
+    return out;
+}
+// raw: nyckeln på 32 byte (Buffer), salt: 16 byte (Buffer).
+function encryptSnapGallery(plain, raw, salt) {
+    const k = keysSnap(raw, salt);
+    const pages = [];
+    for (let p = 1; p * PAGE_SNAP <= plain.length; p++) pages.push(encryptPageSnap(k, plain.subarray((p - 1) * PAGE_SNAP, p * PAGE_SNAP), p, salt));
+    return new Uint8Array(Buffer.concat(pages));
+}
+
+module.exports = { sqlJs, PAGE, makeDb, encryptDb, encryptedWal, makeDbIos, encryptDbIos, encryptedWalIos, makeSnapGallery, encryptSnapGallery };

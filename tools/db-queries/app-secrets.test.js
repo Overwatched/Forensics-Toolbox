@@ -229,3 +229,26 @@ test('readKeyBytes tar också de vanliga formaten, och skiljer på dem efter inn
     assert.match((await s.readKeyBytes(new Uint8Array(Buffer.from('<plist><dict><key>x</key>')), 'k.plist')).error, /gick inte att läsa/);
     assert.match((await s.readKeyBytes(new Uint8Array(Buffer.from('inte en nyckel')), 'x.txt')).error, /ingen nyckelfil/);
 });
+
+test('Snapchats nyckel till Memories (iOS): ur nyckelringen, öppen eller krypterad, och aldrig från en inklistrad Signal-nyckel', async () => {
+    const snapKey = Buffer.alloc(32, 0x5a);
+    const SNAP_ITEM = { svce: 'com.toyopagroup.picaboo', acct: 'egocipher.key.avoidkeyderivation', agrp: '3MY7A92V5W.com.toyopagroup.picaboo', value: snapKey };
+    const enc = await s.readKeyBytes(xmlBytes([OTHER_ITEM, SNAP_ITEM, SIGNAL_ITEM]), 'k.plist');
+    assert.strictEqual(enc.failed, 0);
+    assert.strictEqual(enc.apps[s.SNAPCHAT_IOS].dbKey, snapKey.toString('hex'));
+    assert.match(enc.apps[s.SNAPCHAT_IOS].notes[0], /egocipher\.key\.avoidkeyderivation \(3MY7A92V5W\.com\.toyopagroup\.picaboo\)/);
+    assert.strictEqual(enc.apps[s.SIGNAL_IOS].dbKey, KEY_HEX, 'Signals nyckel finns kvar bredvid');
+    assert.deepStrictEqual(s.keysForProfile([{ dbKey: 'ab'.repeat(32) }, enc], 'snapchat-gallery'), { dbKey: snapKey.toString('hex'), modernKey: null, source: 'k.plist', modernSource: null });
+    assert.strictEqual(s.keyHint('snapchat-gallery'), 'nyckelringen (…_keychain.plist)');
+    // Öppen plist (XML): samma post.
+    const xml = '<?xml version="1.0" encoding="UTF-8"?>\n<plist version="1.0"><dict><key>genp</key><array>' +
+        '<dict><key>agrp</key><string>3MY7A92V5W.com.toyopagroup.picaboo</string><key>acct</key><string>egocipher.key.avoidkeyderivation</string><key>v_Data</key><data>' + snapKey.toString('base64') + '</data></dict>' +
+        '</array></dict></plist>\n';
+    const open = s.fromKeyFile(new Uint8Array(Buffer.from(xml)), 'X_keychain.plist');
+    assert.strictEqual(open.apps[s.SNAPCHAT_IOS].dbKey, snapKey.toString('hex'));
+    // Samma konto i en annan app, eller fel längd, räknas inte.
+    const wrong = await s.readKeyBytes(xmlBytes([Object.assign({}, SNAP_ITEM, { agrp: 'X.com.annan.app' }), Object.assign({}, SNAP_ITEM, { value: Buffer.alloc(16) })]), 'k.plist');
+    assert.deepStrictEqual(wrong.apps, {});
+    // Bara en inklistrad nyckel: ingen nyckel för Snapchat.
+    assert.strictEqual(s.keysForProfile([{ dbKey: 'ab'.repeat(32) }], 'snapchat-gallery'), null);
+});

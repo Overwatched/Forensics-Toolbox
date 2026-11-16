@@ -1585,6 +1585,78 @@ const scenarios = [
         return 'Signals databas lästes och dekrypterades en gång, av Chattar';
     }],
 
+    ['Härkomst: en sparad snap i Snapchats Memories på iOS hittas på sitt snap-id, dekrypteras, får sin position och kopplas till chatten den skickades i', async ({ c, fx }) => {
+        const sc = fx.snapchatIos;
+        const name = path.basename(fx.files.snapchatIos);
+        await c.nav('Härkomst');
+        await c.ev(PROV, `document.getElementById('ex-close').click(), 1`);
+        // Nyckelringen ligger bredvid zippen med samma id i namnet, och har Snapchats nyckel till positionerna. En webbläsare
+        // får inte se mappen, så där väljs nyckelringen tillsammans med zippen.
+        const desktop = await c.ev(null, `!!window.forensicsMedia`);
+        await c.setFiles(null, '#cb-input', desktop ? [fx.files.snapchatIos] : [fx.files.snapchatIos, fx.files.snapchatIosKey]);
+        await c.ev(null, `document.getElementById('cb-input').dispatchEvent(new Event('change')), 1`);
+        await c.waitFor(PROV, `!ProvenanceApp.busy() && document.getElementById('ex-status').textContent.includes(${JSON.stringify(name)}) && /databas(er)? hittades/.test(document.getElementById('ex-status').textContent)`, 60000, 'Snapchat-zippen');
+        await c.ev(PROV, `document.getElementById('filename').value = ${JSON.stringify(sc.snapId.toLowerCase())}, document.getElementById('run').click(), 1`);
+        await sleep(300);
+        await waitResult(c, 'snap-id');
+        const r = await c.ev(PROV, `(function(){ const m = ProvenanceApp.model(); const mem = m.file.memory || {};
+            const f = (id) => (m.factors.find((x) => x.id === id) || { items: [] }).items.map((i) => i.text).join(' | ');
+            return { file: m.file.filename, mem: { by: mem.by, captured: mem.capturedMs, created: mem.createdMs, front: mem.front, lat: mem.latitude, lon: mem.longitude, pos: mem.positionSource && mem.positionSource.db, sends: mem.sends || [] },
+                app: f('app'), time: f('time'), position: f('position'), warnings: m.warnings,
+                bold: m.events.filter((e) => e.bold).map((e) => e.kind),
+                sentText: m.events.filter((e) => e.kind === 'snap-cache' && e.sent).map((e) => e.text + ' | ' + e.plain),
+                card: document.getElementById('file-card').innerText, preview: !!document.querySelector('#preview-media') }; })()`);
+        expect(r.file === sc.memoryKey, 'Snap-id:t pekar inte ut filen i cachen: ' + r.file);
+        expect(r.mem.by === 'id' && r.mem.captured === sc.captureMs && r.mem.created === sc.savedMs && r.mem.front === false, 'Snappen i Memories: ' + JSON.stringify(r.mem));
+        expect(Math.abs(r.mem.lat - sc.pos.lat) < 1e-9 && Math.abs(r.mem.lon - sc.pos.lon) < 1e-9 && r.mem.pos === 'gallery.encrypteddb', 'Positionen ur gallery.encrypteddb: ' + JSON.stringify(r.mem) + ' ' + r.warnings.join(' '));
+        expect(r.mem.sends.length === 1 && r.mem.sends[0].to === 'konto c1c1c1c1…' && r.mem.sends[0].diff < 1, 'Den skickade kopian: ' + JSON.stringify(r.mem.sends));
+        expect(/Samma bild skickades i Snapchat till konto c1c1c1c1… .* \(meddelande 6\)\. Bildjämförelse/.test(r.app), 'Snapchat-faktorn: ' + r.app);
+        expect(/Filen hör till snappen genom snappens id i cachenyckeln/.test(r.time) && /ZCAPTURETIMEUTC, ZCREATETIMEUTC/.test(r.time), 'Skapandetiden: ' + r.time);
+        expect(/gallery\.encrypteddb, snap_location_table/.test(r.position), 'Positionsfaktorn: ' + r.position);
+        expect(r.bold.filter((k) => k === 'snap-memory').length === 2, 'Memories-händelserna är inte filens: ' + r.bold.join(', '));
+        const same = r.sentText.find((t) => /samma bild/.test(t));
+        const other = r.sentText.find((t) => !/samma bild/.test(t));
+        expect(same && /skickad till konto c1c1c1c1… \(meddelande 6, local_message_references\)/.test(same) && /Samma bild skickas till konto c1c1c1c1…/.test(same), 'Den skickade kopian i tidslinjen: ' + same);
+        expect(other && /Bildjämförelse mot den bedömda snappen i Memories: medelskillnad \d/.test(other), 'Den andra skickade bilden: ' + other);
+        expect(/Sökt på snap-id\s+D3D3D3D3-1234-4567-89AB-CDEF01234567 \(samma som filens\)/i.test(r.card), 'Raden om sökningen i filkortet: ' + r.card.slice(0, 400));
+        expect(r.card.includes('dekrypterade innehållet') && r.card.includes(sc.contentSha256) && r.card.includes('ZGALLERYSNAP.ZENCRYPTION'), 'Innehållet i filkortet: ' + r.card.slice(0, 900));
+        expect(r.preview, 'Den dekrypterade bilden visas inte');
+        // En Memories-post med två snaps: den med fil står i listan att välja ur, den andra nämns.
+        await c.ev(PROV, `document.getElementById('filename').value = ${JSON.stringify(sc.entry2)}, document.getElementById('run').click(), 1`);
+        await c.waitFor(PROV, `!ProvenanceApp.busy() && !document.getElementById('hits').classList.contains('display-none') && document.querySelectorAll('#hits tr.pick').length > 0`, 30000, 'posten med två snaps');
+        const entry2 = await c.ev(PROV, `({ rows: [...document.querySelectorAll('#hits tr.pick')].map((r) => r.querySelector('.path').textContent), note: document.getElementById('run-status').textContent })`);
+        expect(entry2.rows.length === 1 && entry2.rows[0].endsWith('/' + sc.memory2Key) && /Memories-post med 2 snaps\. 1 av dem har ingen fil/.test(entry2.note), 'Posten med två snaps: ' + JSON.stringify(entry2));
+        // Snappen som bara finns på servern: tiderna, kameran och positionen visas, och knappen söker filer kring tagningen.
+        await c.ev(PROV, `document.getElementById('filename').value = ${JSON.stringify(sc.snap3)}, document.getElementById('run').click(), 1`);
+        await c.waitFor(PROV, `!ProvenanceApp.busy() && document.querySelector('#hits .mem-when')`, 30000, 'snappen utan fil');
+        const only = await c.ev(PROV, `({ text: document.getElementById('hits').innerText, status: document.getElementById('run-status').textContent })`);
+        expect(only.text.includes(sc.snap3) && only.text.includes(String(sc.pos3.lat.toFixed(6))) && /frontkameran/.test(only.text) && /gallery\.encrypteddb, snap_location_table/.test(only.text), 'Snappen utan fil: ' + only.text.slice(0, 600));
+        expect(/cache_controller\.db har ingen fil för snappen/.test(only.text) && /Snapchat sparar Memories på sin server/.test(only.text) && /utan fil i/.test(only.status), 'Beskedet om filen: ' + only.text.slice(0, 900) + ' | ' + only.status);
+        await c.ev(PROV, `document.querySelector('#hits .mem-when').click(), 1`);
+        await c.waitFor(PROV, `!ProvenanceApp.busy() && document.getElementById('when-date').value !== ''`, 30000, 'sökningen kring tagningen');
+        // Fälten står i datorns zon: tillbaka till UTC ska de ge tagningstiden, på sekunden.
+        const when = await c.ev(PROV, `(function(){ const d = document.getElementById('when-date').value, t = document.getElementById('when-time').value; return { text: d + ' ' + t, ms: new Date(d + 'T' + t).getTime() }; })()`);
+        expect(when.ms === Math.floor(sc.snap3CaptureMs / 1000) * 1000, 'Tiden i sökningen: ' + when.text);
+        // Ett id som inte finns i Memories: som ett filnamn som inte finns.
+        await c.ev(PROV, `document.getElementById('filename').value = '00000000-0000-4000-8000-000000000000', document.getElementById('run').click(), 1`);
+        await c.waitFor(PROV, `!ProvenanceApp.busy() && /Ingen rad med filnamnet 00000000-0000-4000-8000-000000000000/.test(document.getElementById('run-status').textContent)`, 30000, 'okänt id');
+        // Queries: positionerna i den krypterade databasen, med samma nyckel.
+        await c.nav('Queries');
+        await c.ev(QUER, `document.getElementById('tab-new').click(), 1`);
+        await c.waitFor(QUER, `/databaser hittades/.test(document.getElementById('ex-status').textContent) && document.getElementById('bar-zip').textContent === ${JSON.stringify(name)}`, 60000, 'zippen i Queries');
+        await c.ev(QUER, `(function(){ const b = document.querySelector('.side-db[data-family="snapchat-gallery"]'); if (b.getAttribute('aria-expanded') !== 'true') b.click(); return 1; })()`);
+        await c.ev(QUER, `document.querySelector('.side-q[data-db="snapchat-gallery"][data-q="locations"]').click(), 1`);
+        await sleep(300);
+        await c.ev(QUER, `document.getElementById('run-button').click(), 1`);
+        await c.waitFor(QUER, `/rad(er)? på/.test(document.getElementById('run-status').textContent) || /run-warn/.test(document.getElementById('run-status').innerHTML)`, 30000, 'positionerna i Queries');
+        const q = await c.ev(QUER, `({ rows: document.querySelectorAll('#run-result tbody tr').length, text: document.getElementById('run-result').innerText, status: document.getElementById('run-status').innerText, trace: document.getElementById('run-trace') ? document.getElementById('run-trace').innerText : '' })`);
+        expect(q.rows === 2 && q.text.includes(sc.snapId) && q.text.includes(String(sc.pos.lat)) && q.text.includes(sc.snap3), 'Positionerna i Queries: ' + q.rows + ' rader. ' + q.status);
+        expect(/Snapchats inställningar för Memories på iOS/.test(q.trace) && /3 index heter sqlcph_autoindex_…/.test(q.trace), 'Spårbarheten i Queries: ' + q.trace.slice(0, 900));
+        await c.nav('Härkomst');
+        await c.ev(PROV, `document.getElementById('ex-close').click(), 1`);
+        return 'snap-id → filen i cachen, dekrypterad, position ur gallery.encrypteddb, samma bild skickad till konto c1c1c1c1…';
+    }],
+
     ['Samsung: batterihistoriken och SSRM ger app, kamera och skärm, med råraderna, och en flyttad klocka räknas inte', async ({ c, fx, downloads }) => {
         await c.nav('Härkomst');
         // Härkomst behåller det som visas när en annan zip väljs, så det som är öppet stängs först.

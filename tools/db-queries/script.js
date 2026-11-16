@@ -628,7 +628,8 @@ function buildDatabases(photos, android, appUsage, routined, snapchat, snapchatA
     });
 
     // Snapchat (beta): på iOS hittas databaserna på suffix i appens behållare, på Android under
-    // data/data/com.snapchat.android. Båda körs med -wal som de andra.
+    // data/data/com.snapchat.android. Båda körs med -wal som de andra. Memories positioner på iOS (gallery.encrypteddb)
+    // är krypterade med SQLCipher, och nyckeln letas upp som för Signal.
     [[snapchat, 'iOS'], [snapchatAndroid, 'Android']].forEach(([cat, os]) => {
         (cat.databases || []).forEach((db) => {
             const label = db.label.replace(/^(iOS|Android) — /, '');
@@ -644,6 +645,7 @@ function buildDatabases(photos, android, appUsage, routined, snapchat, snapchatA
                 paths: db.paths || [],
                 source: db.source,
                 note: cat.sourceNote,
+                cipher: db.cipher || null,
                 runnable: true,
                 queries: visibleQueries(db.queries).map((q) => ({
                     id: q.id,
@@ -756,7 +758,7 @@ function buildDatabases(photos, android, appUsage, routined, snapchat, snapchatA
     const order = [
         'photos-ios10-13', 'photos-ios14', 'photos-ios15-16', 'photos-ios17-plus',
         'routined-cache', 'knowledgec', 'interactionc',
-        'snapchat-cache', 'snapchat-arroyo', 'snapchat-friends', 'snapchat-notifications',
+        'snapchat-cache', 'snapchat-arroyo', 'snapchat-memories', 'snapchat-gallery', 'snapchat-friends', 'snapchat-notifications',
         'android-mediastore', 'android-camera', 'wellbeing', 'android-usage',
         'snapchat-android-cache', 'snapchat-android-arroyo', 'snapchat-android-memories', 'snapchat-android-journal', 'snapchat-android-friends', 'snapchat-android-notifications',
     ];
@@ -787,7 +789,7 @@ const CATEGORIES = {
         title: 'Snapchat',
         beta: true,
         intro: {
-            iOS: 'Snapchats egna databaser i appens behållare: cache, meddelanden, vänner och notiser.',
+            iOS: 'Snapchats egna databaser i appens behållare: cache, meddelanden, Memories med positioner, vänner och notiser. Memories positioner är krypterade med SQLCipher; nyckeln läses ur nyckelringen.',
             Android: 'Snapchats egna databaser under data/data/com.snapchat.android: cache, meddelanden, Memories, filhanterare, vänner och notiser.',
         },
     },

@@ -7,7 +7,8 @@
     "timeEnd": "Till (ÅÅÅÅ-MM-DD TT:MM)",
     "cacheKey": "Cachenyckel (filnamnet i file_manager-mappen)",
     "conversationId": "Konversations-id (client_conversation_id)",
-    "threadId": "Konversationens id (client_conversation_id)"
+    "threadId": "Konversationens id (client_conversation_id)",
+    "snapId": "Snap-id (ZSNAPID, ZMEDIAID eller ZENTRYID)"
   },
   "databases": [
     {
@@ -101,6 +102,30 @@
           "sql": "SELECT\n  c.CACHE_KEY,\n  c.MEDIA_CONTEXT_TYPE,\n  c.EXTERNAL_KEY,\n  c.CREATION_TIMESTAMP_MILLIS,\n  c.EXPIRATION_TIMESTAMP_MILLIS,\n  c.DELETED_TIMESTAMP_MILLIS,\n  m.FILE_SIZE_BYTES,\n  m.LAST_READ_TIMESTAMP_MILLIS,\n  c.USER_ID\nFROM CACHE_FILE_CLAIM c\nLEFT JOIN CACHE_FILE_METADATA m ON m.CACHE_KEY = c.CACHE_KEY AND m.USER_ID = c.USER_ID\nWHERE c.CACHE_KEY = '{{cacheKey}}'\nORDER BY c.CREATION_TIMESTAMP_MILLIS;"
         },
         {
+          "id": "role-cache-memory",
+          "hidden": true,
+          "role": "cache-memory",
+          "title": "Härkomst: filerna för en sparad snap i Memories",
+          "subtitle": "Används av Härkomst när filen ligger i Snapchats file_manager-mapp.",
+          "params": [
+            "snapId"
+          ],
+          "epoch": "unixMs",
+          "fields": {
+            "key": "CACHE_KEY",
+            "context": "MEDIA_CONTEXT_TYPE",
+            "external": "EXTERNAL_KEY",
+            "created": "CREATION_TIMESTAMP_MILLIS",
+            "expires": "EXPIRATION_TIMESTAMP_MILLIS",
+            "deleted": "DELETED_TIMESTAMP_MILLIS",
+            "size": "FILE_SIZE_BYTES",
+            "lastRead": "LAST_READ_TIMESTAMP_MILLIS",
+            "user": "USER_ID"
+          },
+          "sql": "SELECT\n  c.CACHE_KEY,\n  c.MEDIA_CONTEXT_TYPE,\n  c.EXTERNAL_KEY,\n  c.CREATION_TIMESTAMP_MILLIS,\n  c.EXPIRATION_TIMESTAMP_MILLIS,\n  c.DELETED_TIMESTAMP_MILLIS,\n  m.FILE_SIZE_BYTES,\n  m.LAST_READ_TIMESTAMP_MILLIS,\n  c.USER_ID\nFROM CACHE_FILE_CLAIM c\nLEFT JOIN CACHE_FILE_METADATA m ON m.CACHE_KEY = c.CACHE_KEY AND m.USER_ID = c.USER_ID\nWHERE lower(c.EXTERNAL_KEY) IN (lower('snap-media-{{snapId}}'), lower('snap-rendered-lowres-{{snapId}}'))\nORDER BY c.CREATION_TIMESTAMP_MILLIS;",
+          "description": "Används av Härkomst. Cachefilerna vars EXTERNAL_KEY bär snappens id (snap-media-<id> är filen, snap-rendered-lowres-<id> förhandsbilden)."
+        },
+        {
           "id": "role-coverage",
           "hidden": true,
           "role": "coverage",
@@ -182,9 +207,26 @@
             "created": "creation_timestamp",
             "read": "read_timestamp",
             "state": "message_state_type",
-            "content": "message_content"
+            "content": "message_content",
+            "refs": "local_message_references"
           },
-          "sql": "SELECT\n  client_conversation_id,\n  server_message_id,\n  client_message_id,\n  creation_timestamp,\n  read_timestamp,\n  message_state_type,\n  message_content\nFROM conversation_message\nWHERE creation_timestamp BETWEEN {{unixMsStart}} AND {{unixMsEnd}}\n   OR read_timestamp BETWEEN {{unixMsStart}} AND {{unixMsEnd}}\nORDER BY creation_timestamp;"
+          "sql": "SELECT\n  client_conversation_id,\n  server_message_id,\n  client_message_id,\n  creation_timestamp,\n  read_timestamp,\n  message_state_type,\n  message_content,\n  local_message_references\nFROM conversation_message\nWHERE creation_timestamp BETWEEN {{unixMsStart}} AND {{unixMsEnd}}\n   OR read_timestamp BETWEEN {{unixMsStart}} AND {{unixMsEnd}}\nORDER BY creation_timestamp;"
+        },
+        {
+          "id": "role-conversation-members",
+          "hidden": true,
+          "role": "conversation-members",
+          "title": "Härkomst: vilka som skrivit i en konversation",
+          "description": "Används av Härkomst. Avsändarna i hela konversationen, för att säga vem en skickad snap gick till. Det egna kontot tas bort i Härkomst.",
+          "params": [
+            "threadId"
+          ],
+          "epoch": "unixMs",
+          "fields": {
+            "conversation": "client_conversation_id",
+            "id": "sender_id"
+          },
+          "sql": "SELECT DISTINCT\n  client_conversation_id,\n  CAST(sender_id AS TEXT) AS sender_id\nFROM conversation_message\nWHERE client_conversation_id = '{{threadId}}'\n  AND sender_id IS NOT NULL\nORDER BY 2;"
         },
         {
           "id": "role-coverage",
@@ -430,6 +472,168 @@
             "rows": "n_rows"
           },
           "sql": "SELECT\n  MIN(timestamp) AS first_start,\n  MAX(timestamp) AS last_start,\n  COUNT(*) AS n_rows\nFROM ProcessedNotifications;"
+        }
+      ]
+    },
+    {
+      "id": "snapchat-memories",
+      "label": "iOS — scdb-27.sqlite3 (Snapchat Memories)",
+      "blurb": "Snaps sparade i Memories: när bilden eller videon togs (ZCAPTURETIMEUTC), när den sparades (ZCREATETIMEUTC), fram- eller bakkamera, mått, längd, tidszon, om den har en position, och nyckeln som filen i cachen är krypterad med. Positionen står i gallery.encrypteddb.",
+      "dbPathHint": "/private/var/mobile/Containers/Data/Application/<GUID>/Documents/gallery_data_object/1/<konto>/scdb-27.sqlite3 (+ -wal). Filen ligger krypterad i Documents/com.snap.file_manager_3_SCContent_<konto>/<CACHE_KEY>, och cache_controller.db har raden med EXTERNAL_KEY snap-media-<ZSNAPID>",
+      "paths": [
+        "scdb-27.sqlite3"
+      ],
+      "source": "Kontrollerad mot en labbtelefon (iOS 26.4.1, 2026-11-16) med en sparad snap. Tiderna är Cocoa-sekunder (sekunder sedan 2001-01-01 UTC). ZSNAPID, ZMEDIAID och ZGALLERYENTRY.ZENTRYID var samma id. ZCAMERAFRONTFACING 0 = bakre kameran. ZMEDIATYPE 0 var en bild; video är inte kontrollerad. ZHASLOCATION säger att det finns en position, men koordinaterna står i gallery.encrypteddb (snap_location_table). ZENCRYPTION är ett arkiv (NSKeyedArchiver) med KEY (32 byte) och IV (16 byte): filen i cachen är AES-256-CBC med dem, också när IS_ENCRYPTED står som falskt.",
+      "queries": [
+        {
+          "id": "snaps",
+          "title": "Sparade snaps i tidsspann",
+          "subtitle": "Visar snaps som togs eller sparades i Memories inom tidsspannet: tagen, sparad, typ, fram- eller bakkamera, mått, längd, tidszon, om den har en position, och snap-id. Positionen och filen finns i andra databaser, se källan.",
+          "recommended": true,
+          "timeEpoch": "cocoa",
+          "params": [
+            "timeStart",
+            "timeEnd"
+          ],
+          "returns": "tagen, sparad, typ, frontkamera, bredd, höjd, längd, tidszon, har position, format, snap-id, Memories-id, UTC",
+          "sql": "SELECT\n  datetime(s.ZCAPTURETIMEUTC + 978307200, 'unixepoch', 'localtime') AS tagen_lokal,\n  datetime(s.ZCREATETIMEUTC + 978307200, 'unixepoch', 'localtime') AS sparad_lokal,\n  s.ZMEDIATYPE,\n  s.ZCAMERAFRONTFACING,\n  s.ZWIDTH,\n  s.ZHEIGHT,\n  s.ZDURATION,\n  s.ZTIMEZONENAME,\n  s.ZHASLOCATION,\n  s.ZSERVLETMEDIAFORMAT,\n  s.ZSNAPID,\n  e.ZENTRYID,\n  datetime(s.ZCAPTURETIMEUTC + 978307200, 'unixepoch') AS tagen_utc\nFROM ZGALLERYSNAP s\nLEFT JOIN ZGALLERYENTRY e ON e.Z_PK = s.ZENTRY\nWHERE s.ZCAPTURETIMEUTC BETWEEN {{cocoaStart}} AND {{cocoaEnd}}\n   OR s.ZCREATETIMEUTC BETWEEN {{cocoaStart}} AND {{cocoaEnd}}\nORDER BY s.ZCAPTURETIMEUTC;"
+        },
+        {
+          "id": "by-snap-id",
+          "title": "Sök på snap-id",
+          "subtitle": "Visar den sparade snap som har id:t, som ZSNAPID, ZMEDIAID eller Memories-id (ZENTRYID). Skiftläget spelar ingen roll.",
+          "params": [
+            "snapId"
+          ],
+          "returns": "tagen, sparad, typ, frontkamera, bredd, höjd, längd, tidszon, har position, format, snap-id, Memories-id, UTC",
+          "sql": "SELECT\n  datetime(s.ZCAPTURETIMEUTC + 978307200, 'unixepoch', 'localtime') AS tagen_lokal,\n  datetime(s.ZCREATETIMEUTC + 978307200, 'unixepoch', 'localtime') AS sparad_lokal,\n  s.ZMEDIATYPE,\n  s.ZCAMERAFRONTFACING,\n  s.ZWIDTH,\n  s.ZHEIGHT,\n  s.ZDURATION,\n  s.ZTIMEZONENAME,\n  s.ZHASLOCATION,\n  s.ZSERVLETMEDIAFORMAT,\n  s.ZSNAPID,\n  e.ZENTRYID,\n  datetime(s.ZCAPTURETIMEUTC + 978307200, 'unixepoch') AS tagen_utc\nFROM ZGALLERYSNAP s\nLEFT JOIN ZGALLERYENTRY e ON e.Z_PK = s.ZENTRY\nWHERE upper(s.ZSNAPID) = upper('{{snapId}}')\n   OR upper(s.ZMEDIAID) = upper('{{snapId}}')\n   OR upper(e.ZENTRYID) = upper('{{snapId}}')\nORDER BY s.ZCAPTURETIMEUTC;"
+        },
+        {
+          "id": "tables",
+          "title": "Hjälp: tabeller och antal rader",
+          "subtitle": "Listar tabellerna i databasen. Bra för att se om ZGALLERYSNAP finns i den här Snapchat-versionen.",
+          "group": "advanced",
+          "params": [],
+          "returns": "tabellnamn",
+          "sql": "SELECT name AS tabell\nFROM sqlite_master\nWHERE type = 'table'\nORDER BY name;"
+        },
+        {
+          "id": "role-memories",
+          "hidden": true,
+          "role": "memories",
+          "title": "Härkomst: sparade snaps i tidsfönstret",
+          "description": "Används av Härkomst. Snaps tagna eller sparade i fönstret med råa tider och nyckeln till filen.",
+          "params": [
+            "timeStart",
+            "timeEnd"
+          ],
+          "epoch": "cocoa",
+          "fields": {
+            "id": "ZSNAPID",
+            "mediaId": "ZMEDIAID",
+            "entryId": "ZENTRYID",
+            "mediaType": "ZMEDIATYPE",
+            "created": "ZCREATETIMEUTC",
+            "captured": "ZCAPTURETIMEUTC",
+            "zone": "ZTIMEZONENAME",
+            "width": "ZWIDTH",
+            "height": "ZHEIGHT",
+            "duration": "ZDURATION",
+            "front": "ZCAMERAFRONTFACING",
+            "hasLocation": "ZHASLOCATION",
+            "format": "ZSERVLETMEDIAFORMAT",
+            "encryption": "ZENCRYPTION"
+          },
+          "sql": "SELECT\n  s.ZSNAPID,\n  s.ZMEDIAID,\n  e.ZENTRYID,\n  s.ZMEDIATYPE,\n  s.ZCREATETIMEUTC,\n  s.ZCAPTURETIMEUTC,\n  s.ZTIMEZONENAME,\n  s.ZWIDTH,\n  s.ZHEIGHT,\n  s.ZDURATION,\n  s.ZCAMERAFRONTFACING,\n  s.ZHASLOCATION,\n  s.ZSERVLETMEDIAFORMAT,\n  s.ZENCRYPTION\nFROM ZGALLERYSNAP s\nLEFT JOIN ZGALLERYENTRY e ON e.Z_PK = s.ZENTRY\nWHERE s.ZCAPTURETIMEUTC BETWEEN {{cocoaStart}} AND {{cocoaEnd}}\n   OR s.ZCREATETIMEUTC BETWEEN {{cocoaStart}} AND {{cocoaEnd}}\nORDER BY s.ZCAPTURETIMEUTC;"
+        },
+        {
+          "id": "role-memory-id",
+          "hidden": true,
+          "role": "memory-id",
+          "title": "Härkomst: en sparad snap efter id",
+          "description": "Används av Härkomst. Den sparade snap som har id:t (ZSNAPID, ZMEDIAID eller ZENTRYID).",
+          "params": [
+            "snapId"
+          ],
+          "epoch": "cocoa",
+          "fields": {
+            "id": "ZSNAPID",
+            "mediaId": "ZMEDIAID",
+            "entryId": "ZENTRYID",
+            "mediaType": "ZMEDIATYPE",
+            "created": "ZCREATETIMEUTC",
+            "captured": "ZCAPTURETIMEUTC",
+            "zone": "ZTIMEZONENAME",
+            "width": "ZWIDTH",
+            "height": "ZHEIGHT",
+            "duration": "ZDURATION",
+            "front": "ZCAMERAFRONTFACING",
+            "hasLocation": "ZHASLOCATION",
+            "format": "ZSERVLETMEDIAFORMAT",
+            "encryption": "ZENCRYPTION"
+          },
+          "sql": "SELECT\n  s.ZSNAPID,\n  s.ZMEDIAID,\n  e.ZENTRYID,\n  s.ZMEDIATYPE,\n  s.ZCREATETIMEUTC,\n  s.ZCAPTURETIMEUTC,\n  s.ZTIMEZONENAME,\n  s.ZWIDTH,\n  s.ZHEIGHT,\n  s.ZDURATION,\n  s.ZCAMERAFRONTFACING,\n  s.ZHASLOCATION,\n  s.ZSERVLETMEDIAFORMAT,\n  s.ZENCRYPTION\nFROM ZGALLERYSNAP s\nLEFT JOIN ZGALLERYENTRY e ON e.Z_PK = s.ZENTRY\nWHERE upper(s.ZSNAPID) = upper('{{snapId}}')\n   OR upper(s.ZMEDIAID) = upper('{{snapId}}')\n   OR upper(e.ZENTRYID) = upper('{{snapId}}')\nORDER BY s.ZCAPTURETIMEUTC;"
+        },
+        {
+          "id": "role-coverage",
+          "hidden": true,
+          "role": "coverage",
+          "title": "Härkomst: täckning",
+          "params": [],
+          "epoch": "cocoa",
+          "fields": {
+            "first": "first_start",
+            "last": "last_start",
+            "rows": "n_rows"
+          },
+          "sql": "SELECT\n  MIN(ZCREATETIMEUTC) AS first_start,\n  MAX(ZCREATETIMEUTC) AS last_start,\n  COUNT(*) AS n_rows\nFROM ZGALLERYSNAP;"
+        }
+      ]
+    },
+    {
+      "id": "snapchat-gallery",
+      "label": "iOS — gallery.encrypteddb (Snapchat Memories, positioner)",
+      "blurb": "Positionen för varje sparad snap i Memories (latitud och longitud per snap-id), platsens namn när Snapchat har ett, och nycklarna till filerna. Krypterad med SQLCipher; nyckeln står i nyckelringen.",
+      "dbPathHint": "/private/var/mobile/Containers/Data/Application/<GUID>/Documents/gallery_encrypted_db/3/<konto>/gallery.encrypteddb (+ -wal). Nyckeln: nyckelringens post egocipher.key.avoidkeyderivation i Snapchats åtkomstgrupp",
+      "paths": [
+        "gallery.encrypteddb"
+      ],
+      "cipher": "snapchat-gallery",
+      "source": "Kontrollerad mot en labbtelefon (iOS 26.4.1, 2026-11-16): SQLCipher med rå nyckel på 32 byte, saltet först i filen, sidor på 1024 byte och HMAC-SHA1. HMAC stämde för alla sidor. snap_id är samma id som ZSNAPID i scdb-27.sqlite3, och positionen stämde med telefonens egna positioner vid tagningen. Snapchats SQLite döper de automatiska indexen till sqlcph_autoindex_…; programmet ger dem SQLites namn i minnet, så att databasen går att läsa. snap_address_title var tom i labbet.",
+      "queries": [
+        {
+          "id": "locations",
+          "title": "Positioner för sparade snaps",
+          "subtitle": "Visar positionen för varje sparad snap: snap-id, latitud och longitud, och platsens namn när Snapchat har ett. Tiderna står i scdb-27.sqlite3 under samma snap-id.",
+          "recommended": true,
+          "params": [],
+          "returns": "snap-id, latitud, longitud, platsens namn",
+          "sql": "SELECT\n  l.snap_id,\n  l.latitude,\n  l.longitude,\n  t.address_title\nFROM snap_location_table l\nLEFT JOIN snap_address_title t ON t.snap_id = l.snap_id\nORDER BY l.snap_id;"
+        },
+        {
+          "id": "tables",
+          "title": "Hjälp: tabeller och antal rader",
+          "subtitle": "Listar tabellerna i databasen.",
+          "group": "advanced",
+          "params": [],
+          "returns": "tabellnamn",
+          "sql": "SELECT name AS tabell\nFROM sqlite_master\nWHERE type = 'table'\nORDER BY name;"
+        },
+        {
+          "id": "role-memory-locations",
+          "hidden": true,
+          "role": "memory-locations",
+          "title": "Härkomst: positionerna för de sparade snapsen",
+          "description": "Används av Härkomst. Alla positioner, med snap-id.",
+          "params": [],
+          "fields": {
+            "snapId": "snap_id",
+            "latitude": "latitude",
+            "longitude": "longitude",
+            "title": "address_title"
+          },
+          "sql": "SELECT\n  l.snap_id,\n  l.latitude,\n  l.longitude,\n  t.address_title\nFROM snap_location_table l\nLEFT JOIN snap_address_title t ON t.snap_id = l.snap_id\nORDER BY l.snap_id;",
+          "epoch": "unixMs"
         }
       ]
     }

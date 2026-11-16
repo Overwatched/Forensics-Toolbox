@@ -9,6 +9,7 @@ const sc = require('./sqlcipher');
 const wal = require('./wal');
 // Databaserna krypteras i fixtures/sqlcipher-builder.js, med Nodes crypto.
 const { sqlJs, PAGE, makeDb, encryptDb, encryptedWal, makeDbIos, encryptDbIos, encryptedWalIos } = require('./fixtures/sqlcipher-builder');
+const builder = require('./fixtures/sqlcipher-builder');
 
 const PASS = 'a3f00d9478eb7753e39c5a41a670c93e0de07a916fc97f3a79fed11daa0ecc5a';
 
@@ -347,4 +348,26 @@ test('skadade sidor i ord: antalet, numren på de första och hur många som lig
     assert.strictEqual(sc.badText({ badHmac: 2, walBadHmac: 1, badPages: [7, 9] }), '3 sidor (sida 7, 9 och 1 i -wal)');
     assert.strictEqual(sc.badText({ badHmac: 8, walBadHmac: 0, badPages: [2, 3, 4, 5, 6] }), '8 sidor (sida 2, 3, 4, 5, 6 med flera)');
     assert.strictEqual(sc.badText({ badHmac: 0, walBadHmac: 2 }), '2 sidor (2 i -wal)');
+});
+
+test('Snapchats Memories på iOS: rå nyckel på 32 byte, sidor på 1024, och indexens namn går att läsa', async () => {
+    const S = await builder.sqlJs();
+    const raw = crypto.randomBytes(32), salt = crypto.randomBytes(16);
+    const plain = await builder.makeSnapGallery([{ snapId: 'AAAAAAAA-1111-2222-3333-444444444444', lat: 59.5, lon: 18.25, key: Buffer.alloc(32, 7), iv: Buffer.alloc(16, 9) }]);
+    assert.ok(Buffer.from(plain).includes('sqlcph_autoindex_'), 'fixturen ska ha Snapchats indexnamn');
+    const enc = builder.encryptSnapGallery(plain, raw, salt);
+    assert.ok(sc.isEncrypted(enc, 'snapchat-gallery'));
+    for (const run of [(db, key) => sc.open(db, null, key, 'snapchat-gallery'), (db, key) => sc.openAsync(db, null, key, 'snapchat-gallery')]) {
+        const r = await run(enc, raw.toString('hex'));
+        assert.strictEqual(r.stats.cipher.badHmac, 0);
+        assert.strictEqual(r.stats.cipher.renamedIndexes, 3);
+        const db = new S.Database(r.bytes);
+        assert.strictEqual(db.exec('PRAGMA integrity_check')[0].values[0][0], 'ok');
+        assert.deepStrictEqual(db.exec('SELECT snap_id, latitude, longitude FROM snap_location_table')[0].values, [['AAAAAAAA-1111-2222-3333-444444444444', 59.5, 18.25]]);
+        db.close();
+        assert.match(sc.summary(r.stats, 'nyckelringen'), /3 index heter sqlcph_autoindex_… i filen och fick SQLites namn/);
+    }
+    assert.throws(() => sc.open(enc, null, crypto.randomBytes(32).toString('hex'), 'snapchat-gallery'), /Nyckeln passar inte/);
+    // Signals profiler rör inte indexens namn.
+    assert.strictEqual(sc.PROFILES.signal.renamedIndexes, undefined);
 });

@@ -2,9 +2,10 @@
 // (iOS 18.5, Snapchat 2025) och en Android-labbtelefon (Android 13, Snapchat 14.30) och kan skilja
 // sig mellan versioner, därför bär varje händelse databas, tabell, kolumn och query så att den går
 // att kontrollera för hand. Här tolkas cacheregistrets nycklar och typkoder, protobufen i
-// chattmeddelandena (avsändare, medienyckel), FlatBuffern i kontotabellen (användarnamn), Androids
-// Memories (när en snap togs, med vilken kamera) och filhanterarens journal, och det hela blir
-// händelser till tidslinjen. Ingen DOM, ingen SQL. Testas i Node.
+// chattmeddelandena (avsändare, medienyckel), FlatBuffern i kontotabellen (användarnamn), Memories
+// (när en snap togs, med vilken kamera, var, och nyckeln till filen på iOS) och Androids filhanterarjournal,
+// och det hela blir händelser till tidslinjen. Memories på iOS är kontrollerat mot en labbtelefon
+// (iOS 26.4.1, 2026-11-16). Ingen DOM, ingen SQL. Testas i Node.
 (function (root) {
     'use strict';
 
@@ -12,6 +13,10 @@
     var ANDROID = 'com.snapchat.android';
     var MAX_EVENTS = 40;
     var MEMORY_LINK_MS = 5000;    // en sparad snap hör till en fil i galleriet som lades till inom så här lång tid (sett: under en sekund)
+    // Två bilder räknas som samma bild när de, förminskade till samma rutnät i gråskala, skiljer sig mindre än så här
+    // i medel (av 255). Uppmätt i labbet: samma bild sparad, skickad och tagen 0,4–1,4; andra bilder av samma skärm 16–31.
+    // Gränsen står med i texten där den används.
+    var SAME_IMAGE_DIFF = 4;
 
     function appId(platform) { return platform === 'Android' ? ANDROID : PICABOO; }
     function isSnapchatApp(id) { return id === PICABOO || id === ANDROID; }
@@ -30,6 +35,10 @@
         4: { label: 'Team Snapchat', plain: null, show: false },
         6: { label: 'Team Snapchat', plain: null, show: false },
         25: { label: 'resurs', plain: null, show: false },
+        // Sedda på iOS (26.4.1, 2026-11-16) när en snap sparades i Memories: 19 är filen (EXTERNAL_KEY snap-media-<snap-id>,
+        // krypterad med nyckeln i scdb-27), 26 en förhandsbild i låg upplösning (snap-rendered-lowres-<snap-id>).
+        19: { label: 'Memories, sparad snap', plain: 'En snap sparas i Snapchats Memories', show: true },
+        26: { label: 'Memories, förhandsbild', plain: null, show: false },
         // Sedda på Android (Snapchat 14.30): bildcache för appens egna vyer, kreativa verktyg, kartan,
         // och typ 5 utan attribution, som bland annat är media som laddas upp strax före ett skickat meddelande.
         11: { label: 'bildcache (composer)', plain: null, show: false },
@@ -59,6 +68,12 @@
         if (m) return { kind: 'message', conversationId: m[2].toLowerCase(), serverMessageId: Number(m[3]) };
         m = /^([0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12})~(\d+)$/i.exec(s);
         if (m) return { kind: 'recording', recordingId: m[1].toUpperCase() };
+        // iOS 26: en sparad snap i Memories. Filen och förhandsbilden har snappens id i nyckeln.
+        m = /^snap-(media|rendered-lowres)-([0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12})$/i.exec(s);
+        if (m) return { kind: 'memory', snapId: m[2].toUpperCase(), part: m[1] === 'media' ? 'media' : 'lowres' };
+        // iOS 26: en skickad snap har två id:n, som båda står i meddelandets local_message_references.
+        m = /^([0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12})~([0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12})$/i.exec(s);
+        if (m) return { kind: 'sent', recipient: null, mediaId: m[2].toUpperCase(), refs: [m[1].toLowerCase(), m[2].toLowerCase()] };
         m = /^([A-Za-z0-9._-]{3,})~([0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12})$/i.exec(s);
         if (m && !/^(firstframe|video|overlay)$/.test(m[1])) {
             // SNAPVIDEOFILTERSTATE-<mottagare> är en hjälppost för samma skickade snap, raderad inom någon sekund.
@@ -245,6 +260,76 @@
 
     function hexId(v) { return v == null ? null : String(v).replace(/-/g, '').toLowerCase() || null; }
 
+    // Nyckeln och IV till en sparad snaps fil på iOS ur ZGALLERYSNAP.ZENCRYPTION, ett arkiv (NSKeyedArchiver,
+    // klassen SCMemoriesSnapEncryption) med KEY (32 byte) och IV (16 byte). archive: den tolkade plisten
+    // ({ $objects, $top }). Värdena kan stå som data eller som base64-text. null när de saknas.
+    function memoryCipher(archive) {
+        var objs = archive && archive.$objects;
+        if (!Array.isArray(objs)) return null;
+        var deref = function (v) { return v && typeof v === 'object' && !(v instanceof Uint8Array) && v.value != null && Object.keys(v).length === 1 ? objs[v.value] : v; };
+        var asBytes = function (v) {
+            v = deref(v);
+            if (v instanceof Uint8Array) return v;
+            if (v && typeof v === 'object' && v['NS.data'] instanceof Uint8Array) return v['NS.data'];
+            if (typeof v === 'string' && /^[A-Za-z0-9+/]+=*$/.test(v)) { try { return Uint8Array.from(atobText(v), function (c) { return c.charCodeAt(0); }); } catch (e) { return null; } }
+            return null;
+        };
+        for (var i = 0; i < objs.length; i++) {
+            var o = objs[i];
+            if (!o || typeof o !== 'object' || !('KEY' in o) || !('IV' in o)) continue;
+            var key = asBytes(o.KEY), iv = asBytes(o.IV);
+            if (key && iv && key.length === 32 && iv.length === 16) return { key: key, iv: iv, encrypted: deref(o.IS_ENCRYPTED) };
+        }
+        return null;
+    }
+
+    function atobText(s) {
+        if (typeof atob === 'function') return atob(s);
+        return Buffer.from(s, 'base64').toString('latin1');
+    }
+
+    // Utfyllnaden sist efter AES-CBC (PKCS#7): n byte med värdet n. Står den inte rätt lämnas bytena som de är.
+    function unpad(b) {
+        var n = b.length ? b[b.length - 1] : 0;
+        if (n < 1 || n > 16 || n > b.length) return b;
+        for (var i = b.length - n; i < b.length; i++) if (b[i] !== n) return b;
+        return b.subarray(0, b.length - n);
+    }
+
+    // En JPEG utan APPn- och COM-segment (EXIF, JFIF, kommentarer): det som är kvar är själva bilden, tabellerna och
+    // bilddatan. En bild som exporterats ur Memories till galleriet har samma bytes som filen i memories_media, med EXIF
+    // tillagt (Android 16, Snapchat 13/14, 2026-11-16). null när bytena inte är en JPEG med bilddata.
+    function jpegCore(b) {
+        if (!b || b.length < 4 || b[0] !== 0xff || b[1] !== 0xd8) return null;
+        var parts = [b.subarray(0, 2)], total = 2, i = 2;
+        while (i + 4 <= b.length && b[i] === 0xff) {
+            var m = b[i + 1];
+            if (m === 0xda) { parts.push(b.subarray(i)); total += b.length - i; break; }
+            var n = (b[i + 2] << 8) | b[i + 3];
+            if (n < 2 || i + 2 + n > b.length) return null;
+            if (!((m >= 0xe0 && m <= 0xef) || m === 0xfe)) { parts.push(b.subarray(i, i + 2 + n)); total += 2 + n; }
+            i += 2 + n;
+        }
+        if (parts.length < 2 || parts[parts.length - 1][1] !== 0xda) return null;
+        var out = new Uint8Array(total), at = 0;
+        parts.forEach(function (p) { out.set(p, at); at += p.length; });
+        return out;
+    }
+
+    function sameBytes(a, b) {
+        if (!a || !b || a.length !== b.length) return false;
+        for (var i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
+        return true;
+    }
+
+    // Hur lika två bilder är: medelskillnaden mellan två lika stora rutnät i gråskala (0–255 per ruta).
+    function grayDiff(a, b) {
+        if (!a || !b || !a.length || a.length !== b.length) return null;
+        var sum = 0;
+        for (var i = 0; i < a.length; i++) sum += Math.abs(a[i] - b[i]);
+        return sum / a.length;
+    }
+
     // Den sparade snap i Memories som hör till en fil i galleriet: samma sort (bild eller video)
     // och sparad inom MEMORY_LINK_MS från att filen lades till (Snapchat exporterar direkt när
     // användaren sparar). file: { addedMs, createdMs, video }. Närmast i tid vinner.
@@ -283,6 +368,34 @@
         var fileKey = ctx.fileKey ? String(ctx.fileKey).toLowerCase() : null;
         var link = null;
         var memory = linkMemory(ctx.memories, ctx.file);
+        // iOS: en cachefil vars nyckel bär snappens id hör till den snappen i Memories, utan att tiden behöver jämföras.
+        var fileRow = fileKey ? (ctx.cacheRows || []).find(function (r) { return String(r.key).toLowerCase() === fileKey; }) : null;
+        var fileExt = fileRow ? parseExternalKey(fileRow.external) : null;
+        if (fileExt && fileExt.kind === 'memory') {
+            var own = (ctx.memories || []).find(function (m) { return String(m.id || '').toUpperCase() === fileExt.snapId; });
+            if (own) memory = { row: own, deltaMs: null, by: 'id', part: fileExt.part };
+        }
+        // Kopplingen kan redan vara gjord på annat sätt (Android: storleken i memories_media eller samma bilddata).
+        if (!memory && ctx.memoryId) {
+            var given = (ctx.memories || []).find(function (m) { return String(m.id || '').toUpperCase() === String(ctx.memoryId).toUpperCase(); });
+            if (given) memory = { row: given, deltaMs: null, by: ctx.memoryBy || 'given' };
+        }
+        // Memories ord för kolumnerna: Android (memories.db) eller iOS (scdb-27).
+        var memCols = Object.assign({ captured: 'snap_capture_time', created: 'create_time', front: 'front_facing', type: 'media_type', position: 'latitude, longitude' }, ctx.memoryColumns || {});
+        // Vem chatten är med: avsändarna i konversationen utom det egna kontot (ctx.members: { konversation: [avsändar-id] }).
+        var chatWith = function (conversation) {
+            var ids = ((ctx.members || {})[String(conversation || '').toLowerCase()] || []).map(hexId).filter(function (id) { return id && !isOwn(id, ctx); });
+            return ids.length ? ids.map(function (id) { return whoText(id, ctx); }).join(', ') : null;
+        };
+        // iOS 26: meddelandet vars local_message_references har båda id:n i en skickad snaps cachenyckel.
+        var messageForRefs = function (refs) {
+            return (ctx.messages || []).find(function (m) {
+                var b = toBytes(m.refs);
+                if (!b) return false;
+                var text = Array.prototype.map.call(b, function (c) { return String.fromCharCode(c); }).join('').toLowerCase();
+                return refs.every(function (r) { return text.indexOf(r) >= 0; });
+            }) || null;
+        };
 
         var byMessage = {};
         var snapIds = [];
@@ -300,7 +413,10 @@
             var info = contextInfo(r.context);
             var ext = parseExternalKey(r.external);
             var isFile = fileKey && String(r.key).toLowerCase() === fileKey;
-            var linkedMessage = ext.kind === 'message' ? byMessage[ext.conversationId + ':' + ext.serverMessageId] || null : ext.kind === 'chat' ? messageForSnap(ext.snapId) : null;
+            var linkedMessage = ext.kind === 'message' ? byMessage[ext.conversationId + ':' + ext.serverMessageId] || null : ext.kind === 'chat' ? messageForSnap(ext.snapId)
+                : ext.kind === 'sent' && ext.refs ? messageForRefs(ext.refs) : null;
+            var chat = linkedMessage ? chatWith(linkedMessage.conversation) : null;
+            var sentTo = ext.kind === 'sent' ? (ext.recipient ? '@' + ext.recipient : chat || (linkedMessage ? 'konversation ' + String(linkedMessage.conversation).slice(0, 8) + '…' : null)) : null;
             if (isFile) {
                 link = { row: r, context: info, external: ext, message: linkedMessage };
             }
@@ -310,20 +426,23 @@
             if (ext.kind === 'message') what += ', konversation ' + ext.conversationId.slice(0, 8) + '…, meddelande ' + ext.serverMessageId;
             else if (ext.kind === 'chat') what += ', chattsnap ' + ext.snapId.slice(0, 8) + '…' + (linkedMessage ? ', meddelande ' + linkedMessage.serverId : '');
             else if (ext.kind === 'recording') what += ', inspelning ' + ext.recordingId.slice(0, 8) + '…';
-            else if (ext.kind === 'sent') what += ', skickad till @' + ext.recipient + (ext.aux ? ' (' + ext.aux + ')' : '');
+            else if (ext.kind === 'sent') what += ', skickad' + (sentTo ? ' till ' + sentTo : '') + (linkedMessage && ext.refs ? ' (meddelande ' + linkedMessage.serverId + ', local_message_references)' : '') + (ext.aux ? ' (' + ext.aux + ')' : '');
             else if (ext.kind === 'story') what += ', ' + ext.part;
-            var plain = ext.kind === 'sent' && info.code === 3 ? (ext.aux ? null : 'En snap eller bild skickas till @' + ext.recipient + ' från den här telefonen') : info.plain;
+            else if (ext.kind === 'memory') what += ', snap ' + ext.snapId.slice(0, 8) + '…';
+            var plain = ext.kind === 'sent' && info.code === 3 ? (ext.aux ? null : 'En snap eller bild skickas' + (sentTo ? ' till ' + sentTo : '') + ' från den här telefonen') : info.plain;
             // Tillfälliga poster utan extern nyckel (mellanlagring vid inspelning och hämtning) får ingen egen mening.
             if ((info.code === 34 && ext.kind !== 'recording') || (info.code === 3 && ext.kind === 'other')) plain = null;
             if (isFile) {
                 what = 'Den bedömda filen: ' + what;
                 plain = info.code === 34 ? 'Den bedömda videon spelas in med Snapchats kamera'
-                    : ext.kind === 'sent' ? 'Den bedömda filen skickas till @' + ext.recipient + ' från den här telefonen'
+                    : ext.kind === 'sent' ? 'Den bedömda filen skickas' + (sentTo ? ' till ' + sentTo : '') + ' från den här telefonen'
+                    : ext.kind === 'memory' ? 'Den bedömda filen sparas i Snapchats Memories'
                     : info.code === 3 ? 'Den bedömda filen läggs i Snapchat-chattens cache'
                         : 'Den bedömda filen läggs i Snapchats cache';
             }
             events.push({
                 ms: r.createdMs, kind: 'snap-cache', lane: 'snapchat', bold: !!isFile, isFile: !!isFile, context: info.code, cacheKey: r.key, app: app, sent: ext.kind === 'sent' && !ext.aux,
+                sentTo: sentTo, conversation: linkedMessage ? linkedMessage.conversation : null, serverId: linkedMessage ? linkedMessage.serverId : null, snapId: ext.kind === 'memory' ? ext.snapId : null,
                 text: what + ', nyckel ' + String(r.key).slice(0, 12) + '…', plain: plain,
                 source: Object.assign({}, srcCache, { column: 'CREATION_TIMESTAMP_MILLIS (MEDIA_CONTEXT_TYPE ' + info.code + ', EXTERNAL_KEY)' }),
             });
@@ -373,8 +492,8 @@
                 source: Object.assign({}, srcNotif, { column: 'timestamp, type' }) });
         });
 
-        // Android: Memories säger när en snap togs (snap_capture_time), med vilken kamera, och när
-        // den sparades (create_time). Den som hör till den bedömda filen blir fet.
+        // Memories säger när en snap togs, med vilken kamera, och när den sparades, på Android (memories.db) och
+        // iOS (scdb-27). Den som hör till den bedömda filen blir fet.
         (ctx.memories || []).forEach(function (m) {
             var video = Number(m.mediaType) === 1;
             var front = Number(m.front) === 1;
@@ -384,15 +503,15 @@
             var common = { kind: 'snap-memory', lane: 'snapchat', app: app, isFile: isFile, bold: isFile, video: video, front: front, memoryId: m.id, latitude: m.latitude, longitude: m.longitude };
             if (m.capturedMs != null) {
                 events.push(Object.assign({}, common, { ms: m.capturedMs, captured: true,
-                    text: 'Snapchat Memories: ' + noun + ' tagen med ' + cam + 'n (snap_capture_time' + (video ? ', inspelningens slut' : '') + ')' + (m.width && m.height ? ', ' + m.width + '×' + m.height : '') + (video && m.duration ? ', ' + Number(m.duration).toFixed(1).replace('.', ',') + ' s' : '') + (Number(m.hasLocation) === 1 ? ', med position' : ''),
+                    text: 'Snapchat Memories: ' + noun + ' tagen med ' + cam + 'n (' + memCols.captured + (video ? (ctx.memoryColumns ? ', start eller slut är inte kontrollerat på iOS' : ', inspelningens slut') : '') + ')' + (m.width && m.height ? ', ' + m.width + '×' + m.height : '') + (video && m.duration ? ', ' + Number(m.duration).toFixed(1).replace('.', ',') + ' s' : '') + (Number(m.hasLocation) === 1 ? ', med position' : ''),
                     plain: (isFile ? 'Den bedömda ' + noun + 'en ' : 'En ' + noun + ' ') + (video ? 'spelas in' : 'tas') + ' med Snapchats ' + cam + ' på den här telefonen',
-                    source: Object.assign({}, srcMem, { column: 'snap_capture_time, front_facing, media_type' }) }));
+                    source: Object.assign({}, srcMem, { column: memCols.captured + ', ' + memCols.front + ', ' + memCols.type }) }));
             }
             if (m.createdMs != null) {
                 events.push(Object.assign({}, common, { ms: m.createdMs, captured: false,
-                    text: 'Snapchat Memories: ' + noun + 'en sparas i Memories (create_time)' + (m.zone ? ', tidszon ' + m.zone : ''),
+                    text: 'Snapchat Memories: ' + noun + 'en sparas i Memories (' + memCols.created + ')' + (m.zone ? ', tidszon ' + m.zone : ''),
                     plain: isFile ? 'Den sparas i Snapchats Memories' : 'Den sparas i Snapchats Memories',
-                    source: Object.assign({}, srcMem, { column: 'create_time' }) }));
+                    source: Object.assign({}, srcMem, { column: memCols.created }) }));
             }
         });
 
@@ -425,6 +544,7 @@
 
     var api = {
         PICABOO: PICABOO, ANDROID: ANDROID, appId: appId, isSnapchatApp: isSnapchatApp, JOURNAL: JOURNAL, linkMemory: linkMemory, hexId: hexId,
+        memoryCipher: memoryCipher, unpad: unpad, grayDiff: grayDiff, SAME_IMAGE_DIFF: SAME_IMAGE_DIFF, jpegCore: jpegCore, sameBytes: sameBytes,
         CONTEXT: CONTEXT, contextInfo: contextInfo, parseExternalKey: parseExternalKey,
         fields: fields, senderId: senderId, hasMediaKey: hasMediaKey, strings: strings, flatStrings: flatStrings, friendNames: friendNames, messageInfo: messageInfo,
         accountId: accountId, cacheKeyFromPath: cacheKeyFromPath, isRecordingPath: isRecordingPath, uuidText: uuidText, hex: hex, build: build,

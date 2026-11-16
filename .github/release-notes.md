@@ -1,5 +1,22 @@
 Automatiskt byggd från commit `{{SHA}}`.
 
+## Nytt i 1.70
+
+**Härkomst och Queries läser Snapchats Memories på iOS, också positionerna i den krypterade databasen, och en sparad snap går att söka på sitt id.**
+
+- **Sök på snap-id:** skriv ett snap-id, media-id eller Memories-id i Härkomsts filnamnsruta. Programmet letar upp snappen i Memories och bedömer dess fil. Har en Memories-post flera snaps väljer du i en lista. Filkortet och protokollet säger att sökningen gällde ett snap-id.
+- **Memories på iOS:** när bilden togs, när den sparades, med vilken kamera och i vilken tidszon läses ur `scdb-27.sqlite3`. Filen kopplas till sin snap genom snappens id i Snapchats cache, aldrig genom tiden.
+- **Positionen på iOS** står i `gallery.encrypteddb`, som är krypterad. Nyckeln läses ur nyckelringen, i eller bredvid extraktionen, på samma sätt som Signals. Positionen syns i faktorn Position och på kartan. I labbet låg den 6 m från telefonens egen position 5 sekunder före tagningen.
+- **Filen dekrypteras:** en sparad snap ligger krypterad i Snapchats cache på iOS. Med nyckeln i Snapchats databas visas bilden, och raden Innehållet ger det dekrypterades storlek och SHA-256. Summorna för filen som den ligger i extraktionen står kvar.
+- **I vilken chatt den skickades:** en snap som skickas på iOS kopplas till sitt meddelande och mottagarens användarnamn. Snaps som skickades i tidsfönstret jämförs med bilden i Memories, och är det samma bild säger faktorn Snapchat igång i vilken chatt och när. Jämförelsen är en bildjämförelse: skillnaden och gränsen för samma bild står i texten. Bara bilder och bara iOS.
+- **En snap utan fil:** finns snappen i Memories men inte filen, visas det som står om den (tider, kamera, position) och varför filen saknas, med en knapp som söker filer kring tagningen. Mediet kan finnas kvar hos Snapchat. Programmet hämtar inget därifrån.
+- **Android:** en bild som exporterats ur Memories till galleriet kopplas till sin snap genom att bilddatan är densamma, också när exporten kom långt efter att snappen sparades. Förut krävdes att den kom inom fem sekunder. En fil i `memories_media` kopplas genom storleken som `memories_media.size` anger, och visas som bild.
+- **Queries:** två nya databaser för iOS, Snapchats Memories (`scdb-27.sqlite3`) och positionerna (`gallery.encrypteddb`), med bland annat "Sök på snap-id" och "Positioner för sparade snaps". Android har också "Sök på snap-id".
+- **Inget skrivs** till extraktionen eller till disken. Dekrypteringen görs i minnet.
+- **Provat:** enhetstesterna, röktestet i appen och html-versionen i Chrome på macOS, med en påhittad iOS-extraktion. En egen laboration med två telefoner (en sparad snap per telefon) lästes genom appen: snap-id, dekryptering, position och den skickade kopian på iPhone, och den exporterade bilden och filen i Memories på Samsung.
+- **Inte provat:** video i Memories (typkoden och om tagningstiden är start eller slut är inte kontrollerade på iOS, och texten säger det), en Memories-post med flera snaps, en snap som bara finns på Snapchats server, My Eyes Only, äldre Snapchat-versioner på iOS. Windows och Linux provas först i bygget.
+- **Kvar:** en laboration för det som inte är provat är förberedd och ligger i `docs/labbar/`. Bildjämförelsen kan inte skilja två nästan likadana bilder tagna efter varandra.
+
 ## Nytt i 1.69
 
 **Härkomst lyfter fram frågan och svaret i varje faktor och markerar filens rad i tabellerna, och appen frågar om vyerna ska rensas när extraktionen byts.**

@@ -48,12 +48,29 @@ test('routined: en rekommenderad query per databas och undertext på alla', () =
     for (const db of routined.databases) checkGroup(db.id, db.queries, (q) => q.subtitle);
 });
 
-test('snapchat (beta): en rekommenderad query per databas, undertext på alla, tider i millisekunder', () => {
+test('snapchat (beta): en rekommenderad query per databas, undertext på alla, tider i millisekunder utom i Memories', () => {
     for (const db of snapchat.databases) checkGroup(db.id, db.queries, (q) => q.subtitle);
     for (const db of snapchat.databases) for (const q of db.queries) {
-        if (/\{\{(cocoa|unix)(Start|End)\}\}/.test(q.sql)) assert.fail(db.id + '/' + q.id + ': Snapchat-tider är millisekunder, använd unixMs-platshållarna');
+        // Memories (scdb-27, Core Data) har Cocoa-sekunder; de andra databaserna millisekunder.
+        const cocoa = db.id === 'snapchat-memories';
+        if (!cocoa && /\{\{(cocoa|unix)(Start|End)\}\}/.test(q.sql)) assert.fail(db.id + '/' + q.id + ': Snapchat-tider är millisekunder, använd unixMs-platshållarna');
+        if (cocoa && /\{\{unix/.test(q.sql)) assert.fail(db.id + '/' + q.id + ': Memories har Cocoa-sekunder');
         if (!q.hidden && /\{\{unixMs/.test(q.sql)) assert.strictEqual(q.timeEpoch, 'unix-ms', db.id + '/' + q.id + ': timeEpoch');
+        if (!q.hidden && /\{\{cocoa/.test(q.sql)) assert.strictEqual(q.timeEpoch, 'cocoa', db.id + '/' + q.id + ': timeEpoch');
+        if (q.hidden && cocoa) assert.strictEqual(q.epoch, 'cocoa', db.id + '/' + q.id + ': epoch');
+        for (const p of q.params || []) if (!/^time(Start|End)$/.test(p)) assert.ok(snapchat.paramLabels[p], db.id + '/' + q.id + ': etikett för ' + p);
     }
+    const memories = snapchat.databases.find((d) => d.id === 'snapchat-memories');
+    assert.deepStrictEqual(memories.paths, ['scdb-27.sqlite3']);
+    assert.deepStrictEqual(memories.queries.filter((q) => q.hidden).map((q) => q.role).sort(), ['coverage', 'memories', 'memory-id']);
+    const memRole = memories.queries.find((q) => q.role === 'memories');
+    assert.deepStrictEqual([memRole.fields.id, memRole.fields.captured, memRole.fields.created, memRole.fields.encryption], ['ZSNAPID', 'ZCAPTURETIMEUTC', 'ZCREATETIMEUTC', 'ZENCRYPTION']);
+    assert.match(memories.queries.find((q) => q.role === 'memory-id').sql, /upper\(s\.ZSNAPID\) = upper\('\{\{snapId\}\}'\)[\s\S]*ZMEDIAID[\s\S]*ZENTRYID/);
+    const gallery = snapchat.databases.find((d) => d.id === 'snapchat-gallery');
+    assert.strictEqual(gallery.cipher, 'snapchat-gallery', 'gallery.encrypteddb är krypterad med Snapchats inställningar');
+    assert.deepStrictEqual(gallery.paths, ['gallery.encrypteddb']);
+    assert.deepStrictEqual(gallery.queries.filter((q) => q.hidden).map((q) => q.role), ['memory-locations']);
+    assert.strictEqual(snapchat.databases.find((d) => d.id === 'snapchat-arroyo').queries.find((q) => q.role === 'messages').fields.refs, 'local_message_references');
     const cache = snapchat.databases.find((d) => d.id === 'snapchat-cache');
     assert.match(cache.queries.find((q) => q.id === 'cached-media').sql, /CACHE_FILE_CLAIM[\s\S]*CACHE_FILE_METADATA/);
     const arroyo = snapchat.databases.find((d) => d.id === 'snapchat-arroyo');
@@ -118,8 +135,8 @@ test('snapchat på Android (beta): en rekommenderad query per databas, undertext
     }
     const roles = (id) => snapchatAndroid.databases.find((d) => d.id === id).queries.filter((q) => q.hidden && !/^chat-/.test(q.role)).map((q) => q.role).sort();
     assert.deepStrictEqual(roles('snapchat-android-cache'), ['cache-key', 'cache-window', 'coverage']);
-    assert.deepStrictEqual(roles('snapchat-android-arroyo'), ['coverage', 'messages']);
-    assert.deepStrictEqual(roles('snapchat-android-memories'), ['coverage', 'memories']);
+    assert.deepStrictEqual(roles('snapchat-android-arroyo'), ['conversation-members', 'coverage', 'messages']);
+    assert.deepStrictEqual(roles('snapchat-android-memories'), ['coverage', 'memories', 'memory-id', 'memory-size']);
     // Samma fältkarta som iOS för cache och meddelanden, så att snapchat.js kan läsa båda.
     const iosCache = snapchat.databases.find((d) => d.id === 'snapchat-cache').queries.find((q) => q.role === 'cache-window');
     const andCache = snapchatAndroid.databases.find((d) => d.id === 'snapchat-android-cache').queries.find((q) => q.role === 'cache-window');
@@ -130,6 +147,8 @@ test('snapchat på Android (beta): en rekommenderad query per databas, undertext
     const mem = snapchatAndroid.databases.find((d) => d.id === 'snapchat-android-memories').queries.find((q) => q.role === 'memories');
     assert.strictEqual(mem.fields.captured, 'snap_capture_time');
     assert.strictEqual(mem.fields.front, 'front_facing');
+    assert.strictEqual(mem.fields.mediaSize, 'media_size', 'storleken på filen i memories_media');
+    for (const role of ['memory-id', 'memory-size']) assert.deepStrictEqual(snapchatAndroid.databases.find((d) => d.id === 'snapchat-android-memories').queries.find((q) => q.role === role).fields, mem.fields, role + ': samma fält');
 });
 
 test('routined: positionerna tar bara med kända ZTYPE (1 GNSS, 4 Wi-Fi) och filtrerar på råtiden', () => {
@@ -197,8 +216,8 @@ test('rollqueryer för Härkomst: dolda, med epoch och fältkarta som stämmer m
     assert.deepStrictEqual(roles(appUsage.databases.find((d) => d.id === 'knowledgec').queries), ['app-infocus', 'app-usage', 'coverage', 'lock', 'screen']);
     assert.deepStrictEqual(roles(appUsage.databases.find((d) => d.id === 'wellbeing').queries), ['app-events', 'coverage']);
     assert.deepStrictEqual(roles(routined.databases[0].queries), ['coverage', 'location']);
-    assert.deepStrictEqual(roles(snapchat.databases.find((d) => d.id === 'snapchat-cache').queries), ['cache-key', 'cache-window', 'coverage']);
-    assert.deepStrictEqual(roles(snapchat.databases.find((d) => d.id === 'snapchat-arroyo').queries), ['coverage', 'messages']);
+    assert.deepStrictEqual(roles(snapchat.databases.find((d) => d.id === 'snapchat-cache').queries), ['cache-key', 'cache-memory', 'cache-window', 'coverage']);
+    assert.deepStrictEqual(roles(snapchat.databases.find((d) => d.id === 'snapchat-arroyo').queries), ['conversation-members', 'coverage', 'messages']);
     assert.deepStrictEqual(roles(snapchat.databases.find((d) => d.id === 'snapchat-friends').queries), ['friends']);
     assert.deepStrictEqual(roles(snapchat.databases.find((d) => d.id === 'snapchat-notifications').queries), ['coverage', 'notifications']);
     assert.deepStrictEqual(roles(android.categories.find((c) => c.id === 'mediastore').queries), ['file', 'neighbours']);

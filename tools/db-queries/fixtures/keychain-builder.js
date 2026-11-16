@@ -98,4 +98,4 @@ function encryptedKeychain(items) {
         '</dict><key>keychainEntries</key><array>' + entries.join('') + '</array></dict></plist>\n';
 }
 
-module.exports = { encryptedKeychain };
+module.exports = { encryptedKeychain, bplist, Uid };

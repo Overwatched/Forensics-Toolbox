@@ -576,7 +576,8 @@ i extraktionen med `-wal` pålagd, och bygger en händelselista i UTC.
 - Android-filer utan `datetaken` (det Snapchat sparar till galleriet) får T = `date_added`
   (`androidCreatedFallback`, `file.createdFrom`). Är skaparappen Snapchat kopplas raden i
   `memories.db` som sparades inom fem sekunder (`linkSnapMemory` → `file.memory`, `file.capturedMs`):
-  tagningstid, kamera, position, tidszon. Kamerafaktorn bedöms då vid tagningstiden.
+  tagningstid, kamera, position, tidszon. Kamerafaktorn bedöms då vid tagningstiden. Se Snapchat Memories nedan
+  för kopplingen utan tid (storlek och bilddata).
 
 Plan och provkörning: [PLAN-harkomst.md](PLAN-harkomst.md).
 
@@ -610,6 +611,62 @@ Plan och provkörning: [PLAN-harkomst.md](PLAN-harkomst.md).
   *Snapchats kamera* (typ 34, eller en inspelning strax före en skickad snap; mottagen = inte tillämplig).
 - Allt är kontrollerat mot **en** extraktion (K12345-26, iOS 18.5). Därför beta: märkt i gränssnittet,
   i protokollet och i katalogens `sourceNote`.
+
+#### Snapchat Memories (beta)
+
+En snap som sparats i Memories kan finnas kvar bara där. Kontrollerat mot labbtelefonerna 2026-11-11 (iPhone med
+iOS 26.4.1, steg L38; Samsung med Android 16, steg L40), med en sparad snap per telefon.
+
+- **iOS, `scdb-27.sqlite3`** (`Documents/gallery_data_object/1/<konto>/`, Core Data, Cocoa-sekunder): katalogens
+  `snapchat-memories`. `ZGALLERYSNAP` har `ZSNAPID` (= `ZMEDIAID` = `ZGALLERYENTRY.ZENTRYID` i labbet),
+  `ZCAPTURETIMEUTC`, `ZCREATETIMEUTC`, `ZCAMERAFRONTFACING`, `ZHASLOCATION`, `ZTIMEZONENAME` och `ZENCRYPTION`, ett
+  NSKeyedArchiver-arkiv (`SCMemoriesSnapEncryption`) med `KEY` (32 byte) och `IV` (16 byte). Det finns inga
+  koordinater i `scdb-27`; datamodellen (`.mom`) har bara `hasLocation`.
+- **iOS, `gallery.encrypteddb`** (`Documents/gallery_encrypted_db/3/<konto>/`): katalogens `snapchat-gallery`, med
+  `snap_location_table` (snap-id, latitud, longitud), `snap_key_iv` och `snap_address_title`. SQLCipher-profilen
+  `snapchat-gallery` i `sqlcipher.js`: rå nyckel på 32 byte, saltet först i filen, sidor på 1024 byte, HMAC-SHA1 och
+  48 byte reserv. Nyckeln är nyckelringens post `egocipher.key.avoidkeyderivation` i Snapchats åtkomstgrupp
+  (`isSnapchatGalleryItem` i `app-secrets.js`, `AppSecrets.SNAPCHAT_IOS`), och den letas upp som Signals. Snapchats
+  SQLite döper de automatiska indexen till `sqlcph_autoindex_…`; `restoreIndexNames` ger dem SQLites namn i det
+  dekrypterade i minnet (samma längd), annars vägrar SQLite läsa schemat. Protokollet säger det.
+- **Filen på iOS** ligger i `com.snap.file_manager_3_SCContent_<konto>/` och har en rad i `cache_controller.db` med
+  `MEDIA_CONTEXT_TYPE` 19 och `EXTERNAL_KEY` `snap-media-<snap-id>`; typ 26 (`snap-rendered-lowres-<snap-id>`) är en
+  förhandsbild som inte gick att dekryptera med samma nyckel. Filen är AES-256-CBC med `ZENCRYPTION`s nyckel och IV
+  (`snapMemoryContent` → `innerContent`, som Signals bilagor), också när `IS_ENCRYPTED` står som falskt.
+  Summorna i filkortet gäller filen som den ligger; raden Innehållet ger det dekrypterades storlek och SHA-256.
+- **Kopplingen fil → snap** är id:t i cachenyckeln (`snapchat.js`: `parseExternalKey` kind `memory`, `build` →
+  `memory.by = 'id'`), aldrig tiden. `addSnapchat` hämtar snappen på id (`role-memory-id`) också utanför fönstret,
+  lägger positionen ur `gallery.encrypteddb` på raden och sätter `file.memory` med `columns` (iOS-kolumnerna, så att
+  texterna i `timeline-core.js` säger rätt kolumn, `memCols`), `anchor: 'cache'` och `positionSource`.
+- **Android:** en fil i `files/file_manager/memories_media/` hör till den snap vars `memories_media.size` är filens
+  storlek, när bara en snap har den (`memoryBySize`, `role-memory-size`, `by: 'size'`). En bild i galleriet som
+  exporterades ur Memories har samma bytes som filen i `memories_media` med EXIF tillagt: utan APP-segment
+  (`ProvenanceSnapchat.jpegCore`) jämförs den byte för byte med filerna av samma storlek (`memoryByContent`,
+  `by: 'content'`). Kopplingen på tid (fem sekunder) gäller fortfarande när exporten skedde direkt. I labbet kom
+  exporten två minuter efter, så den kopplades inte före den här ändringen.
+- **Sökning på id:** ett snap-id, media-id eller Memories-id i filnamnsrutan (`snapMemoryFile` i `runOutsideLibrary`)
+  pekar ut filen: på iOS via `role-cache-memory` (cachefilen med `snap-media-<id>`), på Android via storleken i
+  `memories_media` (`memoryFileOf`). Filkortet och protokollet säger "Sökt på snap-id" (`foundBy.algo = 'snap'`). En
+  Memories-post kan ha flera snaps: alla med fil står i en lista att välja ur, och statusraden säger hur många som
+  saknar fil. Ett id som inte finns i Memories ger samma besked som ett filnamn som inte finns.
+- **Snap utan fil:** finns snappen i Memories men inte filen (den kan finnas kvar bara på Snapchats server) visar
+  `renderMemoriesWithoutFile` det som står om den: tagen, sparad, sort och kamera, position (iOS ur
+  `gallery.encrypteddb`) och varför filen saknas, med knappen "Sök filer kring tagningen" som fyller i sökningen på
+  tid. Programmet hämtar aldrig något från Snapchats server, och texten säger att snap-id:t är det som pekar ut
+  snappen där.
+- **Video på iOS:** att `ZMEDIATYPE` 1 är video och om `ZCAPTURETIMEUTC` är inspelningens start eller slut är inte
+  kontrollerat. Texterna säger det (`videoTimeText` i `timeline-core.js`), och en dekrypterad fil som är en video
+  räknas som video oavsett `ZMEDIATYPE` (`typeNote` säger när de inte stämmer).
+- **Skickad i en chatt:** på iOS 26 är en skickad snaps `EXTERNAL_KEY` två UUID:er (`<a>~<b>`), och båda står i
+  meddelandets `local_message_references` i `arroyo.db` (`messageForRefs`). Vem chatten är med ger
+  `role-conversation-members` (avsändarna i hela konversationen utom det egna kontot). En sparad snap och den snap som
+  skickades har inget gemensamt id, så `snapSends` jämför bilderna: båda förminskas till 24 × 24 rutor i gråskala
+  och medelskillnaden räknas (`grayDiff`). Under `SAME_IMAGE_DIFF` (4 av 255) räknas de som samma bild, och
+  skillnaden står i texten och i faktorn *Snapchat igång*. I labbet: samma bild 0,4–2,0, andra bilder av samma
+  skärm 16–31. Bara bilder och bara iOS; på Android finns ingen sparad snap som skickats i labbet.
+- Inte provat mot en riktig telefon: video i Memories, My Eyes Only, en Memories-post med flera snaps, äldre
+  Snapchat-versioner på iOS (andra `scdb-NN`), och en snap vars fil bara finns på Snapchats server. Labben i
+  `docs/labbar/` (Snapchat Memories del 1 och 2) är förberedd för det.
 
 #### Signal på Android (beta, 1.37)
 
