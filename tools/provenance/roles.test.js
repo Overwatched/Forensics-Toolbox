@@ -20,7 +20,7 @@ const catalogs = {
 test('alla källor och roller finns', () => {
     const sources = roles.collect(catalogs);
     const byKey = Object.fromEntries(sources.map((s) => [s.key, s]));
-    assert.deepStrictEqual(Object.keys(byKey).sort(), ['android-mediastore', 'knowledgec', 'photos', 'powerlog', 'routined-cache', 'signal-android-logs', 'signal-android-main', 'snapchat-android-arroyo', 'snapchat-android-cache', 'snapchat-android-friends', 'snapchat-android-journal', 'snapchat-android-memories', 'snapchat-android-notifications', 'snapchat-arroyo', 'snapchat-cache', 'snapchat-friends', 'snapchat-gallery', 'snapchat-memories', 'snapchat-notifications', 'wellbeing']);
+    assert.deepStrictEqual(Object.keys(byKey).sort(), ['android-mediastore', 'knowledgec', 'photos', 'powerlog', 'routined-cache', 'signal-android-logs', 'signal-android-main', 'snapchat-android-arroyo', 'snapchat-android-cache', 'snapchat-android-core', 'snapchat-android-friends', 'snapchat-android-journal', 'snapchat-android-memories', 'snapchat-android-notifications', 'snapchat-arroyo', 'snapchat-cache', 'snapchat-friends', 'snapchat-gallery', 'snapchat-memories', 'snapchat-notifications', 'wellbeing']);
     assert.strictEqual(byKey['signal-android-main'].cipher, 'signal');
     assert.strictEqual(byKey['signal-android-main'].databases[0].cipher, 'signal');
     assert.deepStrictEqual(Object.keys(byKey['signal-android-main'].roles).sort(), ['attachments', 'coverage', 'messages', 'recipients']);
@@ -31,6 +31,7 @@ test('alla källor och roller finns', () => {
     assert.strictEqual(byKey['snapchat-android-cache'].title, 'cache_controller.db (Snapchat cache)');
     assert.deepStrictEqual(Object.keys(byKey['snapchat-android-cache'].roles).sort(), ['cache-key', 'cache-window', 'coverage']);
     assert.deepStrictEqual(Object.keys(byKey['snapchat-android-memories'].roles).sort(), ['coverage', 'memories', 'memory-id', 'memory-size']);
+    assert.deepStrictEqual(Object.keys(byKey['snapchat-android-core'].roles), ['save-setting']);
     assert.deepStrictEqual(Object.keys(byKey['snapchat-memories'].roles).sort(), ['coverage', 'memories', 'memory-id']);
     assert.strictEqual(byKey['snapchat-memories'].platform, 'iOS');
     assert.strictEqual(byKey['snapchat-gallery'].cipher, 'snapchat-gallery');

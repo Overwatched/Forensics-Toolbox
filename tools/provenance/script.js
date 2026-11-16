@@ -1608,6 +1608,20 @@
             cameraUse: [], logUnsure: [], androidLog: null, container: Z(),
         };
         if (fileRow.createdFrom === 'date_added') input.fileSource = Object.assign({}, input.fileSource, { column: 'date_added (datetaken saknas)' });
+        if (platform === 'Android') {
+            // Snapchats inställning Spara till, för filer från Snapchat: den säger om en kopia i galleriet kommer av sig själv.
+            if (fileRow.memory || fileRow.memoryImports || fileRow.snapchatCache || ProvenanceSnapchat.isSnapchatApp(fileRow.importer)) {
+                try { input.snapchatSetting = await snapSaveSetting(run); } catch (e) { console.warn('Inställningen kunde inte läsas', e); }
+            }
+            if (fileRow.memoryImports) input.memoryImports = fileRow.memoryImports;
+            // Skaparappen: när den först installerades. Android tar bort en avinstallerad apps rader i appops och usagestats.
+            if (fileRow.importer) {
+                try {
+                    var inst = await androidPackage(fileRow.importer);
+                    if (inst && inst.firstInstallMs) input.install = { app: fileRow.importer, firstMs: inst.firstInstallMs, source: inst.firstInstallPath };
+                } catch (e) { console.warn('package-restrictions.xml kunde inte läsas', e); }
+            }
+        }
         if (run.bandNote) input.warnings.push(run.bandNote);
         if (run.timeNote) input.warnings.push(run.timeNote);
         // Bildbibliotekets egna varningar (utan -wal, -wal som inte kunde läggas på, CRC32) gäller filens rad och grannarna.
@@ -1956,7 +1970,11 @@
     // andra). Då är T date_added, när filen lades till i galleriet, och raden säger det.
     function androidCreatedFallback(rows) {
         if (!state.zip || state.zip.platform !== 'Android') return rows;
-        (rows || []).forEach(function (r) { if (!r.createdMs && r.addedMs) { r.createdMs = r.addedMs; r.createdFrom = 'date_added'; } });
+        (rows || []).forEach(function (r) {
+            if (!r.createdMs && r.addedMs) { r.createdMs = r.addedMs; r.createdFrom = 'date_added'; }
+            // När Snapchat avinstalleras töms owner_package_name. Mappen och namnet säger då att filen är Snapchats.
+            if (!r.importer && ProvenanceSnapchat.isGalleryName(r.relativePath, r.filename)) { r.importer = ProvenanceSnapchat.ANDROID; r.importerFrom = 'name'; }
+        });
         return rows;
     }
 
@@ -2349,13 +2367,15 @@
     var SNAP_KEYS_IOS = { cache: 'snapchat-cache', messages: 'snapchat-arroyo', friends: 'snapchat-friends', notifications: 'snapchat-notifications', memories: 'snapchat-memories', gallery: 'snapchat-gallery' };
     // Memories kolumner på iOS (scdb-27), i tidslinjens texter. Positionen står i gallery.encrypteddb.
     var IOS_MEMORY_COLUMNS = { captured: 'ZCAPTURETIMEUTC', created: 'ZCREATETIMEUTC', front: 'ZCAMERAFRONTFACING', type: 'ZMEDIATYPE', position: 'latitude, longitude' };
-    var SNAP_KEYS_ANDROID = { cache: 'snapchat-android-cache', messages: 'snapchat-android-arroyo', friends: 'snapchat-android-friends', notifications: 'snapchat-android-notifications', memories: 'snapchat-android-memories', journal: 'snapchat-android-journal' };
+    var SNAP_KEYS_ANDROID = { cache: 'snapchat-android-cache', messages: 'snapchat-android-arroyo', friends: 'snapchat-android-friends', notifications: 'snapchat-android-notifications', memories: 'snapchat-android-memories', journal: 'snapchat-android-journal', core: 'snapchat-android-core' };
     function snapKeys() { return state.zip && state.zip.platform === 'Android' ? SNAP_KEYS_ANDROID : SNAP_KEYS_IOS; }
 
     function memoryRow(r) {
         return { id: r.id, mediaId: r.mediaId, mediaType: r.mediaType, createdMs: r.createdMs, capturedMs: r.capturedMs, zone: r.zone, width: r.width, height: r.height, duration: r.duration,
             front: r.front, hasLocation: r.hasLocation, latitude: r.latitude, longitude: r.longitude, overlay: r.overlay, userAgent: r.userAgent, externalId: r.externalId,
-            entryId: r.entryId || null, mediaSize: r.mediaSize == null ? null : Number(r.mediaSize), format: r.format || null, encryption: r.encryption || null, _raw: r._raw };
+            entryId: r.entryId || null, mediaSize: r.mediaSize == null ? null : Number(r.mediaSize), format: r.format || null, encryption: r.encryption || null,
+            cameraRollId: r.cameraRollId == null ? null : r.cameraRollId, copyFrom: r.copyFrom || null, deleted: r.deleted, private: r.private,
+            entryCreatedMs: r.entryCreated == null || r.entryCreated === '' ? null : Number(r.entryCreated), _raw: r._raw };
     }
 
     // Android: den sparade snap i Snapchats Memories som hör till filen. En fil i memories_media hör till snappen vars
@@ -2377,16 +2397,34 @@
         run.snapMemoryRange = wide;
         var video = /^video\//.test(String(fileRow.mime || '')) || /\.(mp4|mov|3gp|webm|mkv)$/i.test(String(fileRow.filename || ''));
         var inMemories = run.mediaEntry && MEMORIES_MEDIA.test(run.mediaEntry.name);
+        // Rader ur kamerarullen vars camera_roll_id är filens _id i MediaStore: Snapchat har lagt in just den här filen i Memories.
+        var imports = fileRow.pk != null ? rows.filter(function (r) { return ProvenanceSnapchat.memoryOrigin(r).mediaStoreId === Number(fileRow.pk); }) : [];
         var link = inMemories ? memoryBySize(db, src, run.mediaEntry.size, run) : null;
         if (!link) link = ProvenanceSnapchat.linkMemory(rows, { addedMs: fileRow.addedMs, createdMs: fileRow.createdMs, video: video });
         if (!link && !inMemories && !video) link = await memoryByContent(db, src, fileRow, run);
-        if (!link) return null;
+        // En video som exporterats senare: samma längd som en enda video i Memories, ur hela databasen.
+        var extra = !link && !inMemories && video && fileRow.pk != null ? (await mediaExtras())[Number(fileRow.pk)] : null;
+        if (extra && extra.duration != null) {
+            var all = runRole(db, src.roles.memories, { window: ALL_TIME }, ['created', 'captured'], run).rows.map(memoryRow);
+            link = ProvenanceSnapchat.linkVideoByDuration(all, { durationMs: extra.duration });
+            if (link) rows = all;
+        }
+        if (!link) {
+            if (imports.length) fileRow.memoryImports = imports.map(importInfo);
+            return null;
+        }
         var m = link.row;
         var located = Number(m.hasLocation) === 1 && m.latitude != null && m.longitude != null;
+        var origin = ProvenanceSnapchat.memoryOrigin(m);
+        // My Eyes Only: snappen själv ligger där, eller en kopia av den gör det (copy_from_snap_id), och originalet är borttaget.
+        var meoCopy = rows.find(function (r) { return r.copyFrom && String(r.copyFrom).toLowerCase() === String(m.id).toLowerCase() && Number(r.private) === 1; }) || null;
         fileRow.memory = {
             id: m.id, mediaId: m.mediaId || null, entryId: m.entryId || null, by: link.by || 'time', mediaFile: link.mediaEntry ? link.mediaEntry.name : null, anchor: inMemories ? 'memories' : 'gallery',
-            video: Number(m.mediaType) === 1, front: Number(m.front) === 1, capturedMs: m.capturedMs, createdMs: m.createdMs, deltaMs: link.deltaMs,
+            video: Number(m.mediaType) === 1, front: Number(m.front) === 1, capturedMs: m.capturedMs, createdMs: m.createdMs, deltaMs: link.deltaMs, durationDiffMs: link.diffMs == null ? null : link.diffMs,
             latitude: located ? Number(m.latitude) : null, longitude: located ? Number(m.longitude) : null, zone: m.zone || null, width: m.width, height: m.height, duration: m.duration, userAgent: m.userAgent,
+            origin: origin, savedMs: origin.savedMs, copy: inMemories ? null : ProvenanceSnapchat.copyKind(m, fileRow.addedMs),
+            meo: origin.private ? { id: m.id, self: true } : meoCopy ? { id: meoCopy.id, self: false } : null,
+            imports: imports.map(importInfo),
             source: { db: 'memories.db', table: 'memories_snap', column: 'snap_capture_time, create_time, front_facing, latitude, longitude', queryId: src.roles.memories.id },
         };
         fileRow.capturedMs = m.capturedMs || null;
@@ -2397,6 +2435,43 @@
             'memories_snap.latitude': m._raw.latitude, 'memories_snap.longitude': m._raw.longitude, 'memories_snap.snap_create_user_agent': m._raw.snap_create_user_agent,
         });
         return link;
+    }
+
+    // Längd (ms) och storlek per _id för bilder och video i MediaStore, en gång per zip. En egen fråga (role-media-extra),
+    // så att en databas utan kolumnen duration bara ger en tom karta. -> { [_id]: { duration, size } }
+    async function mediaExtras() {
+        var z = state.zip;
+        if (z.mediaExtras) return z.mediaExtras;
+        z.mediaExtras = {};
+        var lib = await libraryPick();
+        if (!lib || !lib.roles['media-extra'] || z.platform !== 'Android') return z.mediaExtras;
+        try {
+            runRole(await loadDb(lib.hit, lib.src.title), lib.roles['media-extra'], {}, [], { queries: [] }).rows.forEach(function (r) {
+                z.mediaExtras[Number(r.pk)] = { duration: r.duration == null ? null : Number(r.duration), size: r.size == null ? null : Number(r.size) };
+            });
+        } catch (e) { console.warn('Längden för video kunde inte läsas ur MediaStore', e); }
+        return z.mediaExtras;
+    }
+
+    // En rad i Memories som är en kopia av filen ur kamerarullen: id, när den lades in och om det var i en "featured story".
+    function importInfo(r) { return { id: r.id, createdMs: r.createdMs, featured: String(r.entryId || '').toLowerCase() === 'featured', cameraRollId: r.cameraRollId }; }
+
+    // Inställningen Spara till i core.db, en gång per zip: { value, label, copies, version, changed, updatedMs, source } eller null.
+    async function snapSaveSetting(run) {
+        var z = state.zip;
+        if (z.snapSaveSetting !== undefined) return z.snapSaveSetting;
+        z.snapSaveSetting = null;
+        var key = SNAP_KEYS_ANDROID.core;
+        if (z.platform !== 'Android' || !hitFor(key)) return null;
+        var src = sourceByKey(key);
+        if (!src.roles['save-setting']) return null;
+        try {
+            var row = runRole(await snapDb(key), src.roles['save-setting'], {}, ['updated'], run).rows[0];
+            var s = row ? ProvenanceSnapchat.saveSetting({ value: row.value, version: row.version, updatedMs: row.updatedMs }) : null;
+            if (s) s.source = { db: 'core.db', table: 'SnapchatUserProperties', column: '_id 24: textVal, row_version, last_updated_time', queryId: src.roles['save-setting'].id };
+            z.snapSaveSetting = s ? deepFreeze(s) : null;
+        } catch (e) { console.warn('core.db kunde inte läsas', e); }
+        return z.snapSaveSetting;
     }
 
     // Sökvägen inuti Snapchats behållare (iOS) eller datamapp (Android), utan extraktionens prefix.
@@ -2436,6 +2511,10 @@
             file: input.file.snapchatCache ? null : { addedMs: input.file.addedMs, createdMs: input.file.createdMs, video: isVideoFile }, fileKey: null, sources: {}, centerMs: input.file.createdMs };
         var sc = input.file.snapchatCache || null;
         if (sc) ctx.fileKey = sc.key;
+        // När Snapchat installerades: ett meddelande från kontot före det har förlorat flaggan created_on_device.
+        if (state.zip.platform === 'Android') {
+            try { var snapPkg = await androidPackage(ProvenanceSnapchat.ANDROID); if (snapPkg && snapPkg.firstInstallMs) ctx.installMs = snapPkg.firstInstallMs; } catch (e) { console.warn(e); }
+        }
 
         if (cacheHit) {
             var cacheDb = await snapDb(keys.cache);
@@ -2782,7 +2861,8 @@
     // finns i Memories, annars { memories: [{ memory, entry | entries | missing }] }.
     async function snapMemoryFile(text) {
         var id = String(text || '').trim();
-        if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id) || !state.zip) return null;
+        // Ett helt uuid, eller början av ett (minst åtta tecken): rollen söker på början.
+        if (!/^[0-9a-f]{8}(-?[0-9a-f]{1,4}){0,4}[0-9a-f-]*$/i.test(id) || id.length > 36 || !state.zip) return null;
         var keys = snapKeys();
         if (!keys.memories || !hitFor(keys.memories)) return null;
         var src = sourceByKey(keys.memories);
@@ -2792,6 +2872,51 @@
         var out = [];
         for (var i = 0; i < rows.length; i++) out.push(Object.assign({ memory: rows[i] }, await memoryFileOf(rows[i])));
         return { id: id, memories: out };
+    }
+
+    // Snapchats filer i galleriet som hör till en snap i Memories (Android), med skälet: filen som Snapchat lade in i Memories
+    // (camera_roll_id), kopian som lades till när snappen sparades, en export med samma bilddata eller, för video, samma längd.
+    // -> [{ entry, row, why }]. Tom när bildbiblioteket saknas.
+    async function snapGalleryCopies(mem, run) {
+        var lib = await libraryPick();
+        if (!lib || !lib.roles.neighbours || state.zip.platform !== 'Android') return [];
+        var db = await loadDb(lib.hit, lib.src.title);
+        var extras = await mediaExtras();
+        var rows = androidCreatedFallback(runRole(db, lib.roles.neighbours, { window: ALL_TIME }, ['created', 'added'], run || { queries: [] }).rows.map(function (r) {
+            var x = extras[Number(r.pk)] || {};
+            return Object.assign({}, r, { duration: x.duration == null ? null : x.duration, size: x.size == null ? null : x.size });
+        })).filter(function (r) { return ProvenanceSnapchat.isSnapchatApp(r.importer); });
+        var o = ProvenanceSnapchat.memoryOrigin(mem);
+        var video = Number(mem.mediaType) === 1;
+        var isVideo = function (r) { return /\.(mp4|mov|3gp|webm|mkv)$/i.test(String(r.filename || '')); };
+        var out = [];
+        var add = function (r, why) { if (!out.some(function (x) { return x.row.pk === r.pk; })) out.push({ row: r, why: why }); };
+        rows.forEach(function (r) {
+            if (o.mediaStoreId != null && Number(r.pk) === o.mediaStoreId) { add(r, 'Snapchat lade in den här filen i Memories (camera_roll_id ' + mem.cameraRollId + ')'); return; }
+            if (o.cameraRoll || isVideo(r) !== video || r.addedMs == null) return;
+            if (ProvenanceSnapchat.copyKind(mem, r.addedMs) === 'auto') add(r, 'lades till i galleriet samma sekund som snappen sparades (date_added mot ' + (o.savedFrom === 'entry' ? 'memories_entry.create_time' : 'create_time') + ')');
+            else if (o.synced && o.savedMs == null && r.addedMs >= mem.capturedMs - 1000 && r.addedMs - mem.capturedMs <= 10000) add(r, 'lades till ' + Math.round((r.addedMs - mem.capturedMs) / 1000) + ' s efter tagningen; raden i Memories är hämtad från servern, så sparad-tiden finns inte att jämföra med');
+        });
+        if (!o.cameraRoll && video) {
+            rows.filter(function (r) { return isVideo(r) && r.duration != null; }).forEach(function (r) {
+                var hit = ProvenanceSnapchat.linkVideoByDuration([mem], { durationMs: Number(r.duration) });
+                if (hit) add(r, 'samma längd som snappens video (' + hit.diffMs + ' ms skillnad); kontrollera videon');
+            });
+        } else if (!o.cameraRoll && mem.mediaSize != null) {
+            var own = (await memoriesMediaEntries()).filter(function (e) { return e.size === mem.mediaSize; });
+            var core = own.length === 1 && own[0].size <= MAX_MEDIA ? ProvenanceSnapchat.jpegCore((await ExtractionCore.readEntry(state.zip.read, own[0])).bytes) : null;
+            if (core) {
+                for (var i = 0; i < rows.length; i++) {
+                    var r = rows[i];
+                    if (isVideo(r) || out.some(function (x) { return x.row.pk === r.pk; }) || r.size == null || r.size < core.length || r.size > core.length + 256 * 1024) continue;
+                    var m = await findMedia(r, 'Android');
+                    if (!m.entry || m.entry.size > MAX_MEDIA) continue;
+                    if (ProvenanceSnapchat.sameBytes(core, ProvenanceSnapchat.jpegCore((await ExtractionCore.readEntry(state.zip.read, m.entry)).bytes))) add(r, 'samma bilddata som snappens fil i memories_media (en export ur Memories)');
+                }
+            }
+        }
+        for (var k = 0; k < out.length; k++) out[k].entry = (await findMedia(out[k].row, 'Android')).entry;
+        return out.filter(function (x) { return x.entry; });
     }
 
     // Filen för en snap i Memories: { entry }, { entries } när flera filer kan vara den, eller { missing } med skälet.
@@ -3595,6 +3720,16 @@
         var known = z.packagesXml.info || (z.packagesXml.info = {});
         if (!Object.prototype.hasOwnProperty.call(known, pkg)) {
             var info = ProvenanceAppVersions.fromPackagesXml(z.packagesXml.bytes, pkg, ProvenanceAndroidLogs.abxParse);
+            if (info) {
+                // När appen först installerades står per användare i package-restrictions.xml (användare 0).
+                if (z.restrictionsXml === undefined) {
+                    z.restrictionsXml = null;
+                    var rh = await ExtractionCore.find(z.read, z.file.size, function (name) { return /(^|\/)data\/system\/users\/0\/package-restrictions\.xml$/.test(name); });
+                    if (rh.length && rh[0].size <= 32 * 1024 * 1024) z.restrictionsXml = { entry: rh[0], bytes: (await ExtractionCore.readEntry(z.read, rh[0])).bytes };
+                }
+                var first = z.restrictionsXml ? ProvenanceAppVersions.firstInstallFromRestrictions(z.restrictionsXml.bytes, pkg, ProvenanceAndroidLogs.abxParse) : null;
+                if (first) info = Object.assign({}, info, { firstInstallMs: first, firstInstallPath: z.restrictionsXml.entry.name });
+            }
             known[pkg] = info ? deepFreeze(Object.assign({ path: z.packagesXml.entry.name }, info)) : null;
         }
         return known[pkg];
@@ -3605,7 +3740,7 @@
         var out = [];
         var fmtU = ProvenanceCore.formatUtc;
         var pkgNote = function (p) {
-            return [p.installMs ? 'installerad ' + fmtU(p.installMs) : '', p.updateMs ? 'uppdaterad ' + fmtU(p.updateMs) : ''].filter(Boolean).join(', ');
+            return [p.installMs ? 'installerad ' + fmtU(p.installMs) : '', p.firstInstallMs ? 'först installerad ' + fmtU(p.firstInstallMs) + ' enligt package-restrictions.xml' : '', p.updateMs ? 'uppdaterad ' + fmtU(p.updateMs) : ''].filter(Boolean).join(', ');
         };
         // Snapchat när filen kommer från Snapchat eller Snapchats register har händelser i fönstren.
         var snapRelevant = !!(input.file.snapchatCache || input.file.memory || ProvenanceSnapchat.isSnapchatApp(input.file.importer) ||
@@ -3618,8 +3753,10 @@
             } else {
                 var ua = input.file.memory && ProvenanceAppVersions.fromUserAgent(input.file.memory.userAgent);
                 var wua = !ua && input.snapchatWindowUa ? ProvenanceAppVersions.fromUserAgent(input.snapchatWindowUa.ua) : null;
-                if (ua) out.push({ app: 'Snapchat', version: ua, source: 'memories.db, snap_create_user_agent', note: 'versionen när snappen togs' });
-                else if (wua) out.push({ app: 'Snapchat', version: wua, source: 'memories.db, snap_create_user_agent', note: 'versionen när en sparad snap i fönstret togs, ' + fmtU(input.snapchatWindowUa.ms) });
+                // snap_create_user_agent skrivs om när raden hämtas från servern (labbet 2026-11-16: 14.30 blev 14.32 efter en
+                // uppdatering), så den säger vilken app som skrev raden, inte säkert vilken som tog snappen.
+                if (ua) out.push({ app: 'Snapchat', version: ua, source: 'memories.db, snap_create_user_agent', note: 'appen som skrev raden i Memories; den skrivs om när Memories hämtas från servern' });
+                else if (wua) out.push({ app: 'Snapchat', version: wua, source: 'memories.db, snap_create_user_agent', note: 'appen som skrev en rad i Memories i fönstret, ' + fmtU(input.snapchatWindowUa.ms) });
                 var sp = await androidPackage('com.snapchat.android');
                 if (sp) out.push({ app: 'Snapchat', versionCode: sp.versionCode, source: sp.path, note: pkgNote(sp) });
                 if (!ua && !wua && !sp) out.push({ app: 'Snapchat', source: 'varken packages.xml eller en sparad snap med version finns i ' + Z() });
@@ -3909,19 +4046,30 @@
             if (bySnap) {
                 var snapBy = { algo: 'snap', value: bySnap.id };
                 var withFile = [], without = [];
-                bySnap.memories.forEach(function (x) {
-                    if (x.entry) withFile.push(x.entry);
-                    else if (x.entries) withFile = withFile.concat(x.entries);
+                for (var bi = 0; bi < bySnap.memories.length; bi++) {
+                    var x = bySnap.memories[bi];
+                    // Kopior av posterna: listan över memories_media sparas och används igen.
+                    var own = (x.entry ? [x.entry] : x.entries || []).map(function (e) { return Object.assign({}, e, { _why: 'snappens fil i Snapchats mapp memories_media' }); });
+                    // Android: kopiorna i galleriet, som har en rad i bildbiblioteket och ger mest underlag.
+                    var copies = z.platform === 'Android' ? await snapGalleryCopies(x.memory) : [];
+                    var files = own.concat(copies.map(function (c) { return Object.assign({}, c.entry, { _why: c.why, _library: true }); }));
+                    if (files.length) withFile = withFile.concat(files);
                     else without.push(x);
-                });
+                }
                 var many = bySnap.memories.length > 1;
                 var what = many ? 'Id:t är en Memories-post med ' + bySnap.memories.length + ' snaps' : 'Id:t är en sparad snap i Snapchats Memories';
-                if (withFile.length === 1 && !without.length) { await assessEntry(withFile[0], windowMs, priorQueries, { foundBy: snapBy }); return; }
+                // En fil i galleriet bedöms genom sin rad i bildbiblioteket, andra som poster i zippen.
+                var assessFound = function (e, prior) {
+                    if (e._library) { $('filename').value = ExtractionCore.baseName(e.name); return run({ filename: ExtractionCore.baseName(e.name), path: e.name, entry: e }); }
+                    return assessEntry(e, Number($('window').value) * 60000, prior, { foundBy: snapBy });
+                };
+                // Bara snappens egen fil bedöms direkt; en kopia i galleriet visas i listan med skälet, som undersökaren ska se.
+                if (withFile.length === 1 && !without.length && !withFile[0]._library) { await assessFound(withFile[0], priorQueries); return; }
                 if (withFile.length) {
                     await knownContainers(withFile.map(function (e) { return e.name; }));
                     renderEntryHits(withFile, what + '. ' + (without.length ? without.length + ' av dem har ingen fil i ' + Z() + ' och står inte i listan. ' : '') +
-                        (withFile.length === bySnap.memories.length - without.length ? 'Välj vilken som ska bedömas.' : 'Flera filer har samma storlek som en av dem i memories_media. Välj vilken som ska bedömas.'),
-                        function (e) { guarded(function () { return assessEntry(e, Number($('window').value) * 60000, [], { foundBy: snapBy }); }); });
+                        'Filerna hör till ' + (many ? 'snapparna' : 'snappen') + ' av skälet i kolumnen Varför. Välj vilken som ska bedömas.',
+                        function (e) { guarded(function () { return assessFound(e, []); }); });
                     return;
                 }
                 await renderMemoriesWithoutFile(without, what + ', men ' + (many ? 'ingen av dem har någon fil' : 'filen finns inte') + ' i ' + Z() + '.');
@@ -3942,11 +4090,12 @@
         var place = placeOpts();
         var box = $(opts.target || 'hits');
         var timed = opts.centerMs != null;
+        var why = hits.some(function (e) { return e._why; });
         box.innerHTML = (opts.heading ? '<p class="hit-note">' + escapeHtml(opts.heading) + '</p>' : '') +
-            '<table><thead><tr><th class="thumb-col">Bild</th><th>Sökväg i ' + Z() + '</th><th>Plats</th><th>Storlek</th><th>Ändrad (filsystemet)</th>' + (timed ? '<th>Från tidpunkten</th>' : '') + '<th>CRC32</th></tr></thead><tbody>' +
+            '<table><thead><tr><th class="thumb-col">Bild</th><th>Sökväg i ' + Z() + '</th><th>Plats</th>' + (why ? '<th>Varför</th>' : '') + '<th>Storlek</th><th>Ändrad (filsystemet)</th>' + (timed ? '<th>Från tidpunkten</th>' : '') + '<th>CRC32</th></tr></thead><tbody>' +
             hits.map(function (e, i) {
                 var cls = ProvenanceCopies.classifyPath(e.name, place);
-                return '<tr class="pick" data-i="' + i + '"><td class="thumb-col"><span class="row-thumb empty"></span></td><td class="path">' + escapeHtml(e.name) + '</td><td>' + escapeHtml(cls.label) + '</td><td>' + escapeHtml(ExtractionCore.sizeText(e.size)) + '</td><td>' + escapeHtml(ExtractionCore.entryTime(e)) + '</td>' +
+                return '<tr class="pick" data-i="' + i + '"><td class="thumb-col"><span class="row-thumb empty"></span></td><td class="path">' + escapeHtml(e.name) + '</td><td>' + escapeHtml(cls.label) + '</td>' + (why ? '<td>' + escapeHtml(e._why || '') + '</td>' : '') + '<td>' + escapeHtml(ExtractionCore.sizeText(e.size)) + '</td><td>' + escapeHtml(ExtractionCore.entryTime(e)) + '</td>' +
                     (timed ? '<td>' + escapeHtml(e._ms != null ? ProvenanceMedia.deltaText(e._ms - opts.centerMs) + (e._assumed ? ' (zon okänd)' : '') : '') + '</td>' : '') + '<td class="path">' + escapeHtml(ExtractionCore.hex(e.crc32)) + '</td></tr>';
             }).join('') + '</tbody></table>';
         box.classList.remove('display-none');

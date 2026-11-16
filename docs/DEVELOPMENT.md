@@ -664,9 +664,62 @@ iOS 26.4.1, steg L38; Samsung med Android 16, steg L40), med en sparad snap per 
   och medelskillnaden räknas (`grayDiff`). Under `SAME_IMAGE_DIFF` (4 av 255) räknas de som samma bild, och
   skillnaden står i texten och i faktorn *Snapchat igång*. I labbet: samma bild 0,4–2,0, andra bilder av samma
   skärm 16–31. Bara bilder och bara iOS; på Android finns ingen sparad snap som skickats i labbet.
-- Inte provat mot en riktig telefon: video i Memories, My Eyes Only, en Memories-post med flera snaps, äldre
-  Snapchat-versioner på iOS (andra `scdb-NN`), och en snap vars fil bara finns på Snapchats server. Labben i
-  `docs/labbar/` (Snapchat Memories del 1 och 2) är förberedd för det.
+- Inte provat mot en riktig telefon: video i Memories på iOS, My Eyes Only på iOS, en Memories-post med flera snaps,
+  äldre Snapchat-versioner på iOS (andra `scdb-NN`). Labben i `docs/labbar/` (Snapchat Memories del 1 och 2) är
+  förberedd för det. Android är provat i 1.71, se nedan.
+
+#### Snapchat Memories på Android, laborationen 2026-11-16 (1.71)
+
+Labbtelefonen (OnePlus Nord, Android 13, Snapchat 14.32) i två delar, med hela `/data` extraherat efter varje del
+(utom appar, NetHunter-chroot och den låsta användaren 10). Facit: `tests/app/facit/lab-snapchat-memories-oneplus.json`,
+körs med `npm run test:app -- --memories` när zipparna finns.
+
+- **Inställningen Spara till** står i `core.db`, `SnapchatUserProperties` rad `_id` 24 (`textVal`): `MEMORIES`,
+  `MEMORIES_AND_CAMERA_ROLL` eller `CAMERA_ROLL` (värdena står i appen). `row_version` 0 är standardvärdet som aldrig
+  ändrats (Samsung-zippen), `last_updated_time` är när raden skrevs på telefonen: vid en ändring, eller vid
+  inloggningen. Inställningen följer kontot: efter en ominstallation hämtades samma värde och `row_version`.
+  Katalogen `snapchat-android-core` (`save-setting`, `role-save-setting`), `ProvenanceSnapchat.saveSetting`,
+  `snapSaveSetting` i `script.js`, och en rad i *Skapandetid* (`settingText`).
+- **Kopian i galleriet:** med kamerarullen i inställningen lade Snapchat en kopia av varje sparad snap i
+  `DCIM/Snapchat` med `date_added` samma sekund som `create_time` (−0,5 till +0,02 s i labbet). En export ur Memories
+  ger en ny fil senare. `copyKind` skiljer dem (`AUTO_COPY_MS`), och *Skapandetid* säger vilken det är.
+- **Raden hämtad från servern:** efter en ominstallation, och efter en uppdatering, är `create_time` =
+  `snap_capture_time`, och `snap_create_user_agent` är appen som läser raden (14.30 blev 14.32 på samma snaps).
+  `memories_entry.create_time` stod däremot kvar på millisekunden, så `memoryOrigin` tar tiden då snappen sparades
+  därifrån (`savedMs`, `savedFrom: 'entry'`). Protokollet kallar user agent "appen som skrev raden".
+  `memories_entry.source` var 0 på alla poster, också de som hämtats från servern, så den skiljer inte enheterna åt.
+- **Rader ur kamerarullen:** `camera_roll_id` satt betyder att Snapchat lagt in en bild ur galleriet i Memories
+  (också själv, som en "featured story" med `memories_entry_id` featured). Tagningstiden är filens, och ingen kamera
+  är inblandad. På Android 13 är värdet MediaStores `_id`, på Android 16 ett uuid. Sådana rader kopplas aldrig som
+  filens ursprung; en rad med filens `_id` nämns i *Skapandetid* (`importText`).
+- **My Eyes Only:** `memories_entry.is_private` = 1. En snap som flyttas dit får en ny rad med `copy_from_snap_id`,
+  och den gamla får `has_deleted` = 1. Kopian i galleriet ligger kvar okrypterad.
+- **Video exporterad senare** har annan storlek och tid men samma längd: 6,618 s mot 6,609 s i Memories, den
+  automatiska kopian 6,687 s. `linkVideoByDuration` kopplar när en enda video ligger inom `SAME_DURATION_MS` (150 ms),
+  och texten ber undersökaren kontrollera videon. MediaStores `duration` läses i en egen roll, `media-extra`, så att en databas utan kolumnen inte stoppar filens rad.
+- **Avinstallerad app:** `owner_package_name` töms. En fil `DCIM/Snapchat/Snapchat-<tal>.jpg|mp4` räknas då som
+  Snapchats (`isGalleryName`, `file.importerFrom = 'name'`), och typen säger varför.
+- **Loggarna rensas vid avinstallation:** Snapchats 46 rader för kameran (op 26) och övriga ops i appops, och dess
+  8 händelser i usagestats under labben, var borta efter ominstallationen; andra appars rader fanns kvar (alla
+  815 appops-filer skrevs om till en). När appen installerades står i
+  `data/system/users/0/package-restrictions.xml` (`first-install-time`, ABX;
+  `ProvenanceAppVersions.firstInstallFromRestrictions`). Ligger tiden som frågas före den, får *App igång* och
+  *Kamera igång* läget Upplysning med "Loggarna rensade" (`reinstalled` i `timeline-core.js`).
+- **Flera enheter:** Snapchat tillåter flera inloggade enheter (Session Management i Snapchats hjälp). Memories
+  följer kontot, så texterna säger inte "på den här telefonen" om en sparad snap; det gör kamerafaktorn, ur appops.
+- **Sökning på id:** början av ett id räcker (minst åtta tecken, `LIKE … || '%'` i `role-memory-id`). På Android
+  listas också galleriets filer som hör till snappen, med skälet i kolumnen Varför (`snapGalleryCopies`): raden med
+  `camera_roll_id`, kopian samma sekund, en kopia kring tagningen när raden är hämtad från servern, samma bilddata
+  (export) och samma längd (video). En fil i galleriet bedöms genom sin rad i bildbiblioteket.
+- **Meddelanden från kontot på en annan enhet** (samma konto inloggat i Snapchat för webben, två bilder ur filer och två
+  snaps med datorns kamera till en vän): de står i telefonens `arroyo.db` med kontot som `sender_id` och
+  `created_on_device` 0. Telefonens egna har 1. Efter ominstallationen var flaggan 0 och `local_message_references`
+  tom på alla meddelanden, också telefonens, så 0 från tiden före installationen säger inget (`sentFrom` i
+  `snapchat.js`, med `ctx.installMs` ur `package-restrictions.xml`). En snap tagen i Snapchat för webben har länken
+  `…/web/mobile-landing.html?ref=web_snap_context` i `message_content` (`device: 'web'`); bilderna ur filer hade
+  `content_type` 2 och ingen länk. Ett meddelande från kontot är skickat (▲) i tidslinjen oavsett enhet. Webben kan
+  inte spara i Memories. Queries visar enheten i kolumnen `skapat_pa`.
+- Inte kopplat: en skickad snap ur Memories (P09, P10) har inget id från Memories i meddelandet i `arroyo.db`.
 
 #### Signal på Android (beta, 1.37)
 

@@ -3,9 +3,9 @@
 // och var versionen står:
 //   iOS: appens Info.plist i paketet (Bundle/Application/<GUID>/<App>.app), alltså den version som
 //        var installerad när extraktionen gjordes.
-//   Android: data/system/packages.xml (versionskod, installerad och uppdaterad), Snapchats Memories
-//        (snap_create_user_agent: versionen när snappen togs) och Signals logg (versionen på raden
-//        närmast T).
+//   Android: data/system/packages.xml (versionskod, installerad och uppdaterad), package-restrictions.xml
+//        (när appen först installerades), Snapchats Memories (snap_create_user_agent: appen som skrev raden,
+//        som skrivs om när Memories hämtas från servern) och Signals logg (versionen på raden närmast T).
 // Ingen DOM, ingen zip. Testas i Node.
 (function (root) {
     'use strict';
@@ -75,6 +75,33 @@
         return null;
     }
 
+    // När appen först installerades för användaren: first-install-time i data/system/users/<n>/package-restrictions.xml
+    // (Android 13, kontrollerat 2026-11-16). Den sattes om när appen installerades igen. ABX eller text, som packages.xml.
+    function firstInstallFromRestrictions(bytes, pkg, abxParse) {
+        if (!bytes || bytes.length < 4) return null;
+        if (bytes[0] === 0x41 && bytes[1] === 0x42 && bytes[2] === 0x58 && bytes[3] === 0) {
+            if (!abxParse) return null;
+            var doc;
+            try { doc = abxParse(bytes); } catch (e) { return null; }
+            var found = null;
+            (function walk(el) {
+                if (found || !el) return;
+                if (el.name === 'pkg' && el.attrs && el.attrs.name === pkg) { found = el; return; }
+                (el.children || []).forEach(walk);
+            })(doc);
+            return found ? msOf(found.attrs['first-install-time']) : null;
+        }
+        var text = typeof TextDecoder !== 'undefined' ? new TextDecoder('utf-8').decode(bytes) : Buffer.from(bytes).toString('utf8');
+        var re = /<pkg\s([^>]*)>/g;
+        var m;
+        while ((m = re.exec(text))) {
+            var attrs = {};
+            m[1].replace(/([\w:.-]+)="([^"]*)"/g, function (all, k, v) { attrs[k] = v; return all; });
+            if (attrs.name === pkg) return msOf(attrs['first-install-time']);
+        }
+        return null;
+    }
+
     // "Snapchat/14.30.0.54 (AC2003; Android 13#…)" -> "14.30.0.54".
     function fromUserAgent(ua) {
         var m = /Snapchat\/(\d+(?:\.\d+)+)/.exec(String(ua || ''));
@@ -112,7 +139,7 @@
         }).join('. ') + ((list || []).length ? '.' : '');
     }
 
-    var api = { fromInfoPlist: fromInfoPlist, fromPackagesXml: fromPackagesXml, fromUserAgent: fromUserAgent, signalLogVersions: signalLogVersions, fromSignalLog: fromSignalLog, text: text };
+    var api = { fromInfoPlist: fromInfoPlist, fromPackagesXml: fromPackagesXml, firstInstallFromRestrictions: firstInstallFromRestrictions, fromUserAgent: fromUserAgent, signalLogVersions: signalLogVersions, fromSignalLog: fromSignalLog, text: text };
     if (typeof module !== 'undefined' && module.exports) module.exports = api;
     else root.ProvenanceAppVersions = api;
 })(typeof window !== 'undefined' ? window : this);

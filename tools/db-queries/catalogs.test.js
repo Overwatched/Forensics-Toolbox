@@ -123,7 +123,7 @@ test('Signal på Android (beta): krypterade databaser, en rekommenderad query pe
 });
 
 test('snapchat på Android (beta): en rekommenderad query per databas, undertext på alla, tider i millisekunder, sökvägar under appens datamapp', () => {
-    assert.deepStrictEqual(snapchatAndroid.databases.map((d) => d.id), ['snapchat-android-cache', 'snapchat-android-arroyo', 'snapchat-android-friends', 'snapchat-android-notifications', 'snapchat-android-memories', 'snapchat-android-journal']);
+    assert.deepStrictEqual(snapchatAndroid.databases.map((d) => d.id), ['snapchat-android-cache', 'snapchat-android-arroyo', 'snapchat-android-friends', 'snapchat-android-notifications', 'snapchat-android-memories', 'snapchat-android-core', 'snapchat-android-journal']);
     for (const db of snapchatAndroid.databases) {
         checkGroup(db.id, db.queries, (q) => q.subtitle);
         assert.ok(db.paths.every((p) => p.startsWith('data/data/com.snapchat.android/databases/')), db.id + ': sökvägarna');
@@ -137,6 +137,12 @@ test('snapchat på Android (beta): en rekommenderad query per databas, undertext
     assert.deepStrictEqual(roles('snapchat-android-cache'), ['cache-key', 'cache-window', 'coverage']);
     assert.deepStrictEqual(roles('snapchat-android-arroyo'), ['conversation-members', 'coverage', 'messages']);
     assert.deepStrictEqual(roles('snapchat-android-memories'), ['coverage', 'memories', 'memory-id', 'memory-size']);
+    assert.deepStrictEqual(roles('snapchat-android-core'), ['save-setting']);
+    // Ursprunget och My Eyes Only i alla tre rollerna för Memories, och id:t söks på sin början.
+    for (const q of snapchatAndroid.databases.find((d) => d.id === 'snapchat-android-memories').queries.filter((x) => /^memor/.test(x.role || ''))) {
+        for (const f of ['cameraRollId', 'copyFrom', 'deleted', 'private']) assert.ok(q.fields[f], q.id + ': ' + f);
+    }
+    assert.match(snapchatAndroid.databases.find((d) => d.id === 'snapchat-android-memories').queries.find((q) => q.role === 'memory-id').sql, /LIKE lower\('\{\{snapId\}\}'\) \|\| '%'/);
     // Samma fältkarta som iOS för cache och meddelanden, så att snapchat.js kan läsa båda.
     const iosCache = snapchat.databases.find((d) => d.id === 'snapchat-cache').queries.find((q) => q.role === 'cache-window');
     const andCache = snapchatAndroid.databases.find((d) => d.id === 'snapchat-android-cache').queries.find((q) => q.role === 'cache-window');
@@ -220,7 +226,7 @@ test('rollqueryer för Härkomst: dolda, med epoch och fältkarta som stämmer m
     assert.deepStrictEqual(roles(snapchat.databases.find((d) => d.id === 'snapchat-arroyo').queries), ['conversation-members', 'coverage', 'messages']);
     assert.deepStrictEqual(roles(snapchat.databases.find((d) => d.id === 'snapchat-friends').queries), ['friends']);
     assert.deepStrictEqual(roles(snapchat.databases.find((d) => d.id === 'snapchat-notifications').queries), ['coverage', 'notifications']);
-    assert.deepStrictEqual(roles(android.categories.find((c) => c.id === 'mediastore').queries), ['file', 'neighbours']);
+    assert.deepStrictEqual(roles(android.categories.find((c) => c.id === 'mediastore').queries), ['file', 'media-extra', 'neighbours']);
 });
 
 // Extraktion: databaserna hittas i en zip på sökvägarna i "paths". De skrivs utan inledande /

@@ -125,6 +125,13 @@
         [/time_zone/i, function () { return 'Europe/Stockholm'; }],
         [/user_agent/i, function () { return 'Snapchat/14.30.0.54 (AC2003; Android 13#f8fb74d040#33; gzip) V/MUSHROOM'; }],
         [/^(external_id|media_id|memories_entry_id)$/i, function (i) { return '4669844f-2375-6c4f-5de8-1489444859' + (10 + i); }],
+        [/^has_deleted$/i, function () { return '0'; }],
+        [/^copy_from_snap_id$/i, function () { return ''; }],
+        [/^camera_roll_id$/i, function (i) { return i === 1 ? '1000000100' : ''; }],
+        // Snapchat på Android (core.db): inställningen Spara till och Memories i Preferences
+        [/^varde$/i, pick(['MEMORIES_AND_CAMERA_ROLL', '1', '0'])],
+        [/^row_version$/i, function () { return '8'; }],
+        [/^nyckel$/i, pick(['MEMORIES~HAS_SEEN_MEMORIES_SAVING_OPTIONS_PROMPT', 'MEMORIES~MY_EYES_ONLY_INVALID_UNLOCK_COUNT', 'MEMORIES~MEMORIES_LAST_ENTER_TIME_STAMP'])],
         // Snapchat Memories på iOS (scdb-27.sqlite3, gallery.encrypteddb)
         [/^(ZSNAPID|ZENTRYID|snap_id)$/i, function (i) { return '7C2E91A4-5B3D-4F60-8A17-2D9E4B6C0F' + (11 + i); }],
         [/^(ZMEDIATYPE|ZCAMERAFRONTFACING)$/, function () { return '0'; }],

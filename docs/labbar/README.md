@@ -28,22 +28,27 @@ Skriv lösenkoden till My Eyes Only i labbens anteckningar, inte här.
 
 `snapchat-memories-oneplus-del1.json` (14 steg, P01–P14) och `snapchat-memories-oneplus-del2.json` (7 steg, Q01–Q07) är samma labb för en enda telefon. Bilden och videon som skickas ur Memories går till en vän i Snapchat, ett annat konto. Skriv vännens användarnamn i anteckningarna. Det som bara går med två telefoner (att den andra öppnar snappen) är borttaget.
 
-### Extraktion med root (inte provad)
+Genomförd 2026-11-16 med hela `/data` extraherat efter varje del. Det som kom fram är byggt i 1.71 och står i `docs/DEVELOPMENT.md` (Snapchat Memories på Android). Facit: `tests/app/facit/lab-snapchat-memories-oneplus.json`.
 
-Toolbox läser en zip. Ta bara med det labben behöver: en egen telefon har mycket annat i `/data`, och det ska inte med. Gör extraktionen efter steget med flygplansläge, med Snapchat stängt.
+### Extraktion med root (provad 2026-11-16)
+
+Toolbox läser en zip. Ta bara med det labben behöver: en egen telefon har mycket annat i `/data`, och det ska inte med. Gör extraktionen efter steget med flygplansläge, med Snapchat stängt. På labbtelefonen, som inte har något annat, gick det också att ta hela `/data` utom appar, NetHunter-chrooten, `data/user/0` (samma mapp som `data/data`) och den låsta användaren 10 (`data/*/10`): ungefär 5 GB på 5 minuter.
 
 1. Kontrollera roten och vilket paket bildbiblioteket (MediaStore) har:
    `adb shell su -c id` och `adb shell su -c 'ls /data/data' | grep providers.media`
+
+   Android skriver appops var 15:e minut och usagestats var 20–30:e. Skriv dem till disk direkt, annars saknas slutet av labben:
+   `adb shell dumpsys usagestats flush` och `adb shell cmd appops write-settings`
 2. Hämta delarna som ett tar-arkiv, med filernas tider. Byt paketnamnet mot det som steg 1 visade:
    ```
-   adb exec-out "su -c 'tar -cf - -C / data/data/com.snapchat.android data/data/com.google.android.providers.media.module/databases data/system/usagestats data/system/appops/discrete data/media/0/DCIM/Snapchat data/media/0/DCIM/Camera'" > oneplus-del1.tar
+   adb exec-out "su -c 'tar -cf - -C / data/data/com.snapchat.android data/data/com.google.android.providers.media.module/databases data/system_ce/0/usagestats data/system/appops/discrete data/media/0/DCIM/Snapchat data/media/0/DCIM/Camera'" > oneplus-del1.tar
    ```
    `DCIM/Camera` behövs för klockbilderna. Den har också telefonens andra bilder; ta bort de andra ur arkivet om de inte ska med.
 3. Gör om arkivet till en zip utan att packa upp det. `tar` på macOS och Windows 10 och senare är bsdtar, som skriver filernas ändringstid i zippens UT-fält:
    ```
    tar -cf oneplus-del1.zip --format zip @oneplus-del1.tar
    ```
-   Kontrollerat 2026-11-16 med bsdtar 3.5.3 på macOS: tiderna kom med på sekunden.
+   Kontrollerat 2026-11-16 med bsdtar 3.5.3 på macOS: tiderna kom med på sekunden. Med hela `/data` stannade bsdtar 3.8.9 på telefonens långa namn i `data/system_ce/10` ("Redundant 'L' headers"); utan användare 10 i arkivet händer det inte.
 4. Räkna SHA-256 på tar-arkivet och zippen och skriv dem i anteckningarna. Spara loggen från Laboration bredvid zippen.
 
 Extraktionerna och loggen hör inte hemma i repot.

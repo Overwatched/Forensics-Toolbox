@@ -220,12 +220,12 @@ test('Android: Memories ger tagning och sparning, kopplas till filen i galleriet
     assert.strictEqual(out.memory.deltaMs, 805);
     const cap = out.events.find((e) => e.kind === 'snap-memory' && e.captured && e.isFile);
     assert.strictEqual(cap.ms, 1793404131479);
-    assert.strictEqual(cap.plain, 'Den bedömda bilden tas med Snapchats frontkamera på den här telefonen');
+    assert.strictEqual(cap.plain, 'Den bedömda bilden tas med Snapchats frontkamera');
     assert.match(cap.text, /1080×1920/);
     assert.strictEqual(cap.bold, true);
     const vid = out.events.find((e) => e.kind === 'snap-memory' && e.captured && e.video);
     assert.strictEqual(vid.isFile, false);
-    assert.strictEqual(vid.plain, 'En video spelas in med Snapchats bakre kamera på den här telefonen');
+    assert.strictEqual(vid.plain, 'En video spelas in med Snapchats bakre kamera');
     assert.match(vid.text, /inspelningens slut/);
     assert.match(vid.text, /5,4 s/);
     assert.strictEqual(out.events.filter((e) => e.kind === 'snap-memory' && !e.captured).length, 2);
@@ -365,4 +365,96 @@ test('video i Memories: på Android är tagningstiden inspelningens slut, på iO
     assert.match(android.text, /video tagen med bakre kameran \(snap_capture_time, inspelningens slut\)/);
     const ios = snap.build({ memories: [mem], memoryColumns: { captured: 'ZCAPTURETIMEUTC', created: 'ZCREATETIMEUTC', front: 'ZCAMERAFRONTFACING', type: 'ZMEDIATYPE' } }).events.find((e) => e.captured);
     assert.match(ios.text, /video tagen med bakre kameran \(ZCAPTURETIMEUTC, start eller slut är inte kontrollerat på iOS\)/);
+});
+
+// Labbet 2026-11-16 (Android 13, Snapchat 14.32): inställningen, radernas ursprung, kopian i galleriet och videons längd.
+test('inställningen Spara till: värdet i ord, och row_version 0 är standardvärdet', () => {
+    const lab = snap.saveSetting({ value: 'MEMORIES_AND_CAMERA_ROLL', version: 8, updatedMs: 1793399506269 });
+    assert.deepStrictEqual([lab.label, lab.copies, lab.changed, lab.updatedMs], ['Memories och kamerarullen', true, true, 1793399506269]);
+    const samsung = snap.saveSetting({ value: 'MEMORIES', version: 0, updatedMs: 1764851126269 });
+    assert.deepStrictEqual([samsung.label, samsung.copies, samsung.changed], ['bara Memories', false, false]);
+    assert.strictEqual(snap.saveSetting({ value: 'CAMERA_ROLL', version: 3 }).label, 'bara kamerarullen');
+    assert.strictEqual(snap.saveSetting({ value: 'NYTT_VARDE', version: 1 }).known, false);
+    assert.strictEqual(snap.saveSetting(null), null);
+});
+
+const T0 = Date.parse('2026-11-16T20:46:12.512Z');
+const local = { id: '0b09cbdd-c180-5e94-9b13-6f9856d2b313', mediaType: 0, capturedMs: T0, createdMs: T0 + 3945, front: 0 };
+const synced = Object.assign({}, local, { createdMs: T0 });
+const roll = { id: '26753c8c-0000-0000-0000-000000000000', mediaType: 0, capturedMs: Date.parse('2026-11-16T20:46:16Z'), createdMs: Date.parse('2026-11-16T21:12:58.591Z'), cameraRollId: '1000000100', entryId: 'featured' };
+
+test('ursprunget: sparad på telefonen, hämtad från servern eller en bild ur kamerarullen', () => {
+    assert.strictEqual(snap.memoryOrigin(local).local, true);
+    assert.strictEqual(snap.memoryOrigin(synced).synced, true);
+    const r = snap.memoryOrigin(roll);
+    assert.deepStrictEqual([r.cameraRoll, r.mediaStoreId, r.featured, r.local], [true, 1000000100, true, false]);
+    // Android 16 (Samsung): camera_roll_id är ett uuid, inte MediaStores _id.
+    assert.strictEqual(snap.memoryOrigin(Object.assign({}, roll, { cameraRollId: '7b373245-1dc5-4f8e-aaf9-1c90112a72d5' })).mediaStoreId, null);
+    const meo = snap.memoryOrigin({ capturedMs: 1, createdMs: 2, private: 1, copyFrom: '20da2619-695a-157f-6bc2-6f38423f79c5' });
+    assert.deepStrictEqual([meo.private, meo.copyOf], [true, '20da2619-695a-157f-6bc2-6f38423f79c5']);
+});
+
+test('kopian i galleriet: samma sekund som snappen sparades är den automatiska, senare är en export', () => {
+    const added = (iso) => Date.parse(iso);
+    assert.strictEqual(snap.copyKind(local, added('2026-11-16T20:46:16Z')), 'auto');
+    assert.strictEqual(snap.copyKind(local, added('2026-11-16T20:51:48Z')), 'export');
+    // En rad från servern har ingen sparad-tid, så det går inte att säga.
+    assert.strictEqual(snap.copyKind(synced, added('2026-11-16T20:46:16Z')), null);
+    // En rad ur kamerarullen är inte filens ursprung och kopplas inte på tiden.
+    assert.strictEqual(snap.linkMemory([roll], { addedMs: roll.createdMs, video: false }), null);
+    assert.strictEqual(snap.linkMemory([local, roll], { addedMs: added('2026-11-16T20:46:16Z'), video: false }).row, local);
+});
+
+test('en exporterad video kopplas på längden när en enda video har den', () => {
+    const v1 = { id: 'a', mediaType: 1, duration: 6.609 };
+    const v2 = { id: 'b', mediaType: 1, duration: 5.41 };
+    const hit = snap.linkVideoByDuration([v1, v2], { durationMs: 6618 });
+    assert.deepStrictEqual([hit.row, hit.by, hit.diffMs], [v1, 'duration', 9]);
+    assert.strictEqual(snap.linkVideoByDuration([v1, Object.assign({}, v1, { id: 'c' })], { durationMs: 6618 }), null);
+    assert.strictEqual(snap.linkVideoByDuration([v1], { durationMs: 6900 }), null);
+});
+
+test('Snapchats namn i galleriet, som säger att filen är Snapchats när owner_package_name är tom', () => {
+    assert.ok(snap.isGalleryName('DCIM/Snapchat/', 'Snapchat-962738617.jpg'));
+    assert.ok(snap.isGalleryName('DCIM/Snapchat', 'Snapchat-254258240.mp4'));
+    assert.ok(!snap.isGalleryName('DCIM/Camera/', 'Snapchat-962738617.jpg'));
+    assert.ok(!snap.isGalleryName('DCIM/Snapchat/', 'IMG_0001.jpg'));
+});
+
+test('händelserna: en rad från servern får ingen sparad-tid, en bild ur kamerarullen ingen tagning, och ingen mening säger "på den här telefonen"', () => {
+    const ev = snap.build({ memories: [synced, roll, Object.assign({}, local, { id: 'x', private: 1, copyFrom: 'y' })] }).events;
+    assert.strictEqual(ev.filter((e) => e.memoryId === synced.id && !e.captured).length, 0);
+    assert.match(ev.find((e) => e.memoryId === synced.id).text, /hämtad från Snapchats server/);
+    assert.deepStrictEqual(ev.filter((e) => e.memoryId === roll.id).map((e) => [e.captured, e.fromCameraRoll]), [[false, true]]);
+    assert.ok(ev.every((e) => !/den här telefonen/.test(e.plain || '')));
+    assert.match(ev.find((e) => e.memoryId === 'x' && !e.captured).text, /i My Eyes Only/);
+});
+
+test('rad från servern: Memories-postens tid är tiden då snappen sparades, och kopian känns igen på den', () => {
+    const fromServer = Object.assign({}, synced, { entryCreatedMs: T0 + 3949 });
+    const o = snap.memoryOrigin(fromServer);
+    assert.deepStrictEqual([o.synced, o.savedMs, o.savedFrom], [true, T0 + 3949, 'entry']);
+    assert.strictEqual(snap.copyKind(fromServer, Date.parse('2026-11-16T20:46:16Z')), 'auto');
+    const ev = snap.build({ memories: [fromServer] }).events.find((e) => !e.captured);
+    assert.deepStrictEqual([ev.ms, ev.source.column], [T0 + 3949, 'memories_entry.create_time']);
+    assert.strictEqual(snap.linkMemory([fromServer], { addedMs: Date.parse('2026-11-16T20:46:16Z'), video: false }).deltaMs, 3949 - 3488);
+});
+
+test('meddelanden från kontot: den här telefonen, Snapchat för webben, en annan enhet, eller okänt efter en ominstallation', () => {
+    const OWN = 'd57a4e83-bf02-4da2-8fb7-ca65be939d22';
+    const ctx = { accountId: OWN, installMs: Date.parse('2026-11-16T21:12:04Z') };
+    const own = OWN.replace(/-/g, '');
+    const web = Uint8Array.from(len(1, str(4, 'https://www.snapchat.com/web/mobile-landing.html?ref=web_snap_context')));
+    const at = (iso) => Date.parse(iso);
+    assert.strictEqual(snap.sentFrom({ createdOnDevice: 1, createdMs: at('2026-11-16T20:49:01Z') }, own, ctx).device, 'this');
+    assert.strictEqual(snap.sentFrom({ createdOnDevice: 0, createdMs: at('2026-11-16T22:16:10Z'), content: web }, own, ctx).device, 'web');
+    assert.strictEqual(snap.sentFrom({ createdOnDevice: 0, createdMs: at('2026-11-16T22:11:51Z') }, own, ctx).device, 'other');
+    assert.strictEqual(snap.sentFrom({ createdOnDevice: 0, createdMs: at('2026-11-16T20:49:01Z') }, own, ctx).device, 'unknown');
+    assert.strictEqual(snap.sentFrom({ createdOnDevice: 0 }, '3c75669d8b0b4ec1a9f1e3d1c0b2a4f5', ctx).ownAccount, false);
+    // I tidslinjen är ett meddelande från kontot skickat (▲) också när en annan enhet skapade det.
+    const out = snap.build(Object.assign({}, ctx, { messages: [{ conversation: '12a1429e-0000-0000-0000-000000000000', serverId: 15, createdMs: at('2026-11-16T22:16:10Z'), senderId: OWN, createdOnDevice: 0, remoteMediaCount: 1, content: web }] }));
+    const m = out.events.find((e) => e.kind === 'snap-message');
+    assert.deepStrictEqual([m.own, m.device], [true, 'web']);
+    assert.match(m.text, /Snapchat för webben/);
+    assert.match(m.plain, /inte från den här telefonen/);
 });

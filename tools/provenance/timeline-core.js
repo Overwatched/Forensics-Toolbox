@@ -146,14 +146,17 @@
                 reasons.push(rel.indexOf('screenshots') >= 0 ? 'relative_path innehåller Screenshots' : 'filnamnet börjar med Screenshot');
             } else if (importer) {
                 type = 'saved';
-                reasons.push('owner_package_name är ' + importer);
+                reasons.push(file.importerFrom === 'name' ? 'owner_package_name är tom, men filen ligger i DCIM/Snapchat med Snapchats namn (Snapchat-<tal>); så blir det när appen avinstalleras'
+                    : 'owner_package_name är ' + importer);
             }
             if (file.createdFrom === 'date_added') reasons.push('datetaken saknas i MediaStore, så T är date_added');
             if (file.memory) {
                 var mem = file.memory;
+                var synced = mem.origin && mem.origin.synced && mem.savedMs == null;
                 reasons.push('Snapchats Memories har en ' + (mem.video ? 'video' : 'bild') + ' tagen med ' + (mem.front ? 'frontkameran' : 'bakre kameran') + ' ' + formatUtc(mem.capturedMs) +
-                    ' och sparad ' + duration(Math.abs((file.addedMs || file.createdMs) - mem.createdMs)) + ' ' + (mem.createdMs <= (file.addedMs || file.createdMs) ? 'före' : 'efter') + ' filen (' + [memCols(mem).captured, memCols(mem).created, memCols(mem).front].join(', ') + ')' +
-                    (mem.by === 'content' ? '; filen har samma bilddata som snappens fil i Memories' : ''));
+                    (synced ? ', hämtad från Snapchats server' : ' och sparad ' + duration(Math.abs((file.addedMs || file.createdMs) - (mem.savedMs != null ? mem.savedMs : mem.createdMs))) + ' ' + ((mem.savedMs != null ? mem.savedMs : mem.createdMs) <= (file.addedMs || file.createdMs) ? 'före' : 'efter') + ' filen') +
+                    ' (' + [memCols(mem).captured, memCols(mem).created, memCols(mem).front].join(', ') + ')' +
+                    (mem.by === 'content' ? '; filen har samma bilddata som snappens fil i Memories' : mem.by === 'duration' ? '; filen har samma längd som snappens video' : ''));
             }
         } else {
             if (file.chatTemp) {
@@ -837,13 +840,32 @@
             var mAnchor = file.addedMs || file.createdMs;
             var mdiffCap = mAnchor - file.capturedMs;
             var okMem = mdiffCap >= -TOLERANCE_MS && mdiffCap <= 10 * MINUTE;
+            var mo = mem.origin || {};
+            var memSaved = mem.savedMs != null ? mem.savedMs : mem.createdMs;
+            var placeText = mem.anchor === 'cache' ? 'lades i Snapchats cache' : mem.anchor === 'memories' ? 'skrevs i Snapchats mapp memories_media' : 'lades till i galleriet';
+            var linkText = mem.by === 'id' ? ' Filen hör till snappen genom snappens id i cachenyckeln (EXTERNAL_KEY snap-media-…).'
+                : mem.by === 'content' ? ' Filen hör till snappen genom att bilddatan är densamma som i snappens fil i Memories.'
+                    : mem.by === 'size' ? ' Filen hör till snappen genom att den är lika stor som snappens fil enligt memories_media.size, och ingen annan snap har den storleken.'
+                        : mem.by === 'duration' ? ' Filen hör till snappen genom att videon är lika lång (' + Number(mem.duration).toFixed(3).replace('.', ',') + ' s i Memories, ' + mem.durationDiffMs + ' ms skillnad), och ingen annan video i Memories har den längden. Kontrollera videon.' : '';
             items.push({ state: okMem ? 'support' : 'info', text: 'Snapchats Memories: ' + (mem.video ? 'videon spelades in' : 'bilden togs') + ' ' + formatUtc(file.capturedMs) + ' med ' + (mem.front ? 'frontkameran' : 'bakre kameran') +
-                ' och sparades i Memories ' + formatUtc(mem.createdMs) + ', ' + duration(Math.abs(mAnchor - mem.createdMs)) + ' ' + (mem.createdMs <= mAnchor ? 'före' : 'efter') + ' att filen ' + (mem.anchor === 'cache' ? 'lades i Snapchats cache' : mem.anchor === 'memories' ? 'skrevs i Snapchats mapp memories_media' : 'lades till i galleriet') +
-                ' (' + memCols(mem).captured + ', ' + memCols(mem).created + ').' + (mem.by === 'id' ? ' Filen hör till snappen genom snappens id i cachenyckeln (EXTERNAL_KEY snap-media-…).'
-                    : mem.by === 'content' ? ' Filen hör till snappen genom att bilddatan är densamma som i snappens fil i Memories.'
-                        : mem.by === 'size' ? ' Filen hör till snappen genom att den är lika stor som snappens fil enligt memories_media.size, och ingen annan snap har den storleken.' : '') +
-                (mem.video && mem.columns ? ' Tagningstiden för en video: ' + videoTimeText(mem) + ', och inte heller vilket värde ZMEDIATYPE har för video.' : '') + (mem.typeNote ? ' ' + mem.typeNote : '') });
+                (mo.synced && mem.savedMs == null ? '. Raden är hämtad från Snapchats server (' + memCols(mem).created + ' = ' + memCols(mem).captured + '), så när den sparades i Memories står inte här'
+                    : ' och sparades i Memories ' + formatUtc(memSaved) + ', ' + duration(Math.abs(mAnchor - memSaved)) + ' ' + (memSaved <= mAnchor ? 'före' : 'efter') + ' att filen ' + placeText + ' (' + memCols(mem).captured + ', ' +
+                        (mo.synced ? 'memories_entry.create_time: raden är hämtad från Snapchats server, så ' + memCols(mem).created + ' är tagningstiden' : memCols(mem).created) + ')') +
+                '.' + linkText + (mem.video && mem.columns ? ' Tagningstiden för en video: ' + videoTimeText(mem) + ', och inte heller vilket värde ZMEDIATYPE har för video.' : '') + (mem.typeNote ? ' ' + mem.typeNote : '') });
+            // Kopian som Snapchat lägger i galleriet när snappen sparas, eller en export senare, och inställningen som styr det.
+            var setting = input.snapchatSetting || null;
+            if (mem.copy === 'auto') items.push({ state: 'info', text: 'Filen lades till i galleriet samma sekund som snappen sparades: det är kopian Snapchat lägger där när inställningen säger det, inte en export.' +
+                (setting && setting.copies === false ? ' Inställningen är nu ' + setting.label + ', så den har ändrats sedan.' : '') });
+            else if (mem.copy === 'export') items.push({ state: 'info', text: 'Filen lades till i galleriet ' + duration(mAnchor - memSaved) + ' efter att snappen sparades: den exporterades ur Memories senare.' });
+            if (setting) items.push({ state: 'info', text: settingText(setting) });
+            if (mem.meo) items.push({ state: 'info', text: mem.meo.self ? 'Snappen ligger i My Eyes Only (memories_entry.is_private = 1). Kopian i galleriet är inte krypterad.'
+                : 'Snappen flyttades sedan till My Eyes Only (snap ' + String(mem.meo.id).slice(0, 8) + '…, copy_from_snap_id; memories_entry.is_private = 1). Kopian i galleriet är inte krypterad.' });
+            (mem.imports || []).forEach(function (im) { items.push({ state: 'info', text: importText(im) }); });
+            if (input.platform === 'Android' && mem.anchor !== 'cache') items.push({ state: 'info', text: 'Memories följer kontot, som kan vara inloggat på flera enheter. Att snappen togs på den här telefonen visar Kamera igång, inte Memories.' });
+        } else if (input.snapchatSetting && isSnapchatApp(type.importer) && !type.chat) {
+            items.push({ state: 'info', text: settingText(input.snapchatSetting) });
         }
+        (!file.memory ? input.memoryImports || [] : []).forEach(function (im) { items.push({ state: 'info', text: importText(im) }); });
         var scm = type.type === 'snapchat' && file.snapchatCache && file.snapchatCache.messageCreatedMs;
         var inFileName = 'Tiden i filen (' + (ex && isQuickTimeTag(ex.sourceTag) ? 'QuickTime' : 'EXIF') + ')';
         if (ex && ex.takenMs && scm) {
@@ -976,6 +998,19 @@
     // Vad tagningstiden är för en video: på Android inspelningens slut (kontrollerat), på iOS inte kontrollerat.
     function videoTimeText(mem) {
         return mem && mem.columns ? 'om det är inspelningens start eller slut är inte kontrollerat på iOS' : 'inspelningens slut';
+    }
+
+    // Snapchats inställning Spara till, i en mening med källan.
+    function settingText(st) {
+        return 'Snapchats inställning för var sparade snaps hamnar: ' + st.label + ' (core.db, SnapchatUserProperties _id 24 = ' + st.value +
+            (st.version != null ? ', row_version ' + st.version + (st.changed ? ': ändrad från standard' : ': standardvärdet') : '') + (st.updatedMs ? ', raden skrevs ' + formatUtc(st.updatedMs) : '') + ').' +
+            (st.copies ? ' Då får varje sparad snap en kopia i galleriet samma sekund.' : '') + ' Inställningen följer kontot.';
+    }
+
+    // En rad i Memories som Snapchat själv lagt in från kamerarullen, med den här filen (camera_roll_id = filens _id).
+    function importText(im) {
+        return 'Snapchat har lagt in filen i Memories som en egen post ' + formatUtc(im.createdMs) + (im.featured ? ' (en "featured story" som Snapchat sätter ihop)' : '') +
+            ' (memories_snap ' + String(im.id).slice(0, 8) + '…, camera_roll_id ' + im.cameraRollId + '). Den posten är en kopia av filen, inte en tagning.';
     }
 
     // Kolumnerna som Memories tider står i: Androids memories.db, eller det memory-objektet säger (iOS: scdb-27).
@@ -1306,7 +1341,8 @@
             var namedOps = ops.filter(function (e) { return !!e.app; });
             if (namedOps.length) {
                 var f0 = Object.assign({}, appFactor, { id: 'camera', title: 'Skaparappen igång' });
-                f0.items = f0.items.concat([{ state: 'info', text: 'Ingen kameraanvändning av ' + creator + ' är registrerad i ' + namedOps[0].stream + ' kring ' + whenText + '. Filen kan ha tagits emot, valts ur galleriet eller skapats på annat sätt i appen.' }]);
+                f0.items = f0.items.concat([{ state: 'info', text: 'Ingen kameraanvändning av ' + creator + ' är registrerad i ' + namedOps[0].stream + ' kring ' + whenText + '. Filen kan ha tagits emot, valts ur galleriet eller skapats på annat sätt i appen.' +
+                    (file.memory && file.memory.anchor !== 'cache' ? ' En snap i Memories kan också ha tagits på en annan enhet som är inloggad på samma konto.' : '') }]);
                 return f0;
             }
             // En tredjepartsapp med egen kamera ger inga rader för systemkameran.
@@ -1860,7 +1896,8 @@
         var copyAreas = {};
         (input.copies || []).forEach(function (c) { copyAreas[c.area] = c; });
         var mem = type.memory;
-        var memText = mem && file.capturedMs ? 'Enligt Snapchats Memories ' + (mem.video ? 'spelades videon in' : 'togs bilden') + ' med telefonens ' + (mem.front ? 'frontkamera' : 'bakre kamera') + ' ' + formatUtc(file.capturedMs) + ' och sparades ' + duration(Math.abs((file.addedMs || file.createdMs) - mem.createdMs)) + ' innan filen lades till i galleriet.' : null;
+        var memText = mem && file.capturedMs ? 'Enligt Snapchats Memories ' + (mem.video ? 'spelades videon in' : 'togs bilden') + ' med Snapchats ' + (mem.front ? 'frontkamera' : 'bakre kamera') + ' ' + formatUtc(file.capturedMs) +
+            (mem.savedMs == null && mem.origin && mem.origin.synced ? '' : ' och sparades ' + duration(Math.abs((file.addedMs || file.createdMs) - (mem.savedMs != null ? mem.savedMs : mem.createdMs))) + ' ' + ((mem.savedMs != null ? mem.savedMs : mem.createdMs) <= (file.addedMs || file.createdMs) ? 'innan' : 'efter att') + ' filen lades till i galleriet') + '.' : null;
         alt('received', 'Mottagen från någon annan (chatt, AirDrop, nedladdning)',
             [lateDiff != null && lateDiff > LATE_MS ? 'Filen lades till i biblioteket ' + duration(lateDiff) + ' efter att den skapades.' : null,
                 type.type === 'saved' ? 'Skaparappen är ' + appName(type.importer, names) + '.' : null,
@@ -1940,6 +1977,25 @@
         return { lines: lines, notes: notes };
     }
 
+    // Skaparappen installerades på telefonen efter tiden som frågas. Android tar bort en avinstallerad apps rader i appops
+    // och usagestats (labbet 2026-11-16: Snapchats 46 kamerarader och 8 användningsrader var borta efter en ominstallation,
+    // andra appars rader fanns kvar). Då säger det inget att appen eller kameran saknas i loggarna.
+    function reinstalled(input, type, list) {
+        var inst = input.install;
+        var t = input.file.capturedMs || input.file.createdMs;
+        if (!inst || !inst.firstMs || !t || type.importer !== inst.app || t >= inst.firstMs) return;
+        var name = appName(inst.app, input.appNames);
+        var item = { state: 'info', text: name + ' installerades på telefonen ' + formatUtc(inst.firstMs) + ' (first-install-time i package-restrictions.xml), efter ' + (input.file.capturedMs ? 'tagningstiden' : 'tidpunkten') +
+            '. När en app avinstalleras tar Android bort dess rader i appops och usagestats, så loggarna säger inget om ' + name + ' före installationen.' };
+        list.forEach(function (f) {
+            if (!f || f.state === 'support' || f.state === 'na') return;
+            f.state = 'info';
+            f.verdictText = 'Loggarna rensade';
+            f.items = [item].concat(f.items);
+            f.plain = name + ' installerades efter filen, och då tas appens rader i loggarna bort. Att de saknas säger inget.';
+        });
+    }
+
     // ---------- Allt ihop ----------
 
     function build(input) {
@@ -1958,6 +2014,7 @@
             var fScreen = factorScreen(input, events, type);
             var fPos = factorPosition(input, pos, type, wins);
             var fPower = factorPower(input, type);
+            reinstalled(input, type, [fApp, fCam]);
             factors = [fTime].concat(fPower ? [fPower] : [], [fApp, fCam, fScreen, fPos]);
             if (input.signal) factors.push(factorSignal(input, type));
             if (input.whatsapp) factors.push(factorWhatsApp(input, type));

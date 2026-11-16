@@ -330,22 +330,107 @@
         return sum / a.length;
     }
 
+    // Inställningen Spara till (core.db, SnapchatUserProperties _id 24, textVal), med värdena som står i appen.
+    // Med kamerarullen lägger Snapchat en kopia av varje sparad snap i DCIM/Snapchat samma sekund (labbet 2026-11-16).
+    var SAVE_SETTING = {
+        MEMORIES: { label: 'bara Memories', copies: false },
+        MEMORIES_AND_CAMERA_ROLL: { label: 'Memories och kamerarullen', copies: true },
+        CAMERA_ROLL: { label: 'bara kamerarullen', copies: true },
+    };
+
+    // row: { value, version, updatedMs } ur rollen save-setting. row_version 0 är standardvärdet, som aldrig ändrats.
+    function saveSetting(row) {
+        if (!row || row.value == null || row.value === '') return null;
+        var value = String(row.value).toUpperCase();
+        var known = SAVE_SETTING[value] || null;
+        var version = row.version == null || row.version === '' ? null : Number(row.version);
+        return { value: value, known: !!known, label: known ? known.label : 'okänt värde ' + value, copies: known ? known.copies : null,
+            version: version, changed: version == null ? null : version > 0, updatedMs: row.updatedMs == null ? null : Number(row.updatedMs) };
+    }
+
+    // Varifrån en rad i Memories kommer (Android, labbet 2026-11-16):
+    //   cameraRoll: camera_roll_id är satt. Snapchat har lagt in en bild ur kamerarullen; tiden är filens, inte en tagning.
+    //               På Android 13 är värdet MediaStores _id, på Android 16 ett uuid.
+    //   synced:     create_time = snap_capture_time. Raden är hämtad från servern (efter en ominstallation eller uppdatering).
+    //               När snappen sparades står då bara i Memories-posten: memories_entry.create_time stod kvar på millisekunden.
+    //   local:      raden skrevs när snappen sparades på telefonen; create_time är då den tiden.
+    // savedMs är tiden då snappen sparades, ur raden eller posten, eller null.
+    function memoryOrigin(m) {
+        if (!m) return null;
+        var roll = m.cameraRollId != null && String(m.cameraRollId) !== '';
+        var synced = !roll && m.createdMs != null && m.capturedMs != null && Number(m.createdMs) === Number(m.capturedMs);
+        var entryMs = m.entryCreatedMs != null && isFinite(m.entryCreatedMs) && m.entryCreatedMs > 0 ? Number(m.entryCreatedMs) : null;
+        return { cameraRoll: roll, mediaStoreId: roll && /^\d+$/.test(String(m.cameraRollId)) ? Number(m.cameraRollId) : null,
+            featured: String(m.entryId || '').toLowerCase() === 'featured', synced: synced, local: !roll && !synced,
+            savedMs: roll ? null : synced ? entryMs : m.createdMs, savedFrom: roll ? null : synced ? (entryMs ? 'entry' : null) : 'snap',
+            deleted: Number(m.deleted) === 1, private: Number(m.private) === 1, copyOf: m.copyFrom || null };
+    }
+
+    // En fil i galleriet som hör till en snap som sparades på telefonen: kopian Snapchat lägger där när snappen sparas
+    // ('auto', samma sekund; date_added har hela sekunder) eller en export ur Memories senare ('export'). null annars.
+    var AUTO_COPY_MS = 2000;
+    function copyKind(m, addedMs) {
+        var o = memoryOrigin(m);
+        if (!o || o.savedMs == null || addedMs == null) return null;
+        var d = addedMs - o.savedMs;
+        return Math.abs(d) <= AUTO_COPY_MS ? 'auto' : d > AUTO_COPY_MS ? 'export' : null;
+    }
+
+    // Snapchats egna filer i galleriet på Android: DCIM/Snapchat/Snapchat-<tal>.jpg eller .mp4. När appen avinstalleras
+    // töms owner_package_name i MediaStore (labbet 2026-11-16), och då är mappen och namnet det som säger att filen är Snapchats.
+    function isGalleryName(relativePath, filename) {
+        return /^DCIM\/Snapchat\/?$/i.test(String(relativePath || '')) && /^Snapchat-\d+\.(jpe?g|mp4)$/i.test(String(filename || ''));
+    }
+
+    // En video i galleriet som exporterats ur Memories har en annan storlek och tid än snappen, men samma längd:
+    // 6,618 s mot 6,609 s i labbet (den automatiska kopian 6,687 s). Kopplingen görs bara när en enda video har
+    // längden inom gränsen. file: { durationMs }. -> { row, by: 'duration', diffMs } eller null.
+    var SAME_DURATION_MS = 150;
+    function linkVideoByDuration(memories, file) {
+        if (!file || file.durationMs == null || !(file.durationMs > 0)) return null;
+        var hits = (memories || []).filter(function (m) {
+            return Number(m.mediaType) === 1 && !memoryOrigin(m).cameraRoll && m.duration != null && Math.abs(Number(m.duration) * 1000 - file.durationMs) <= SAME_DURATION_MS;
+        });
+        return hits.length === 1 ? { row: hits[0], deltaMs: null, by: 'duration', diffMs: Math.round(Math.abs(Number(hits[0].duration) * 1000 - file.durationMs)) } : null;
+    }
+
     // Den sparade snap i Memories som hör till en fil i galleriet: samma sort (bild eller video)
     // och sparad inom MEMORY_LINK_MS från att filen lades till (Snapchat exporterar direkt när
-    // användaren sparar). file: { addedMs, createdMs, video }. Närmast i tid vinner.
+    // användaren sparar). file: { addedMs, createdMs, video }. Närmast i tid vinner. En rad ur
+    // kamerarullen är en kopia av en fil i galleriet, inte dess ursprung, och räknas inte.
     function linkMemory(memories, file) {
         if (!file || !(memories || []).length) return null;
         var anchor = file.addedMs != null ? file.addedMs : file.createdMs;
         if (anchor == null) return null;
         var best = null;
         memories.forEach(function (m) {
-            if (m.createdMs == null) return;
+            var o = memoryOrigin(m);
+            // Tiden då snappen sparades: raden, eller Memories-posten när raden är hämtad från servern.
+            var saved = o.savedMs != null ? o.savedMs : m.createdMs;
+            if (saved == null || o.cameraRoll) return;
             if (file.video != null && (Number(m.mediaType) === 1) !== !!file.video) return;
-            var d = Math.abs(m.createdMs - anchor);
+            var d = Math.abs(saved - anchor);
             if (d > MEMORY_LINK_MS) return;
             if (!best || d < best.deltaMs) best = { row: m, deltaMs: d };
         });
         return best;
+    }
+
+    // Var ett meddelande från kontot skapades (Android, labbet 2026-11-16, samma konto inloggat på telefonen och i Snapchat
+    // för webben): created_on_device 1 är den här telefonen. 0 med kontot som avsändare är en annan inloggad enhet, men
+    // också varje meddelande från tiden före en ominstallation: då nollställdes flaggan på alla. ctx.installMs (när appen
+    // installerades) skiljer dem. En snap tagen i Snapchat för webben har länken ...?ref=web_snap_context i meddelandet.
+    // -> { ownAccount, device: 'this' | 'web' | 'other' | 'unknown' | null, text, plain }
+    function sentFrom(m, senderId, ctx) {
+        var flag = m.createdOnDevice == null ? null : Number(m.createdOnDevice) === 1;
+        var ownAccount = flag === true || isOwn(senderId, ctx);
+        if (!ownAccount) return { ownAccount: false, device: null, text: '', plain: '' };
+        if (flag === null) return { ownAccount: true, device: null, text: 'den här telefonen', plain: 'från den här telefonen' };
+        if (flag) return { ownAccount: true, device: 'this', text: 'skapat på den här telefonen, created_on_device 1', plain: 'från den här telefonen' };
+        var web = strings(m.content).some(function (x) { return /ref=web_snap_context/.test(x); });
+        if (web) return { ownAccount: true, device: 'web', text: 'skapat i Snapchat för webben: created_on_device 0 och web_snap_context i meddelandet', plain: 'från kontot i Snapchat för webben, inte från den här telefonen' };
+        if (ctx.installMs && m.createdMs != null && m.createdMs < ctx.installMs) return { ownAccount: true, device: 'unknown', text: 'created_on_device 0, men appen installerades om efter meddelandet, så var det skapades går inte att se', plain: 'från kontot (från vilken enhet går inte att se: appen installerades om efteråt)' };
+        return { ownAccount: true, device: 'other', text: 'skapat på en annan enhet inloggad på kontot: created_on_device 0', plain: 'från kontot på en annan enhet, inte från den här telefonen' };
     }
 
     // ctx: { cacheRows, messages, friends: { idHex: { username, displayName } }, notifications,
@@ -458,22 +543,23 @@
             var info = messageInfo(m.content);
             // Android har avsändaren i klartext (sender_id) och flaggan created_on_device; iOS bara protobufen.
             var senderId = hexId(m.senderId) || info.senderId;
-            var own = m.createdOnDevice != null ? Number(m.createdOnDevice) === 1 : isOwn(senderId, ctx);
+            var dev = sentFrom(m, senderId, ctx);
+            var own = dev.ownAccount;
             var who = whoText(senderId, ctx);
             var isFile = !!(link && link.message === m);
             var conv = String(m.conversation || '').slice(0, 8) + '…';
             var isMedia = info.hasMediaKey || (m.remoteMediaCount != null && Number(m.remoteMediaCount) > 0);
             var kindText = isMedia ? 'snap eller bild' : 'meddelande';
             var saved = m.isSaved != null && Number(m.isSaved) === 1;
-            var text = 'Snapchat: ' + kindText + ' ' + m.serverId + ' i konversation ' + conv + ', avsändare ' + who + (own ? ' (den här telefonen)' : '') + (saved ? ', sparad i chatten' : '');
-            var plain = own
-                ? (isMedia ? 'En snap eller bild skickas från den här telefonen i Snapchat' : 'Ett meddelande skickas från den här telefonen i Snapchat')
-                : (isMedia ? 'En snap eller bild skickas till den här telefonen i Snapchat från ' + who : 'Ett meddelande skickas till den här telefonen i Snapchat från ' + who);
-            if (isFile) { text = 'Den bedömda filen: ' + text; plain = own ? 'Den bedömda filen skickas från den här telefonen i Snapchat' : 'Den bedömda filen skickas till den här telefonen i Snapchat från ' + who; }
+            var text = 'Snapchat: ' + kindText + ' ' + m.serverId + ' i konversation ' + conv + ', avsändare ' + who + (dev.text ? ' (' + dev.text + ')' : '') + (saved ? ', sparad i chatten' : '');
+            var thing = isMedia ? 'En snap eller bild' : 'Ett meddelande';
+            var plain = own ? thing + ' skickas ' + dev.plain + ' i Snapchat'
+                : thing + ' skickas till den här telefonen i Snapchat från ' + who;
+            if (isFile) { text = 'Den bedömda filen: ' + text; plain = own ? 'Den bedömda filen skickas ' + dev.plain + ' i Snapchat' : 'Den bedömda filen skickas till den här telefonen i Snapchat från ' + who; }
             // En skickad snap ger både en cacherad (med mottagaren) och ett meddelande inom några sekunder: en mening räcker.
             else if (own && m.createdMs != null && sentAt.some(function (t) { return Math.abs(t - m.createdMs) <= 5000; })) plain = null;
-            var senderSource = Object.assign({}, srcMsg, { column: m.senderId ? 'creation_timestamp; avsändare ur sender_id, created_on_device' : 'creation_timestamp; avsändare ur message_content (protobuf, fält 2 → 1)' });
-            if (m.createdMs != null) events.push({ ms: m.createdMs, kind: 'snap-message', lane: 'snapchat', bold: isFile, isFile: isFile, own: own, senderId: senderId, hasMediaKey: isMedia, saved: saved,
+            var senderSource = Object.assign({}, srcMsg, { column: m.senderId ? 'creation_timestamp; avsändare ur sender_id, created_on_device' + (dev.device === 'web' ? ', web_snap_context i message_content' : '') : 'creation_timestamp; avsändare ur message_content (protobuf, fält 2 → 1)' });
+            if (m.createdMs != null) events.push({ ms: m.createdMs, kind: 'snap-message', lane: 'snapchat', bold: isFile, isFile: isFile, own: own, device: dev.device, senderId: senderId, hasMediaKey: isMedia, saved: saved,
                 conversation: m.conversation, serverId: m.serverId, app: app, text: text, plain: plain, source: senderSource });
             if (m.readMs != null) {
                 events.push({ ms: m.readMs, kind: 'snap-read', lane: 'snapchat', isFile: isFile, own: own, conversation: m.conversation, serverId: m.serverId, app: app,
@@ -494,24 +580,39 @@
 
         // Memories säger när en snap togs, med vilken kamera, och när den sparades, på Android (memories.db) och
         // iOS (scdb-27). Den som hör till den bedömda filen blir fet.
+        // Memories följer kontot, och kontot kan vara inloggat på flera enheter: att snappen togs på den här telefonen
+        // visar kameraloggen, inte Memories. Därför säger meningarna inte "på den här telefonen".
         (ctx.memories || []).forEach(function (m) {
             var video = Number(m.mediaType) === 1;
             var front = Number(m.front) === 1;
             var cam = front ? 'frontkamera' : 'bakre kamera';
             var isFile = !!(memory && memory.row === m);
             var noun = video ? 'video' : 'bild';
+            var o = ctx.memoryColumns ? { local: true } : memoryOrigin(m);
+            var tail = (o.private ? ', i My Eyes Only' : '') + (o.deleted ? ', borttagen ur Memories (has_deleted)' : '') + (o.copyOf ? ', kopia av snap ' + String(o.copyOf).slice(0, 8) + '…' : '');
             var common = { kind: 'snap-memory', lane: 'snapchat', app: app, isFile: isFile, bold: isFile, video: video, front: front, memoryId: m.id, latitude: m.latitude, longitude: m.longitude };
+            if (o.cameraRoll) {
+                // En bild ur kamerarullen som Snapchat lagt i Memories: tiden är filens, och ingen kamera är inblandad.
+                if (m.createdMs != null) events.push(Object.assign({}, common, { ms: m.createdMs, captured: false, fromCameraRoll: true,
+                    text: 'Snapchat Memories: en ' + noun + ' ur kamerarullen läggs i Memories (camera_roll_id ' + m.cameraRollId + (o.featured ? ', memories_entry_id featured' : '') + ')' + tail,
+                    plain: null, source: Object.assign({}, srcMem, { column: memCols.created + ', camera_roll_id' }) }));
+                return;
+            }
             if (m.capturedMs != null) {
                 events.push(Object.assign({}, common, { ms: m.capturedMs, captured: true,
-                    text: 'Snapchat Memories: ' + noun + ' tagen med ' + cam + 'n (' + memCols.captured + (video ? (ctx.memoryColumns ? ', start eller slut är inte kontrollerat på iOS' : ', inspelningens slut') : '') + ')' + (m.width && m.height ? ', ' + m.width + '×' + m.height : '') + (video && m.duration ? ', ' + Number(m.duration).toFixed(1).replace('.', ',') + ' s' : '') + (Number(m.hasLocation) === 1 ? ', med position' : ''),
-                    plain: (isFile ? 'Den bedömda ' + noun + 'en ' : 'En ' + noun + ' ') + (video ? 'spelas in' : 'tas') + ' med Snapchats ' + cam + ' på den här telefonen',
+                    text: 'Snapchat Memories: ' + noun + ' tagen med ' + cam + 'n (' + memCols.captured + (video ? (ctx.memoryColumns ? ', start eller slut är inte kontrollerat på iOS' : ', inspelningens slut') : '') + ')' + (m.width && m.height ? ', ' + m.width + '×' + m.height : '') + (video && m.duration ? ', ' + Number(m.duration).toFixed(1).replace('.', ',') + ' s' : '') + (Number(m.hasLocation) === 1 ? ', med position' : '') +
+                        (o.synced ? ', raden hämtad från Snapchats server (' + memCols.created + ' = ' + memCols.captured + ')' : '') + tail,
+                    plain: (isFile ? 'Den bedömda ' + noun + 'en ' : 'En ' + noun + ' ') + (video ? 'spelas in' : 'tas') + ' med Snapchats ' + cam,
                     source: Object.assign({}, srcMem, { column: memCols.captured + ', ' + memCols.front + ', ' + memCols.type }) }));
             }
-            if (m.createdMs != null) {
-                events.push(Object.assign({}, common, { ms: m.createdMs, captured: false,
-                    text: 'Snapchat Memories: ' + noun + 'en sparas i Memories (' + memCols.created + ')' + (m.zone ? ', tidszon ' + m.zone : ''),
-                    plain: isFile ? 'Den sparas i Snapchats Memories' : 'Den sparas i Snapchats Memories',
-                    source: Object.assign({}, srcMem, { column: memCols.created }) }));
+            // En rad från servern har ingen egen sparad-tid (create_time är tagningstiden); Memories-postens tid står kvar.
+            var savedMs = o.savedMs !== undefined ? o.savedMs : m.createdMs;
+            if (savedMs != null) {
+                var col = o.savedFrom === 'entry' ? 'memories_entry.create_time' : memCols.created;
+                events.push(Object.assign({}, common, { ms: savedMs, captured: false,
+                    text: 'Snapchat Memories: ' + noun + 'en sparas i Memories (' + col + ')' + (m.zone ? ', tidszon ' + m.zone : '') + tail,
+                    plain: o.copyOf && o.private ? 'Den flyttas till My Eyes Only' : 'Den sparas i Snapchats Memories',
+                    source: Object.assign({}, srcMem, { column: col }) }));
             }
         });
 
@@ -544,6 +645,8 @@
 
     var api = {
         PICABOO: PICABOO, ANDROID: ANDROID, appId: appId, isSnapchatApp: isSnapchatApp, JOURNAL: JOURNAL, linkMemory: linkMemory, hexId: hexId,
+        SAVE_SETTING: SAVE_SETTING, saveSetting: saveSetting, memoryOrigin: memoryOrigin, copyKind: copyKind, AUTO_COPY_MS: AUTO_COPY_MS,
+        linkVideoByDuration: linkVideoByDuration, SAME_DURATION_MS: SAME_DURATION_MS, isGalleryName: isGalleryName, sentFrom: sentFrom,
         memoryCipher: memoryCipher, unpad: unpad, grayDiff: grayDiff, SAME_IMAGE_DIFF: SAME_IMAGE_DIFF, jpegCore: jpegCore, sameBytes: sameBytes,
         CONTEXT: CONTEXT, contextInfo: contextInfo, parseExternalKey: parseExternalKey,
         fields: fields, senderId: senderId, hasMediaKey: hasMediaKey, strings: strings, flatStrings: flatStrings, friendNames: friendNames, messageInfo: messageInfo,

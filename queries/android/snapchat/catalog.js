@@ -126,20 +126,20 @@ window.SNAPCHAT_ANDROID_CATALOG = {
       "paths": [
         "data/data/com.snapchat.android/databases/arroyo.db"
       ],
-      "source": "Kontrollerad mot labbtelefon (Android 13, Snapchat 14.30.0.54). Samma tabell conversation_message som på iOS, men med kolumnerna sender_id, content_type (0 media, 1 text), created_on_device, is_saved, is_viewed_by_user och remote_media_count. sender_id är samma uuid som Friend.userId i main.db. Raderade och visade snaps försvinner ur tabellen.",
+      "source": "Kontrollerad mot labbtelefon (Android 13, Snapchat 14.30.0.54). Samma tabell conversation_message som på iOS, men med kolumnerna sender_id, content_type (0 snap, 1 text, 2 bild skickad ur en fil från Snapchat för webben), created_on_device, is_saved, is_viewed_by_user och remote_media_count. sender_id är samma uuid som Friend.userId i main.db. Raderade och visade snaps försvinner ur tabellen. Kontrollerat 2026-11-16 (Snapchat 14.32, samma konto inloggat på telefonen och i Snapchat för webben): created_on_device är 1 för det som skapades på telefonen och 0 för det som skickades från webben. Efter en ominstallation var created_on_device 0 och local_message_references tom på alla meddelanden, också de som skickats från telefonen. En snap tagen med kameran i Snapchat för webben har länken https://www.snapchat.com/web/mobile-landing.html?ref=web_snap_context i message_content.",
       "queries": [
         {
           "id": "messages",
           "title": "Meddelanden i tidsspann",
-          "subtitle": "Visar meddelanden och snaps inom tidsspannet med skickad och läst tid, konversation, meddelandenummer, avsändare, om det skapades på telefonen, om det är media och om det sparades i chatten.",
+          "subtitle": "Visar meddelanden och snaps inom tidsspannet med skickad och läst tid, konversation, meddelandenummer, avsändare, var det skapades, om det är media och om det sparades i chatten. created_on_device 1 är den här telefonen. 0 från det egna kontot är en annan inloggad enhet, eller ett meddelande från tiden före en ominstallation. En snap från Snapchat för webben känns igen på web_snap_context i meddelandet.",
           "recommended": true,
           "timeEpoch": "unix-ms",
           "params": [
             "timeStart",
             "timeEnd"
           ],
-          "returns": "skickad, läst, konversation, meddelandenummer, avsändar-id, skapad på telefonen, innehållstyp, media, sparad, UTC",
-          "sql": "SELECT\n  datetime(creation_timestamp / 1000, 'unixepoch', 'localtime') AS skickad_lokal,\n  datetime(read_timestamp / 1000, 'unixepoch', 'localtime') AS last_lokal,\n  client_conversation_id,\n  server_message_id,\n  client_message_id,\n  sender_id,\n  created_on_device,\n  content_type,\n  remote_media_count,\n  is_saved,\n  message_state_type,\n  datetime(creation_timestamp / 1000, 'unixepoch') AS skickad_utc\nFROM conversation_message\nWHERE creation_timestamp BETWEEN {{unixMsStart}} AND {{unixMsEnd}}\nORDER BY creation_timestamp;",
+          "returns": "skickad, läst, konversation, meddelandenummer, avsändar-id, skapad på telefonen, skapat på, innehållstyp, media, sparad, UTC",
+          "sql": "SELECT\n  datetime(creation_timestamp / 1000, 'unixepoch', 'localtime') AS skickad_lokal,\n  datetime(read_timestamp / 1000, 'unixepoch', 'localtime') AS last_lokal,\n  client_conversation_id,\n  server_message_id,\n  client_message_id,\n  sender_id,\n  created_on_device,\n  CASE\n    WHEN created_on_device = 1 THEN 'den här telefonen'\n    WHEN instr(message_content, CAST('ref=web_snap_context' AS BLOB)) > 0 THEN 'Snapchat för webben'\n    ELSE ''\n  END AS skapat_pa,\n  content_type,\n  remote_media_count,\n  is_saved,\n  message_state_type,\n  datetime(creation_timestamp / 1000, 'unixepoch') AS skickad_utc\nFROM conversation_message\nWHERE creation_timestamp BETWEEN {{unixMsStart}} AND {{unixMsEnd}}\nORDER BY creation_timestamp;",
           "chat": {
             "thread": "client_conversation_id",
             "message": "client_message_id"
@@ -466,30 +466,30 @@ window.SNAPCHAT_ANDROID_CATALOG = {
       "paths": [
         "data/data/com.snapchat.android/databases/memories.db"
       ],
-      "source": "Kontrollerad mot labbtelefon (Android 13, Snapchat 14.30.0.54): snap_capture_time stämde på millisekunden med kameraloggen i appops; för video är det inspelningens slut. media_type 0 = bild, 1 = video. front_facing 1 = frontkameran. En bild som sparas till kamerarullen får en rad i MediaStore (owner_package_name com.snapchat.android) med date_added strax efter create_time. En fil i memories_media har samma storlek som memories_media.size (media_id = memories_snap.media_id); en bild som exporterats till galleriet har samma bilddata som filen, med EXIF lagt till (kontrollerat 2026-11-16, Android 16).",
+      "source": "Kontrollerad mot labbtelefon (Android 13, Snapchat 14.30.0.54): snap_capture_time stämde på millisekunden med kameraloggen i appops; för video är det inspelningens slut. media_type 0 = bild, 1 = video. front_facing 1 = frontkameran. En bild som sparas till kamerarullen får en rad i MediaStore (owner_package_name com.snapchat.android) med date_added strax efter create_time. En fil i memories_media har samma storlek som memories_media.size (media_id = memories_snap.media_id); en bild som exporterats till galleriet har samma bilddata som filen, med EXIF lagt till (kontrollerat 2026-11-16, Android 16). Kontrollerat 2026-11-16 (Android 13, Snapchat 14.32, en laboration i två delar): när raden hämtas från Snapchats server, efter en ominstallation eller en uppdatering, är create_time samma som snap_capture_time, och snap_create_user_agent är appen som läser raden, inte den som tog snappen. En rad med camera_roll_id är en bild ur kamerarullen som Snapchat lagt in i Memories (på Android 13 är värdet MediaStores _id, på Android 16 ett uuid); dess tid är filens. memories_entry.is_private = 1 är My Eyes Only; en snap som flyttas dit får en ny rad med copy_from_snap_id, och den gamla får has_deleted = 1. memories_entry.create_time stod kvar på millisekunden efter ominstallationen, medan memories_snap.create_time blev tagningstiden.",
       "queries": [
         {
           "id": "snaps",
           "title": "Sparade snaps i tidsspann",
-          "subtitle": "Visar snaps som togs eller sparades i Memories inom tidsspannet: tagen, sparad, bild eller video, fram- eller bakkamera, mått, längd, tidszon, position och vilken Snapchat-version som skapade dem.",
+          "subtitle": "Visar snaps som togs eller sparades i Memories inom tidsspannet: tagen, sparad, ursprung, My Eyes Only, bild eller video, kamera, mått, längd, tidszon och position. Ursprunget säger om raden sparades på telefonen, hämtades från servern (då är sparad samma som tagen) eller är en bild ur kamerarullen. Memories-postens tid (memories_entry.create_time) står kvar när raden hämtas från servern, och är då tiden då snappen sparades.",
           "recommended": true,
           "timeEpoch": "unix-ms",
           "params": [
             "timeStart",
             "timeEnd"
           ],
-          "returns": "tagen, sparad, typ, frontkamera, bredd, höjd, längd, tidszon, position, user agent, id, UTC",
-          "sql": "SELECT\n  datetime(snap_capture_time / 1000, 'unixepoch', 'localtime') AS tagen_lokal,\n  datetime(create_time / 1000, 'unixepoch', 'localtime') AS sparad_lokal,\n  media_type,\n  front_facing,\n  width,\n  height,\n  duration,\n  time_zone_id,\n  has_location,\n  latitude,\n  longitude,\n  has_overlay_image,\n  snap_create_user_agent,\n  _id,\n  datetime(snap_capture_time / 1000, 'unixepoch') AS tagen_utc\nFROM memories_snap\nWHERE snap_capture_time BETWEEN {{unixMsStart}} AND {{unixMsEnd}}\n   OR create_time BETWEEN {{unixMsStart}} AND {{unixMsEnd}}\nORDER BY snap_capture_time;"
+          "returns": "tagen, sparad, Memories-posten skapad, ursprung, My Eyes Only, raderad, kopia av, camera_roll_id, typ, frontkamera, bredd, höjd, längd, tidszon, position, user agent, id, Memories-id, UTC",
+          "sql": "SELECT\n  datetime(s.snap_capture_time / 1000, 'unixepoch', 'localtime') AS tagen_lokal,\n  datetime(s.create_time / 1000, 'unixepoch', 'localtime') AS sparad_lokal,\n  datetime(e.create_time / 1000, 'unixepoch', 'localtime') AS posten_skapad_lokal,\n  CASE\n    WHEN s.camera_roll_id IS NOT NULL AND s.camera_roll_id <> '' THEN 'ur kamerarullen (camera_roll_id)'\n    WHEN s.create_time = s.snap_capture_time THEN 'hämtad från servern (create_time = snap_capture_time)'\n    ELSE 'sparad på telefonen'\n  END AS ursprung,\n  CASE WHEN e.is_private = 1 THEN 'ja' ELSE '' END AS my_eyes_only,\n  s.has_deleted,\n  s.copy_from_snap_id,\n  s.camera_roll_id,\n  s.media_type,\n  s.front_facing,\n  s.width,\n  s.height,\n  s.duration,\n  s.time_zone_id,\n  s.has_location,\n  s.latitude,\n  s.longitude,\n  s.has_overlay_image,\n  s.snap_create_user_agent,\n  s._id,\n  s.memories_entry_id,\n  datetime(s.snap_capture_time / 1000, 'unixepoch') AS tagen_utc\nFROM memories_snap s\nLEFT JOIN memories_entry e ON e._id = s.memories_entry_id\nWHERE s.snap_capture_time BETWEEN {{unixMsStart}} AND {{unixMsEnd}}\n   OR s.create_time BETWEEN {{unixMsStart}} AND {{unixMsEnd}}\nORDER BY s.snap_capture_time;"
         },
         {
           "id": "by-snap-id",
           "title": "Sök på snap-id",
-          "subtitle": "Visar den sparade snap som har id:t, som _id, media_id, Memories-id (memories_entry_id) eller external_id. Skiftläget spelar ingen roll.",
+          "subtitle": "Visar de sparade snaps vars _id, media_id, Memories-id (memories_entry_id) eller external_id börjar med det som skrivs. Början räcker, till exempel de första åtta tecknen. Skiftläget spelar ingen roll. Memories-postens tid (memories_entry.create_time) står kvar när raden hämtas från servern, och är då tiden då snappen sparades.",
           "params": [
             "snapId"
           ],
-          "returns": "tagen, sparad, typ, frontkamera, bredd, höjd, längd, tidszon, position, user agent, id, UTC, media-id, Memories-id",
-          "sql": "SELECT\n  datetime(snap_capture_time / 1000, 'unixepoch', 'localtime') AS tagen_lokal,\n  datetime(create_time / 1000, 'unixepoch', 'localtime') AS sparad_lokal,\n  media_type,\n  front_facing,\n  width,\n  height,\n  duration,\n  time_zone_id,\n  has_location,\n  latitude,\n  longitude,\n  has_overlay_image,\n  snap_create_user_agent,\n  _id,\n  media_id,\n  memories_entry_id,\n  datetime(snap_capture_time / 1000, 'unixepoch') AS tagen_utc\nFROM memories_snap\nWHERE lower(_id) = lower('{{snapId}}')\n   OR lower(media_id) = lower('{{snapId}}')\n   OR lower(memories_entry_id) = lower('{{snapId}}')\n   OR lower(external_id) = lower('{{snapId}}')\nORDER BY snap_capture_time;"
+          "returns": "tagen, sparad, Memories-posten skapad, ursprung, My Eyes Only, raderad, kopia av, camera_roll_id, typ, frontkamera, bredd, höjd, längd, tidszon, position, user agent, id, media-id, Memories-id, UTC",
+          "sql": "SELECT\n  datetime(s.snap_capture_time / 1000, 'unixepoch', 'localtime') AS tagen_lokal,\n  datetime(s.create_time / 1000, 'unixepoch', 'localtime') AS sparad_lokal,\n  datetime(e.create_time / 1000, 'unixepoch', 'localtime') AS posten_skapad_lokal,\n  CASE\n    WHEN s.camera_roll_id IS NOT NULL AND s.camera_roll_id <> '' THEN 'ur kamerarullen (camera_roll_id)'\n    WHEN s.create_time = s.snap_capture_time THEN 'hämtad från servern (create_time = snap_capture_time)'\n    ELSE 'sparad på telefonen'\n  END AS ursprung,\n  CASE WHEN e.is_private = 1 THEN 'ja' ELSE '' END AS my_eyes_only,\n  s.has_deleted,\n  s.copy_from_snap_id,\n  s.camera_roll_id,\n  s.media_type,\n  s.front_facing,\n  s.width,\n  s.height,\n  s.duration,\n  s.time_zone_id,\n  s.has_location,\n  s.latitude,\n  s.longitude,\n  s.has_overlay_image,\n  s.snap_create_user_agent,\n  s._id,\n  s.media_id,\n  s.memories_entry_id,\n  datetime(s.snap_capture_time / 1000, 'unixepoch') AS tagen_utc\nFROM memories_snap s\nLEFT JOIN memories_entry e ON e._id = s.memories_entry_id\nWHERE lower(s._id) LIKE lower('{{snapId}}') || '%'\n   OR lower(s.media_id) LIKE lower('{{snapId}}') || '%'\n   OR lower(s.memories_entry_id) LIKE lower('{{snapId}}') || '%'\n   OR lower(s.external_id) LIKE lower('{{snapId}}') || '%'\nORDER BY s.snap_capture_time;"
         },
         {
           "id": "tables",
@@ -529,16 +529,21 @@ window.SNAPCHAT_ANDROID_CATALOG = {
             "userAgent": "snap_create_user_agent",
             "externalId": "external_id",
             "entryId": "memories_entry_id",
-            "mediaSize": "media_size"
+            "mediaSize": "media_size",
+            "cameraRollId": "camera_roll_id",
+            "copyFrom": "copy_from_snap_id",
+            "deleted": "has_deleted",
+            "private": "is_private",
+            "entryCreated": "entry_create_time"
           },
-          "sql": "SELECT\n  s._id,\n  s.media_id,\n  s.media_type,\n  s.create_time,\n  s.snap_capture_time,\n  s.time_zone_id,\n  s.width,\n  s.height,\n  s.duration,\n  s.front_facing,\n  s.has_location,\n  s.latitude,\n  s.longitude,\n  s.has_overlay_image,\n  s.snap_create_user_agent,\n  s.external_id,\n  s.memories_entry_id,\n  m.size AS media_size\nFROM memories_snap s\nLEFT JOIN memories_media m ON m._id = s.media_id\nWHERE s.snap_capture_time BETWEEN {{unixMsStart}} AND {{unixMsEnd}}\n   OR s.create_time BETWEEN {{unixMsStart}} AND {{unixMsEnd}}\nORDER BY s.snap_capture_time;"
+          "sql": "SELECT\n  s._id,\n  s.media_id,\n  s.media_type,\n  s.create_time,\n  s.snap_capture_time,\n  s.time_zone_id,\n  s.width,\n  s.height,\n  s.duration,\n  s.front_facing,\n  s.has_location,\n  s.latitude,\n  s.longitude,\n  s.has_overlay_image,\n  s.snap_create_user_agent,\n  s.external_id,\n  s.memories_entry_id,\n  s.camera_roll_id,\n  s.copy_from_snap_id,\n  s.has_deleted,\n  e.is_private,\n  e.create_time AS entry_create_time,\n  m.size AS media_size\nFROM memories_snap s\nLEFT JOIN memories_media m ON m._id = s.media_id\nLEFT JOIN memories_entry e ON e._id = s.memories_entry_id\nWHERE s.snap_capture_time BETWEEN {{unixMsStart}} AND {{unixMsEnd}}\n   OR s.create_time BETWEEN {{unixMsStart}} AND {{unixMsEnd}}\nORDER BY s.snap_capture_time;"
         },
         {
           "id": "role-memory-id",
           "hidden": true,
           "role": "memory-id",
           "title": "Härkomst: en sparad snap efter id",
-          "description": "Används av Härkomst. Den sparade snap som har id:t (_id, media_id, memories_entry_id eller external_id).",
+          "description": "Används av Härkomst. De sparade snaps vars id börjar med det som skrivits (_id, media_id, memories_entry_id eller external_id), med ursprung och My Eyes Only.",
           "params": [
             "snapId"
           ],
@@ -561,9 +566,14 @@ window.SNAPCHAT_ANDROID_CATALOG = {
             "userAgent": "snap_create_user_agent",
             "externalId": "external_id",
             "entryId": "memories_entry_id",
-            "mediaSize": "media_size"
+            "mediaSize": "media_size",
+            "cameraRollId": "camera_roll_id",
+            "copyFrom": "copy_from_snap_id",
+            "deleted": "has_deleted",
+            "private": "is_private",
+            "entryCreated": "entry_create_time"
           },
-          "sql": "SELECT\n  s._id,\n  s.media_id,\n  s.media_type,\n  s.create_time,\n  s.snap_capture_time,\n  s.time_zone_id,\n  s.width,\n  s.height,\n  s.duration,\n  s.front_facing,\n  s.has_location,\n  s.latitude,\n  s.longitude,\n  s.has_overlay_image,\n  s.snap_create_user_agent,\n  s.external_id,\n  s.memories_entry_id,\n  m.size AS media_size\nFROM memories_snap s\nLEFT JOIN memories_media m ON m._id = s.media_id\nWHERE lower(s._id) = lower('{{snapId}}')\n   OR lower(s.media_id) = lower('{{snapId}}')\n   OR lower(s.memories_entry_id) = lower('{{snapId}}')\n   OR lower(s.external_id) = lower('{{snapId}}')\nORDER BY s.snap_capture_time;"
+          "sql": "SELECT\n  s._id,\n  s.media_id,\n  s.media_type,\n  s.create_time,\n  s.snap_capture_time,\n  s.time_zone_id,\n  s.width,\n  s.height,\n  s.duration,\n  s.front_facing,\n  s.has_location,\n  s.latitude,\n  s.longitude,\n  s.has_overlay_image,\n  s.snap_create_user_agent,\n  s.external_id,\n  s.memories_entry_id,\n  s.camera_roll_id,\n  s.copy_from_snap_id,\n  s.has_deleted,\n  e.is_private,\n  e.create_time AS entry_create_time,\n  m.size AS media_size\nFROM memories_snap s\nLEFT JOIN memories_media m ON m._id = s.media_id\nLEFT JOIN memories_entry e ON e._id = s.memories_entry_id\nWHERE lower(s._id) LIKE lower('{{snapId}}') || '%'\n   OR lower(s.media_id) LIKE lower('{{snapId}}') || '%'\n   OR lower(s.memories_entry_id) LIKE lower('{{snapId}}') || '%'\n   OR lower(s.external_id) LIKE lower('{{snapId}}') || '%'\nORDER BY s.snap_capture_time;"
         },
         {
           "id": "role-memory-size",
@@ -593,9 +603,14 @@ window.SNAPCHAT_ANDROID_CATALOG = {
             "userAgent": "snap_create_user_agent",
             "externalId": "external_id",
             "entryId": "memories_entry_id",
-            "mediaSize": "media_size"
+            "mediaSize": "media_size",
+            "cameraRollId": "camera_roll_id",
+            "copyFrom": "copy_from_snap_id",
+            "deleted": "has_deleted",
+            "private": "is_private",
+            "entryCreated": "entry_create_time"
           },
-          "sql": "SELECT\n  s._id,\n  s.media_id,\n  s.media_type,\n  s.create_time,\n  s.snap_capture_time,\n  s.time_zone_id,\n  s.width,\n  s.height,\n  s.duration,\n  s.front_facing,\n  s.has_location,\n  s.latitude,\n  s.longitude,\n  s.has_overlay_image,\n  s.snap_create_user_agent,\n  s.external_id,\n  s.memories_entry_id,\n  m.size AS media_size\nFROM memories_snap s\nLEFT JOIN memories_media m ON m._id = s.media_id\nWHERE m.size = {{mediaSize}}\nORDER BY s.snap_capture_time;"
+          "sql": "SELECT\n  s._id,\n  s.media_id,\n  s.media_type,\n  s.create_time,\n  s.snap_capture_time,\n  s.time_zone_id,\n  s.width,\n  s.height,\n  s.duration,\n  s.front_facing,\n  s.has_location,\n  s.latitude,\n  s.longitude,\n  s.has_overlay_image,\n  s.snap_create_user_agent,\n  s.external_id,\n  s.memories_entry_id,\n  s.camera_roll_id,\n  s.copy_from_snap_id,\n  s.has_deleted,\n  e.is_private,\n  e.create_time AS entry_create_time,\n  m.size AS media_size\nFROM memories_snap s\nLEFT JOIN memories_media m ON m._id = s.media_id\nLEFT JOIN memories_entry e ON e._id = s.memories_entry_id\nWHERE m.size = {{mediaSize}}\nORDER BY s.snap_capture_time;"
         },
         {
           "id": "role-coverage",
@@ -610,6 +625,60 @@ window.SNAPCHAT_ANDROID_CATALOG = {
             "rows": "n_rows"
           },
           "sql": "SELECT\n  MIN(create_time) AS first_start,\n  MAX(create_time) AS last_start,\n  COUNT(*) AS n_rows\nFROM memories_snap;"
+        }
+      ]
+    },
+    {
+      "id": "snapchat-android-core",
+      "label": "Android — core.db (Snapchat inställningar)",
+      "blurb": "Kontots inställningar, bland annat var en sparad snap hamnar: bara i Memories, i Memories och kamerarullen, eller bara i kamerarullen.",
+      "dbPathHint": "/data/data/com.snapchat.android/databases/core.db (+ -wal)",
+      "paths": [
+        "data/data/com.snapchat.android/databases/core.db"
+      ],
+      "source": "Kontrollerad mot labbtelefon 2026-11-16 (Android 13, Snapchat 14.32) och en Samsung (Android 16, Snapchat 14.31). SnapchatUserProperties rad _id 24 (textVal) är inställningen Spara till: MEMORIES, MEMORIES_AND_CAMERA_ROLL eller CAMERA_ROLL (värdena står i appen). row_version 0 är standardvärdet som aldrig ändrats; last_updated_time är när raden skrevs på telefonen, vid en ändring eller när kontot loggade in. Inställningen följer kontot: efter en ominstallation hämtades samma värde och row_version från servern. Med MEMORIES_AND_CAMERA_ROLL fick varje sparad snap en kopia i DCIM/Snapchat samma sekund som den sparades.",
+      "queries": [
+        {
+          "id": "save-setting",
+          "title": "Inställning: var sparade snaps hamnar",
+          "subtitle": "Visar inställningen Spara till: bara Memories, Memories och kamerarullen, eller bara kamerarullen. Med kamerarullen lägger Snapchat en kopia av varje sparad snap i galleriet (DCIM/Snapchat) samma sekund som den sparas, utan att användaren exporterar den.",
+          "recommended": true,
+          "params": [],
+          "returns": "värde, i ord, row_version, ändrad från standard, raden skriven (lokal och UTC)",
+          "sql": "SELECT\n  textVal AS varde,\n  CASE textVal\n    WHEN 'MEMORIES' THEN 'bara Memories'\n    WHEN 'MEMORIES_AND_CAMERA_ROLL' THEN 'Memories och kamerarullen'\n    WHEN 'CAMERA_ROLL' THEN 'bara kamerarullen'\n    ELSE 'okänt värde'\n  END AS i_ord,\n  row_version,\n  CASE WHEN row_version > 0 THEN 'ja' ELSE 'nej (standardvärdet)' END AS andrad_fran_standard,\n  datetime(last_updated_time / 1000, 'unixepoch', 'localtime') AS raden_skriven_lokal,\n  datetime(last_updated_time / 1000, 'unixepoch') AS raden_skriven_utc\nFROM SnapchatUserProperties\nWHERE _id = 24;"
+        },
+        {
+          "id": "memories-preferences",
+          "title": "Memories i Preferences",
+          "subtitle": "Visar Snapchats värden för Memories i tabellen Preferences, bland annat om frågan om var snaps sparas har visats (MEMORIES~HAS_SEEN_MEMORIES_SAVING_OPTIONS_PROMPT) och om My Eyes Only har låsts upp med fel kod.",
+          "group": "advanced",
+          "params": [],
+          "returns": "nyckel, värde",
+          "sql": "SELECT\n  key AS nyckel,\n  COALESCE(stringValue, booleanValue, intValue, longValue, floatValue, doubleValue) AS varde\nFROM Preferences\nWHERE key LIKE 'MEMORIES~%'\nORDER BY key;"
+        },
+        {
+          "id": "tables",
+          "title": "Hjälp: tabeller och antal rader",
+          "subtitle": "Listar tabellerna i databasen. Bra för att se om SnapchatUserProperties finns i den här Snapchat-versionen.",
+          "group": "advanced",
+          "params": [],
+          "returns": "tabellnamn",
+          "sql": "SELECT name AS tabell\nFROM sqlite_master\nWHERE type = 'table'\nORDER BY name;"
+        },
+        {
+          "id": "role-save-setting",
+          "hidden": true,
+          "role": "save-setting",
+          "title": "Härkomst: inställningen Spara till",
+          "description": "Används av Härkomst. SnapchatUserProperties rad 24: värdet, row_version och när raden skrevs.",
+          "params": [],
+          "epoch": "unixMs",
+          "fields": {
+            "value": "textVal",
+            "version": "row_version",
+            "updated": "last_updated_time"
+          },
+          "sql": "SELECT\n  textVal,\n  row_version,\n  last_updated_time\nFROM SnapchatUserProperties\nWHERE _id = 24;"
         }
       ]
     },

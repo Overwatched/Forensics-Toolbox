@@ -1,0 +1,134 @@
+{
+  "description": "Facit från laborationen Snapchat Memories på labbtelefonen (OnePlus Nord, Android 13, Snapchat 14.32.0.54, tidszon Europe/Stockholm), 2026-11-16. Del 1 (P01–P14, 21:45:57–21:55:25) sparade snaps i Memories med inställningen Memories och kamerarullen; del 2 (Q01–Q07) avinstallerade Snapchat 22:11:31, installerade det igen och loggade in 22:12:53. Hela /data extraherades efter varje del (zipparna ligger inte i repot). Stegens tider är knapptrycken i Laboration; en tagning ska ligga mellan föregående stegs tryck och stegets eget. Filnamnen och raderna i Memories lästes ur extraktionerna och stämmer med stegen: P02 bild bakre kameran, P03 frontkameran, P04 video, P10 bild exporterad direkt, P11 den första bilden exporterad senare, P12 videon exporterad, P13 bild flyttad till My Eyes Only.",
+  "dir": "Exampleextractions",
+  "zips": {
+    "del1": "Lab-Android-Nord-2026-11-16-del1/del1.zip",
+    "del2": "Lab-Android-Nord-2026-11-16-del2/del2.zip"
+  },
+  "setting": "MEMORIES_AND_CAMERA_ROLL",
+  "reinstalled": "2026-11-16T22:12:04+01:00",
+  "files": [
+    {
+      "zip": "del1",
+      "name": "Snapchat-962738617.jpg",
+      "step": "P02",
+      "what": "Bild med bakre kameran, sparad i Memories: kopian Snapchat lägger i galleriet",
+      "memory": "0b09cbdd",
+      "copy": "auto",
+      "front": false,
+      "capturedBetween": [
+        "2026-11-16T21:45:57.8+01:00",
+        "2026-11-16T21:46:26.8+01:00"
+      ],
+      "imports": [
+        "9025940a"
+      ],
+      "factors": {
+        "app": "support",
+        "camera": "support"
+      }
+    },
+    {
+      "zip": "del1",
+      "name": "Snapchat-147424654.jpg",
+      "step": "P03",
+      "what": "Bild med frontkameran, kopian i galleriet",
+      "memory": "76067416",
+      "copy": "auto",
+      "front": true,
+      "capturedBetween": [
+        "2026-11-16T21:46:26.8+01:00",
+        "2026-11-16T21:47:47.2+01:00"
+      ],
+      "factors": {
+        "camera": "support"
+      }
+    },
+    {
+      "zip": "del1",
+      "name": "Snapchat-646408648.jpg",
+      "step": "P11",
+      "what": "Den första bilden exporterad ur Memories fem minuter senare",
+      "memory": "0b09cbdd",
+      "by": "content",
+      "copy": "export",
+      "front": false,
+      "capturedBetween": [
+        "2026-11-16T21:45:57.8+01:00",
+        "2026-11-16T21:46:26.8+01:00"
+      ]
+    },
+    {
+      "zip": "del1",
+      "name": "Snapchat-254258240.mp4",
+      "step": "P12",
+      "what": "Videon exporterad ur Memories, kopplad på längden",
+      "memory": "4889440e",
+      "by": "duration",
+      "copy": "export",
+      "front": false,
+      "capturedBetween": [
+        "2026-11-16T21:47:47.2+01:00",
+        "2026-11-16T21:48:13.6+01:00"
+      ],
+      "factors": {
+        "camera": "support"
+      }
+    },
+    {
+      "zip": "del1",
+      "name": "Snapchat-1757673952.jpg",
+      "step": "P13",
+      "what": "Bild som flyttades till My Eyes Only: kopian i galleriet är okrypterad",
+      "copy": "auto",
+      "meo": true,
+      "capturedBetween": [
+        "2026-11-16T21:52:13.0+01:00",
+        "2026-11-16T21:53:07.5+01:00"
+      ]
+    },
+    {
+      "zip": "del2",
+      "name": "Snapchat-962738617.jpg",
+      "step": "P02",
+      "what": "Samma kopia efter ominstallationen: raden i Memories är hämtad från servern, Memories-postens tid visar att filen är kopian, och Snapchats loggrader är borta",
+      "memory": "0b09cbdd",
+      "synced": true,
+      "capturedBetween": [
+        "2026-11-16T21:45:57.8+01:00",
+        "2026-11-16T21:46:26.8+01:00"
+      ],
+      "importer": "name",
+      "imports": [
+        "26753c8c"
+      ],
+      "factors": {
+        "app": "info",
+        "camera": "info"
+      },
+      "verdict": "Loggarna rensade",
+      "copy": "auto"
+    }
+  ],
+  "searches": [
+    {
+      "zip": "del1",
+      "id": "0b09cbdd",
+      "what": "Början av snappens id: snappens fil och båda kopiorna i galleriet",
+      "paths": [
+        "memories_media/1E3D610ADFF97DD3773C520AD8493E8A.media.0",
+        "DCIM/Snapchat/Snapchat-962738617.jpg",
+        "DCIM/Snapchat/Snapchat-646408648.jpg"
+      ]
+    },
+    {
+      "zip": "del2",
+      "id": "4889440e",
+      "what": "Videon efter ominstallationen: kopian och exporten i galleriet",
+      "paths": [
+        "DCIM/Snapchat/Snapchat-2129662424.mp4",
+        "DCIM/Snapchat/Snapchat-254258240.mp4"
+      ]
+    }
+  ]
+}

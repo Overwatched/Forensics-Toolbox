@@ -1,5 +1,23 @@
 Automatiskt byggd från commit `{{SHA}}`.
 
+## Nytt i 1.71
+
+**Härkomst och Queries visar Snapchats inställning för var sparade snaps hamnar, skiljer Snapchats egen kopia i galleriet från en export, och säger när en ominstallation har rensat appens loggar.**
+
+- **Inställningen Spara till** (Android): bara Memories, Memories och kamerarullen, eller bara kamerarullen, ur Snapchats `core.db`, med om den är ändrad från standard. Med kamerarullen lägger Snapchat en kopia av varje sparad snap i galleriet samma sekund, utan att användaren exporterar något. Inställningen står i faktorn Skapandetid och som en egen query i Queries.
+- **Kopia eller export:** en fil i `DCIM/Snapchat` som lades till samma sekund som snappen sparades är Snapchats egen kopia. En fil som kom senare exporterades ur Memories. Skapandetid säger vilken det är.
+- **Loggarna rensade:** när Snapchat avinstalleras tar Android bort appens rader i appops och usagestats. Programmet läser när appen installerades (`package-restrictions.xml`). Ligger filen före det, säger App igång och Kamera igång att loggarna är rensade, i stället för att registreringar saknas.
+- **Memories följer kontot:** Snapchat kan vara inloggat på flera enheter. Texterna säger inte längre att en snap i Memories togs "på den här telefonen". Det visar kamerafaktorn, ur appops.
+- **Rader hämtade från servern:** efter en ominstallation eller uppdatering är sparad-tiden på snappens rad samma som tagningstiden. Tiden då snappen sparades läses då ur Memories-posten, som behåller den. Appversionen i Memories kallas nu appen som skrev raden, eftersom den skrivs om.
+- **Skickat från en annan enhet:** ett meddelande från kontot som skapades på telefonen märks så. Ett som skapades på en annan inloggad enhet märks som det, och en snap från Snapchat för webben känns igen. Efter en ominstallation går det inte att se för äldre meddelanden, och texten säger det. Förut visades ett meddelande från kontot på en annan enhet som mottaget.
+- **My Eyes Only:** en snap som flyttats dit märks, och texten säger att kopian i galleriet inte är krypterad. **Bilder ur kamerarullen** som Snapchat själv lagt in i Memories märks och räknas aldrig som en tagning.
+- **Video exporterad senare** kopplas till sin snap på längden när en enda video i Memories har den. Texten ber undersökaren kontrollera videon.
+- **Avinstallerad Snapchat:** en fil `Snapchat-<tal>` i `DCIM/Snapchat` räknas som Snapchats även när bildbiblioteket har tappat appen.
+- **Sök på snap-id:** början av id:t räcker. På Android listas snappens fil och dess kopior i galleriet, med skälet till varje.
+- **Queries:** Snapchats `core.db` med inställningen, och Memories med ursprung (sparad på telefonen, hämtad från servern eller ur kamerarullen), My Eyes Only och `camera_roll_id`.
+- **Provat:** enhetstesterna, röktestet och ett nytt facit mot en laboration i två delar på labbtelefonen (Android 13, Snapchat 14.32), med hela telefonen extraherad före och efter en ominstallation, och efter att samma konto skickat snaps från Snapchat för webben. Inställningens tolkning är också kontrollerad mot en Samsung (Android 16).
+- **Inte provat:** iOS, där inställningen inte är hittad. En snap sparad i Memories på en annan telefon med samma konto (webben kan inte spara i Memories). En skickad snap ur Memories kopplas inte till sitt meddelande.
+
 ## Nytt i 1.70
 
 **Härkomst och Queries läser Snapchats Memories på iOS, också positionerna i den krypterade databasen, och en sparad snap går att söka på sitt id.**

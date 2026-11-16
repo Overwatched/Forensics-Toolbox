@@ -140,6 +140,21 @@
             "added": "date_added"
           },
           "sql": "SELECT\n  _id,\n  _display_name,\n  relative_path,\n  owner_package_name,\n  datetaken,\n  date_added\nFROM files\nWHERE (relative_path LIKE 'DCIM/%' OR relative_path LIKE 'Pictures/%')\n  AND COALESCE(CASE WHEN datetaken > 1000000000000 THEN datetaken / 1000 WHEN datetaken > 0 THEN datetaken END, date_added) BETWEEN {{unixStart}} AND {{unixEnd}}\nORDER BY COALESCE(datetaken, date_added * 1000);"
+        },
+        {
+          "id": "role-media-extra",
+          "hidden": true,
+          "role": "media-extra",
+          "title": "Härkomst: längd och storlek för bilder och video",
+          "description": "Används av Härkomst. Längden (ms) och storleken för filerna under DCIM och Pictures, för att koppla en video som exporterats ur Snapchats Memories till sin snap. En egen fråga, så att en databas utan kolumnen duration inte stoppar något annat.",
+          "params": [],
+          "epoch": "unixS",
+          "fields": {
+            "pk": "_id",
+            "duration": "duration",
+            "size": "_size"
+          },
+          "sql": "SELECT\n  _id,\n  duration,\n  _size\nFROM files\nWHERE relative_path LIKE 'DCIM/%'\n   OR relative_path LIKE 'Pictures/%';"
         }
       ]
     },
