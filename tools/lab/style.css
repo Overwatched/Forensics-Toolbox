@@ -370,7 +370,8 @@ kbd {
 .trace-source { font-size: 12px; color: var(--text-muted); }
 .protocol .src-btn { display: block; text-align: left; color: var(--accent); font-weight: 500; overflow-wrap: anywhere; }
 .src-btn:hover { text-decoration: underline; }
-.trace-thumb { display: block; margin: 4px 0; max-width: 96px; max-height: 96px; border-radius: 6px; }
+/* Bilden är aldrig bredare än cellen den står i. */
+.trace-thumb { display: block; margin: 4px 0; max-width: min(96px, 100%); max-height: 96px; border-radius: 6px; }
 .trace-more { margin-top: 4px; font-size: 12px; line-height: 1.5; color: var(--text-muted); }
 .opts { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; margin-top: 4px; }
 .opts-label { font-size: 12px; color: var(--warn); }

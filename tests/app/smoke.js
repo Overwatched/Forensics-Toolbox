@@ -2354,14 +2354,19 @@ const scenarios = [
         expect(rows.length === 7 && row(rows, 'L02').traces[0].more.some((m) => /: 2026-11-12 13:01:50 · .*ZMESSAGEDATE$/.test(m)) && row(rows, 'L02').traces[0].more.some((m) => /: 2026-11-12 13:02:05 · .*ZSENTDATE$/.test(m)), 'Mer om L02: ' + JSON.stringify(row(rows, 'L02')));
         await ev(`document.querySelector('#x-sheet tr[data-code="L02"] .mark-cell .link-btn').click(), 1`);
 
-        // Ett smalt fönster: ingenting sticker ut i sidled, och ingenting sticker ut ur sin cell över cellen bredvid
-        // (den längsta texten som inte bryts är tiden för appen i förgrunden, från och till).
-        await c.send('Emulation.setDeviceMetricsOverride', { width: 820, height: 900, deviceScaleFactor: 1, mobile: false });
-        await sleep(300);
-        await fits('i ett smalt fönster');
-        const outside = await ev(`[...document.querySelectorAll('#x-sheet .trace-table td')].flatMap(td => { const r = td.getBoundingClientRect();
-            return [...td.querySelectorAll('*')].filter(e => e.getBoundingClientRect().right > r.right + 1).map(e => td.parentNode.dataset.code + ' ' + (e.className || e.tagName) + ' +' + Math.round(e.getBoundingClientRect().right - r.right)); })`);
-        expect(!outside.length && row(await table(), 'L06').traces[0].line === 'iPhone | 13:05:40–13:06:20 | appen framme', 'Det sticker ut ur sin cell i ett smalt fönster: ' + outside.join(', '));
+        // Ett smalt fönster: ingenting sticker ut i sidled, och ingenting sticker ut ur sin cell (den längsta texten som
+        // inte bryts är tiden för appen i förgrunden, från och till, och det bredaste är bilden). Det mäts mot cellens
+        // innehåll, innanför dess marginal: i Windows och Linux tar rullningslisten plats som den inte tar i macOS, och
+        // det som bara når ut i marginalen här når över kanten där. Tre bredder: 820 med ramens meny bredvid, som ger
+        // verktyget 500, 804 som ger det 484 (så mycket som en rullningslist tar), och 640 där menyn är hopfälld.
+        for (const width of [820, 804, 640]) {
+            await c.send('Emulation.setDeviceMetricsOverride', { width, height: 900, deviceScaleFactor: 1, mobile: false });
+            await sleep(300);
+            await fits('i ett fönster som är ' + width + ' brett');
+            const outside = await ev(`[...document.querySelectorAll('#x-sheet .trace-table td')].flatMap(td => { const right = td.getBoundingClientRect().right - parseFloat(getComputedStyle(td).paddingRight);
+                return [...td.querySelectorAll('*')].filter(e => e.getBoundingClientRect().right > right + 1).map(e => td.parentNode.dataset.code + ' ' + (e.className || e.tagName) + ' +' + Math.round(e.getBoundingClientRect().right - right)); })`);
+            expect(!outside.length && row(await table(), 'L06').traces[0].line === 'iPhone | 13:05:40–13:06:20 | appen framme', 'Det sticker ut ur sin cell i ett fönster som är ' + width + ' brett: ' + outside.join(', '));
+        }
         await c.send('Emulation.setDeviceMetricsOverride', { width: 1600, height: 1000, deviceScaleFactor: 1, mobile: false });
         await sleep(300);
 
