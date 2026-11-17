@@ -125,6 +125,19 @@ test('usagestats version 5: mappings och dagsfil ger händelser som blir interva
     assert.deepStrictEqual(cov, { firstMs: begin + 9008000, lastMs: begin + 9126500, rows: 10 });
 });
 
+test('usagestats: notiserna (12 och 10) med kanalen, utan text', () => {
+    // Snapchat med en kanal i mappings, som i labbet 16 nov 2026 (snaps från webben gav en notis).
+    const map = logs.usageMappings(Uint8Array.from([...len(2, [...vint(1, 7), ...str(2, 'com.snapchat.android'), ...str(2, 'general_group_generic_push_noisy')])]));
+    const begin = 1794866400000;
+    const ev = (rel, type, chan) => len(22, [...vint(1, 7), ...vint(3, rel), ...vint(5, type), ...(chan ? vint(9, chan) : [])]);
+    const d = logs.usageDaily(Uint8Array.from([...vint(1, 900000), ...ev(637697, 12, 2), ...ev(641107, 10), ...ev(650000, 1)]), begin, map, 5);
+    assert.deepStrictEqual(logs.usageNotifications([d]), [
+        { ms: begin + 637697, app: 'com.snapchat.android', type: 12, seen: false, channel: 'general_group_generic_push_noisy' },
+        { ms: begin + 641107, app: 'com.snapchat.android', type: 10, seen: true, channel: null },
+    ]);
+    assert.strictEqual(logs.usageToEvents([d]).length, 1, 'notiserna blir inga appintervall');
+});
+
 test('usagestats version 4: strängpoolen i filen i stället för mappings', () => {
     const begin = 1700000000000;
     const pool = len(2, [...vint(1, 2), ...str(2, 'com.example.app'), ...str(2, 'com.example.app.Main')]);

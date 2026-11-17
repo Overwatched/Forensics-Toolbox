@@ -132,7 +132,7 @@
                     '<td class="ex-path">' + escapeHtml(f.db.name) + '</td>' +
                     '<td>' + sizeText(f.db.size) + '</td>' +
                     '<td>' + escapeHtml(entryTime(f.db)) + '</td>' +
-                    '<td>' + (f.wal ? sizeText(f.wal.size) : '<span class="run-warn">saknas</span>') + '</td>' +
+                    '<td>' + (f.wal ? sizeText(f.wal.size) : f.folder || d.db.convert ? '–' : '<span class="run-warn">saknas</span>') + '</td>' +
                     '</tr>';
             }).join('');
             html += '<div class="ex-summary">' + escapeHtml(summary()) + ' · ' +

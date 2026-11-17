@@ -1,5 +1,17 @@
 Automatiskt byggd från commit `{{SHA}}`.
 
+## Nytt i 1.73
+
+**Härkomst och Queries läser telefonens notiser: usagestats på Android och Biome på iOS. Biome ger också appen i förgrunden när knowledgeC saknar den.**
+
+- **Notiser i tidslinjen:** en egen rad, Notiser, med appen och tiden. På Android står kanalen med (till exempel Snapchats chatt- eller snapkanal), men ingen text. På iOS står notisens titel med, och för Snapchat är det avsändarens namn.
+- **App igång:** visade appen som filen hör till en notis högst 2 minuter före filen, säger faktorn det. En notis stöder att något kom till telefonen, inte att någon använde den. Raden visas bara för filer som kan ha kommit utifrån, inte för kamerabilder, skärmdumpar eller Snapchats egna tagningar.
+- **Biome på iOS:** strömmarna `Notification.Usage` och `App.InFocus` läses i båda formatversionerna (iOS 15–18 och 17 och senare), med kontrollsumman för varje post. Bara telefonens egna poster läses, inte andra enheters på samma konto. `App.InFocus` fyller appen i förgrunden när knowledgeC saknar `/app/usage` i fönstret, före PowerLog.
+- **Queries:** tre nya källor under Operativsystemet: usagestats (notiser, appar, skärm och lås), Biome Notification.Usage (notiser i tidsspann) och Biome App.InFocus (appar i förgrunden med längd och skäl). Filerna läses in som tabeller i minnet, och varje fil står med CRC32 och SHA-256.
+- **Händelsetyperna i Biome** visas som tal. Bara typ 17, som kommer direkt när notisen tas emot, är kontrollerad. De andra kalibreras i ett kommande iOS-labb.
+- **Avinstallation** tar bort appens notiser i usagestats, som de andra raderna, och programmet säger det som förut.
+- **Provat:** enhetstesterna och röktestet i appen. Notiserna är kontrollerade mot labbtelefonen (Android 13: snaps från Snapchat för webben gav en notis 3 s innan skärmen tändes), mot iOS-labbzippen (26.4) och en iOS 18.7-zipp.
+
 ## Nytt i 1.72
 
 **En ny fil i releasen, `ForensicsToolbox-1.72-en-fil.html`, för datorer där Edge inte visar verktygen i html-versionen.**

@@ -27,6 +27,7 @@
         { id: 'camera', label: 'Kamera', factor: 'camera' },
         { id: 'screen', label: 'Skärm', factor: 'screen' },
         { id: 'lock', label: 'Lås', factor: null },
+        { id: 'notice', label: 'Notiser', factor: null },
         { id: 'location', label: 'Position', factor: 'position' },
         { id: 'snapchat', label: 'Snapchat', factor: null },
         { id: 'signal', label: 'Signal', factor: 'signal' },
@@ -88,6 +89,7 @@
             if (r.id === 'camera') return !!f.camera;
             if (r.id === 'screen') return !!f.screen || ev.some(function (e) { return e.kind === 'screen'; });
             if (r.id === 'lock') return ev.some(function (e) { return e.kind === 'lock'; });
+            if (r.id === 'notice') return ev.some(function (e) { return e.kind === 'notification'; });
             if (r.id === 'location') return !!f.position;
             if (r.id === 'snapchat') return ev.some(function (e) { return /^snap-/.test(e.kind); });
             if (r.id === 'signal') return !!f.signal || ev.some(function (e) { return /^sig-/.test(e.kind); });
@@ -199,6 +201,12 @@
         return cands.length ? nearest(cands, T) : null;
     }
 
+    // Notisen som kolumnen Vid T beskriver: den senaste som kom högst två minuter före T (eller strax efter).
+    function noticeAtT(ev, T) {
+        return ev.filter(function (e) { return e.kind === 'notification' && !e.seen && e.ms <= T + 5000 && e.ms >= T - 120000; })
+            .sort(function (a, b) { return b.ms - a.ms; })[0] || null;
+    }
+
     // Snapchat-händelsen som kolumnen Vid T beskriver: den närmaste som säger något om en snap.
     function snapAtT(ev, T) {
         var cands = ev.filter(function (e) { return (/^snap-(message|cache|read)$/.test(e.kind) && (e.isFile || e.own || e.sent || e.context === 34 || e.kind === 'snap-message')) || (e.kind === 'snap-memory' && (e.isFile || e.captured)); });
@@ -221,6 +229,8 @@
         if (snap) keep.add(snap);
         var sig = sigAtT(ev, T);
         if (sig) keep.add(sig);
+        var nt = noticeAtT(ev, T);
+        if (nt) keep.add(nt);
         Object.keys(CHATS).forEach(function (id) { var c = chatAtT(ev, T, id); if (c) keep.add(c); });
         var near = nearest((positions || []).filter(function (p) { return p.kind === 'phone'; }), T);
         if (near) ev.forEach(function (e) { if (e.kind === 'location' && e.ms === near.ms) keep.add(e); });
@@ -303,6 +313,11 @@
                 if (!l) return { state: null, l1: 'ingen registrering', l2: '' };
                 return { state: null, l1: l.locked ? 'låst' : 'olåst', l2: since(l) };
             }
+            case 'notice': {
+                var no = noticeAtT(ev, T);
+                if (!no) return { state: null, l1: '–', l2: '' };
+                return { state: null, l1: 'notis från ' + ctx.appName(no.app), l2: Math.abs(no.ms - T) <= 1000 ? atWord : when(no.ms) };
+            }
             case 'location': {
                 var ps = (ctx.positions || []).filter(function (p) { return p.kind === 'phone'; });
                 var mem = (ctx.positions || []).find(function (p) { return p.kind === 'memory'; });
@@ -363,6 +378,12 @@
     function snapRadius(e) { return e.kind === 'snap-notification' ? 4 : e.isFile ? 7 : 4.5; }
     function marker(e, cx, mid, fmt) {
         var title = '<title>' + esc(e.text + ' ' + fmt(e.ms)) + '</title>';
+        if (e.kind === 'notification') {
+            var nfill = isSnapApp(e.app) ? COLORS.snapchat : COLORS.other;
+            // Visad: ring. Notisen: liten romb.
+            if (e.seen) return '<circle cx="' + cx.toFixed(1) + '" cy="' + mid + '" r="3.5" fill="' + COLORS.bg + '" stroke="' + nfill + '" stroke-width="1.5">' + title + '</circle>';
+            return '<polygon points="' + cx.toFixed(1) + ',' + (mid - 5) + ' ' + (cx + 5).toFixed(1) + ',' + mid + ' ' + cx.toFixed(1) + ',' + (mid + 5) + ' ' + (cx - 5).toFixed(1) + ',' + mid + '" fill="' + nfill + '">' + title + '</polygon>';
+        }
         if (e.kind === 'location') return '<circle cx="' + cx.toFixed(1) + '" cy="' + mid + '" r="' + (e.near ? 6 : 4) + '" fill="' + COLORS.location + '" stroke="' + COLORS.bg + '" stroke-width="1.5">' + title + '</circle>';
         if (/^sig-/.test(e.kind)) {
             var gr = e.isFile ? 7 : 4.5;
@@ -552,6 +573,15 @@
                         texts += label(x(e.ms), s, fmtTime(fmt, e.ms), isNear);
                     }
                 });
+            } else if (r.id === 'notice') {
+                var nprev = null;
+                events.filter(function (e) { return e.kind === 'notification'; }).sort(function (a, b) { return a.ms - b.ms; }).forEach(function (e) {
+                    var r0 = 5, px = x(e.ms);
+                    if (nprev && px < nprev.px + nprev.r + r0 + 2 && nprev.px + nprev.r + r0 + 2 - px <= DODGE_MAX) px = nprev.px + nprev.r + r0 + 2;
+                    nprev = { px: px, r: r0 };
+                    out += faded(marker(e, px, mid, fmt), e);
+                    if (labels && important(e) && !e.seen) texts += label(px, 'Notis: ' + (appName(e.app) || e.app), fmtTime(fmt, e.ms), false);
+                });
             } else if (r.id === 'snapchat') {
                 // Markörer som skulle hamna på varandra läggs bredvid varandra i tidsordning: den första
                 // står på sin tid, de följande högst DODGE_MAX px till höger. Klockslagen står i texten.
@@ -693,6 +723,8 @@
         items.push(['▬', 'Annan app', COLORS.other]);
         if (ids.indexOf('screen') >= 0 || ids.indexOf('lock') >= 0) items.push(['▬', 'Tänd / olåst', COLORS.phone], ['▬', 'Släckt / låst / inte kameran', COLORS.offStroke]);
         if (has(function (e) { return (e.kind === 'snap-cache' && e.context === 34) || (e.kind === 'snap-memory' && e.captured); })) items.push(['●', 'Snapchats kamera', COLORS.camera]);
+        if (has(function (e) { return e.kind === 'notification' && !e.seen; })) items.push(['◆', 'Notis', COLORS.other]);
+        if (has(function (e) { return e.kind === 'notification' && e.seen; })) items.push(['○', 'Notis visad', COLORS.other]);
         if (has(kind('power'))) items.push(['●', 'Start eller nedstängning', COLORS.file]);
         if (has(kind('power-off'))) items.push(['▬', 'Avstängd', COLORS.offStroke]);
         if (ids.indexOf('location') >= 0) items.push(['●', 'Position', COLORS.location]);
@@ -763,7 +795,7 @@
         var items = legendItems(rows, inWindow, !!opts.zoom, ctx.atT);
         if (focus) {
             var keep = focusSet(model, ctx.T, ctx.positions);
-            var hidden = inWindow.filter(function (e) { return !keep.has(e) && (e.lane === 'file' || e.kind === 'location' || /^snap-/.test(e.kind) || /^sig-/.test(e.kind) || !!chatOf(e)); }).length;
+            var hidden = inWindow.filter(function (e) { return !keep.has(e) && (e.lane === 'file' || e.kind === 'location' || /^snap-/.test(e.kind) || /^sig-/.test(e.kind) || !!chatOf(e) || e.kind === 'notification'); }).length;
             if (hidden) items.splice(items.length - 1, 0, ['○', 'Blek: annan händelse i fönstret (' + hidden + '), står i tabellen', COLORS.muted]);
         }
         var lg = legend(items, b.bottom + 32, width - RIGHT);

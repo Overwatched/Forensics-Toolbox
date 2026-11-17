@@ -19,6 +19,7 @@ const telegramIos = require(path.join(ROOT, 'queries', 'ios', 'telegram', 'catal
 const whatsappAndroid = require(path.join(ROOT, 'queries', 'android', 'whatsapp', 'catalog.json'));
 const telegramAndroid = require(path.join(ROOT, 'queries', 'android', 'telegram', 'catalog.json'));
 const samsungAndroid = require(path.join(ROOT, 'queries', 'android', 'samsung', 'catalog.json'));
+const systemLogs = require(path.join(ROOT, 'queries', 'system-logs', 'catalog.json'));
 const SCHEMAS = require(path.join(__dirname, 'fixtures', 'chat-schemas.json'));
 const fs = require('node:fs');
 
@@ -237,7 +238,7 @@ test('sökvägar för extraktion: alla SQL-databaser har dem, och de är skrivna
         ...appUsage.databases.map((d) => [d.id, d.paths]),
         ...routined.databases.map((d) => [d.id, d.paths]),
         ...snapchat.databases.map((d) => [d.id, d.paths]),
-        ...signalIos.databases.concat(whatsappIos.databases, whatsappAndroid.databases, telegramAndroid.databases, samsungAndroid.databases).map((d) => [d.id, d.paths]),
+        ...signalIos.databases.concat(whatsappIos.databases, whatsappAndroid.databases, telegramAndroid.databases, samsungAndroid.databases, systemLogs.databases).map((d) => [d.id, d.paths]),
         ...android.categories.filter((c) => c.id !== 'usage').map((c) => ['android-' + c.id, c.paths]),
     ];
     for (const [name, paths] of groups) {
@@ -533,6 +534,93 @@ test('Samsung: eRR.p läses in som tabellen err, och varje query körs mot påhi
         db.close();
     }
     assert.throws(() => textLogs.toSqlite(S, 'okänd', bytes, 'x'), /Okänd textfil/);
+});
+
+// ---------- Systemloggar i en mapp: usagestats och Biome ----------
+
+test('Systemloggar: usagestats och Biome läses in som tabeller ur mappens filer, och varje query körs', async () => {
+    const textLogs = require('./text-logs');
+    const B = require('../provenance/biome');
+    assert.deepStrictEqual(systemLogs.databases.map((d) => [d.id, d.os, d.convert, d.folder]), [
+        ['android-usagestats', 'Android', 'usagestats', true], ['ios-biome-notifications', 'iOS', 'biome-notification-usage', true], ['ios-biome-app-infocus', 'iOS', 'biome-app-infocus', true]]);
+    for (const db of systemLogs.databases) {
+        assert.ok(textLogs.known(db.convert), db.id + ': okänd tolkning');
+        assert.ok(db.paths.every((p) => /\/$/.test(p)), db.id + ': en mapp slutar med /');
+        assert.strictEqual(db.queries.filter((q) => q.recommended).length, 1, db.id + ': en rekommenderad');
+        for (const q of db.queries) assert.ok(q.subtitle && q.returns, db.id + '/' + q.id + ': undertext och returns');
+    }
+    const S = await sqlJs();
+    const varint = (n) => { const out = []; do { let b = n % 128; n = Math.floor(n / 128); if (n) b |= 0x80; out.push(b); } while (n); return out; };
+    const vint = (f, n) => [...varint(f * 8), ...varint(n)];
+    const str = (f, t) => { const b = [...Buffer.from(t, 'utf8')]; return [...varint(f * 8 + 2), ...varint(b.length), ...b]; };
+    const len = (f, b) => [...varint(f * 8 + 2), ...varint(b.length), ...b];
+    const dbl = (f, x) => { const b = Buffer.alloc(8); b.writeDoubleLE(x); return [...varint(f * 8 + 1), ...b]; };
+    const runAll = (cat, conv, start, end) => {
+        const db = new S.Database(conv.bytes);
+        try {
+            return Object.fromEntries(cat.queries.map((q) => {
+                const sql = q.sql.split('{{unixMsStart}}').join(String(start)).split('{{unixMsEnd}}').join(String(end));
+                const r = db.exec(sql);
+                return [q.id, r.length ? r[0] : { columns: [], values: [] }];
+            }));
+        } finally { db.close(); }
+    };
+
+    // usagestats: version, mappings och en dagsfil med Snapchat i förgrunden och en notis.
+    const begin = 1794866400000;
+    const dir = 'Dump/data/system_ce/0/usagestats/';
+    const mappings = Uint8Array.from(len(2, [...vint(1, 7), ...str(2, 'com.snapchat.android'), ...str(2, 'com.snap.mushroom.MainActivity'), ...str(2, 'chat_noisy')]));
+    const ev = (rel, type, cls, chan) => len(22, [...vint(1, 7), ...(cls ? vint(2, cls) : []), ...vint(3, rel), ...vint(5, type), ...(chan ? vint(9, chan) : [])]);
+    const daily = Uint8Array.from([...vint(1, 900000), ...ev(1000, 1, 2), ...ev(5000, 12, 0, 3), ...ev(6000, 10), ...ev(9000, 2, 2)]);
+    const us = textLogs.toSqlite(S, 'usagestats', [
+        { name: dir + 'version', bytes: Buffer.from('5\n13;REL;f8fb74d040\n') },
+        { name: dir + 'mappings', bytes: mappings },
+        { name: dir + 'daily/' + begin, bytes: daily },
+        { name: dir + 'weekly/' + begin, bytes: daily },
+    ], dir);
+    assert.strictEqual(us.rows, 4);
+    assert.match(us.line, /usagestats\/: 1 dagsfil \(version 5, Android 13\), 4 händelser lästes in i tabellen handelser i minnet/);
+    const u = runAll(systemLogs.databases[0], us, begin, begin + 60000);
+    assert.deepStrictEqual(u['usage-notices'].values.map((r) => [r[1], r[2], r[3]]), [['NOTIFICATION_INTERRUPTION', 'com.snapchat.android', 'chat_noisy'], ['NOTIFICATION_SEEN', 'com.snapchat.android', null]]);
+    assert.strictEqual(u['usage-events'].values.length, 4);
+    assert.deepStrictEqual(u['usage-apps'].values.map((r) => r[1]), ['ACTIVITY_RESUMED', 'ACTIVITY_PAUSED']);
+    assert.deepStrictEqual(u['usage-notice-apps'].values.map((r) => [r[0], r[1]]), [['com.snapchat.android', 1]]);
+    assert.throws(() => textLogs.toSqlite(S, 'usagestats', [{ name: dir + 'daily/' + begin, bytes: daily }], dir), /mappings/);
+
+    // Biome: en SEGB-fil (version 2) per ström, och en fil i tombstone/ som inte läses.
+    const MAC = 978307200;
+    const segb = (records) => {
+        const buf = Buffer.alloc(2048);
+        buf.write('SEGB', 0, 'latin1'); buf.writeInt32LE(records.length, 4);
+        let prev = 0;
+        records.forEach((r, k) => {
+            const start = 32 + prev, data = Buffer.from(r.data);
+            buf.writeUInt32LE(B.crc32(data), start); buf.writeInt32LE(1, start + 4); data.copy(buf, start + 8);
+            const end = start + 8 + data.length - 32, at = buf.length - 16 * (k + 1);
+            buf.writeInt32LE(end, at); buf.writeInt32LE(1, at + 4); buf.writeDoubleLE(r.at / 1000 - MAC, at + 8);
+            prev = (end + 3) & ~3;
+        });
+        return buf;
+    };
+    const t0 = Date.UTC(2026, 9, 30, 22, 32, 14);
+    const notice = (at, type, id) => ({ at, data: [...str(1, 'E' + at), ...dbl(2, t0 / 1000 - MAC), ...vint(3, type), ...str(4, 'com.toyopagroup.picaboo'), ...str(5, id), ...str(8, 'franky')] });
+    const nDir = '/private/var/mobile/Library/Biome/streams/restricted/Notification.Usage/local/';
+    const bn = textLogs.toSqlite(S, 'biome-notification-usage', [
+        { name: nDir + '770626098768390', bytes: segb([notice(t0 + 500, 17, 'N1'), notice(t0 + 60000, 7, 'N1')]) },
+        { name: nDir + 'tombstone/773568286508021', bytes: segb([notice(t0, 17, 'X')]) },
+    ], nDir);
+    assert.strictEqual(bn.rows, 2);
+    const n = runAll(systemLogs.databases[1], bn, t0 - 60000, t0 + 60000);
+    assert.deepStrictEqual(n['biome-notices'].values.map((r) => [r[1], r[2], r[3], r[4], r[5]]), [['com.toyopagroup.picaboo', 'franky', 2, '17, 7', '2026-10-30 22:32:14']]);
+    assert.strictEqual(n['biome-notice-events'].values.length, 2);
+    assert.deepStrictEqual(n['biome-notice-apps'].values.map((r) => [r[0], r[1]]), [['com.toyopagroup.picaboo', 1]]);
+
+    const focus = (at, starting) => ({ at, data: [...vint(2, 1), ...vint(3, starting ? 1 : 0), ...dbl(4, at / 1000 - MAC), ...str(6, 'com.toyopagroup.picaboo')] });
+    const fDir = '/private/var/mobile/Library/Biome/streams/restricted/App.InFocus/local/';
+    const bf = textLogs.toSqlite(S, 'biome-app-infocus', [{ name: fDir + '766585039546128', bytes: segb([focus(t0, true), focus(t0 + 43625, false)]) }], fDir);
+    const f = runAll(systemLogs.databases[2], bf, t0 - 60000, t0 + 60000);
+    assert.deepStrictEqual(f['biome-focus'].values.map((r) => [r[1], r[3]]), [['com.toyopagroup.picaboo', 43.6]]);
+    assert.strictEqual(f['biome-focus-rows'].values.length, 2);
 });
 
 // ---------- Chattar ----------

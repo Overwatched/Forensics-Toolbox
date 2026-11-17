@@ -1347,3 +1347,39 @@ test('en fil som togs emot i en chattapp: släckt skärm och en annan app i för
     assert.deepStrictEqual([by(sent, 'app').state, by(sent, 'screen').state], ['contradiction', 'contradiction']);
     assert.match(sent.summary, /inte förenligt/);
 });
+
+test('notiser: en händelse per notis, och en upplysning i App igång bara när filen kan ha kommit utifrån', () => {
+    const US = { db: 'usagestats', table: 'daily/1', column: 'event_log: typ 12' };
+    const notifications = [
+        { ms: T - 12 * S, app: 'net.whatsapp.WhatsApp', stream: 'usagestats', channel: 'individual_chat_defaults', source: US },
+        { ms: T - 10 * S, app: 'net.whatsapp.WhatsApp', seen: true, stream: 'usagestats', source: US },
+        { ms: T - 5 * M, app: 'android', stream: 'usagestats', channel: 'USB', source: US },
+    ];
+    const NAMES2 = Object.assign({ 'net.whatsapp.WhatsApp': 'WhatsApp' }, NAMES);
+    const saved = core.build(input({ appNames: (id) => NAMES2[id] || null, notifications, file: cameraFile({ importedBy: 3, importer: 'net.whatsapp.WhatsApp' }),
+        appIntervals: [{ startMs: T - 60 * S, endMs: T + 60 * S, app: 'net.whatsapp.WhatsApp', stream: '/app/usage', source: KC }] }));
+    const ev = saved.events.filter((e) => e.kind === 'notification');
+    assert.deepStrictEqual(ev.map((e) => [e.text, e.plain]), [
+        ['Notis från android (usagestats, kanal USB)', null],
+        ['Notis från WhatsApp (usagestats, kanal individual_chat_defaults)', 'Telefonen får en notis från WhatsApp'],
+        ['Notis från WhatsApp visas (usagestats)', null],
+    ]);
+    const app = saved.factors.find((f) => f.id === 'app');
+    assert.strictEqual(app.state, 'support');
+    assert.strictEqual(app.items[1].state, 'info');
+    assert.match(app.items[1].text, /^WhatsApp visade en notis 12 s före tidpunkten \(usagestats\)\. Något kom till telefonen då/);
+    // En kamerabild: notisen säger inget om bilden.
+    const cam = core.build(input({ notifications: [{ ms: T - 12 * S, app: 'com.apple.camera', stream: 'Biome Notification.Usage', source: US }] }));
+    assert.ok(!cam.factors.find((f) => f.id === 'app').items.some((i) => /notis/.test(i.text)));
+    // Två minuter före T är gränsen.
+    const old = core.build(input({ appNames: (id) => NAMES2[id] || null, notifications: [Object.assign({}, notifications[0], { ms: T - 3 * M })], file: cameraFile({ importedBy: 3, importer: 'net.whatsapp.WhatsApp' }) }));
+    assert.ok(!old.factors.find((f) => f.id === 'app').items.some((i) => /notis/.test(i.text)));
+});
+
+test('Biome App.InFocus: skälet till att appen saknas nämner också Biomes täckning', () => {
+    const cov = { '/app/usage': { firstMs: T - 20 * 86400 * S, lastMs: T - 10 * 86400 * S, rows: 65 }, 'Biome App.InFocus': { firstMs: T - 9 * 86400 * S, lastMs: T - 86400 * S, rows: 30 } };
+    const m = core.build(input({ appIntervals: [], coverage: cov }));
+    const app = m.factors.find((f) => f.id === 'app');
+    assert.strictEqual(app.state, 'missing');
+    assert.match(app.items[0].text, /utanför knowledgeC:s täckning .* Tidpunkten ligger också utanför täckningen i Biome App\.InFocus/);
+});

@@ -565,8 +565,9 @@ i extraktionen med `-wal` pålagd, och bygger en händelselista i UTC.
   båda exporterna. Kartans laddning kräver att fönstret ritas: med låst skärm kommer ingen
   bildruta, och då går exporten vidare utan kartbild efter tio sekunder.
 - På iOS kommer app och kamera ur knowledgeC `/app/usage` (`/app/inFocus` saknas på iOS 18
-  och 26, de versioner som kontrollerats, och är bara reserv). Skärmen, låset och kameran per app kommer
-  också ur PowerLog (se nedan). På Android ur `usagestats` (app, skärm, lås) och `appops`
+  och 26, de versioner som kontrollerats, och är bara reserv). Saknas `/app/usage` i fönstret kommer appen ur
+  Biome `App.InFocus`, och annars ur PowerLog. Skärmen, låset och kameran per app kommer också ur PowerLog
+  (se nedan). Notiserna: se Notiser och Biome. På Android ur `usagestats` (app, skärm, lås) och `appops`
   (kameran per app), lästa som filer ur zippen av `android-logs.js`; Wellbeing är reserv.
 - `android-logs.js` (UMD `ProvenanceAndroidLogs`): `abxParse` för Androids binära XML (ABX,
   magic `ABX\0`, internerade strängar, samma utskrift som `abx2xml`), `discreteOps`/`opIntervals`
@@ -2042,6 +2043,56 @@ Mätt 2026-11-04 i Edge 156 på en Windows-maskin i CI, med en slinga på 30 mil
     marginal på 1,5 s mot T, i stället för 5 s.
   - Faktorerna säger källan. Täckningen och glappen står i texterna när registreringar saknas (`reasonAt`).
 - Queries: förhandsvisningen hoppar över en `WITH` och tar kolumnerna ur huvudfrågan (`selectItems`).
+
+#### Notiser och Biome
+
+- **Varför:** en notis från en chattapp strax före en fil stöder att filen togs emot, inte skapades. Och den
+  visar att telefonen var igång, också med släckt skärm. Notisen ensam säger inte att någon använde telefonen.
+- **Android:** usagestats typ 12 `NOTIFICATION_INTERRUPTION` (notisen gav ljud, vibration eller en ruta) och 10
+  `NOTIFICATION_SEEN` (notiserna visades för användaren). Där finns bara paketet och kanalen (`usageNotifications`,
+  fält 9 i version 5 och fält 12 i version 4), ingen text. Raderna försvinner när appen avinstalleras.
+  - **Labbet 2026-11-16 (webb1):** snapsen från Snapchat för webben gav typ 12 kl. 22:10:37 och 22:10:40 UTC,
+    med kanalerna `general_group_silent` och `general_group_generic_push_noisy…`. Skärmen tändes 3 s efter
+    notisen, och typ 10 kom efter ytterligare 1 s.
+  - Android 13 har ingen `notification_log.db`.
+- **iOS:** Biome-strömmen `Notification.Usage` i `Library/Biome/streams/restricted/<ström>/local/`.
+  - **Filerna (`biome.js`, `ProvenanceBiome`) är SEGB:**
+    - **Version 2** (iOS 17 och senare): ett huvud på 32 byte (`SEGB`, antal, skapad). Posterna (crc32, 1, data)
+      ligger efter varandra med 4-byteskant, och listan (slut relativt huvudet, läge, tid) står baklänges i
+      slutet av filen.
+    - **Version 1** (sett på iOS 18.7): slutet på datat först och `SEGB` på plats 52. Varje post har ett
+      huvud på 32 byte: längd, läge, två tider och crc32.
+    - Läge 1 är skriven och 3 rensad, och då är datat nollat. Tiderna är Mac-sekunder.
+    - Filens namn är när den skapades, inte vilka tider den har. En fil från 2025 hade poster från oktober
+      2026, så alla filer i strömmen läses.
+    - Bara `local/` läses. `remote/<enhet>/` kommer från andra enheter på kontot, och `tombstone/` säger bara
+      vad som rensats.
+  - **Fälten i `Notification.Usage`:**
+    - 2 är notisens tid, samma för alla händelser kring notisen.
+    - 3 är händelsens typ, 4 appen, 5 notisens id och 8 titeln. För Snapchat är titeln avsändarens namn.
+    - Postens tid är händelsens tid.
+    - Typ 17 kommer inom någon sekund efter notisens tid. De andra typerna (0, 7, 11, 18, 19) är inte
+      kontrollerade, så de tolkas inte.
+    - iOS skriver ofta samma notis under två id med samma tid och titel (en med 17, 7 och 19, en med 18 och
+      11). `notifications()` räknar dem som en.
+  - **`App.InFocus`:**
+    - 3 är 1 när appen kommer i förgrunden och 0 när den lämnar den, 4 är tiden och 6 appen.
+    - 1 är skälet (`transitionReason`), och 2 är sorten: 1 en app, 3 kontrollcentret och liknande.
+    - Händelserna går genom `intervalsFromEvents` som 1 och 2.
+    - Appen läggs bara till när knowledgeC saknar `/app/usage` i fönstret, och då före PowerLog.
+  - **Kontrollerat mot:** iOS-labbzippen (26.4.1, version 2) och en iOS 18.7-zipp (version 1). Alla skrivna
+    poster hade rätt crc32.
+- **Härkomst:**
+  - `input.notifications` blir händelser med `kind: 'notification'` och `lane: 'notice'`, och en egen rad
+    Notiser i tidslinjen (romb för notisen, ring för visad).
+  - Androids egna notiser (paketet `android`) och visade notiser får ingen mening i förklaringen.
+  - *App igång* får en upplysning om appen visade en notis högst 2 min före T. Det gäller bara när filen kan ha
+    kommit utifrån (`noticeMatters`), alltså inte kamerabilder, skärmdumpar eller Snapchats egna tagningar.
+- **Queries:**
+  - Katalogen `queries/system-logs` har en databas per mapp (`folder: true`, sökvägen slutar med `/`).
+  - `locate.js` gör mappen till en träff med alla filer under den. `ExtractionCore.zipSource` läser dem, och
+    varje fil står med CRC32 och SHA-256.
+  - `text-logs.js` lägger raderna i tabellerna `handelser` (usagestats), `notishandelser` och `forgrund` (Biome).
 
 #### Telegram på iOS (beta, 1.42)
 

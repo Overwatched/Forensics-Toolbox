@@ -11,11 +11,11 @@ Verktyg för IT-forensik som körs på din egen dator, utan nätverk (onlinekart
 - Tidslinje runt filen, med källa (databas, tabell, kolumn) för varje rad och en länk till samma rad i Queries.
 - Sök på filnamn, tidpunkt, hashsumma eller snap-id. Flera filer bedöms i en lista.
 - Två exporter till Word: ett protokoll med källor och hashar, och en förklaring i vanlig svenska.
-- Källor: Photos.sqlite, knowledgeC, routined och PowerLog på iOS; MediaStore, usagestats och appops på Android; SSRM och batterihistorik på Samsung. *Beta:* Snapchat (cache, chattar, Memories), Signal, WhatsApp och Telegram.
+- Källor: Photos.sqlite, knowledgeC, Biome (appar och notiser), routined och PowerLog på iOS; MediaStore, usagestats (med notiserna) och appops på Android; SSRM och batterihistorik på Samsung. *Beta:* Snapchat (cache, chattar, Memories), Signal, WhatsApp och Telegram.
 
 ![Härkomst: tidslinje och förklaring](docs/images/harkomst-tidslinje.png)
 
-**Queries** har färdiga frågor mot iOS- och Android-databaserna ovan. Kör dem direkt mot extraktionen och se SQL:en och spårbarheten för varje resultat. Krypterade databaser (Signal, Snapchat på iOS) dekrypteras i minnet med nyckeln ur extraktionen.
+**Queries** har färdiga frågor mot iOS- och Android-databaserna ovan, och mot loggarna usagestats och Biome. Kör dem direkt mot extraktionen och se SQL:en och spårbarheten för varje resultat. Krypterade databaser (Signal, Snapchat på iOS) dekrypteras i minnet med nyckeln ur extraktionen.
 
 **Chattar** *(beta)* visar konversationerna i WhatsApp, Signal, Telegram och Snapchat som i appen, med bilder och tider, och exporterar till HTML eller PDF.
 

@@ -34,6 +34,9 @@
 
     function isSnapchatApp(id) { return id === SNAPCHAT || id === SNAPCHAT_ANDROID; }
     function isSamsungStream(stream) { return stream === SSRM || stream === BATTERY; }
+    // Strömmar som är en egen källa och inte en del av knowledgeC eller Androids logg: de står med sitt eget namn.
+    var BIOME_FOCUS = 'Biome App.InFocus';
+    function ownStream(stream) { return isSamsungStream(stream) || stream === 'PowerLog' || stream === BIOME_FOCUS; }
 
     // Loggen för app, skärm och lås: knowledgeC på iOS; på Android usagestats när den finns i
     // extraktionen, annars Wellbeing. Etiketten står i faktorernas texter, nyckeln i täckningen.
@@ -463,6 +466,16 @@
         // Händelser från andra källor, färdigbyggda (Snapchat). De filtreras på fönstret som allt annat.
         (input.extraEvents || []).forEach(function (e) { add(Object.assign({}, e)); });
 
+        // Notiser: usagestats på Android (bara appen och kanalen), Biome Notification.Usage på iOS (appen och titeln).
+        // Androids egna notiser (paketet android: USB, utvecklarläge) och "visad" får ingen mening i förklaringen.
+        (input.notifications || []).forEach(function (n) {
+            var name = appName(n.app, names);
+            var quiet = n.seen || n.app === 'android';
+            add({ ms: n.ms, kind: 'notification', lane: 'notice', app: n.app, seen: !!n.seen, stream: n.stream, title: n.title || null,
+                text: (n.seen ? 'Notis från ' + name + ' visas' : 'Notis från ' + name) + (n.title ? ': "' + n.title + '"' : '') + ' (' + n.stream + (n.channel ? ', kanal ' + n.channel : '') + ')',
+                plain: quiet ? null : 'Telefonen får en notis från ' + name, source: n.source });
+        });
+
         var appIvs = mergeIntervals(input.appIntervals || []);
         appIvs.forEach(function (iv) {
             var name = appName(iv.app, names);
@@ -543,6 +556,11 @@
     function reasonAt(input, key, ms, label) {
         var r = coverageReason(key, input, ms, label);
         if (input.platform === 'Android') return r + samsungReason(input, ms);
+        var bc = input.coverage && input.coverage[BIOME_FOCUS];
+        if (bc && key === '/app/usage') {
+            r += bc.firstMs != null && bc.lastMs != null && (ms < bc.firstMs || ms > bc.lastMs) ? ' Tidpunkten ligger också utanför täckningen i Biome App.InFocus (' + formatUtc(bc.firstMs) + ' till ' + formatUtc(bc.lastMs) + ').'
+                : ' Biome App.InFocus har inga registreringar heller.';
+        }
         var c = input.coverage && input.coverage.PowerLog;
         if (!c) return r + (input.missingDbs && input.missingDbs.PowerLog === 'unread' ? ' PowerLog kunde inte läsas.' : '');
         var gap = (c.gaps || []).find(function (g) { return g.startMs <= ms && ms <= g.endMs; });
@@ -1159,6 +1177,26 @@
         return out.sort(function (a, b) { return Number(b.camera) - Number(a.camera) || Math.abs(a.ms - T) - Math.abs(b.ms - T); });
     }
 
+    // Den senaste notisen från appen (eller någon av apparna) strax före T: något kom till telefonen just då.
+    var NOTICE_MS = 2 * MINUTE;
+    function noticeBefore(events, T, isApp) {
+        var hits = events.filter(function (e) { return e.kind === 'notification' && !e.seen && isApp(e.app) && e.ms <= T + TOLERANCE_MS && e.ms >= T - NOTICE_MS; });
+        return hits.sort(function (a, b) { return b.ms - a.ms; })[0] || null;
+    }
+    // En notis före T säger något bara om filen kan ha kommit utifrån: mottagen i en chatt eller sparad av en app.
+    // En bild som togs på telefonen (kameran, skärmdumpen, Snapchats kamera enligt Memories) får ingen notisrad.
+    function noticeMatters(type, file) {
+        if (type.type === 'camera' || type.type === 'screenshot' || type.transfer) return false;
+        if (type.chat) return type.chat.direction === 'in';
+        if (type.type === 'snapchat') return type.origin === 'received';
+        return !(file.memory && file.capturedMs);
+    }
+    function noticeItem(n, T, names) {
+        var off = n.ms - T;
+        var when = Math.abs(off) < 1000 ? 'vid tidpunkten' : duration(off) + (off < 0 ? ' före tidpunkten' : ' efter tidpunkten');
+        return { state: 'info', text: appName(n.app, names) + ' visade en notis' + (n.title ? ' ("' + n.title + '")' : '') + ' ' + when + ' (' + n.stream + '). Något kom till telefonen då; det säger inte att någon använde den.' };
+    }
+
     // Ligger händelsen i fönstret runt T? Händelser vid en annan tidpunkt säger inget om T.
     function nearT(e, input) {
         var T = input.file.createdMs;
@@ -1211,9 +1249,11 @@
                 items.push({ state: 'info', text: 'Samma bild skickades i Snapchat' + (sd.to ? ' till ' + sd.to : '') + ' ' + formatUtc(sd.ms) + (sd.serverId != null ? ' (meddelande ' + sd.serverId + ')' : '') +
                     '. Bildjämförelse mot snappen i Memories: medelskillnad ' + sd.diff.toFixed(1).replace('.', ',') + ' av 255, och bilder räknas som samma under ' + sd.limit + '. Kontrollera bilderna.' });
             });
-            if (kcSnap.length) items.push({ state: 'support', text: 'Snapchat var igång vid tidpunkten enligt ' + (isSamsungStream(kcSnap[0].stream) ? kcSnap[0].stream : kcLabel + ' (' + kcSnap[0].stream + ')') + '.' });
-            else if (running.length) items.push({ state: 'info', text: (isSamsungStream(running[0].stream) ? running[0].stream : kcLabel) + ' registrerar ' + runningNames.join(', ') + ' vid tidpunkten, inte Snapchat. Snapchat kan ha skrivit i registret i bakgrunden, till exempel vid en notis.' });
+            if (kcSnap.length) items.push({ state: 'support', text: 'Snapchat var igång vid tidpunkten enligt ' + (ownStream(kcSnap[0].stream) ? kcSnap[0].stream : kcLabel + ' (' + kcSnap[0].stream + ')') + '.' });
+            else if (running.length) items.push({ state: 'info', text: (ownStream(running[0].stream) ? running[0].stream : kcLabel) + ' registrerar ' + runningNames.join(', ') + ' vid tidpunkten, inte Snapchat. Snapchat kan ha skrivit i registret i bakgrunden, till exempel vid en notis.' });
             else items.push({ state: 'info', text: coverageReason(streamKey, input, T, kcLabel) });
+            var snapNotice = noticeMatters(type, file) ? noticeBefore(events, T, isSnapchatApp) : null;
+            if (snapNotice) items.push(noticeItem(snapNotice, T, names));
             state = kcSnap.length ? 'support' : own.length ? (running.length ? 'info' : 'support') : 'missing';
             plain = state === 'support' ? 'Snapchat var igång när filen registrerades.'
                 : state === 'info' ? 'Snapchat registrerade filen, men telefonens egen logg visar en annan app just då.'
@@ -1276,6 +1316,8 @@
                     : gotInChat && expected ? 'Vid den här tiden var ' + runningNames.join(' och ') + ' igång, inte ' + appName(expected, names) + '. Filen kan ha tagits emot i bakgrunden.'
                         : 'Vid den här tiden var ' + runningNames.join(' och ') + ' igång.';
         }
+        var notice = expected && noticeMatters(type, file) ? noticeBefore(events, T, function (a) { return a === expected; }) : null;
+        if (notice) items.push(noticeItem(notice, T, names));
         items = items.concat(batteryItems(running.length ? running : camOps), state === 'missing' || state === 'contradiction' ? unsureItems(events, T, 'app') : []);
         return { id: 'app', title: title, state: state, items: items, plain: plain, running: running.map(function (e) { return e.app; }), via: via || null, shown: shown ? shownName : null };
     }

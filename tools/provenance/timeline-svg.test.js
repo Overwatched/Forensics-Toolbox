@@ -432,3 +432,19 @@ test('raden Telefonen: bara när eRR.p säger något, med bandet och raderna', (
     assert.ok(yIn('Av: no power') < top, 'texten ovanför bandet: ' + yIn('Av: no power') + ' ' + top);
     assert.ok(y('Av: no power') < y('avstängd'));
 });
+
+test('notiserna får en egen rad med romb för notisen och ring för visad, och Vid T säger den senaste före T', () => {
+    const src = { db: 'Biome', table: 'Notification.Usage/local/1' };
+    const m = model({ notifications: [
+        { ms: T - 40 * S, app: 'com.toyopagroup.picaboo', title: 'Kim', stream: 'Biome Notification.Usage', source: src },
+        { ms: T - 30 * S, app: 'com.toyopagroup.picaboo', seen: true, stream: 'usagestats', source: src },
+    ] });
+    const out = tl.svg(m, { width: 1100, format: fmt, zoom: m.windows[0].closeup, appName: names });
+    assert.deepStrictEqual(rowLabels(out), ['Fil', 'App', 'Kamera', 'Skärm', 'Lås', 'Notiser', 'Position']);
+    assert.ok(out.includes('<title>Notis från Snapchat: &quot;Kim&quot; (Biome Notification.Usage)'));
+    const close = tl.svg(m, { window: m.windows[0].closeup, labels: true, width: 1100, format: fmt, appName: names, title: 'Närbild' });
+    assert.ok(close.includes('>Notis: Snapchat<'), 'närbilden skriver ut notisen');
+    const st = tl.stateAt({ id: 'notice', factor: null }, ctxFor(m));
+    assert.deepStrictEqual([st.l1, st.l2], ['notis från Snapchat', '40 s före T']);
+    assert.ok(!rowLabels(tl.svg(model(), { width: 1100, format: fmt, appName: names })).includes('Notiser'));
+});

@@ -124,7 +124,8 @@
             html = name(files.db) + (files.wal ? ' och ' + name(files.wal) : '') + (files.zip ? ' ur ' + escapeHtml(files.zip) : ' från disk');
             if (files.cipher && files.cipher.passphrase && !keyInput.value.trim()) html += ', nyckeln ur ' + escapeHtml(files.cipher.source);
             html += '.';
-            if (files.db.convert) html += ' Filen är text: raderna läses in i en tabell i minnet, med samma tolkning som i Härkomst. Filen ändras inte.';
+            if (files.db.folder) html += ' Mappens loggfiler läses in i en tabell i minnet, med samma tolkning som i Härkomst. Filerna ändras inte.';
+            else if (files.db.convert) html += ' Filen är text: raderna läses in i en tabell i minnet, med samma tolkning som i Härkomst. Filen ändras inte.';
             else if (closed) html += ' Arkivet är gzip-komprimerat och packas upp i minnet. Ett arkiv har ingen -wal.';
             else if (!files.wal && files.zip) html += ' <span class="run-warn">Extraktionen har ingen -wal för databasen: allt som finns i databasfilen kommer med.</span>';
             else if (!files.wal && !noWal.checked) html += ' <span class="run-warn">Ingen -wal vald: poster som bara finns i -wal kommer att saknas.</span>';
@@ -243,6 +244,14 @@
         var SQL = await loadSqlJs();
         if (src.db.entry && !src.db.convert && (!src.wal || src.wal.entry)) return readEntries(src, cipher, SQL);
         var dbRead = await src.db.read();
+        // En mapp med loggfiler: varje fil står med sin SHA-256 i raderna om var den kom ifrån.
+        if (src.db.folder) {
+            var fconv = QueryTextLogs.toSqlite(SQL, src.db.convert, dbRead.files, src.db.path || src.db.name);
+            return {
+                SQL: SQL, dbFile: src.db, walFile: null, stats: { converted: fconv.line }, hashes: ['', ''], bytes: fconv.bytes,
+                origin: dbRead.lines, passphrase: null, encrypted: false,
+            };
+        }
         var walRead = src.wal ? await src.wal.read() : null;
         var hashes = await Promise.all([ExtractionCore.sha256(dbRead.bytes), walRead ? ExtractionCore.sha256(walRead.bytes) : Promise.resolve('')]);
         var walBytes = walRead ? walRead.bytes : new Uint8Array(0);

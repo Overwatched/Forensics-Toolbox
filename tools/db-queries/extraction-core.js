@@ -131,6 +131,29 @@
     // lead: rader som ska stå först, t.ex. vilken zip det gäller. entry, lead och zipRead följer med, så att
     // databasen och dess -wal kan läsas med loadDatabase.
     function zipSource(read, entry, lead) {
+        // En mapp (usagestats, Biome): alla filerna läses, och varje fil får sin rad med CRC32 och SHA-256.
+        if (entry.folder) {
+            return {
+                // Mappens namn, med mappen ovanför när den heter local (Biome: Notification.Usage/local/).
+                name: entry.name.replace(/\/$/, '').split('/').slice(/\/local\/$/.test(entry.name) ? -2 : -1).join('/') + '/',
+                path: entry.name,
+                size: entry.size,
+                folder: true,
+                key: (lead || []).join('|') + '|' + entry.files.map(function (f) { return f.localOffset + ':' + f.name; }).join(','),
+                lead: lead || [],
+                zipRead: read,
+                read: async function () {
+                    var files = [];
+                    var lines = (lead || []).slice();
+                    for (var i = 0; i < entry.files.length; i++) {
+                        var r = await readEntry(read, entry.files[i]);
+                        files.push({ name: entry.files[i].name, bytes: r.bytes });
+                        lines.push(r.line + ', SHA-256 ' + await sha256(r.bytes));
+                    }
+                    return { bytes: null, files: files, lines: lines };
+                },
+            };
+        }
         return {
             name: baseName(entry.name),
             path: entry.name,

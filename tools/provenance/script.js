@@ -1605,7 +1605,7 @@
             platform: platform, file: fileRow, appNames: appName, cameraApps: cams, windowMs: windowMs, format: fmt, fixedZone: zone.fixed ? zone.label : null,
             fileSource: run.fileSource || { db: run.fileLabel, table: platform === 'Android' ? 'files' : fileQuery.sql.indexOf('ZGENERICASSET') >= 0 ? 'ZGENERICASSET' : 'ZASSET', column: ProvenanceRoles.fieldSpec(fileQuery, 'created').col, queryId: fileQuery.id },
             appIntervals: [], screen: [], lock: [], locations: [], neighbours: [], coverage: {}, missingDbs: {}, warnings: [], copies: [], extraEvents: [], extraNotes: [],
-            cameraUse: [], logUnsure: [], androidLog: null, container: Z(),
+            cameraUse: [], logUnsure: [], notifications: [], androidLog: null, container: Z(),
         };
         if (fileRow.createdFrom === 'date_added') input.fileSource = Object.assign({}, input.fileSource, { column: 'date_added (datetaken saknas)' });
         if (platform === 'Android') {
@@ -1856,6 +1856,9 @@
                 input.missingDbs['/app/usage'] = true;
                 input.missingDbs['/display/isBacklit'] = true;
             }
+            // Biome: appen i förgrunden (när knowledgeC saknar /app/usage i fönstret) och notiserna.
+            try { await addBiome(input, meta, range, run); }
+            catch (e) { input.warnings.push('Biome kunde inte läsas: ' + e.message); console.warn(e); }
             // PowerLog: skärmen, låset och kameran per app, och appen på skärmen när knowledgeC saknar
             // /app/usage i fönstret. Tiderna är rättade med PowerLogs tidsförskjutning (powerlog.js).
             var pl = hitFor('powerlog');
@@ -2059,6 +2062,10 @@
             input.screen = stamp(iv.screen);
             input.lock = stamp(iv.lock);
             input.androidLog = 'usagestats';
+            var noticeSrc = Object.assign({}, usSource, { column: 'event_log: typ 12 NOTIFICATION_INTERRUPTION, 10 NOTIFICATION_SEEN (paket, kanal)' });
+            L.usageNotifications(decoded).filter(function (n) { return n.ms >= range.startMs && n.ms <= range.endMs; }).forEach(function (n) {
+                input.notifications.push({ ms: n.ms, app: n.app, seen: n.seen, channel: n.channel, stream: 'usagestats', source: noticeSrc });
+            });
             var cov = L.usageCoverage(decoded);
             input.coverage.usagestats = cov;
             meta.coverage.push(['usagestats (' + dailies.length + (dailies.length === 1 ? ' dagsfil' : ' dagsfiler') + ')', cov.firstMs ? fmtU(cov.firstMs) : '', cov.lastMs ? fmtU(cov.lastMs) : '', cov.rows]);
@@ -2066,7 +2073,7 @@
             if (hadWellbeing) input.warnings.push('Både usagestats och Wellbeing finns. App, skärm och lås kommer ur usagestats; Wellbeing-queryn står kvar i bilagan.');
             run.queries.push({ id: 'usagestats-daily', db: 'usagestats', title: 'Härkomst: usagestats (protobuf, ingen SQL)',
                 sql: '-- Binära filer ur ' + Z() + ', avkodade som ' + (vi.version === 4 ? 'IntervalStatsProto (version 4, strängpool i filen)' : 'IntervalStatsObfuscatedProto (version 5) med mappings') + ':\n-- ' + files.join('\n-- ') +
-                    '\n-- Händelser av typ 1 ACTIVITY_RESUMED, 2 ACTIVITY_PAUSED, 23 ACTIVITY_STOPPED, 15 SCREEN_INTERACTIVE, 16 SCREEN_NON_INTERACTIVE, 17 KEYGUARD_SHOWN, 18 KEYGUARD_HIDDEN; tiderna är filens begynnelsetid plus time_ms.' +
+                    '\n-- Händelser av typ 1 ACTIVITY_RESUMED, 2 ACTIVITY_PAUSED, 23 ACTIVITY_STOPPED, 15 SCREEN_INTERACTIVE, 16 SCREEN_NON_INTERACTIVE, 17 KEYGUARD_SHOWN, 18 KEYGUARD_HIDDEN, 12 NOTIFICATION_INTERRUPTION och 10 NOTIFICATION_SEEN (notiser: paket och kanal, ingen text); tiderna är filens begynnelsetid plus time_ms.' +
                     '\n-- Kontroll på telefonen: adb shell dumpsys usagestats' });
         } else if (!logs.daily.length) {
             input.missingDbs.usagestats = true;
@@ -3566,6 +3573,71 @@
 
     // PowerLogs dagsarkiv (gzip). Sparas per zip; en sökning i innehållsförteckningen.
     var PL_ARCHIVE = /\/Library\/BatteryLife\/Archives\/powerlog_(\d{4})-(\d{2})-(\d{2})_[0-9A-Fa-f]+\.PLSQL\.gz$/;
+    // ---------- Biome på iOS: App.InFocus och Notification.Usage ----------
+
+    var BIOME_FOCUS = 'Biome App.InFocus', BIOME_NOTICE = 'Biome Notification.Usage';
+
+    async function biomeEntries() {
+        var z = state.zip;
+        if (z.biome) return z.biome;
+        z.biome = ProvenanceBiome.sortEntries(await ExtractionCore.find(z.read, z.file.size, ProvenanceBiome.keeper()));
+        return z.biome;
+    }
+
+    // Alla filer i strömmen läses (namnet säger inte vilka tider de har) och avkodas en gång per extraktion.
+    // App.InFocus fyller appen i förgrunden när knowledgeC saknar /app/usage i fönstret; notiserna läggs alltid till.
+    async function addBiome(input, meta, range, run) {
+        var B = ProvenanceBiome;
+        var fmtU = ProvenanceCore.formatUtc;
+        var all = await biomeEntries();
+        var streams = [['App.InFocus', BIOME_FOCUS, B.appInFocus], ['Notification.Usage', BIOME_NOTICE, B.notificationUsage]];
+        for (var s = 0; s < streams.length; s++) {
+            var name = streams[s][0], label = streams[s][1], decode = streams[s][2];
+            var files = (all[name] || []).filter(function (e) { return e.size > 0 && e.size <= 64 * 1024 * 1024; });
+            if (!files.length) { input.missingDbs[label] = true; continue; }
+            progress('Läser Biome ' + name + '…');
+            var rows = [], lines = [], versions = {}, firstMs = null, lastMs = null, deleted = 0, records = 0, used = [];
+            for (var i = 0; i < files.length; i++) {
+                var r;
+                try { r = await logOnce(files[i], 'biome-' + name, decode); }
+                catch (e) { input.warnings.push('Biome ' + name + ': ' + ExtractionCore.baseName(files[i].name) + ' kunde inte läsas (' + e.message + ').'); continue; }
+                versions[r.value.version] = true;
+                records += r.value.records; deleted += r.value.deleted;
+                r.value.rows.forEach(function (x) {
+                    rows.push(x);
+                    if (firstMs == null || x.ms < firstMs) firstMs = x.ms;
+                    if (lastMs == null || x.ms > lastMs) lastMs = x.ms;
+                });
+                used.push({ entry: files[i], read: r.read, rows: r.value.rows });
+                lines.push(files[i].name + ' (' + files[i].size + ' byte, CRC32 ' + ExtractionCore.hex(files[i].crc32) + ', SEGB version ' + r.value.version + ', ' + r.value.rows.length + ' poster, ' + r.value.deleted + ' rensade)');
+            }
+            if (!used.length) { input.missingDbs[label] = 'unread'; continue; }
+            input.coverage[label] = { firstMs: firstMs, lastMs: lastMs, rows: rows.length };
+            meta.coverage.push([label + ' (' + used.length + (used.length === 1 ? ' fil' : ' filer') + ')', firstMs ? fmtU(firstMs) : '', lastMs ? fmtU(lastMs) : '', rows.length]);
+            var src = { db: 'Biome', table: name + '/local/' + used.map(function (u) { return ExtractionCore.baseName(u.entry.name); }).join(', '), queryId: 'biome-' + name.toLowerCase().replace('.', '-') };
+            var near = function (ms) { return ms != null && ms >= range.startMs - 3600000 && ms <= range.endMs + 3600000; };
+            used.forEach(function (u) { if (u.rows.some(function (x) { return near(x.ms) || near(x.notifiedMs); })) logSource(meta, u.entry, 'Biome ' + name + '/' + ExtractionCore.baseName(u.entry.name), u.read, 'SEGB'); });
+            if (name === 'App.InFocus') {
+                if (!input.appIntervals.some(function (iv) { return iv.stream === '/app/usage'; })) {
+                    var lastEnd = lastMs || range.endMs;
+                    var iv = ProvenanceCore.intervalsFromEvents(B.focusToEvents(rows), Math.min(lastEnd, range.endMs), Object.assign({}, src, { column: 'fält 3 (in/ut), 4 (tid), 6 (appen)' }));
+                    iv.apps.filter(function (x) { return x.endMs >= range.startMs && x.startMs <= range.endMs; })
+                        .forEach(function (x) { x.stream = BIOME_FOCUS; input.appIntervals.push(x); });
+                }
+            } else {
+                B.notifications(rows).filter(function (n) { return n.ms >= range.startMs && n.ms <= range.endMs; }).forEach(function (n) {
+                    input.notifications.push({ ms: n.ms, app: n.app, title: n.title, id: n.id, events: n.events, stream: BIOME_NOTICE,
+                        source: Object.assign({}, src, { column: 'fält 2 (notisens tid), 4 (appen), 8 (titeln), 5 (notisens id)' }) });
+                });
+            }
+            run.queries.push({ id: src.queryId, db: 'Biome', title: 'Härkomst: Biome ' + name + ' (SEGB med protobuf, ingen SQL)',
+                sql: '-- ' + used.length + (used.length === 1 ? ' fil' : ' filer') + ' ur ' + Z() + ' (bara local/; remote/ är andra enheter på kontot):\n-- ' + lines.join('\n-- ') +
+                    '\n-- ' + records + ' poster, varav ' + deleted + ' rensade (nollade i filen). Tiderna är sekunder sedan 2001-01-01 UTC.' +
+                    (name === 'App.InFocus' ? '\n-- Fält 3 = 1 när appen kommer i förgrunden, 0 när den lämnar den; 4 = tiden; 6 = appens id; 1 = skälet.'
+                        : '\n-- En notis per id (fält 5): fält 2 = notisens tid, 4 = appens id, 8 = titeln, 3 = händelsens typ, postens tid = händelsens tid.') });
+        }
+    }
+
     async function powerlogArchives() {
         var z = state.zip;
         if (z.plArchives) return z.plArchives;
@@ -3673,8 +3745,8 @@
         built.camera.filter(inRange).forEach(function (c) {
             input.cameraUse.push({ startMs: c.startMs, endMs: c.endMs, app: c.app, stream: 'PowerLog', source: source('PLCameraAgent_EventForward_Camera', 'timestamp + tidsförskjutning, BundleId, State', 'pl-camera') });
         });
-        // knowledgeC:s /app/usage går före: PowerLogs app på skärmen fyller bara ett fönster utan den.
-        if (!input.appIntervals.some(function (iv) { return iv.stream === '/app/usage'; })) {
+        // knowledgeC:s /app/usage och Biome App.InFocus går före: PowerLogs app på skärmen fyller bara ett fönster utan dem.
+        if (!input.appIntervals.some(function (iv) { return iv.stream === '/app/usage' || iv.stream === BIOME_FOCUS; })) {
             built.apps.filter(inRange).forEach(function (iv) {
                 input.appIntervals.push({ startMs: iv.startMs, endMs: iv.endMs, app: iv.app, stream: 'PowerLog', source: source('PLScreenStateAgent_EventForward_ScreenState', 'timestamp + tidsförskjutning, bundleID', 'pl-screen') });
             });

@@ -494,8 +494,9 @@ function visibleQueries(list) {
     return (list || []).filter((q) => !q.hidden);
 }
 
-function buildDatabases(photos, android, appUsage, routined, snapchat, snapchatAndroid, signalAndroid, signalIos, whatsappIos, telegramIos, samsungAndroid, whatsappAndroid, telegramAndroid) {
+function buildDatabases(photos, android, appUsage, routined, snapchat, snapchatAndroid, signalAndroid, signalIos, whatsappIos, telegramIos, samsungAndroid, whatsappAndroid, telegramAndroid, systemLogs) {
     routined = routined || {};
+    systemLogs = systemLogs || {};
     samsungAndroid = samsungAndroid || {};
     snapchat = snapchat || {};
     snapchatAndroid = snapchatAndroid || {};
@@ -696,6 +697,36 @@ function buildDatabases(photos, android, appUsage, routined, snapchat, snapchatA
                     chat: q.chat || null,
                 })),
             });
+        });
+    });
+
+    // Systemloggar i en mapp (usagestats, Biome): filerna tolkas som i Härkomst och läses in som en tabell i minnet
+    // (text-logs.js, convert, folder).
+    (systemLogs.databases || []).forEach((db) => {
+        out.push({
+            id: db.id,
+            os: db.os,
+            family: db.id,
+            familyTitle: db.label,
+            label: db.label,
+            blurb: db.blurb || '',
+            dbPathHint: db.dbPathHint,
+            paths: db.paths || [],
+            source: db.source,
+            note: systemLogs.sourceNote,
+            convert: db.convert || null,
+            folder: !!db.folder,
+            runnable: true,
+            queries: visibleQueries(db.queries).map((q) => ({
+                id: q.id,
+                title: q.title,
+                subtitle: q.subtitle || '',
+                recommended: !!q.recommended,
+                group: q.group,
+                returns: q.returns || '',
+                params: q.params || [],
+                sql: q.sql,
+            })),
         });
     });
 
@@ -1084,7 +1115,7 @@ function applyDeepLink() {
 
 async function init() {
     try {
-        const [photos, android, appUsage, routined, snapchat, snapchatAndroid, signalAndroid, signalIos, whatsappIos, telegramIos, samsungAndroid, whatsappAndroid, telegramAndroid] = await Promise.all([
+        const [photos, android, appUsage, routined, snapchat, snapchatAndroid, signalAndroid, signalIos, whatsappIos, telegramIos, samsungAndroid, whatsappAndroid, telegramAndroid, systemLogs] = await Promise.all([
             loadLocalJson('../../queries/ios/photos-sqlite/catalog.json', 'PHOTOS_SQLITE_CATALOG'),
             loadLocalJson('../../queries/android/catalog.json', 'ANDROID_QUERIES_CATALOG'),
             loadLocalJson('../../queries/app-usage/catalog.json', 'APP_USAGE_CATALOG'),
@@ -1098,8 +1129,9 @@ async function init() {
             loadLocalJson('../../queries/android/samsung/catalog.json', 'SAMSUNG_ANDROID_CATALOG'),
             loadLocalJson('../../queries/android/whatsapp/catalog.json', 'WHATSAPP_ANDROID_CATALOG'),
             loadLocalJson('../../queries/android/telegram/catalog.json', 'TELEGRAM_ANDROID_CATALOG'),
+            loadLocalJson('../../queries/system-logs/catalog.json', 'SYSTEM_LOGS_CATALOG'),
         ]);
-        databases = buildDatabases(photos, android, appUsage, routined, snapchat, snapchatAndroid, signalAndroid, signalIos, whatsappIos, telegramIos, samsungAndroid, whatsappAndroid, telegramAndroid);
+        databases = buildDatabases(photos, android, appUsage, routined, snapchat, snapchatAndroid, signalAndroid, signalIos, whatsappIos, telegramIos, samsungAndroid, whatsappAndroid, telegramAndroid, systemLogs);
         renderSide();
         applyDeepLink();
         readyResolve();

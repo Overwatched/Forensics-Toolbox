@@ -247,11 +247,13 @@
             22: function (m) {
                 var e = {};
                 if (pool) {
-                    message(m, { 1: function (v) { e.pkgTok = v; }, 2: function (v) { e.clsTok = v; }, 3: function (v) { e.rel = v; }, 4: function (v) { e.flags = v; }, 5: function (v) { e.type = v; }, 11: function (v) { e.bucket = v; }, 13: function (v) { e.instance = v; }, 14: function (v) { e.rootPkgTok = v; } });
+                    message(m, { 1: function (v) { e.pkgTok = v; }, 2: function (v) { e.clsTok = v; }, 3: function (v) { e.rel = v; }, 4: function (v) { e.flags = v; }, 5: function (v) { e.type = v; }, 11: function (v) { e.bucket = v; }, 12: function (v) { e.chanTok = v; }, 13: function (v) { e.instance = v; }, 14: function (v) { e.rootPkgTok = v; } });
                     e.pkg = str(null, e.pkgTok); e.cls = e.clsTok ? str(null, e.clsTok) : null; e.rootPkg = e.rootPkgTok ? str(null, e.rootPkgTok) : null;
+                    e.channel = e.chanTok ? str(null, e.chanTok) : null;
                 } else {
-                    message(m, { 1: function (v) { e.pkgTok = v; }, 2: function (v) { e.clsTok = v; }, 3: function (v) { e.rel = v; }, 4: function (v) { e.flags = v; }, 5: function (v) { e.type = v; }, 8: function (v) { e.bucket = v; }, 10: function (v) { e.instance = v; }, 11: function (v) { e.rootPkgTok = v; } });
+                    message(m, { 1: function (v) { e.pkgTok = v; }, 2: function (v) { e.clsTok = v; }, 3: function (v) { e.rel = v; }, 4: function (v) { e.flags = v; }, 5: function (v) { e.type = v; }, 8: function (v) { e.bucket = v; }, 9: function (v) { e.chanTok = v; }, 10: function (v) { e.instance = v; }, 11: function (v) { e.rootPkgTok = v; } });
                     e.pkg = str(e.pkgTok, 0); e.cls = e.clsTok ? str(e.pkgTok, e.clsTok) : null; e.rootPkg = e.rootPkgTok ? str(e.rootPkgTok, 0) : null;
+                    e.channel = e.chanTok ? str(e.pkgTok, e.chanTok) : null;
                 }
                 e.ms = beginMs + (e.rel || 0);
                 e.typeName = USAGE_TYPES[e.type] || ('typ ' + e.type);
@@ -286,6 +288,20 @@
         });
         out.sort(function (a, b) { return a.ms - b.ms; });
         return out;
+    }
+
+    // Notiserna: 12 NOTIFICATION_INTERRUPTION (notisen gav ljud, vibration eller en ruta överst) och 10
+    // NOTIFICATION_SEEN (notisen visades för användaren, t.ex. i notislistan). Bara appen och ibland kanalen,
+    // ingen text. { ms, app, type, seen, channel }.
+    function usageNotifications(dailies) {
+        var out = [];
+        (dailies || []).forEach(function (d) {
+            d.events.forEach(function (e) {
+                if (e.type !== 12 && e.type !== 10) return;
+                out.push({ ms: e.ms, app: e.pkg || null, type: e.type, seen: e.type === 10, channel: e.channel || null });
+            });
+        });
+        return out.sort(function (a, b) { return a.ms - b.ms; });
     }
 
     // Täckning: första och sista händelse och antal i de avkodade dagsfilerna.
@@ -336,7 +352,7 @@
         OPS: OPS, OP_CAMERA: OP_CAMERA, OP_MICROPHONE: OP_MICROPHONE, OP_FINE_LOCATION: OP_FINE_LOCATION,
         isDiscretePath: isDiscretePath, discreteWrittenMs: discreteWrittenMs, discreteOps: discreteOps, opIntervals: opIntervals, pickDiscrete: pickDiscrete,
         USAGE_TYPES: USAGE_TYPES, isUsageVersionPath: isUsageVersionPath, isUsageMappingsPath: isUsageMappingsPath, isUsageDailyPath: isUsageDailyPath, dailyBeginMs: dailyBeginMs,
-        usageVersion: usageVersion, usageMappings: usageMappings, usageDaily: usageDaily, pickDaily: pickDaily, usageToEvents: usageToEvents, usageCoverage: usageCoverage,
+        usageVersion: usageVersion, usageMappings: usageMappings, usageDaily: usageDaily, pickDaily: pickDaily, usageToEvents: usageToEvents, usageNotifications: usageNotifications, usageCoverage: usageCoverage,
         keeper: keeper, sortEntries: sortEntries, message: message, varint: varint,
     };
     if (typeof module !== 'undefined' && module.exports) module.exports = api;

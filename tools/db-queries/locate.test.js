@@ -75,3 +75,19 @@ test('iosVersion läser ProductVersion ur en XML-plist', () => {
     assert.strictEqual(loc.iosVersion(Buffer.from(xml)), '18.7.7');
     assert.strictEqual(loc.iosVersion(Buffer.from('bplist00...')), null);
 });
+
+test('en mapp i katalogen (slutar med /) blir en träff med alla sina filer', () => {
+    const targets = [{ key: 'usagestats', paths: ['data/system_ce/0/usagestats/'] }, { key: 'biome', paths: ['Library/Biome/streams/restricted/Notification.Usage/local/'] }];
+    const names = [
+        'Dump/data/system_ce/0/usagestats/mappings', 'Dump/data/system_ce/0/usagestats/daily/1794866400000', 'Dump/data/system_ce/0/usagestats/version',
+        '/private/var/mobile/Library/Biome/streams/restricted/Notification.Usage/local/770626098768390',
+        'x/Library/Biome/streams/restricted/Notification.Usage/localX/1', 'Dump/data/system_ce/0/usagestats/', 'Dump/data/system_ce/0/usagestatsX/1',
+    ];
+    const keep = loc.keeper(targets);
+    assert.deepStrictEqual(names.map(keep), [true, true, true, true, false, false, false]);
+    const res = loc.locate(names.filter(keep).map((name, i) => ({ name, size: 10 + i, mtime: 1000 + i })), targets);
+    assert.deepStrictEqual(res.found.map((f) => [f.key, f.folder, f.db.name, f.db.size, f.db.mtime, f.files.length]), [
+        ['usagestats', true, 'Dump/data/system_ce/0/usagestats/', 33, 1002, 3],
+        ['biome', true, '/private/var/mobile/Library/Biome/streams/restricted/Notification.Usage/local/', 13, 1003, 1],
+    ]);
+});

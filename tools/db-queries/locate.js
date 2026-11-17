@@ -24,15 +24,29 @@
 
     function baseName(p) { return p.slice(p.lastIndexOf('/') + 1); }
 
+    // En sökväg som slutar med / i katalogen är en mapp (usagestats, Biome): alla filer under den hör till källan.
+    function isFolder(p) { return p.charAt(p.length - 1) === '/'; }
+
+    // Var mappen börjar i path (prefixet före den), eller null. Mappen jämförs som en hel del av sökvägen.
+    function folderAt(path, folder) {
+        if (path.slice(0, folder.length) === folder) return path.length > folder.length ? '' : null;
+        var i = path.indexOf('/' + folder);
+        return i >= 0 && path.length > i + 1 + folder.length ? path.slice(0, i + 1) : null;
+    }
+
     // targets: [{ key, paths: [...] }]. Snabbt filter till ZipRead.scan: bara namn vars filnamn
-    // kan vara en databas, en -wal/-shm/-journal eller SystemVersion.plist sparas.
+    // kan vara en databas, en -wal/-shm/-journal eller SystemVersion.plist sparas, och filerna i mapparna.
     function keeper(targets) {
         var names = {};
-        targets.forEach(function (t) { t.paths.forEach(function (p) { names[baseName(p)] = true; }); });
+        var folders = [];
+        targets.forEach(function (t) { t.paths.forEach(function (p) { if (isFolder(p)) folders.push(p); else names[baseName(p)] = true; }); });
         names[baseName(SYSTEM_VERSION)] = true;
         return function (name) {
             if (name.charAt(name.length - 1) === '/') return false;
-            return names[baseName(name).replace(COMPANION, '')] === true;
+            if (names[baseName(name).replace(COMPANION, '')] === true) return true;
+            if (!folders.length) return false;
+            var path = normalize(name).path;
+            return folders.some(function (f) { return folderAt(path, f) !== null; });
         };
     }
 
@@ -52,11 +66,36 @@
         entries.forEach(function (e) { byName[e.name] = e; });
         var found = [];
         var prefixes = {};
+        var folders = {};
         entries.forEach(function (e) {
-            if (COMPANION.test(e.name) || e.name.charAt(e.name.length - 1) === '/') return;
+            if (e.name.charAt(e.name.length - 1) === '/') return;
             var norm = normalize(e.name);
+            // En mapp blir en träff med alla sina filer: db är en post för hela mappen (namn, summan av storlekarna,
+            // den senaste ändringstiden) och files filerna i den.
             targets.forEach(function (t) {
                 t.paths.forEach(function (p, i) {
+                    if (!isFolder(p)) return;
+                    var pre = folderAt(norm.path, p);
+                    if (pre === null) return;
+                    var raw = e.name.replace(/\\/g, '/');
+                    var dirName = raw.slice(0, raw.length - (norm.path.length - pre.length - p.length));
+                    var k = t.key + '\u0000' + dirName;
+                    var hit = folders[k];
+                    if (!hit) {
+                        hit = folders[k] = { key: t.key, path: p, primary: i === 0, user: norm.user, folder: true, files: [],
+                            db: { name: dirName, size: 0, folder: true, files: null, mtime: null, crc32: 0 }, wal: null, shm: null, journal: null };
+                        hit.db.files = hit.files;
+                        found.push(hit);
+                    }
+                    hit.files.push(e);
+                    hit.db.size += e.size || 0;
+                    if (e.mtime && (!hit.db.mtime || e.mtime > hit.db.mtime)) hit.db.mtime = e.mtime;
+                });
+            });
+            if (COMPANION.test(e.name)) return;
+            targets.forEach(function (t) {
+                t.paths.forEach(function (p, i) {
+                    if (isFolder(p)) return;
                     var prefix = suffixMatch(norm.path, p);
                     if (prefix === null) return;
                     prefixes[prefix] = (prefixes[prefix] || 0) + 1;
@@ -99,7 +138,7 @@
         return m ? m[1] : null;
     }
 
-    var api = { normalize: normalize, keeper: keeper, locate: locate, iosVersion: iosVersion, SYSTEM_VERSION: SYSTEM_VERSION };
+    var api = { normalize: normalize, isFolder: isFolder, folderAt: folderAt, keeper: keeper, locate: locate, iosVersion: iosVersion, SYSTEM_VERSION: SYSTEM_VERSION };
     if (typeof module !== 'undefined' && module.exports) module.exports = api;
     else root.ZipLocate = api;
 })(typeof window !== 'undefined' ? window : this);
