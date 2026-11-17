@@ -163,7 +163,7 @@
             "timeEnd"
           ],
           "returns": "skickad, läst, konversation, meddelandenummer, status, avsändar-id (hex), innehållets storlek, UTC",
-          "sql": "SELECT\n  datetime(creation_timestamp / 1000, 'unixepoch', 'localtime') AS skickad_lokal,\n  datetime(read_timestamp / 1000, 'unixepoch', 'localtime') AS last_lokal,\n  client_conversation_id,\n  server_message_id,\n  client_message_id,\n  message_state_type,\n  CASE WHEN hex(substr(message_content, 3, 4)) = '12120A10'\n    THEN lower(hex(substr(message_content, 7, 16))) END AS avsandare_id_hex,\n  length(message_content) AS innehall_storlek,\n  datetime(creation_timestamp / 1000, 'unixepoch') AS skickad_utc\nFROM conversation_message\nWHERE creation_timestamp BETWEEN {{unixMsStart}} AND {{unixMsEnd}}\nORDER BY creation_timestamp;",
+          "sql": "SELECT\n  datetime(creation_timestamp / 1000, 'unixepoch', 'localtime') AS skickad_lokal,\n  CASE WHEN read_timestamp > 0 THEN datetime(read_timestamp / 1000, 'unixepoch', 'localtime') END AS last_lokal,\n  client_conversation_id,\n  server_message_id,\n  client_message_id,\n  message_state_type,\n  CASE WHEN hex(substr(message_content, 3, 4)) = '12120A10'\n    THEN lower(hex(substr(message_content, 7, 16))) END AS avsandare_id_hex,\n  length(message_content) AS innehall_storlek,\n  datetime(creation_timestamp / 1000, 'unixepoch') AS skickad_utc\nFROM conversation_message\nWHERE creation_timestamp BETWEEN {{unixMsStart}} AND {{unixMsEnd}}\nORDER BY creation_timestamp;",
           "chat": {
             "thread": "client_conversation_id",
             "message": "client_message_id"
@@ -178,7 +178,7 @@
             "conversationId"
           ],
           "returns": "skickad, läst, meddelandenummer, status, avsändar-id (hex), innehållets storlek, UTC",
-          "sql": "SELECT\n  datetime(creation_timestamp / 1000, 'unixepoch', 'localtime') AS skickad_lokal,\n  datetime(read_timestamp / 1000, 'unixepoch', 'localtime') AS last_lokal,\n  server_message_id,\n  client_message_id,\n  message_state_type,\n  CASE WHEN hex(substr(message_content, 3, 4)) = '12120A10'\n    THEN lower(hex(substr(message_content, 7, 16))) END AS avsandare_id_hex,\n  length(message_content) AS innehall_storlek,\n  datetime(creation_timestamp / 1000, 'unixepoch') AS skickad_utc\nFROM conversation_message\nWHERE client_conversation_id = '{{conversationId}}'\nORDER BY creation_timestamp;"
+          "sql": "SELECT\n  datetime(creation_timestamp / 1000, 'unixepoch', 'localtime') AS skickad_lokal,\n  CASE WHEN read_timestamp > 0 THEN datetime(read_timestamp / 1000, 'unixepoch', 'localtime') END AS last_lokal,\n  server_message_id,\n  client_message_id,\n  message_state_type,\n  CASE WHEN hex(substr(message_content, 3, 4)) = '12120A10'\n    THEN lower(hex(substr(message_content, 7, 16))) END AS avsandare_id_hex,\n  length(message_content) AS innehall_storlek,\n  datetime(creation_timestamp / 1000, 'unixepoch') AS skickad_utc\nFROM conversation_message\nWHERE client_conversation_id = '{{conversationId}}'\nORDER BY creation_timestamp;"
         },
         {
           "id": "tables",

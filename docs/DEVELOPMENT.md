@@ -53,12 +53,14 @@ GPU/VSync-varningar i terminalen på Linux är oftast ofarliga.
 | `npm test` | Enhetstesterna under `tools/` (Node) |
 | `npm run test:app` | Provkörning av hela appen i Electron: röktestet, och facit om labbzippen finns (se Tester) |
 | `npm run test:html` | Html-versionen i Edge eller Chrome under `file://`, utan internet: röktestet, utan JIT och beskeden utan WebAssembly |
+| `npm run build:standalone` | Den fristående html-filen `release/ForensicsToolbox-X.Y-en-fil.html` (se Den fristående html-filen) |
+| `npm run test:html -- --standalone` | Den fristående filen: röktestet, och inget får hämtas via `file://` utöver sidan. `--browser electron` kör den i projektets Electron när Edge och Chrome saknas |
 
 ## Windows-build (målplattform)
 
 Cross-build från en enda maskin är opålitligt. Använd:
 
-1. **GitHub Actions** – `.github/workflows/build-release.yml` bygger **Windows + Linux + macOS** parallellt (matrix) vid push till `main` (ignorerar rena `.md`-ändringar), eller  
+1. **GitHub Actions** – `.github/workflows/build-release.yml` bygger **Windows**, html-zippen och den fristående html-filen vid push till `main` (ignorerar rena `.md`-ändringar). **Linux och macOS** byggs bara vid behov: Actions → "Bygg och publicera" → Run workflow med plattformar = alla. Eller  
 2. Lokalt: `npm run dist` (Windows), `npm run dist:linux`, `npm run dist:mac`
 
 Artifacts (efter finalize / CI):
@@ -87,6 +89,27 @@ medverkande i releasen. 1.57 fick ett främmande konto så, av WhatsApps id `@li
 Två körningar åt gången köas (`concurrency`).
 
 Versionen läses från texten `Version X.Y` i `Toolbox.html`.
+
+## Den fristående html-filen
+
+`ForensicsToolbox-X.Y-en-fil.html` (1.72) är hela verktygslådan utom CyberChef i en enda fil, för datorer där Edge inte
+visar verktygen i html-versionen. Där stoppar policyn `IntranetFileLinksEnabled` varje `file://`-navigering som sidan
+själv startar, så ramarna med verktygen laddas inte. Idén kommer från CryptoToolbox (`scripts/build-standalone.js`).
+
+- `scripts/build-standalone.js` lägger varje post i sidopanelen i huvudsidan som ett JSON-block
+  (`data-ft-src`), med verktygets css och skript inlagda. Filer över 512 kB (kartan, ExifTool, SQLite) ligger en gång
+  (`data-ft-shared-src`) och sätts in när verktyget öppnas: annars blev filen över 100 MB, nu runt 43 MB. Härkomst får
+  ExifTool direkt (verktyget läser annars in det från exif-viewer, `EXTRA`). Bygget stoppar om något i sidornas
+  markup fortfarande pekar på en lokal fil.
+- Källkoden ändras inte. `location.search` och `location.protocol` i verktygens egen kod skrivs om till `FT_SEARCH`
+  och `FT_PROTOCOL`, som huvudsidan sätter: verktyget får sina parametrar och beter sig som under `file:` i html-zippen.
+- `src/script.js` (`FT_STANDALONE`) visar verktyget i en `srcdoc`-ram, utan sandbox, så att ramen har huvudsidans
+  origin och lagringen i webbläsaren fungerar. Ramens namn är verktygets sökväg (`tests/app/cdp.js` hittar
+  `about:srcdoc`-ramar på namnet). Det som inte är inlagt tas bort ur sidopanelen.
+- Kartvyn räknade ut sin mapp ur `document.currentScript.src`, som saknas för ett inlagt skript; det är tåligt nu.
+- Provet: `npm run test:html -- --standalone` kör röktestet och underkänner allt som hämtas via `file://` utöver sidan
+  (Network-händelser). I CI körs den i Edge, också med `IntranetFileLinksEnabled` på, där den vanliga html-versionen
+  körs bredvid för att visa att policyn biter.
 
 ## Projektstruktur
 

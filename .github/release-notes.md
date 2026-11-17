@@ -1,5 +1,15 @@
 Automatiskt byggd från commit `{{SHA}}`.
 
+## Nytt i 1.72
+
+**En ny fil i releasen, `ForensicsToolbox-1.72-en-fil.html`, för datorer där Edge inte visar verktygen i html-versionen.**
+
+- **En enda html-fil:** hela verktygslådan utom CyberChef i en fil på runt 43 MB. Öppna den direkt i Edge eller Chrome. Den öppnar aldrig något via `file://`, så den fungerar också där en policy i Edge (`IntranetFileLinksEnabled`) stoppar verktygen i html-versionen. Offlinekartan väljs som mappen `maps` ur html-zippen, som förut.
+- **Html-zippen finns kvar** och fungerar som förut där policyn inte gäller.
+- **Linux och macOS** byggs bara när de behövs. Varje release har Windows, html-zippen och den nya filen.
+- **Queries:** ett oläst meddelande i Snapchat visar inte längre 1970 som läst-tid.
+- **Provat:** röktestet i den fristående filen (42 delar), utan att något hämtas via `file://` utöver sidan; enhetstesterna och röktestet i appen. I bygget körs den i Edge, också med policyn på.
+
 ## Nytt i 1.71
 
 **Härkomst och Queries visar Snapchats inställning för var sparade snaps hamnar, skiljer Snapchats egen kopia i galleriet från en export, och säger när en ominstallation har rensat appens loggar.**
@@ -804,11 +814,9 @@ Offlinekartan från 1.7 finns kvar: världen i översikt, Sverige på gatunivå.
 
 ## HTML-mapp (ingen .exe)
 - **ForensicsToolbox-{{VERSION}}-html.zip** — packa upp, öppna `Toolbox.html` och välj mappen `maps`. Offlinekartan ligger redan där. Ingen server behövs.
+- **ForensicsToolbox-{{VERSION}}-en-fil.html** — hela verktygslådan i en enda fil, för datorer där Edge inte visar verktygen i html-versionen (låsta file://-länkar). Öppna filen direkt. Utan CyberChef; offlinekartan väljs som mappen `maps` ur html-zippen.
 
-## Linux
-- **ForensicsToolbox-*.AppImage** — körbar AppImage (x64)
-
-## macOS
-- **ForensicsToolbox-*.dmg** / **.zip** — signerat ad hoc, inte granskat av Apple. macOS varnar vid första start. Försök öppna appen, och välj sedan **Öppna ändå** under Systeminställningar > Integritet och säkerhet.
+## Linux och macOS
+Byggs vid behov och finns då i releasen: **ForensicsToolbox-*.AppImage** (Linux, x64) och **ForensicsToolbox-*.dmg** / **.zip** (macOS, signerat ad hoc, inte granskat av Apple: välj **Öppna ändå** under Systeminställningar > Integritet och säkerhet).
 
 Kartdata © OpenStreetMap-bidragsgivare (ODbL), via Protomaps.

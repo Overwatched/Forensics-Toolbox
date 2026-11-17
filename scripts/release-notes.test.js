@@ -49,7 +49,7 @@ test('releasens text: den riktiga filen har den senaste versionen och nedladdnin
     const notes = notesFor(text, latest);
     assert.ok(notes.length < text.length / 5, 'texten är ' + notes.length + ' tecken av ' + text.length);
     assert.strictEqual((notes.match(/^## Nytt i /gm) || []).length, 1);
-    assert.ok(notes.includes('## macOS') && notes.includes('{{VERSION}}'));
+    assert.ok(notes.includes('## Linux och macOS') && notes.includes('-en-fil.html') && notes.includes('{{VERSION}}'));
 });
 
 // GitHub läser ett snabel-a följt av ett namn som ett konto: kontot får ett meddelande och visas som medverkande i

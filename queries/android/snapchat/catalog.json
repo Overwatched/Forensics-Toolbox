@@ -138,7 +138,7 @@
             "timeEnd"
           ],
           "returns": "skickad, läst, konversation, meddelandenummer, avsändar-id, skapad på telefonen, skapat på, innehållstyp, media, sparad, UTC",
-          "sql": "SELECT\n  datetime(creation_timestamp / 1000, 'unixepoch', 'localtime') AS skickad_lokal,\n  datetime(read_timestamp / 1000, 'unixepoch', 'localtime') AS last_lokal,\n  client_conversation_id,\n  server_message_id,\n  client_message_id,\n  sender_id,\n  created_on_device,\n  CASE\n    WHEN created_on_device = 1 THEN 'den här telefonen'\n    WHEN instr(message_content, CAST('ref=web_snap_context' AS BLOB)) > 0 THEN 'Snapchat för webben'\n    ELSE ''\n  END AS skapat_pa,\n  content_type,\n  remote_media_count,\n  is_saved,\n  message_state_type,\n  datetime(creation_timestamp / 1000, 'unixepoch') AS skickad_utc\nFROM conversation_message\nWHERE creation_timestamp BETWEEN {{unixMsStart}} AND {{unixMsEnd}}\nORDER BY creation_timestamp;",
+          "sql": "SELECT\n  datetime(creation_timestamp / 1000, 'unixepoch', 'localtime') AS skickad_lokal,\n  CASE WHEN read_timestamp > 0 THEN datetime(read_timestamp / 1000, 'unixepoch', 'localtime') END AS last_lokal,\n  client_conversation_id,\n  server_message_id,\n  client_message_id,\n  sender_id,\n  created_on_device,\n  CASE\n    WHEN created_on_device = 1 THEN 'den här telefonen'\n    WHEN instr(message_content, CAST('ref=web_snap_context' AS BLOB)) > 0 THEN 'Snapchat för webben'\n    ELSE ''\n  END AS skapat_pa,\n  content_type,\n  remote_media_count,\n  is_saved,\n  message_state_type,\n  datetime(creation_timestamp / 1000, 'unixepoch') AS skickad_utc\nFROM conversation_message\nWHERE creation_timestamp BETWEEN {{unixMsStart}} AND {{unixMsEnd}}\nORDER BY creation_timestamp;",
           "chat": {
             "thread": "client_conversation_id",
             "message": "client_message_id"
@@ -153,7 +153,7 @@
             "conversationId"
           ],
           "returns": "skickad, läst, meddelandenummer, avsändar-id, skapad på telefonen, innehållstyp, media, sparad, UTC",
-          "sql": "SELECT\n  datetime(creation_timestamp / 1000, 'unixepoch', 'localtime') AS skickad_lokal,\n  datetime(read_timestamp / 1000, 'unixepoch', 'localtime') AS last_lokal,\n  server_message_id,\n  client_message_id,\n  sender_id,\n  created_on_device,\n  content_type,\n  remote_media_count,\n  is_saved,\n  message_state_type,\n  datetime(creation_timestamp / 1000, 'unixepoch') AS skickad_utc\nFROM conversation_message\nWHERE client_conversation_id = '{{conversationId}}'\nORDER BY creation_timestamp;"
+          "sql": "SELECT\n  datetime(creation_timestamp / 1000, 'unixepoch', 'localtime') AS skickad_lokal,\n  CASE WHEN read_timestamp > 0 THEN datetime(read_timestamp / 1000, 'unixepoch', 'localtime') END AS last_lokal,\n  server_message_id,\n  client_message_id,\n  sender_id,\n  created_on_device,\n  content_type,\n  remote_media_count,\n  is_saved,\n  message_state_type,\n  datetime(creation_timestamp / 1000, 'unixepoch') AS skickad_utc\nFROM conversation_message\nWHERE client_conversation_id = '{{conversationId}}'\nORDER BY creation_timestamp;"
         },
         {
           "id": "tables",

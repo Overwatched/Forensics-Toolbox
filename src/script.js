@@ -66,6 +66,37 @@ function initToolNav() {
 
     const frames = new Map();
 
+    // Den fristående filen (scripts/build-standalone.js): varje verktyg ligger i sidan som ett JSON-block och visas i
+    // en srcdoc-ram, så att inget öppnas via file:// (Edge med IntranetFileLinksEnabled stoppar det). Stora filer som
+    // flera verktyg använder (kartan, ExifTool) ligger en gång och sätts in när verktyget öppnas. Verktyget läser sina
+    // parametrar ur FT_SEARCH och tror att det körs under file:, som i html-zippen.
+    const STANDALONE = window.FT_STANDALONE === true;
+    const standaloneCache = new Map();
+    function standaloneBlock(attr, key) {
+        const cacheKey = attr + ':' + key;
+        if (standaloneCache.has(cacheKey)) return standaloneCache.get(cacheKey);
+        const block = Array.from(document.querySelectorAll('script[type="application/json"][' + attr + ']')).find((b) => b.getAttribute(attr) === key);
+        const value = block ? JSON.parse(block.textContent) : null;
+        standaloneCache.set(cacheKey, value);
+        return value;
+    }
+    function standaloneDoc(path, search) {
+        const html = standaloneBlock('data-ft-src', path);
+        if (html == null) return null;
+        const full = html.replace(/<(script|style)([^>]*) data-ft-shared="([^"]+)"><\/\1>/g, (all, tag, attrs, key) => {
+            const part = standaloneBlock('data-ft-shared-src', key);
+            return part ? '<' + tag + attrs + '>' + part.text + '</' + tag + '>' : all;
+        });
+        const shim = '<script>window.FT_SEARCH = ' + JSON.stringify(search).replace(/</g, '\\u003c') + '; window.FT_PROTOCOL = "file:";</script>';
+        return /<head[^>]*>/i.test(full) ? full.replace(/<head[^>]*>/i, (tag) => tag + shim) : shim + full;
+    }
+    // Det som inte är inlagt (CyberChef) tas bort ur sidopanelen.
+    if (STANDALONE) {
+        document.querySelectorAll('.nav-item[data-type="frame"][data-src]').forEach((item) => {
+            if (standaloneBlock('data-ft-src', item.dataset.src.split('?')[0]) == null) item.remove();
+        });
+    }
+
     // Extraktionen följer med mellan verktygen. Huvudfönstret minns zippen (File) som senast
     // öppnades eller stängdes i något verktyg, med ett löpnummer, och skickar läget till ett verktyg
     // när det visas. Verktyget följer bara en ändring det inte redan har sett, så att till exempel
@@ -414,7 +445,15 @@ function initToolNav() {
         const separator = src.indexOf('?') === -1 ? '?' : '&';
         // Versionen står i Toolbox.html. Under file:// kan verktyget inte läsa den själv.
         const version = ((document.querySelector('.version-row p') || {}).textContent || '').replace(/^Version\s+/, '').trim();
-        frame.src = src + separator + 'theme=' + theme + '&version=' + encodeURIComponent(version);
+        const query = 'theme=' + theme + '&version=' + encodeURIComponent(version);
+        if (STANDALONE) {
+            // Namnet är verktygets sökväg: srcdoc-ramar har ingen egen adress att känna igen dem på.
+            frame.name = path;
+            const extra = src.indexOf('?') === -1 ? '' : src.slice(src.indexOf('?') + 1) + '&';
+            frame.srcdoc = standaloneDoc(path, '?' + extra + query) || '<p>Verktyget finns inte i den här filen.</p>';
+        } else {
+            frame.src = src + separator + query;
+        }
         frame.addEventListener('load', () => {
             frame.dataset.ready = '1';
             // Laddas ramen om finns inget kvar av det verktyget hade läst in eller fått.

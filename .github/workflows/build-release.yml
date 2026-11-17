@@ -1,7 +1,8 @@
-name: Bygg och publicera (Windows, Linux, macOS)
+name: Bygg och publicera (Windows; Linux och macOS vid behov)
 
 # Bygger native på respektive runner via matrix (inte cross-compile från en maskin).
-# Push till main (utom rena .md-ändringar) eller manuell "Run workflow".
+# Push till main (utom rena .md-ändringar) bygger Windows, html-zippen och den fristående html-filen.
+# Linux och macOS byggs bara med "Run workflow" och plattformar = alla.
 #
 # Med offlinekartan är varje plattformsfil runt 1,5 GB. Varje bygge laddar därför upp
 # sina filer direkt till releasen (som utkast) i stället för att samla allt i ett jobb,
@@ -14,6 +15,12 @@ on:
       - '**.md'
       - 'docs/images/**'
   workflow_dispatch:
+    inputs:
+      plattformar:
+        description: 'Vilka appar som byggs: windows, eller alla (också Linux och macOS)'
+        type: choice
+        options: [windows, alla]
+        default: windows
 
 permissions:
   contents: write
@@ -28,6 +35,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.version.outputs.version }}
+      matrix: ${{ steps.matrix.outputs.matrix }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -36,6 +44,16 @@ jobs:
       - name: Läs version från Toolbox.html
         id: version
         run: node scripts/sync-version.js
+      - name: Välj plattformar
+        id: matrix
+        env:
+          PLATTFORMAR: ${{ github.event.inputs.plattformar || 'windows' }}
+        run: |
+          if [ "$PLATTFORMAR" = "alla" ]; then
+            echo 'matrix={"include":[{"os":"windows-latest","platform":"win"},{"os":"ubuntu-latest","platform":"linux"},{"os":"macos-latest","platform":"mac"}]}' >> "$GITHUB_OUTPUT"
+          else
+            echo 'matrix={"include":[{"os":"windows-latest","platform":"win"}]}' >> "$GITHUB_OUTPUT"
+          fi
 
   # Kör före bygget så att en trasig hash- eller avkodningslogik aldrig når en release.
   test:
@@ -87,6 +105,9 @@ jobs:
         run: npm ci --ignore-scripts
       - name: Kör html-versionen i Edge
         run: npm run test:html -- --browser edge
+      - name: Kör den fristående html-filen i Edge
+        if: ${{ !cancelled() }}
+        run: npm run test:html -- --browser edge --standalone --only-plain
       - name: Blockera JIT med policyn
         if: ${{ !cancelled() }}
         shell: pwsh
@@ -121,6 +142,24 @@ jobs:
       - name: Kör html-versionen i den låsta Edge
         if: ${{ !cancelled() }}
         run: npm run test:html -- --browser edge --only-plain --expect-blocked --show-policy
+      # Edge på en del hanterade datorer: IntranetFileLinksEnabled stoppar file://-navigeringar som sidan startar, så
+      # html-versionens verktyg laddas inte. Den fristående filen ska fungera ändå. Den vanliga körs för att visa att
+      # policyn biter här; att den misslyckas stoppar inget.
+      - name: Slå på IntranetFileLinksEnabled med policyn
+        if: ${{ !cancelled() }}
+        shell: pwsh
+        run: |
+          $edge = 'HKLM:\SOFTWARE\Policies\Microsoft\Edge'
+          Remove-Item -Path "$edge\URLBlocklist" -Recurse -Force -ErrorAction SilentlyContinue
+          Remove-Item -Path "$edge\URLAllowlist" -Recurse -Force -ErrorAction SilentlyContinue
+          New-ItemProperty -Path $edge -Name 'IntranetFileLinksEnabled' -Value 1 -PropertyType DWord -Force | Out-Null
+      - name: Den vanliga html-versionen med IntranetFileLinksEnabled (väntas misslyckas)
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        run: npm run test:html -- --browser edge --only-plain --show-policy
+      - name: Den fristående html-filen med IntranetFileLinksEnabled
+        if: ${{ !cancelled() }}
+        run: npm run test:html -- --browser edge --standalone --only-plain --show-policy
 
   # Skapar releasen som utkast, eller rensar ett befintligt utkast. En redan publicerad
   # release rörs inte: då hoppas bygget över. Höj versionen i Toolbox.html för en ny release.
@@ -161,14 +200,7 @@ jobs:
     if: needs.prepare.outputs.skip != 'true'
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - os: windows-latest
-            platform: win
-          - os: ubuntu-latest
-            platform: linux
-          - os: macos-latest
-            platform: mac
+      matrix: ${{ fromJSON(needs.version.outputs.matrix) }}
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -230,10 +262,6 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: npx electron-builder --mac --publish never
 
-      - name: Packa HTML-mapp (utan exe)
-        if: matrix.platform == 'linux'
-        run: node scripts/pack-html-folder.js
-
       - name: Ladda upp till releasen
         shell: bash
         env:
@@ -241,13 +269,37 @@ jobs:
           TAG: v${{ needs.version.outputs.version }}
         run: |
           shopt -s nullglob
-          files=(release/*.exe release/*.AppImage release/*.dmg release/*-html.zip release/*-Portable.zip release/*-x64.zip release/*-arm64.zip)
+          files=(release/*.exe release/*.AppImage release/*.dmg release/*-Portable.zip release/*-x64.zip release/*-arm64.zip)
           if [ ${#files[@]} -eq 0 ]; then echo "Inga release-filer"; exit 1; fi
           ls -la "${files[@]}"
           gh release upload "$TAG" "${files[@]}" --clobber
 
+  # Html-zippen (med offlinekartan) och den fristående html-filen, utan Electron. Körs vid varje release.
+  html:
+    needs: [version, prepare]
+    if: needs.prepare.outputs.skip != 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Hämta offlinekartor (kontrollerar SHA-256)
+        run: node scripts/fetch-map-data.js
+      - name: Packa HTML-mapp (utan exe)
+        run: node scripts/pack-html-folder.js
+      - name: Bygg den fristående html-filen
+        run: node scripts/build-standalone.js
+      - name: Ladda upp till releasen
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: v${{ needs.version.outputs.version }}
+        run: |
+          ls -la release/*-html.zip release/*-en-fil.html
+          gh release upload "$TAG" release/*-html.zip release/*-en-fil.html --clobber
+
   publish:
-    needs: [version, prepare, build]
+    needs: [version, prepare, build, html]
     if: needs.prepare.outputs.skip != 'true'
     runs-on: ubuntu-latest
     steps:

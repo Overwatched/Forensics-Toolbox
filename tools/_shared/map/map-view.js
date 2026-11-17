@@ -9,7 +9,9 @@
     'use strict';
 
     // Sökvägar relativt den här filen, så att både EXIF-verktyget och Positioner kan använda den.
-    var SCRIPT_BASE = document.currentScript ? new URL('./', document.currentScript.src) : null;
+    // Ett inlagt skript (den fristående filen) har ingen src; då används biblioteket som redan står i sidan.
+    var SCRIPT_BASE = null;
+    try { SCRIPT_BASE = document.currentScript && document.currentScript.src ? new URL('./', document.currentScript.src) : null; } catch (e) { SCRIPT_BASE = null; }
     function vendorUrl(rel) { return SCRIPT_BASE ? new URL(rel, SCRIPT_BASE).href : rel; }
     var VENDOR_CSS = vendorUrl('vendor/maps/maplibre-gl.css');
     var VENDOR_JS = [vendorUrl('vendor/maps/maplibre.js'), vendorUrl('vendor/maps/map-assets.js')];

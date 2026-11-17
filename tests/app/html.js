@@ -7,7 +7,10 @@
 // beskeden, och röktestet körs också med en tolk; på Windows finns det kvar i en tolk (Edge 156), och då
 // körs röktestet i den. Med en tolk ska det stå att det går långsammare.
 //
-//   --browser edge|chrome|<sökväg>   annars FT_BROWSER, annars Edge eller Chrome, det som finns
+//   --browser edge|chrome|electron|<sökväg>   annars FT_BROWSER, annars Edge eller Chrome, det som finns;
+//                                    electron är projektets Electron som vanlig webbläsare (tests/app/electron-browser.js)
+//   --standalone                     den fristående filen (scripts/build-standalone.js) i stället för html-mappen;
+//                                    allt som hämtas via file:// utöver själva sidan räknas som fel
 //   --only-plain                     bara en körning, utan flaggan för JIT (CI: en policy gäller redan)
 //   --expect-blocked                 kontrollerar att en policy spärrar andra adresser (CI, låst Edge)
 //   --show-policy                    skriver ut de policyer som webbläsaren säger att den tillämpar
@@ -46,6 +49,7 @@ const PLACES = {
 function findBrowser() {
     const at = args.indexOf('--browser');
     const wanted = at >= 0 ? args[at + 1] : process.env.FT_BROWSER;
+    if (wanted === 'electron') return 'electron';
     if (wanted && !PLACES[wanted]) return wanted;
     for (const name of wanted ? [wanted] : ['edge', 'chrome']) {
         const hit = (PLACES[name][process.platform] || []).find((p) => fs.existsSync(p));
@@ -59,6 +63,12 @@ function expect(ok, msg) { if (!ok) throw new Error(msg); }
 // En proxy som inte finns: inget når internet, som på en dator med bara lokala filer och intranät.
 function startBrowser(bin, url, port, flags) {
     const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'ft-html-profil-'));
+    if (bin === 'electron') {
+        const env = Object.assign({}, process.env, { FT_URL: url, FT_PORT: String(port), FT_JS_FLAGS: (flags || []).map((f) => (/^--js-flags=(.*)$/.exec(f) || [])[1]).filter(Boolean).join(' ') });
+        delete env.ELECTRON_RUN_AS_NODE;
+        const child = spawn(require('electron'), [path.join(__dirname, 'electron-browser.js'), '--user-data-dir=' + profile], { env, stdio: 'ignore' });
+        return { child, profile };
+    }
     const child = spawn(bin, [
         '--headless=new', '--remote-debugging-port=' + port, '--user-data-dir=' + profile, '--no-first-run',
         '--no-default-browser-check', '--disable-extensions', '--window-size=1600,1000', '--proxy-server=127.0.0.1:9',
@@ -72,8 +82,14 @@ async function stopBrowser(b) {
     try { fs.rmSync(b.profile, { recursive: true, force: true, maxRetries: 5, retryDelay: 300 }); } catch (e) { /* Windows kan hålla kvar filer en stund */ }
 }
 
-async function open(port, url) {
+async function open(port, url, standalone) {
     const c = await connect(port);
+    // Den fristående filen får inte hämta något via file:// utöver sig själv: varje sådan adress sparas.
+    c.fileLoads = [];
+    if (standalone) {
+        await c.send('Network.enable');
+        c.on('Network.requestWillBeSent', (p) => { if (/^file:/i.test(p.request.url) && p.request.url.split('#')[0] !== url) c.fileLoads.push(p.request.url); });
+    }
     await c.send('Page.navigate', { url });
     await sleep(800);
     await c.waitFor(null, `document.querySelectorAll('.nav-item').length > 0`, 30000, 'huvudfönstret');
@@ -118,7 +134,7 @@ async function showPolicy(c, bin) {
     if (nav.result && nav.result.errorText) { console.log('Policyer: ' + nav.result.errorText + '\n'); return; }
     await sleep(2500);
     const text = await c.ev(null, POLICY_TEXT);
-    const hits = text.split(' | ').map((t, i, all) => (/^(DefaultJavaScriptJitSetting|EnhanceSecurityMode|URLBlocklist|URLAllowlist|JavaScriptJit\w+)$/.test(t) ? all.slice(i, i + 5).join(' | ') : null)).filter(Boolean);
+    const hits = text.split(' | ').map((t, i, all) => (/^(DefaultJavaScriptJitSetting|EnhanceSecurityMode|URLBlocklist|URLAllowlist|IntranetFileLinksEnabled|JavaScriptJit\w+)$/.test(t) ? all.slice(i, i + 5).join(' | ') : null)).filter(Boolean);
     console.log('Policyer: ' + (hits.length ? '\n  ' + hits.join('\n  ') : 'inga av dem som provet gäller, av ' + text.length + ' tecken på sidan') + '\n');
 }
 
@@ -187,8 +203,11 @@ async function main() {
         process.exit(1);
     }
     const folder = fs.mkdtempSync(path.join(os.tmpdir(), 'ft-html-'));
-    execFileSync(process.execPath, [path.join(ROOT, 'scripts', 'pack-html-folder.js'), '--folder', folder], { stdio: 'ignore' });
-    const url = pathToFileURL(path.join(folder, 'Toolbox.html')).href;
+    const standalone = args.includes('--standalone');
+    const page = path.join(folder, standalone ? 'ForensicsToolbox-en-fil.html' : 'Toolbox.html');
+    if (standalone) execFileSync(process.execPath, [path.join(ROOT, 'scripts', 'build-standalone.js'), '--out', page], { stdio: 'ignore' });
+    else execFileSync(process.execPath, [path.join(ROOT, 'scripts', 'pack-html-folder.js'), '--folder', folder], { stdio: 'ignore' });
+    const url = pathToFileURL(page).href;
     const fx = await fixtures.build();
     const shots = process.env.FT_SHOTS || null;
     const counter = { ran: 0, failed: 0 };
@@ -201,7 +220,7 @@ async function main() {
         // Egen mapp per körning: röktestet letar upp protokollet på namnet.
         const downloads = fs.mkdtempSync(path.join(os.tmpdir(), 'ft-html-nedladdningar-'));
         try {
-            const c = await open(PORT + n, url);
+            const c = await open(PORT + n, url, standalone);
             await c.send('Page.setDownloadBehavior', { behavior: 'allow', downloadPath: downloads });
             if (n === 0) console.log(await c.ev(null, 'navigator.userAgent') + '\n');
             const speed = await c.ev(null, SPEED);
@@ -221,6 +240,11 @@ async function main() {
                 console.log('✖ Beskedet om långsam WebAssembly stämmer inte med slingan: ' + speed.wasmMs + ' ms');
             }
             await runGroup(c, noWasm ? 'Besked utan WebAssembly' : modes[n].title, noWasm ? noWasmScenarios : smoke.scenarios, { fx, downloads }, shots, counter);
+            if (standalone) {
+                const loads = [...new Set(c.fileLoads)];
+                if (loads.length) { counter.failed++; console.log('✖ Hämtat via file:// utöver sidan: ' + loads.length + '\n  ' + loads.slice(0, 5).join('\n  ') + '\n'); }
+                else console.log('Inget hämtades via file:// utöver sidan.\n');
+            }
             const blocked = c.errors.filter(fileFetch);
             if (blocked.length) {
                 counter.failed++;

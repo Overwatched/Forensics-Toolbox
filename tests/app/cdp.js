@@ -21,11 +21,13 @@ async function connect(port, opts) {
     const pending = {};
     const contexts = [];
     const errors = [];
+    const listeners = {};
     let dragData = null;
     ws.onmessage = (m) => {
         const d = JSON.parse(m.data);
         if (d.id && pending[d.id]) { pending[d.id](d); delete pending[d.id]; }
         if (d.method === 'Input.dragIntercepted') dragData = d.params.data;
+        if (d.method && listeners[d.method]) listeners[d.method].forEach((fn) => fn(d.params));
         if (d.method === 'Runtime.executionContextCreated') contexts.push(d.params.context);
         if (d.method === 'Runtime.executionContextDestroyed') {
             const i = contexts.findIndex((c) => c.id === d.params.executionContextId);
@@ -65,6 +67,9 @@ async function connect(port, opts) {
         return out;
     }
 
+    // En ram känns igen på sin adress, eller på sitt namn i den fristående filen (srcdoc-ramar heter about:srcdoc).
+    function isFrame(f, part) { return f.url.includes(part) || (f.url === 'about:srcdoc' && (f.name || '').includes(part)); }
+
     function contextOf(frameId) {
         const c = contexts.filter((x) => x.auxData && x.auxData.frameId === frameId && x.auxData.isDefault).pop();
         return c ? c.id : null;
@@ -74,7 +79,7 @@ async function connect(port, opts) {
     async function ctx(part) {
         for (let i = 0; i < 80; i++) {
             const all = await frames();
-            const f = part ? all.find((x) => x.parentId && x.url.includes(part)) : all.find((x) => !x.parentId);
+            const f = part ? all.find((x) => x.parentId && isFrame(x, part)) : all.find((x) => !x.parentId);
             const c = f && contextOf(f.id);
             if (c) return c;
             await sleep(250);
@@ -111,7 +116,7 @@ async function connect(port, opts) {
         if (!part) {
             root = (await send('DOM.getDocument', { depth: 1 })).result.root.nodeId;
         } else {
-            const f = (await frames()).find((x) => x.parentId && x.url.includes(part));
+            const f = (await frames()).find((x) => x.parentId && isFrame(x, part));
             if (!f) throw new Error('Hittar ingen ram för ' + part);
             await send('DOM.getDocument', { depth: -1, pierce: true });
             const owner = await send('DOM.getFrameOwner', { frameId: f.id });
@@ -129,7 +134,7 @@ async function connect(port, opts) {
     // Ett riktigt drag i en ram: musen trycks ner på from och flyttas, Chromium börjar draget, och det släpps på to.
     // fy är var i höjdled på to det släpps, 0 överst och 1 nederst. Svaret är false om inget drag började.
     async function drag(part, from, to, fy) {
-        const frame = await ev(null, `(function(){ const f = [...document.querySelectorAll('iframe')].find(f => f.src.includes(${JSON.stringify(part)}) && f.getBoundingClientRect().width > 0); if (!f) return null; const r = f.getBoundingClientRect(); return { x: r.left, y: r.top }; })()`);
+        const frame = await ev(null, `(function(){ const f = [...document.querySelectorAll('iframe')].find(f => (f.src.includes(${JSON.stringify(part)}) || f.name.includes(${JSON.stringify(part)})) && f.getBoundingClientRect().width > 0); if (!f) return null; const r = f.getBoundingClientRect(); return { x: r.left, y: r.top }; })()`);
         if (!frame) throw new Error('Hittar ingen synlig ram för ' + part);
         const point = async (selector, x, y) => {
             const r = await ev(part, `(function(){ const e = document.querySelector(${JSON.stringify(selector)}); if (!e) return null; e.scrollIntoView({ block: 'nearest' }); const r = e.getBoundingClientRect(); return { x: r.left + r.width * ${x}, y: r.top + r.height * ${y} }; })()`);
@@ -179,7 +184,9 @@ async function connect(port, opts) {
         })()`);
     }
 
-    return { send, frames, ctx, ev, waitFor, nav, setFiles, drag, shot, keepByDefault, errors, close: () => ws.close() };
+    // Händelser från DevTools-protokollet, till exempel Network.requestWillBeSent efter Network.enable.
+    const on = (method, fn) => { (listeners[method] = listeners[method] || []).push(fn); };
+    return { send, frames, ctx, ev, waitFor, nav, setFiles, drag, shot, keepByDefault, errors, on, close: () => ws.close() };
 }
 
 module.exports = { connect, sleep };

@@ -41,9 +41,9 @@ Knappen **Fyll med testdata** visar hur verktygen fungerar utan extraktion.
 |-----|--------------------|
 | Windows-installer | Vanlig installation |
 | `…-Portable.zip` | Packa upp och kör `Forensics Toolbox.exe` |
-| Linux `.AppImage` | Gör filen körbar och starta den |
-| macOS `.dmg` | Inte granskad av Apple. Välj Öppna ändå under Systeminställningar > Integritet och säkerhet |
 | `…-html.zip` | När körbara filer inte är tillåtna. Öppna `Toolbox.html` och välj mappen `maps` |
+| `…-en-fil.html` | När Edge inte visar verktygen i html-versionen (låsta file://-länkar). Hela verktygslådan i en fil, utan CyberChef |
+| Linux `.AppImage`, macOS `.dmg` | Byggs vid behov. macOS-appen är inte granskad av Apple: välj Öppna ändå under Systeminställningar > Integritet och säkerhet |
 
 ## Köra från källkod
 
