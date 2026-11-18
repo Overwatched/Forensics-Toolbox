@@ -489,8 +489,12 @@
             devices: ['Telefon 1', 'Telefon 2'], apps: ['WhatsApp'], blocks: ['clock-start', 'chat-text', 'chat-media', 'chat-delete', 'clock-end'] },
         { id: 'signal', label: 'Signal: text, bilagor och radering', desc: 'Samma chatt i Signal, där meddelanden ofta raderas eller försvinner.',
             devices: ['Telefon 1', 'Telefon 2'], apps: ['Signal'], blocks: ['clock-start', 'chat-text', 'chat-media', 'chat-delete', 'clock-end'] },
+        { id: 'telegram', label: 'Telegram: text och bilagor', desc: 'Text och läst åt båda håll, bild, video och röst, och ett meddelande som raderas för alla, i Telegram.',
+            devices: ['Telefon 1', 'Telefon 2'], apps: ['Telegram'], blocks: ['clock-start', 'chat-text', 'chat-media', 'chat-delete', 'clock-end'] },
         { id: 'grupp', label: 'Grupp och samtal', desc: 'En grupp skapas och besvaras, och ett samtal går utan svar och ett med svar.',
             devices: ['Telefon 1', 'Telefon 2'], apps: ['WhatsApp'], blocks: ['clock-start', 'chat-group', 'chat-call', 'clock-end'] },
+        { id: 'snapchat-chatt', label: 'Snapchat: chatt och snaps', desc: 'Text, snaps, bilder ur kamerarullen och röst mellan två telefoner i Snapchat, med läst åt båda håll.',
+            devices: ['Telefon 1', 'Telefon 2'], apps: ['Snapchat'], blocks: ['clock-start', 'chat-text', 'chat-media', 'clock-end'] },
         { id: 'snapchat-memories', label: 'Snapchat Memories', desc: 'En snap sparas i Memories och exporteras till kamerarullen, så att Snapchats kopia och exporten går att skilja åt.',
             devices: ['Telefon'], apps: ['Snapchat'], blocks: ['clock-start', 'clock-end'],
             own: { title: 'Snapchat Memories', app: 'Snapchat', steps: [
@@ -499,12 +503,38 @@
                 { action: 'custom', do: 'Öppna Memories, välj snappen och exportera den till kamerarullen.', done: 'Exporterade snappen ur Memories till kamerarullen.', press: 'när exporten är klar' },
                 { action: 'home-lock', wait: 120 },
             ] } },
+        { id: 'notiser', label: 'Notiser på en låst telefon', desc: 'Meddelanden kommer medan telefonen är låst och chatten öppnas först efteråt, så att notisen och läst syns var för sig.',
+            devices: ['Telefon 1', 'Telefon 2'], apps: ['WhatsApp'], blocks: ['clock-start', 'clock-end'],
+            own: { title: 'Notiser', app: 'WhatsApp', steps: [
+                { action: 'lock', on: 0, wait: 60 },
+                { action: 'text', on: 1, with: 0, wait: 60 },
+                { action: 'custom', on: 0, do: 'Titta på notisen om {förra} på låsskärmen. Lås inte upp och tryck inte på den.', done: 'Notisen om {förra} syntes på låsskärmen. Enheten låstes inte upp.',
+                    press: 'när notisen syns', wait: 60 },
+                { action: 'text', on: 1, with: 0, wait: 60 },
+                { action: 'read', on: 0, with: 1 },
+            ] } },
+        { id: 'mottagen-bild', label: 'Bild som kommer utifrån', desc: 'En bild tas med kameran, en tas emot i WhatsApp och sparas i bilderna, och en skärmdump tas, så att de tre går att skilja åt.',
+            devices: ['Telefon 1', 'Telefon 2'], apps: ['WhatsApp'], blocks: ['clock-start', 'clock-end'],
+            own: { title: 'Bild som kommer utifrån', app: 'WhatsApp', steps: [
+                { action: 'photo', on: 0 },
+                { action: 'photo-app', on: 1, with: 0 },
+                { action: 'custom', on: 0, do: 'Öppna bilden {förra} i {app} och spara den i enhetens bilder.', done: 'Sparade bilden {förra} ur {app} i enhetens bilder.', press: 'när bilden är sparad' },
+                { action: 'screenshot', on: 0 },
+            ] } },
         { id: 'kamera', label: 'Kamera och skärmdump', desc: 'En bild, en video och en skärmdump, så att det syns hur enhetens egna bilder får sina tider.',
             devices: ['Telefon'], apps: [], blocks: ['clock-start', 'camera', 'clock-end'] },
         { id: 'las', label: 'Lås, avstängning och start', desc: 'Låst i fem minuter, avstängd i tio och igång utan att vara upplåst i tre.',
             devices: ['Telefon'], apps: [], blocks: ['clock-start', 'lock-power', 'clock-end'] },
         { id: 'tidszon', label: 'Tidszon', desc: 'En bild tas medan enheten står i en annan zon. Bara zonen ändras, aldrig klockan.',
             devices: ['Telefon'], apps: [], blocks: ['clock-start', 'zone', 'clock-end'] },
+        { id: 'installera', label: 'Installera och avinstallera', desc: 'En app installeras, står framme i två minuter och avinstalleras, så att det syns vad som finns kvar efteråt.',
+            devices: ['Telefon'], apps: [], blocks: ['clock-start', 'clock-end'],
+            own: { title: 'Installera och avinstallera', app: 'Telegram', steps: [
+                { action: 'install' },
+                { action: 'open-app', wait: 120 },
+                { action: 'uninstall' },
+                { action: 'home-lock' },
+            ] } },
         { id: 'standard', label: 'Det mesta på en gång', desc: 'Chattar i WhatsApp och Signal, kamera, lås och avstängning: standardflödet med två telefoner.',
             devices: ['Telefon 1', 'Telefon 2'], apps: ['WhatsApp', 'Signal'], blocks: ['clock-start', 'chat-text', 'chat-media', 'chat-group', 'chat-delete', 'camera', 'lock-power', 'clock-end'] },
     ];
@@ -514,10 +544,17 @@
         if (!r) return null;
         var flow = buildFlow({ name: name || r.label, prefix: 'L', devices: r.devices, pair: [0, 1], apps: r.apps, blocks: r.blocks });
         if (r.own) {
-            var g = addGroup(flow, { title: r.own.title, app: r.own.app }, Math.min(1, flow.groups.length));
+            // on och with är enheternas plats i listan: den som gör steget och motparten.
+            var ids = flow.devices.map(function (d) { return d.id; });
+            var g = addGroup(flow, { title: r.own.title, app: r.own.app, a: ids[0], b: ids[1] }, Math.min(1, flow.groups.length));
             r.own.steps.forEach(function (x) {
-                var a = ACTION[x.action] || ACTION.custom;
-                addStep(flow, a.id, Object.assign({ group: g.id }, a.chat || a.needsApp || a.id === 'custom' ? { app: r.own.app } : {}, x));
+                var a = ACTION[x.action] || ACTION.custom, o = Object.assign({}, x);
+                if (o.on != null) o.device = ids[o.on];
+                if (o.with != null) o.other = ids[o.with];
+                delete o.on;
+                delete o.with;
+                delete o.action;
+                addStep(flow, a.id, Object.assign({ group: g.id }, a.chat || a.needsApp || a.id === 'custom' ? { app: r.own.app } : {}, o));
             });
         }
         return flow;

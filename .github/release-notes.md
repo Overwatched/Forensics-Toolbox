@@ -1,5 +1,13 @@
 Automatiskt byggd från commit `{{SHA}}`.
 
+## Nytt i 1.75
+
+**Laboration sparar flera laborationer, och fem nya färdiga flöden.**
+
+- **Mina laborationer** står först på startsidan: den som är öppen och de som är undanlagda, var och en som Förberedd, Pågår eller Klar. Ett nytt flöde ersätter inte längre den som finns. Den läggs undan med sin logg och öppnas igen med Öppna. Ta bort frågar först. Listan finns kvar när verktyget stängs.
+- **Nya flöden:** Telegram (text och bilagor), Snapchat (chatt och snaps), Notiser på en låst telefon, Bild som kommer utifrån (kamera, mottagen och sparad, skärmdump) och Installera och avinstallera.
+- **Provat:** enhetstesterna och röktestet i appen, med en andra laboration mitt i en som pågår, en omstart och bytet tillbaka. Röktestet får nu en tom profil för varje körning, så att inget från en tidigare körning följer med.
+
 ## Nytt i 1.74
 
 **Laboration är enklare: en startsida med färdiga flöden, en byggare med dra och släpp, och laborationen avslutas av sig själv.**

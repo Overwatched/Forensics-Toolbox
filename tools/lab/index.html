@@ -32,10 +32,15 @@
 
         <section id="view-start" class="view start">
             <div class="start-wrap">
-                <section id="s-current" class="current display-none" aria-live="polite">
-                    <span class="current-dot" aria-hidden="true"></span>
-                    <div class="current-text"><b id="s-resume-title"></b><span id="s-resume-desc"></span></div>
-                    <button type="button" id="s-resume" class="primary-btn"></button>
+                <section id="s-mine" class="mine display-none" aria-labelledby="s-mine-title">
+                    <h2 id="s-mine-title">Mina laborationer</h2>
+                    <div id="s-current" class="current display-none" aria-live="polite">
+                        <span class="current-dot" aria-hidden="true"></span>
+                        <div class="current-text"><span class="current-head"><b id="s-resume-title"></b><span class="here-tag">Öppen</span></span><span id="s-resume-desc" class="current-desc"></span></div>
+                        <button type="button" id="s-resume" class="primary-btn"></button>
+                        <button type="button" id="s-drop" class="link-btn">Ta bort</button>
+                    </div>
+                    <ul id="s-shelf" class="shelf"></ul>
                 </section>
                 <section class="analyze" aria-labelledby="s-an-title">
                     <svg class="analyze-icon" viewBox="0 0 24 24" width="30" height="30" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="m15 15 5 5M7.8 10.6l1.8 1.8 3.4-3.6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>

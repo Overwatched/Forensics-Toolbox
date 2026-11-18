@@ -47,7 +47,8 @@ function labIosDir(facit, envName) {
 function startApp(downloads) {
     const electron = require('electron');
     const headless = !process.env.DISPLAY && !process.env.WAYLAND_DISPLAY;
-    const env = Object.assign({}, process.env, { FT_PORT: String(PORT), FT_DOWNLOADS: downloads });
+    const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'ft-profil-'));
+    const env = Object.assign({}, process.env, { FT_PORT: String(PORT), FT_DOWNLOADS: downloads, FT_PROFILE: profile });
     delete env.ELECTRON_RUN_AS_NODE;
     const flags = headless ? ['--ozone-platform=headless'] : [];
     if (process.env.CI) flags.push('--no-sandbox');
@@ -55,6 +56,7 @@ function startApp(downloads) {
     let stderr = '';
     child.stderr.on('data', (d) => { stderr = (stderr + d).slice(-4000); });
     child.lastErr = () => stderr;
+    child.profile = profile;
     return child;
 }
 
@@ -138,6 +140,9 @@ async function main() {
         await sleep(300);
         fs.rmSync(fx.files.dir, { recursive: true, force: true });
         fs.rmSync(downloads, { recursive: true, force: true });
+        // Profilen tas bort när appen har stängt filerna i den.
+        const dropProfile = () => fs.rmSync(child.profile, { recursive: true, force: true });
+        if (child.exitCode !== null || child.signalCode) dropProfile(); else child.once('exit', dropProfile);
     }
     console.log((failed ? '✖ ' + failed + ' av ' + ran + ' misslyckades' : '✔ alla ' + ran + ' gick igenom'));
     process.exit(failed ? 1 : 0);

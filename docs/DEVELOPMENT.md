@@ -1715,7 +1715,14 @@ senare.
   `lab-core.js`, byggda ur mallarna), de egna mallarna och de senast genomförda (`localStorage['ft-laboration-senaste']`,
   högst sex, sparade när en laboration startar). Ett kort visar stegen i en förhandsvisning innan det används. Där
   finns också ett tomt flöde, guiden **Bygg från delar** (`#view-wizard`: enheter, appar, delar, och sedan
-  `buildFlow`) och inläsningen av en genomförd laboration. Det som redan finns i verktyget står först (`#s-resume`).
+  `buildFlow`) och inläsningen av en genomförd laboration. De färdiga flödena är 13 sedan 1.75. Ett flöde med en egen
+  grupp (`own`) anger enheterna med plats i listan: `on` gör steget och `with` är motparten.
+- **Mina laborationer** (1.75, `#s-mine`) står först på startsidan: laborationen i verktyget (`#s-current`, märkt
+  Öppen, den som flikarna gäller) och de undanlagda (`#s-shelf`), med status Förberedd, Pågår eller Klar. Ett nytt
+  flöde, eller en logg som öppnas i Förbered, lägger undan den som finns (`park()`) i stället för att ersätta den.
+  Öppna byter plats på dem (`openParked`). De undanlagda ligger i `localStorage['ft-laboration-sparade']`, `{ id,
+  at, file, setup }` per laboration, med samma filformat som loggen, och listan läses om varje gång startsidan ritas.
+  Ta bort frågar först.
 - **Förbered är en byggare** i tre kolumner (1.74): byggstenarna till vänster, flödet i mitten och det valda till
   höger (`#p-detail`). **Det valda** (`state.sel`, `{ step }` eller `{ group }`) är också märket: nästa byggsten
   hamnar efter det valda steget, sist i den valda gruppen, och utan val sist i flödet (`mark`). En mall blir alltid

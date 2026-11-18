@@ -2192,7 +2192,7 @@ const scenarios = [
         const fits = async (view) => expect(await ev(`document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1`), 'Sidan rullar i sidled i vyn ' + view);
         const search = (q) => ev(`(function(){ const i = document.getElementById('s-q'); i.value = ${JSON.stringify(q)}; i.dispatchEvent(new Event('input', { bubbles: true })); return 1; })()`);
         // Frågorna om att ersätta och ta bort besvaras med ja. Det som en tidigare körning lämnade tas bort.
-        await ev(`window.confirm = () => true, localStorage.removeItem('ft-laboration-senaste'), document.getElementById('p-reset').click(), document.getElementById('nav-start').click(), 1`);
+        await ev(`window.confirm = () => true, localStorage.removeItem('ft-laboration-senaste'), localStorage.removeItem('ft-laboration-sparade'), document.getElementById('p-reset').click(), document.getElementById('nav-start').click(), 1`);
 
         // Startsidan: sökrutan, det nya och de färdiga flödena, utan flikar.
         const start = await ev(`(function(){
@@ -2292,8 +2292,27 @@ const scenarios = [
             current: document.getElementById('s-resume-title').textContent + ' | ' + document.getElementById('s-resume').textContent, running: document.getElementById('s-current').classList.contains('running') })`);
         expect(away.tabs && /^Pågår: Laboration /.test(away.name) && /^Pågår: Laboration .* \| Fortsätt laborationen$/.test(away.current) && away.running, 'Startsidan under laborationen: ' + JSON.stringify(away));
         await ev(`document.querySelector('#s-flows .flow-card').click(), 1`);
-        expect(/ pågår här\. Använd flödet ersätter den/.test(await text('s-pv-note')) && await ev(`!document.getElementById('s-pv-note').classList.contains('display-none')`), 'Förhandsvisningen säger inte att laborationen pågår: ' + await text('s-pv-note'));
-        await key('Escape');
+        expect(/ pågår\. Den läggs undan under Mina laborationer, med sin logg,/.test(await text('s-pv-note')) && await ev(`!document.getElementById('s-pv-note').classList.contains('display-none')`), 'Förhandsvisningen säger inte att laborationen pågår: ' + await text('s-pv-note'));
+        // Mina laborationer: ett nytt flöde lägger undan den som pågår, utan att fråga, och den kommer tillbaka med loggen.
+        const other = await text('s-pv-title');
+        await ev(`window.__asked = '', window.confirm = (t) => { window.__asked = t; return true; }, document.getElementById('s-use').click(), 1`);
+        expect(await ev(`window.__asked`) === '' && await ev(`!document.getElementById('view-plan').classList.contains('display-none')`) && / ligger kvar under Mina laborationer på startsidan\.$/.test(await text('p-note')), 'Ett nytt flöde mitt i laborationen: ' + await text('p-note'));
+        const mine = () => ev(`({ shown: !document.getElementById('s-mine').classList.contains('display-none'), current: document.getElementById('s-current').classList.contains('display-none') ? '' : document.getElementById('s-resume-title').textContent,
+            shelf: [...document.querySelectorAll('#s-shelf li')].map(li => li.querySelector('b').textContent + ' | ' + li.querySelector('.current-text > span').textContent) })`);
+        await ev(`location.reload(), 1`);
+        await sleep(500);
+        await c.waitFor(LAB, `!!window.LabCore && !!document.getElementById('s-shelf') && !document.getElementById('view-start').classList.contains('display-none')`, 30000, 'startsidan efter omstart');
+        let list = await mine();
+        expect(list.shown && list.current === 'Förberedd: ' + other && list.shelf.length === 1 &&
+            /^Pågår: Laboration \d{4}-\d\d-\d\d \| 1 av 16 steg är gjorda\. Undanlagd \d{4}-\d\d-\d\d \d\d:\d\d\.$/.test(list.shelf[0]), 'Mina laborationer efter omstart: ' + JSON.stringify(list));
+        await ev(`window.confirm = () => true, document.querySelector('#s-shelf [data-open]').click(), 1`);
+        expect(await text('r-code') === 'L02' && await mode() === 'step', 'Laborationen ur listan: ' + await text('r-code'));
+        await ev(`document.getElementById('nav-start').click(), 1`);
+        list = await mine();
+        expect(/^Pågår: Laboration /.test(list.current) && list.shelf.length === 1 && list.shelf[0].startsWith('Förberedd: ' + other), 'Listan efter bytet: ' + JSON.stringify(list));
+        await ev(`window.__asked = '', window.confirm = (t) => { window.__asked = t; return true; }, document.querySelector('#s-shelf [data-drop]').click(), 1`);
+        list = await mine();
+        expect(/^Flödet .* tas bort\./.test(await ev(`window.__asked`)) && list.shelf.length === 0 && /^Pågår: /.test(list.current), 'Ta bort ur listan: ' + JSON.stringify(list) + ' ' + await ev(`window.__asked`));
         await ev(`document.getElementById('tab-run').click(), 1`);
         expect(await text('r-code') === 'L02', 'Fliken Genomför ledde inte tillbaka: ' + await text('r-code'));
         await ev(`document.getElementById('nav-start').click(), document.getElementById('s-resume').click(), 1`);
@@ -2388,7 +2407,7 @@ const scenarios = [
         await ev(`document.getElementById('t-again').click(), 1`);
         expect(await ev(`!document.getElementById('view-plan').classList.contains('display-none') && !document.querySelector('#p-palette .pal-item').disabled`), 'Flödet går inte att köra igen');
         await c.setFiles(LAB, '#p-file', [logFile]);
-        await c.waitFor(LAB, `/^Loggen är öppnad: 16 av 16 steg har ett tryck\.$/.test(document.getElementById('p-status').textContent)`, 10000, 'loggen öppnas igen');
+        await c.waitFor(LAB, `/^Loggen är öppnad: 16 av 16 steg har ett tryck\. Laboration \\d{4}-\\d\\d-\\d\\d ligger kvar under Mina laborationer på startsidan\.$/.test(document.getElementById('p-status').textContent)`, 10000, 'loggen öppnas igen');
         const again = await ev(`[...document.querySelectorAll('.protocol tbody tr')].map(tr => tr.cells[0].textContent + tr.cells[2].textContent).join('|')`);
         expect(again === table.rows.map((r) => r[0] + r[2]).join('|'), 'Tabellen ur den öppnade loggen skiljer sig från den som sparades');
         // Från tabellen går loggen som finns här direkt till jämförelsen med enheterna, utan att öppnas som fil.
@@ -2410,7 +2429,7 @@ const scenarios = [
         expect(await ev(`!document.getElementById('view-table').classList.contains('display-none')`), 'Fortsätt öppnar inte tabellen');
         await sleep(300);
         await noInjectedScript(c);
-        await ev(`document.getElementById('tab-plan').click(), document.getElementById('p-reset').click(), localStorage.removeItem('ft-laboration-senaste'), 1`);
+        await ev(`document.getElementById('tab-plan').click(), document.getElementById('p-reset').click(), localStorage.removeItem('ft-laboration-senaste'), localStorage.removeItem('ft-laboration-sparade'), 1`);
         await c.nav('Härkomst');
         return plan.steps.length + ' steg, ' + table.rows.length + ' rader i tabellen, CSV och logg, QR-koden läst ur rutan';
     }],
@@ -2619,7 +2638,7 @@ const scenarios = [
 
         await sleep(200);
         await noInjectedScript(c);
-        await ev(`document.getElementById('p-reset').click(), localStorage.removeItem('ft-laboration-senaste'), 1`);
+        await ev(`document.getElementById('p-reset').click(), localStorage.removeItem('ft-laboration-senaste'), localStorage.removeItem('ft-laboration-sparade'), 1`);
         await dropOwn();
         expect(await count('#p-steps .step') === 0 && (await own()).length === 0, 'Städningen efter provet');
         await c.nav('Härkomst');

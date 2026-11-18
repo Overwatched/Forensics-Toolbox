@@ -26,7 +26,7 @@
     // steg pågår, och qr: texten i QR-koden som är ritad.
     var state = { flow: null, run: null, setup: null, view: 'start', sel: null, typing: false, devEdit: null, keepFocus: false, moreOpen: false, history: [], templates: [], recent: [], closed: {}, palClosed: {},
         q: '', filter: 'alla', cards: [], preview: null, wiz: null, flash: null, focus: null, said: '',
-        note: null, remark: '', practice: 0, practiceAt: null, toast: '', wasWaiting: false, stored: true, justDone: false, savedLog: false, copied: false, shot: '', qr: '' };
+        note: null, remark: '', practice: 0, practiceAt: null, toast: '', wasWaiting: false, stored: true, justDone: false, savedLog: false, copied: false, shot: '', qr: '', shelf: [], shelfStuck: false };
 
     function $(id) { return document.getElementById(id); }
 
@@ -127,6 +127,82 @@
         } catch (e) { return false; }
     }
 
+    // ---------- Mina laborationer ----------
+    // Laborationen i verktyget ligger under STORE. De andra, som lades undan när en ny började, ligger under
+    // SHELF_STORE: { id, at, file, setup } per laboration, läst som en fil från någon annan. Listan läses om från
+    // lagringen varje gång startsidan ritas, utom när den inte gick att skriva: då gäller den i minnet.
+    function loadShelf() {
+        if (state.shelfStuck) return;
+        try {
+            var list = JSON.parse(localStorage.getItem(SHELF_STORE) || '[]');
+            state.shelf = (Array.isArray(list) ? list : []).map(function (x) {
+                try {
+                    var back = Lab.fromFile(JSON.stringify(x.file));
+                    return { id: Lab.clip(String(x.id), 40), at: Number(x.at) || 0, flow: back.flow, run: back.run, setup: x.setup };
+                } catch (e) { return null; }
+            }).filter(Boolean);
+        } catch (e) { /* listan i minnet gäller */ }
+    }
+    function saveShelf() {
+        try {
+            localStorage.setItem(SHELF_STORE, JSON.stringify(state.shelf.map(function (x) {
+                return { id: x.id, at: x.at, file: Lab.toFile(x.flow, x.run, PROGRAM, Lab.clockNow(), []), setup: x.setup };
+            })));
+            state.shelfStuck = false;
+        } catch (e) { state.shelfStuck = true; }
+    }
+    function isEmpty() { return !state.run && !state.flow.steps.length; }
+    function statusText(flow, run) { return !run ? 'Förberedd' : Lab.isDone(flow, run) ? 'Klar' : 'Pågår'; }
+
+    // Laborationen i verktyget läggs undan i listan. Den som är tom läggs inte undan.
+    function park() {
+        if (isEmpty()) return '';
+        loadShelf();
+        state.shelf.unshift({ id: 'lab-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), at: Date.now(), flow: copyOf(state.flow), run: state.run ? copyOf(state.run) : null, setup: copyOf(state.setup) });
+        saveShelf();
+        return state.flow.name;
+    }
+    function clearWork() {
+        state.history = [];
+        state.sel = null;
+        state.closed = {};
+        state.flash = null;
+        state.remark = '';
+        state.toast = '';
+        state.justDone = false;
+        state.savedLog = false;
+        state.copied = false;
+    }
+
+    // En laboration ur listan blir den i verktyget, och den som var där läggs undan.
+    function openParked(id) {
+        loadShelf();
+        var x = state.shelf.filter(function (l) { return l.id === id; })[0];
+        if (!x) return renderStart();
+        state.shelf = state.shelf.filter(function (l) { return l !== x; });
+        saveShelf();
+        park();
+        state.flow = x.flow;
+        state.run = x.run;
+        state.setup = cleanSetup(x.setup);
+        clearWork();
+        save();
+        show(state.run ? (Lab.isDone(state.flow, state.run) ? 'table' : 'run') : 'plan');
+    }
+
+    function dropParked(id) {
+        loadShelf();
+        var x = state.shelf.filter(function (l) { return l.id === id; })[0];
+        if (!x || !confirm(dropQuestion(x.flow, x.run))) return;
+        state.shelf = state.shelf.filter(function (l) { return l !== x; });
+        saveShelf();
+        renderStart();
+    }
+    function dropQuestion(flow, run) {
+        return run ? 'Laborationen ' + flow.name + ' och dess logg tas bort härifrån. Spara loggen som fil under 3 Tabell först om du vill ha den kvar. Fortsätta?' :
+            'Flödet ' + flow.name + ' tas bort. Dina egna mallar ligger kvar. Fortsätta?';
+    }
+
     function changed() { save(); render(); }
 
     // ---------- Vyerna ----------
@@ -185,35 +261,27 @@
         if (f) { f.focus(); if (f.select && f.tagName === 'INPUT') f.select(); }
     }
 
-    // Flödet ersätts av ett annat. Det som finns här ersätts bara om användaren säger ja.
-    function mayReplace() {
-        if (state.run) return confirm('Laborationen som finns här, med sin logg, tas bort och ersätts. Spara loggen som fil under 3 Tabell först om du vill ha den kvar. Fortsätta?');
-        if (state.flow.steps.length) return confirm('Flödet som finns nu, ' + state.flow.name + ' med ' + state.flow.steps.length + ' steg, ersätts. Fortsätta?');
-        return true;
-    }
+    // Ett nytt flöde blir laborationen i verktyget. Den som fanns läggs undan under Mina laborationer.
     function useFlow(flow, said) {
-        if (!mayReplace()) return false;
+        var parked = park();
         state.flow = flow;
         state.run = null;
-        state.history = [];
-        state.sel = null;
-        state.closed = {};
-        state.flash = null;
-        state.remark = '';
+        clearWork();
         save();
         show('plan');
-        say(said || '');
+        say((said || '') + (parked ? ' ' + parked + ' ligger kvar under Mina laborationer på startsidan.' : ''));
         return true;
     }
 
     // Vad laborationen i verktyget är: pågår, klar eller ett flöde som inte har börjat.
     function labLabel() {
-        return !state.run ? 'Flödet' : Lab.isDone(state.flow, state.run) ? 'Klar' : 'Pågår';
+        return statusText(state.flow, state.run);
     }
 
     // ---------- Startsidan ----------
 
     var RECENT_STORE = 'ft-laboration-senaste';
+    var SHELF_STORE = 'ft-laboration-sparade';
     var FILTERS = [['alla', 'Alla'], ['ready', 'Färdiga'], ['own', 'Mina mallar'], ['recent', 'Senaste']];
     var KIND_TEXT = { ready: 'Färdigt', own: 'Egen mall', recent: 'Senaste' };
     var TOOL_APPS = ['Kamera', 'Bilder', 'Inställningar'];
@@ -231,6 +299,18 @@
         var sig = function (f) { return f.name + '|' + f.devices.length + '|' + f.steps.map(function (s) { return s.action + ' ' + s.do + ' ' + s.app; }).join('|'); };
         return sig(a) === sig(b);
     }
+    function labDesc(flow, run) {
+        var n = flow.steps.length;
+        if (!run) return n + ' steg, inte påbörjat.';
+        if (!Lab.isDone(flow, run)) return run.entries.length + ' av ' + n + ' steg är gjorda.';
+        var e = run.entries[run.entries.length - 1];
+        return 'Avslutad ' + Lab.dateText(e.t, e.off) + ' ' + Lab.timeText(e.t, e.off).slice(0, 5) + '. Tabellen och loggen finns kvar.';
+    }
+    function whenText(ms) {
+        var c = Lab.clockNow(), off = c.off;
+        return Lab.dateText(ms, off) + ' ' + Lab.timeText(ms, off).slice(0, 5);
+    }
+
     function rememberRecent(flow) {
         var copy = copyOf(flow);
         state.recent = [{ at: today(), flow: copy }].concat(state.recent.filter(function (r) { return !sameFlow(r.flow, copy); })).slice(0, 6);
@@ -277,21 +357,29 @@
             filters.appendChild(b);
         });
 
-        // Det som redan finns i verktyget står först, så att det går att fortsätta där man var.
+        // Mina laborationer står först: den i verktyget och de som är undanlagda, så att det går att fortsätta.
         var flow = state.flow, run = state.run, n = flow.steps.length, current = $('s-current');
-        current.classList.toggle('display-none', !run && !n);
+        loadShelf();
+        $('s-mine').classList.toggle('display-none', isEmpty() && !state.shelf.length);
+        current.classList.toggle('display-none', isEmpty());
         current.classList.toggle('running', !!run && !Lab.isDone(flow, run));
         $('s-resume-title').textContent = labLabel() + ': ' + flow.name;
-        if (run && !Lab.isDone(flow, run)) {
-            $('s-resume-desc').textContent = run.entries.length + ' av ' + n + ' steg är gjorda. Loggen ligger kvar tills du avbryter laborationen eller börjar en ny.';
-            $('s-resume').textContent = 'Fortsätt laborationen';
-        } else if (run) {
-            $('s-resume-desc').textContent = 'Laborationen är gjord. Tabellen och loggen finns kvar.';
-            $('s-resume').textContent = 'Visa tabellen';
-        } else {
-            $('s-resume-desc').textContent = n + ' steg, inte påbörjat.';
-            $('s-resume').textContent = 'Fortsätt i Förbered';
-        }
+        $('s-resume-desc').textContent = labDesc(flow, run);
+        $('s-resume').textContent = !run ? 'Fortsätt i Förbered' : Lab.isDone(flow, run) ? 'Visa tabellen' : 'Fortsätt laborationen';
+        var shelf = $('s-shelf');
+        shelf.textContent = '';
+        state.shelf.slice().sort(function (a, b) { return b.at - a.at; }).forEach(function (x) {
+            var label = statusText(x.flow, x.run) + ': ' + x.flow.name;
+            var openBtn = el('button', { type: 'button', class: 'secondary-btn', 'data-open': x.id, text: 'Öppna', 'aria-label': 'Öppna ' + label });
+            var dropBtn = el('button', { type: 'button', class: 'link-btn', 'data-drop': x.id, text: 'Ta bort', 'aria-label': 'Ta bort ' + label });
+            openBtn.addEventListener('click', function () { openParked(x.id); });
+            dropBtn.addEventListener('click', function () { dropParked(x.id); });
+            shelf.appendChild(el('li', { class: 'current parked' + (x.run && !Lab.isDone(x.flow, x.run) ? ' running' : ''), 'data-lab': x.id }, [
+                el('span', { class: 'current-dot', 'aria-hidden': 'true' }),
+                el('div', { class: 'current-text' }, [el('b', { text: label }), el('span', { text: labDesc(x.flow, x.run) + ' Undanlagd ' + whenText(x.at) + '.' })]),
+                openBtn, dropBtn,
+            ]));
+        });
 
         $('s-an-note').textContent = run && run.entries.length ? 'Loggen från ' + flow.name + ' finns redan här, med ' + run.entries.length + ' av ' + n + ' steg.' : '';
         $('s-count').textContent = words.length ? shown.length + (shown.length === 1 ? ' flöde' : ' flöden') + ' för ”' + state.q.trim() + '”' : 'Flöden att utgå från';
@@ -328,9 +416,8 @@
         $('s-pv-drop').classList.toggle('display-none', x.kind !== 'own');
         // Ett nytt flöde ersätter laborationen i verktyget. Det ska synas innan knappen trycks, inte bara i frågan.
         var busy = state.run && !Lab.isDone(state.flow, state.run);
-        $('s-pv-note').classList.toggle('display-none', !state.run);
-        $('s-pv-note').textContent = !state.run ? '' : busy ? 'Laborationen ' + state.flow.name + ' pågår här. Använd flödet ersätter den och dess logg. Gå tillbaka till den med Fortsätt laborationen på startsidan, eller med flikarna högst upp.' :
-            'Laborationen ' + state.flow.name + ' och dess logg ersätts. Spara loggen som fil under 3 Tabell först om du vill ha den kvar.';
+        $('s-pv-note').classList.toggle('display-none', isEmpty());
+        $('s-pv-note').textContent = isEmpty() ? '' : !state.run ? 'Flödet ' + state.flow.name + ' läggs undan under Mina laborationer och går att öppna igen.' : 'Laborationen ' + state.flow.name + (busy ? ' pågår' : ' är klar') + '. Den läggs undan under Mina laborationer, med sin logg, och går att öppna igen.';
         var host = $('s-pv-steps');
         host.textContent = '';
         Lab.outline(x.flow).forEach(function (g) {
@@ -1255,11 +1342,13 @@
                 status('p-status', added ? added + (added === 1 ? ' mall' : ' mallar') + ' lades till under Mina mallar.' : 'Mallarna i filen fanns redan under Mina mallar.');
                 return render();
             }
-            var back = Lab.fromFile(text);
-            if ((state.run || state.flow.steps.length) && !confirm('Det som finns här nu ersätts av filens innehåll. Fortsätta?')) return;
+            var back = Lab.fromFile(text), parked = '';
+            // En laboration med logg läggs undan. Ett flöde utan logg ersätts, och Ångra lägger tillbaka det när
+            // filen inte heller har en logg.
+            if (state.run || (back.run && state.flow.steps.length)) parked = park();
+            else if (state.flow.steps.length && !confirm('Flödet som finns här nu ersätts av filens innehåll. Fortsätta?')) return;
             var added = takeTemplates(back.templates || [], back.flow);
-            // Ångra lägger tillbaka flödet som fanns före filen, men aldrig över en logg.
-            if (!state.run && !back.run && state.flow.steps.length) remember(); else state.history = [];
+            if (!parked && !back.run && state.flow.steps.length) remember(); else state.history = [];
             state.flow = back.flow;
             state.run = back.run;
             // En logg som öppnas ur en fil finns redan som fil.
@@ -1270,7 +1359,8 @@
             state.setup.pair = [0, 1];
             save();
             status('p-status', (back.run ? 'Loggen är öppnad: ' + back.run.entries.length + ' av ' + back.flow.steps.length + ' steg har ett tryck.' : 'Flödet är öppnat: ' + back.flow.steps.length + ' steg.') +
-                (added ? ' ' + added + (added === 1 ? ' mall' : ' mallar') + ' följde med och ligger under Mina mallar.' : ''));
+                (added ? ' ' + added + (added === 1 ? ' mall' : ' mallar') + ' följde med och ligger under Mina mallar.' : '') +
+                (parked ? ' ' + parked + ' ligger kvar under Mina laborationer på startsidan.' : ''));
             show(back.run ? 'table' : 'plan');
         }).catch(function (e) { status('p-status', e && e.message ? e.message : 'Filen gick inte att läsa.'); });
     }
@@ -1640,6 +1730,13 @@
             useFlow(Lab.emptyFlow('Laboration ' + today(), 'L', ['Telefon 1', 'Telefon 2']), 'Ett tomt flöde. Klicka på en byggsten till vänster eller dra den till flödet.');
         });
         $('s-wizard').addEventListener('click', openWizard);
+        $('s-drop').addEventListener('click', function () {
+            if (!confirm(dropQuestion(state.flow, state.run))) return;
+            fresh();
+            clearWork();
+            save();
+            show('start');
+        });
         $('s-resume').addEventListener('click', function () { show(state.run ? (Lab.isDone(state.flow, state.run) ? 'table' : 'run') : 'plan'); });
         $('s-read').addEventListener('click', function () { show('trace'); });
         $('s-use').addEventListener('click', usePreview);
