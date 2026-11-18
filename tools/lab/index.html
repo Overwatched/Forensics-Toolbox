@@ -10,12 +10,18 @@
 <body>
     <div id="container">
         <header class="page-header">
-            <div>
-                <h1>Laboration</h1>
-                <p>Allt stannar på datorn. En extraktion läses bara, ingenting skrivs i den.</p>
+            <div class="head-title">
+                <button type="button" id="nav-start" class="home-btn" title="Laborationens startsida: flödena att utgå från och analysen av en utförd laboration. Det du har gjort ligger kvar." aria-label="Till laborationens startsida">
+                    <svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true"><path d="M3 9.2 10 3l7 6.2V17a1 1 0 0 1-1 1h-3.6v-5H7.6v5H4a1 1 0 0 1-1-1z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg>
+                    <span>Start</span>
+                </button>
+                <div>
+                    <h1>Laboration</h1>
+                    <p>Allt stannar på datorn. En extraktion läses bara, ingenting skrivs i den.</p>
+                </div>
             </div>
             <div class="head-nav">
-                <button type="button" id="nav-start" class="secondary-btn display-none" title="Tillbaka till de två valen. Det du har gjort ligger kvar.">Till start</button>
+                <span id="tabs-name" class="tabs-name display-none"></span>
                 <div id="tabs" class="tabs display-none" role="tablist">
                     <button type="button" id="tab-plan" class="tab" role="tab"><b>1</b> Förbered</button>
                     <button type="button" id="tab-run" class="tab" role="tab"><b>2</b> Genomför</button>
@@ -25,102 +31,110 @@
         </header>
 
         <section id="view-start" class="view start">
-            <div class="start-cards">
-                <button type="button" id="s-new" class="start-card">
-                    <span class="start-title">Genomför ny laboration</span>
-                    <span id="s-new-desc" class="start-desc"></span>
-                </button>
-                <button type="button" id="s-read" class="start-card">
-                    <span class="start-title">Läs in genomförd laboration</span>
-                    <span id="s-read-desc" class="start-desc"></span>
-                </button>
+            <div class="start-wrap">
+                <section id="s-current" class="current display-none" aria-live="polite">
+                    <span class="current-dot" aria-hidden="true"></span>
+                    <div class="current-text"><b id="s-resume-title"></b><span id="s-resume-desc"></span></div>
+                    <button type="button" id="s-resume" class="primary-btn"></button>
+                </section>
+                <section class="analyze" aria-labelledby="s-an-title">
+                    <svg class="analyze-icon" viewBox="0 0 24 24" width="30" height="30" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="m15 15 5 5M7.8 10.6l1.8 1.8 3.4-3.6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                    <div class="analyze-text">
+                        <h2 id="s-an-title">Analysera utförd laboration</h2>
+                        <p>Välj loggen och enheternas extraktioner, så letar programmet upp varje steg i telefonerna, på koden och annars på tiden. Du ser vad som hittades, hur säkert det är och var det står, och får en tabell till protokollet.</p>
+                        <p id="s-an-note" class="analyze-note"></p>
+                    </div>
+                    <button type="button" id="s-read" class="primary-btn analyze-btn">Analysera laboration</button>
+                </section>
+                <h2 class="start-title">Ny laboration</h2>
+                <div class="start-search">
+                    <input type="search" id="s-q" placeholder="Sök bland flödena: snapchat, radera, tidszon …" autocomplete="off" aria-label="Sök bland flödena">
+                    <div id="s-filters" class="filters" role="group" aria-label="Visa flödena"></div>
+                </div>
+                <div class="start-new">
+                    <button type="button" id="s-new" class="new-card"><b>+ Tomt flöde</b><span>Bygg själv med byggstenarna.</span></button>
+                    <button type="button" id="s-wizard" class="new-card"><b>Bygg från delar</b><span>Välj enheter, appar och delar, så skapas stegen.</span></button>
+                </div>
+                <h2 id="s-count" class="list-head"></h2>
+                <div id="s-flows" class="flow-cards"></div>
+            </div>
+            <div id="s-preview" class="dialog-wrap display-none">
+                <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="s-pv-title">
+                    <div class="dialog-head"><h2 id="s-pv-title"></h2><button type="button" id="s-pv-close" class="secondary-btn">Stäng</button></div>
+                    <p id="s-pv-desc" class="hint"></p>
+                    <p id="s-pv-meta" class="pv-meta"></p>
+                    <p id="s-pv-note" class="notice display-none"></p>
+                    <div class="inline wrap"><button type="button" id="s-use" class="primary-btn">Använd flödet</button><button type="button" id="s-pv-drop" class="secondary-btn danger display-none">Ta bort mallen</button></div>
+                    <div id="s-pv-steps" class="pv-steps"></div>
+                </div>
+            </div>
+        </section>
+
+        <section id="view-wizard" class="view wizard display-none">
+            <div class="wiz">
+                <div class="wiz-head">
+                    <h2>Bygg från delar</h2>
+                    <ol id="w-steps" class="wiz-steps"></ol>
+                </div>
+                <div id="w-body" class="wiz-body"></div>
+                <p id="w-preview" class="wiz-preview" role="status"></p>
+                <div class="wiz-nav">
+                    <button type="button" id="w-cancel" class="secondary-btn">Avbryt</button>
+                    <span class="grow"></span>
+                    <button type="button" id="w-prev" class="secondary-btn">Tillbaka</button>
+                    <button type="button" id="w-next" class="primary-btn">Nästa</button>
+                    <button type="button" id="w-create" class="primary-btn">Skapa flödet</button>
+                </div>
             </div>
         </section>
 
         <section id="view-plan" class="view workspace display-none">
-            <aside class="side">
+            <aside class="side" aria-label="Byggstenar">
                 <p id="p-locked" class="notice display-none">Laborationen har börjat, så stegen går inte att ändra. Under 2 Genomför finns Avbryt laborationen, och tabellen har en knapp för att börja om med samma flöde.</p>
-                <section class="side-block">
-                    <div class="side-head">
-                        <h2>Laborationen</h2>
-                        <button type="button" id="p-reset" class="secondary-btn" title="Namnet, enheterna och stegen tas bort, och du börjar på ett nytt, tomt flöde. Dina egna mallar ligger kvar.">Rensa allt</button>
-                    </div>
-                    <label class="field" for="p-name">Namn</label>
-                    <input type="text" id="p-name" maxlength="80" autocomplete="off">
-                    <label class="field" for="p-prefix">Kodbokstav, först i varje stegs kod</label>
-                    <input type="text" id="p-prefix" class="short" maxlength="3" autocomplete="off">
-                    <span class="field">Enheter</span>
-                    <div id="p-devices" class="rows"></div>
-                    <button type="button" id="p-device-add" class="secondary-btn">Lägg till enhet</button>
-                </section>
-
-                <section class="side-block">
-                    <h2>Byggstenar</h2>
-                    <p class="hint">Klicka på en byggsten, så hamnar den vid märket i flödet. Den går också att dra dit.</p>
-                    <div id="p-pair" class="pair">
-                        <label class="field" for="p-app">Chattsteg görs i</label>
-                        <input type="text" id="p-app" maxlength="80" list="l-apps" autocomplete="off">
-                        <label class="field" for="p-pair-a">från</label>
-                        <select id="p-pair-a"></select>
-                        <label class="field" for="p-pair-b">till</label>
-                        <div class="inline">
-                            <select id="p-pair-b"></select>
-                            <button type="button" id="p-pair-swap" class="icon-btn" title="De två enheterna byter plats" aria-label="Byt riktning mellan de två enheterna">Byt</button>
-                        </div>
-                    </div>
-                    <input type="search" id="p-search" placeholder="Sök bland byggstenarna" autocomplete="off" aria-label="Sök bland byggstenarna">
-                    <div id="p-palette" class="palette"></div>
-                </section>
-
-                <section class="side-block">
-                    <h2>Fil</h2>
-                    <button type="button" id="p-open" class="secondary-btn">Öppna flöde, logg eller mallar…</button>
-                    <button type="button" id="p-save" class="secondary-btn">Spara flödet som fil</button>
-                    <button type="button" id="p-save-templates" class="secondary-btn">Spara mina mallar som fil</button>
-                    <input type="file" id="p-file" accept=".json,application/json" hidden>
-                    <p id="p-status" class="status" role="status"></p>
-                </section>
+                <h2 class="side-title">Byggstenar</h2>
+                <p id="p-where" class="where"></p>
+                <input type="search" id="p-search" placeholder="Sök byggsten" autocomplete="off" aria-label="Sök bland byggstenarna">
+                <div id="p-palette" class="palette"></div>
+                <p class="hint">Klicka för att lägga in vid märket, eller dra in i flödet.</p>
             </aside>
 
             <div class="main">
-                <div class="main-head">
-                    <p id="p-summary" class="summary"></p>
+                <div class="flow-head">
+                    <input type="text" id="p-name" class="flow-name" maxlength="80" autocomplete="off" aria-label="Laborationens namn">
+                    <div class="head-tools">
+                        <button type="button" id="p-undo" class="secondary-btn" title="Ta tillbaka den senaste ändringen (Ctrl+Z)">Ångra</button>
+                        <div class="menu-wrap">
+                            <button type="button" id="p-more" class="secondary-btn" aria-haspopup="true" aria-expanded="false" aria-controls="p-menu">Mer ▾</button>
+                            <div id="p-menu" class="menu display-none">
+                                <button type="button" id="p-open" class="menu-item">Öppna flöde, logg eller mallar…</button>
+                                <button type="button" id="p-save" class="menu-item">Spara flödet som fil</button>
+                                <button type="button" id="p-save-templates" class="menu-item">Spara mina mallar som fil</button>
+                                <button type="button" id="p-print" class="menu-item">Skriv ut stegen</button>
+                                <div class="menu-sep"></div>
+                                <label class="menu-field" for="p-prefix"><span>Kodbokstav, först i varje stegs kod</span><input type="text" id="p-prefix" class="short" maxlength="3" autocomplete="off"></label>
+                                <div class="menu-sep"></div>
+                                <button type="button" id="p-reset" class="menu-item danger" title="Namnet, enheterna och stegen tas bort, och du börjar på ett nytt, tomt flöde. Dina egna mallar ligger kvar.">Rensa allt</button>
+                            </div>
+                        </div>
+                        <button type="button" id="p-start" class="primary-btn">Till genomförandet</button>
+                    </div>
+                </div>
+                <div class="dev-bar">
+                    <div id="p-devices" class="dev-chips" aria-label="Enheterna"></div>
+                    <button type="button" id="p-device-add" class="chip-btn">+ Enhet</button>
+                </div>
+                <div class="summary-bar">
+                    <span id="p-summary" class="summary"></span>
                     <button type="button" id="p-check" class="warn-btn display-none" title="Visa det första som ser ut att bli fel"></button>
-                    <button type="button" id="p-undo" class="secondary-btn" title="Ta tillbaka den senaste ändringen (Ctrl+Z)">Ångra</button>
-                    <button type="button" id="p-quick-open" class="secondary-btn" aria-controls="p-quick">Färdigt upplägg</button>
-                    <button type="button" id="p-add" class="secondary-btn">Eget steg</button>
-                    <button type="button" id="p-print" class="secondary-btn">Skriv ut stegen</button>
-                    <button type="button" id="p-start" class="primary-btn">Till genomförandet</button>
+                    <span id="p-ready" class="ready"></span>
                 </div>
                 <p id="p-note" class="status note-line" role="status"></p>
-                <section id="p-quick" class="quick display-none" aria-label="Färdigt upplägg">
-                    <div class="quick-head">
-                        <h2>Börja med ett färdigt upplägg</h2>
-                        <button type="button" id="p-quick-close" class="secondary-btn">Stäng</button>
-                    </div>
-                    <p class="hint">Kryssa för appar och delar, så skapas alla steg på en gång. Efteråt går varje steg och grupp att ändra, flytta och ta bort, och fler byggstenar kan läggas till.</p>
-                    <div class="quick-cols">
-                        <div class="side-block">
-                            <h3>Appar att chatta i</h3>
-                            <div id="p-apps" class="ticks"></div>
-                            <div class="inline">
-                                <input type="text" id="p-app-own" maxlength="80" placeholder="Annan app" autocomplete="off" aria-label="Annan app">
-                                <button type="button" id="p-app-add" class="secondary-btn">Lägg till</button>
-                            </div>
-                            <p class="hint">Chattarna går mellan de två enheter som är valda under Byggstenar.</p>
-                        </div>
-                        <div class="side-block">
-                            <h3>Delar</h3>
-                            <div id="p-blocks" class="ticks"></div>
-                        </div>
-                    </div>
-                    <p id="p-preview" class="hint" role="status"></p>
-                    <div class="inline">
-                        <button type="button" id="p-create" class="primary-btn">Skapa stegen</button>
-                    </div>
-                </section>
+                <p id="p-status" class="status" role="status"></p>
                 <div id="p-steps" class="steps"></div>
             </div>
+
+            <aside id="p-detail" class="detail" aria-label="Det valda steget eller gruppen"></aside>
+            <input type="file" id="p-file" accept=".json,application/json" hidden>
         </section>
 
         <section id="view-run" class="view run display-none">
@@ -155,7 +169,7 @@
                     <form id="r-note" class="note display-none" autocomplete="off">
                         <label class="field" for="r-note-text" id="r-note-label">Anteckning</label>
                         <textarea id="r-note-text" rows="2" maxlength="600"></textarea>
-                        <label class="field" for="r-note-device">Gäller det något du gjorde på en enhet, utöver flödet?</label>
+                        <label class="field" for="r-note-device">Var ska anteckningen stå i tabellen?</label>
                         <select id="r-note-device"></select>
                         <div class="inline">
                             <button type="submit" class="primary-btn">Spara anteckningen (Enter)</button>
@@ -181,19 +195,39 @@
         </section>
 
         <section id="view-table" class="view table-view display-none">
-            <div class="table-head">
-                <button type="button" id="t-copy" class="primary-btn">Kopiera för Word</button>
-                <button type="button" id="t-print" class="secondary-btn">Skriv ut / PDF…</button>
-                <button type="button" id="t-csv" class="secondary-btn">Spara som CSV</button>
-                <button type="button" id="t-save" class="secondary-btn">Spara loggen som fil</button>
-                <button type="button" id="t-trace" class="secondary-btn" title="Välj enheternas extraktioner och se var varje steg står i dem">Jämför med enheterna</button>
-                <button type="button" id="t-again" class="secondary-btn">Ny laboration med samma flöde</button>
-                <p id="t-status" class="status" role="status"></p>
+            <div class="table-top">
+                <p id="t-done" class="done-line display-none"><span id="t-done-text"></span>
+                    <button type="button" id="t-undo" class="link-btn display-none">Fel tryck? Ångra det sista</button></p>
+                <ol class="next-steps" aria-label="Efter laborationen">
+                    <li id="t-n1" class="next">
+                        <h3>Spara loggen</h3>
+                        <p>Filen behövs för analysen och finns kvar utanför programmet.</p>
+                        <button type="button" id="t-save" class="primary-btn">Spara loggen som fil</button>
+                    </li>
+                    <li id="t-n2" class="next">
+                        <h3>Lägg tabellen i protokollet</h3>
+                        <p>Klistra in den i Word, eller <button type="button" id="t-print" class="link-btn">skriv ut / PDF</button> eller <button type="button" id="t-csv" class="link-btn">spara som CSV</button>.</p>
+                        <button type="button" id="t-copy" class="secondary-btn">Kopiera för Word</button>
+                    </li>
+                    <li id="t-n3" class="next">
+                        <h3>Analysera mot extraktionerna</h3>
+                        <p>När enheterna är extraherade. Programmet letar upp varje steg i dem. En extraktion räcker.</p>
+                        <button type="button" id="t-trace" class="secondary-btn">Analysera laborationen</button>
+                    </li>
+                </ol>
+                <div class="table-more">
+                    <p id="t-status" class="status" role="status"></p>
+                    <button type="button" id="t-again" class="secondary-btn">Ny laboration med samma flöde</button>
+                </div>
             </div>
             <div id="t-sheet" class="sheet"></div>
         </section>
 
         <section id="view-trace" class="view trace-view display-none">
+            <div class="trace-intro">
+                <h2>Analysera utförd laboration</h2>
+                <p>Loggen jämförs med enheternas extraktioner, steg för steg. En extraktion räcker: steg på en enhet utan extraktion står som <i>ingen extraktion</i>. Extraktionerna läses bara.</p>
+            </div>
             <div class="trace-top">
                 <section class="trace-card">
                     <h2>1 Loggen</h2>

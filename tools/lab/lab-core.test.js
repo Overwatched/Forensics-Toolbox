@@ -208,7 +208,7 @@ function sampleRun(flow) {
     return run;
 }
 
-test('tabellen: gjorda steg, anteckningar i tidsordning, hoppat och inte nått sist', () => {
+test('tabellen: gjorda steg, det utöver flödet i tidsordning, hoppat och inte nått sist', () => {
     const flow = flowAB();
     const list = L.rows(flow, sampleRun(flow));
     assert.deepStrictEqual(list.map((r) => L.cells(r)), [
@@ -216,10 +216,32 @@ test('tabellen: gjorda steg, anteckningar i tidsordning, hoppat och inte nått s
         ['13:01:15', 'iPhone', 'Utöver flödet: Tog en bild för mycket med kameran.', '', ''],
         ['inte utförd', 'iPhone', 'Lås upp, öppna WhatsApp och chatten med Samsung, så att meddelandena blir lästa.', 'L02', 'Hoppades över 13:01:30.'],
         ['ca 13:02:30', 'iPhone', 'Skickade texten L03 till Samsung i WhatsApp.', 'L03', 'Tiden är ungefärlig: knappen trycktes senare än åtgärden gjordes.'],
-        ['13:02:35', '', 'Anteckning: Paus.', '', ''],
-        ['inte utförd', 'Samsung', 'Lås upp, öppna WhatsApp och chatten med iPhone, så att meddelandena blir lästa.', 'L04', 'Laborationen avslutades före steget.'],
+        ['inte utförd', 'Samsung', 'Lås upp, öppna WhatsApp och chatten med iPhone, så att meddelandena blir lästa.', 'L04', 'Laborationen avslutades före steget. Anteckning 13:02:35: Paus.'],
     ]);
-    assert.deepStrictEqual(list.map((r) => r.kind), ['step', 'note', 'skipped', 'step', 'note', 'left']);
+    assert.deepStrictEqual(list.map((r) => r.kind), ['step', 'note', 'skipped', 'step', 'left']);
+});
+
+test('en anteckning står på raden för steget på skärmen, eller det steg som valdes', () => {
+    const flow = flowAB(['chat-text', 'lock-power']);
+    const steps = L.view(flow);
+    const run = L.newRun(at(0), '');
+    L.addNote(flow, run, at(5), 'Före L01.', '');
+    L.press(flow, run, at(10), 'klar');
+    L.addNote(flow, run, at(12), 'Om L01, skrivet när L02 visades.', '', steps[0].id);
+    const lock = steps.findIndex((s) => s.wait > 0);
+    while (run.entries.length <= lock) L.press(flow, run, at(20 + run.entries.length), 'klar');
+    assert.strictEqual(L.currentStep(flow, run, at(40).t), steps[lock].id);
+    L.addNote(flow, run, at(40), 'Under väntan.', '');
+    const list = L.rows(flow, run);
+    const remark = (id) => list.filter((r) => r.step === id)[0].remark;
+    assert.strictEqual(remark(steps[0].id), 'Anteckning 13:00:05: Före L01. Anteckning 13:00:12: Om L01, skrivet när L02 visades.');
+    assert.ok(remark(steps[lock].id).endsWith('Anteckning 13:00:40: Under väntan.'), remark(steps[lock].id));
+    assert.strictEqual(list.filter((r) => r.kind === 'note').length, 0);
+    assert.ok(Object.fromEntries(L.facts(flow, run, '')).Steg.endsWith(', 3 anteckningar'));
+    // Raden och anteckningen följer med i filen.
+    const back = L.fromFile(JSON.stringify(L.toFile(flow, run, '', at(50), [])));
+    assert.deepStrictEqual(back.run.notes.map((x) => x.step), [steps[0].id, steps[0].id, steps[lock].id]);
+    assert.deepStrictEqual(L.rows(back.flow, back.run).map((r) => r.remark), list.map((r) => r.remark));
 });
 
 test('ungefärlig tid gäller bara ett gjort steg, och ett andra tryck tar bort märket', () => {
@@ -293,8 +315,8 @@ test('CSV: semikolon, citat kring det som behöver det och skydd mot formler', (
     const lines = L.toCsv(flow, run).split('\r\n');
     assert.strictEqual(lines[0], 'Datum;Tid;UTC;Enhet;App;Åtgärd;Kod;Status;Anmärkning');
     assert.strictEqual(lines[1], '2026-11-12;13:00:05;2026-11-12T12:00:05.000Z;Samsung;WhatsApp;Skickade texten L01 till iPhone i WhatsApp.;L01;utförd, tiden ungefärlig;Tiden är ungefärlig: knappen trycktes senare än åtgärden gjordes.');
-    assert.strictEqual(lines[2], '2026-11-12;13:00:06;2026-11-12T12:00:06.000Z;;;"Anteckning: =SUM(A1); ""citat""";;anteckning;');
-    assert.ok(lines[3].startsWith(';;;iPhone;WhatsApp;'));
+    assert.ok(lines[2].startsWith(';;;iPhone;WhatsApp;'));
+    assert.ok(lines[2].endsWith(';inte utförd;"Laborationen avslutades före steget. Anteckning 13:00:06: =SUM(A1); ""citat"""'), lines[2]);
     assert.strictEqual(L.toCsv(flow, L.newRun(at(0), '')).split('\r\n')[1].split(';')[7], 'inte utförd');
     const own = L.emptyFlow('x', 'L', ['A']);
     L.addStep(own, 'custom', { device: own.devices[0].id, do: '-1+2' });
@@ -710,7 +732,8 @@ test('en logg från den äldre labbsidan läses som flöde och logg, med samma k
     assert.strictEqual(got.run.entries[1].off, 60);
     assert.strictEqual(got.run.entries[3].wait, 30);
     assert.strictEqual(got.run.started, T0);
-    assert.strictEqual(got.run.notes[0].text, 'L02: Skrev fel först.');
+    assert.strictEqual(got.run.notes[0].text, 'Skrev fel först.');
+    assert.strictEqual(got.run.notes[0].step, steps[1].id);
     // Tabellen går att göra av det som lästes.
     assert.strictEqual(L.rows(got.flow, got.run).filter((r) => r.kind === 'step').length, 4);
     assert.ok(L.protocol(got.flow, got.run, 'Prov').html.includes('L04'));
@@ -733,4 +756,23 @@ test('texten i QR-koden är koden och klockans sekund, och bara en sådan text l
     assert.deepStrictEqual(L.readShot(L.shotText('L07', T0 + 999)), { code: 'L07', t: T0 });
     assert.deepStrictEqual(L.readShot('ÅB123 1794812345'), { code: 'ÅB123', t: 1794812345000 });
     for (const bad of ['', null, 'https://example.org/L07 1794812345', 'L07', 'l07 1794812345', 'L07 1794812345 ', 'L7 1794812345', 'L07 17948']) assert.strictEqual(L.readShot(bad), null, String(bad));
+});
+
+test('de färdiga flödena byggs utan något att se över, och en kopia av ett steg hamnar direkt efter det', () => {
+    L.READY.forEach((r) => {
+        const flow = L.readyFlow(r.id, 'Prov');
+        assert.ok(flow.steps.length > 2, r.id);
+        assert.strictEqual(flow.devices.length, r.devices.length, r.id);
+        assert.deepStrictEqual(L.check(flow).map((w) => w.code + ' ' + w.text), [], r.id);
+    });
+    const snap = L.readyFlow('snapchat-memories');
+    assert.deepStrictEqual(L.outline(snap).map((g) => g.title), ['Klockorna i början', 'Snapchat Memories', 'Klockorna i slutet']);
+    assert.strictEqual(L.view(snap)[2].do, 'Ta en snap av rutan med koden L03 med kameran i Snapchat och spara den i Memories.');
+    assert.strictEqual(L.view(snap)[1].app, 'Snapchat');
+    assert.strictEqual(L.view(snap)[4].app, '');
+    assert.strictEqual(L.readyFlow('finns-inte'), null);
+    const flow = flowAB();
+    const copy = L.duplicateStep(flow, flow.steps[0].id);
+    assert.strictEqual(flow.steps[1].id, copy.id);
+    assert.strictEqual(L.view(flow)[1].do, 'Skriv L02 till iPhone och skicka.');
 });

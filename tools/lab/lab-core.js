@@ -364,6 +364,15 @@
         return true;
     }
 
+    // En kopia av steget, direkt efter det i samma grupp.
+    function duplicateStep(flow, id) {
+        tidy(flow);
+        var s = flow.steps.filter(function (x) { return x.id === id; })[0];
+        if (!s) return null;
+        var pos = stepsOf(flow, s.group).indexOf(s) + 1;
+        return addStep(flow, s.action, { group: s.group, pos: pos, device: s.device, other: s.other, app: s.app, do: s.do, done: s.done, press: s.press, wait: s.wait });
+    }
+
     function removeStep(flow, id) { flow.steps = flow.steps.filter(function (s) { return s.id !== id; }); }
 
     // Flyttar ett steg en plats. Vid gruppens kant går steget över till gruppen intill: sist i den före, eller
@@ -470,6 +479,47 @@
             if (n === chatAt) apps.forEach(function (app) { chat.forEach(function (x) { insertTemplate(flow, x, { a: a, b: b, app: app }); }); });
             if (block.kind !== 'chat' && on[block.id]) insertTemplate(flow, block, { a: a, b: b, app: apps[0] });
         });
+        return flow;
+    }
+
+    // De färdiga flödena på startsidan. Varje flöde byggs ur mallarna som buildFlow, och own är egna steg som
+    // läggs som en grupp efter den första gruppen.
+    var READY = [
+        { id: 'chatt', label: 'Chatt mellan två telefoner', desc: 'Text och läst åt båda håll, bild, video och röst, och ett meddelande som raderas för alla.',
+            devices: ['Telefon 1', 'Telefon 2'], apps: ['WhatsApp'], blocks: ['clock-start', 'chat-text', 'chat-media', 'chat-delete', 'clock-end'] },
+        { id: 'signal', label: 'Signal: text, bilagor och radering', desc: 'Samma chatt i Signal, där meddelanden ofta raderas eller försvinner.',
+            devices: ['Telefon 1', 'Telefon 2'], apps: ['Signal'], blocks: ['clock-start', 'chat-text', 'chat-media', 'chat-delete', 'clock-end'] },
+        { id: 'grupp', label: 'Grupp och samtal', desc: 'En grupp skapas och besvaras, och ett samtal går utan svar och ett med svar.',
+            devices: ['Telefon 1', 'Telefon 2'], apps: ['WhatsApp'], blocks: ['clock-start', 'chat-group', 'chat-call', 'clock-end'] },
+        { id: 'snapchat-memories', label: 'Snapchat Memories', desc: 'En snap sparas i Memories och exporteras till kamerarullen, så att Snapchats kopia och exporten går att skilja åt.',
+            devices: ['Telefon'], apps: ['Snapchat'], blocks: ['clock-start', 'clock-end'],
+            own: { title: 'Snapchat Memories', app: 'Snapchat', steps: [
+                { action: 'open-app' },
+                { action: 'custom', do: 'Ta en snap av rutan med koden {kod} med kameran i Snapchat och spara den i Memories.', done: 'Tog en snap av rutan med koden {kod} och sparade den i Memories.', press: 'när snappen är sparad' },
+                { action: 'custom', do: 'Öppna Memories, välj snappen och exportera den till kamerarullen.', done: 'Exporterade snappen ur Memories till kamerarullen.', press: 'när exporten är klar' },
+                { action: 'home-lock', wait: 120 },
+            ] } },
+        { id: 'kamera', label: 'Kamera och skärmdump', desc: 'En bild, en video och en skärmdump, så att det syns hur enhetens egna bilder får sina tider.',
+            devices: ['Telefon'], apps: [], blocks: ['clock-start', 'camera', 'clock-end'] },
+        { id: 'las', label: 'Lås, avstängning och start', desc: 'Låst i fem minuter, avstängd i tio och igång utan att vara upplåst i tre.',
+            devices: ['Telefon'], apps: [], blocks: ['clock-start', 'lock-power', 'clock-end'] },
+        { id: 'tidszon', label: 'Tidszon', desc: 'En bild tas medan enheten står i en annan zon. Bara zonen ändras, aldrig klockan.',
+            devices: ['Telefon'], apps: [], blocks: ['clock-start', 'zone', 'clock-end'] },
+        { id: 'standard', label: 'Det mesta på en gång', desc: 'Chattar i WhatsApp och Signal, kamera, lås och avstängning: standardflödet med två telefoner.',
+            devices: ['Telefon 1', 'Telefon 2'], apps: ['WhatsApp', 'Signal'], blocks: ['clock-start', 'chat-text', 'chat-media', 'chat-group', 'chat-delete', 'camera', 'lock-power', 'clock-end'] },
+    ];
+
+    function readyFlow(id, name) {
+        var r = READY.filter(function (x) { return x.id === id; })[0];
+        if (!r) return null;
+        var flow = buildFlow({ name: name || r.label, prefix: 'L', devices: r.devices, pair: [0, 1], apps: r.apps, blocks: r.blocks });
+        if (r.own) {
+            var g = addGroup(flow, { title: r.own.title, app: r.own.app }, Math.min(1, flow.groups.length));
+            r.own.steps.forEach(function (x) {
+                var a = ACTION[x.action] || ACTION.custom;
+                addStep(flow, a.id, Object.assign({ group: g.id }, a.chat || a.needsApp || a.id === 'custom' ? { app: r.own.app } : {}, x));
+            });
+        }
         return flow;
     }
 
@@ -668,11 +718,21 @@
         return e.approx;
     }
 
-    // En anteckning, eller något som gjordes utöver flödet när device är en enhet.
-    function addNote(flow, run, clock, text, device) {
+    // Steget som står på skärmen vid tiden t: nästa steg, steget vars väntan pågår, eller det sista när alla är gjorda.
+    function currentStep(flow, run, t) {
+        if (!flow.steps.length) return '';
+        if (isWaiting(run, t) && run.waitStep) return run.waitStep;
+        return (flow.steps[Math.min(run.entries.length, flow.steps.length - 1)] || {}).id || '';
+    }
+
+    // En anteckning står på raden för step (annars steget på skärmen). När device är en enhet är det något som
+    // gjordes utöver flödet, och det får en egen rad med sin tid.
+    function addNote(flow, run, clock, text, device, step) {
         var t = clip(text, LIMITS.text).trim();
         if (!t || run.notes.length >= LIMITS.notes) return false;
-        run.notes.push({ t: clock.t, off: clock.off, text: t, device: hasDevice(flow, device) ? device : '' });
+        var d = hasDevice(flow, device) ? device : '';
+        var st = d ? '' : flow.steps.some(function (x) { return x.id === step; }) ? step : currentStep(flow, run, clock.t);
+        run.notes.push({ t: clock.t, off: clock.off, text: t, device: d, step: st });
         return true;
     }
 
@@ -697,8 +757,14 @@
 
     // Raderna i tidsordning: gjorda steg, anteckningar och det som inte gjordes. Steg som aldrig nåddes står sist.
     function rows(flow, run) {
-        var steps = view(flow), byId = {}, out = [];
+        var steps = view(flow), byId = {}, out = [], onRow = {};
         steps.forEach(function (s) { byId[s.id] = s; });
+        // Anteckningarna till ett steg står på stegets rad, med sin egen tid.
+        run.notes.forEach(function (x) {
+            if (!x.step || x.device || !byId[x.step]) return;
+            (onRow[x.step] = onRow[x.step] || []).push('Anteckning ' + timeText(x.t, x.off) + ': ' + x.text);
+        });
+        var withNotes = function (list, id) { return list.concat(onRow[id] || []).join(' '); };
         run.entries.forEach(function (e, n) {
             var s = byId[e.step];
             if (!s) return;
@@ -708,15 +774,16 @@
             if (e.wait) remarks.push(e.waited != null ? 'Väntan därefter avbröts efter ' + spanText(e.waited) + ' av ' + spanText(e.wait) + '.' : 'Därefter väntan ' + spanText(e.wait) + '.');
             if (e.remark) remarks.push(e.remark);
             out.push({ kind: e.status === 'klar' ? 'step' : 'skipped', step: s.id, t: e.t, off: e.off, order: n * 2, device: s.deviceName, app: s.app,
-                action: e.status === 'klar' ? s.done : s.do, code: s.code, approx: !!e.approx, remark: remarks.join(' ') });
+                action: e.status === 'klar' ? s.done : s.do, code: s.code, approx: !!e.approx, remark: withNotes(remarks, s.id) });
         });
         run.notes.forEach(function (x, n) {
+            if (x.step && !x.device && byId[x.step]) return;
             var d = deviceName(flow, x.device);
             out.push({ kind: 'note', step: '', t: x.t, off: x.off, order: 1e6 + n, device: d, app: '', action: (d ? 'Utöver flödet: ' : 'Anteckning: ') + x.text, code: '', approx: false, remark: '' });
         });
         out.sort(function (p, q) { return p.t - q.t || p.order - q.order; });
         steps.slice(run.entries.length).forEach(function (s) {
-            out.push({ kind: 'left', step: s.id, t: null, off: null, device: s.deviceName, app: s.app, action: s.do, code: s.code, approx: false, remark: 'Laborationen avslutades före steget.' });
+            out.push({ kind: 'left', step: s.id, t: null, off: null, device: s.deviceName, app: s.app, action: s.do, code: s.code, approx: false, remark: withNotes(['Laborationen avslutades före steget.'], s.id) });
         });
         var days = {};
         out.forEach(function (r) { if (r.t != null) days[dateText(r.t, r.off)] = true; });
@@ -745,7 +812,7 @@
             ['Tid', timeText(run.started, run.off) + ' till ' + timeText(last.t, last.off)],
             ['Klocka', 'Datorns klocka' + (run.zone ? ', tidszon ' + run.zone : '') + ' (UTC' + Object.keys(offs).join(' och UTC') + '). Tiden på en rad är när undersökaren tryckte att steget var gjort.'],
             ['Enheter', flow.devices.map(function (d) { return d.name; }).join(', ')],
-            ['Steg', count('step') + ' utförda' + (notDone ? ', ' + notDone + ' inte utförda' : '') + (count('note') ? ', ' + count('note') + (count('note') === 1 ? ' anteckning' : ' anteckningar') : '')],
+            ['Steg', count('step') + ' utförda' + (notDone ? ', ' + notDone + ' inte utförda' : '') + (run.notes.length ? ', ' + run.notes.length + (run.notes.length === 1 ? ' anteckning' : ' anteckningar') : '')],
             ['Kod', 'Koden skrevs i meddelandet eller syns i bilden av datorns skärm, så att spåret i enheten kan knytas till raden.'],
         ];
         if (run.undone.length) out.push(['Ångrat', run.undone.length + ' tryck ångrades under laborationen. De står i loggfilen.']);
@@ -965,7 +1032,9 @@
         list.forEach(function (x, n) { if (x.kod !== codes[n].code) throw new Error('Stegens koder i filen följer inte ordningen, så loggen går inte att läsa.'); });
         (Array.isArray(o.anteckningar) ? o.anteckningar : []).slice(0, LIMITS.notes).forEach(function (x) {
             var text = clip(x && x.text, LIMITS.text).trim();
-            if (text) { var c = clock(x); run.notes.push({ t: c.t, off: c.off, text: (x.kod ? clip(x.kod, 12) + ': ' : '') + text, device: '' }); }
+            if (!text) return;
+            var c = clock(x), hit = codes.filter(function (s) { return x.kod && s.code === x.kod; })[0];
+            run.notes.push({ t: c.t, off: c.off, text: (x.kod && !hit ? clip(x.kod, 12) + ': ' : '') + text, device: '', step: hit ? hit.id : '' });
         });
         return { flow: flow, run: run, templates: [] };
     }
@@ -1031,7 +1100,8 @@
             (Array.isArray(r.notes) ? r.notes : []).slice(0, LIMITS.notes).forEach(function (x) {
                 if (!x || !num(x.t, 0, T) || !num(x.off, -900, 900)) throw new Error('En anteckning i loggen saknar en giltig tid.');
                 var t = clip(x.text, LIMITS.text).trim();
-                if (t) run.notes.push({ t: x.t, off: x.off, text: t, device: ids[x.device] === 'device' ? x.device : '' });
+                var d = ids[x.device] === 'device' ? x.device : '';
+                if (t) run.notes.push({ t: x.t, off: x.off, text: t, device: d, step: !d && ids[x.step] === 'step' ? x.step : '' });
             });
             (Array.isArray(r.undone) ? r.undone : []).slice(0, LIMITS.notes).forEach(function (e) {
                 var x = entry(e);
@@ -1050,10 +1120,10 @@
         tidy: tidy, addGroup: addGroup, updateGroup: updateGroup, removeGroup: removeGroup, moveGroup: moveGroup, copyGroup: copyGroup, insertTemplate: insertTemplate, outline: outline, check: check,
         pairOfGroup: function (flow, id) { var g = groupOf(flow, id); return g ? pairOf(flow, g) : null; },
         TEMPLATES: TEMPLATES, cleanTemplate: cleanTemplate, templateFrom: templateFrom, mergeTemplates: mergeTemplates, templatesToFile: templatesToFile, templatesFromFile: templatesFromFile,
-        buildFlow: buildFlow, cleanApps: cleanApps,
+        buildFlow: buildFlow, cleanApps: cleanApps, READY: READY, readyFlow: readyFlow, duplicateStep: duplicateStep,
         cleanPrefix: cleanPrefix, cleanWait: cleanWait, clip: clip, esc: esc, softParts: softParts, deviceName: deviceName, view: view, estimate: estimate, checklist: checklist,
         shotText: shotText, readShot: readShot, clockNow: clockNow, offsetText: offsetText, isoLocal: isoLocal, timeText: timeText, dateText: dateText, spanText: spanText,
-        newRun: newRun, isDone: isDone, isWaiting: isWaiting, press: press, undo: undo, toggleApprox: toggleApprox, addNote: addNote, cutWait: cutWait, setRemark: setRemark,
+        newRun: newRun, isDone: isDone, isWaiting: isWaiting, press: press, undo: undo, toggleApprox: toggleApprox, addNote: addNote, currentStep: currentStep, cutWait: cutWait, setRemark: setRemark,
         rows: rows, cells: cells, facts: facts, protocol: protocol, toCsv: toCsv, toFile: toFile, fileName: fileName, fromFile: fromFile,
     };
     if (typeof module !== 'undefined' && module.exports) module.exports = api;

@@ -164,6 +164,30 @@ async function connect(port, opts) {
         return !!data;
     }
 
+    // Ett drag med pekaren i en ram, för det som dras med pointer-händelser i stället för HTML-drag: musen trycks ner
+    // på from, flyttas i små steg till to och släpps där. fy är var i höjdled på to det släpps, 0 överst och 1 nederst.
+    async function pointerDrag(part, from, to, fy) {
+        const frame = await ev(null, `(function(){ const f = [...document.querySelectorAll('iframe')].find(f => (f.src.includes(${JSON.stringify(part)}) || f.name.includes(${JSON.stringify(part)})) && f.getBoundingClientRect().width > 0); if (!f) return null; const r = f.getBoundingClientRect(); return { x: r.left, y: r.top }; })()`);
+        if (!frame) throw new Error('Hittar ingen synlig ram för ' + part);
+        const point = async (selector, x, y, scroll) => {
+            const r = await ev(part, `(function(){ const e = document.querySelector(${JSON.stringify(selector)}); if (!e) return null; ${scroll ? "e.scrollIntoView({ block: 'nearest' });" : ''} const r = e.getBoundingClientRect(); return { x: r.left + r.width * ${x}, y: r.top + r.height * ${y} }; })()`);
+            if (!r) throw new Error('Hittar inte ' + selector);
+            return { x: frame.x + r.x, y: frame.y + r.y };
+        };
+        const a = await point(from, 0.5, 0.5, true);
+        await send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: a.x, y: a.y });
+        await send('Input.dispatchMouseEvent', { type: 'mousePressed', x: a.x, y: a.y, button: 'left', buttons: 1, clickCount: 1 });
+        await send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: a.x + 4, y: a.y + 8, button: 'left', buttons: 1 });
+        await sleep(30);
+        const b = await point(to, 0.5, fy == null ? 0.5 : fy, false);
+        for (let n = 1; n <= 8; n++) {
+            await send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: a.x + (b.x - a.x) * n / 8, y: a.y + (b.y - a.y) * n / 8, button: 'left', buttons: 1 });
+            await sleep(20);
+        }
+        await send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: b.x, y: b.y, button: 'left', buttons: 0, clickCount: 1 });
+        await sleep(120);
+    }
+
     async function shot(file) {
         const s = await send('Page.captureScreenshot', { format: 'png' });
         fs.writeFileSync(file, Buffer.from(s.result.data, 'base64'));
@@ -186,7 +210,7 @@ async function connect(port, opts) {
 
     // Händelser från DevTools-protokollet, till exempel Network.requestWillBeSent efter Network.enable.
     const on = (method, fn) => { (listeners[method] = listeners[method] || []).push(fn); };
-    return { send, frames, ctx, ev, waitFor, nav, setFiles, drag, shot, keepByDefault, errors, on, close: () => ws.close() };
+    return { send, frames, ctx, ev, waitFor, nav, setFiles, drag, pointerDrag, shot, keepByDefault, errors, on, close: () => ws.close() };
 }
 
 module.exports = { connect, sleep };

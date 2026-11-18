@@ -1699,7 +1699,9 @@ senare.
     datorns zon och en rad behåller sin zon över ett byte av sommartid. Under en väntan tas inget tryck emot
     (`isWaiting`); `cutWait` avbryter den och skriver det i anmärkningen. `undo` flyttar det senaste trycket till
     `undone`, som räknas i tabellens uppgifter. `toggleApprox` märker tiden som ungefärlig (`ca` i tabellen).
-    `addNote` ger en egen rad med tiden då anteckningen började skrivas.
+    `addNote` sparar anteckningen med tiden då den började skrivas och steget den gäller (`step`, annars steget
+    på skärmen, `currentStep`), och `rows` skriver den i stegets anmärkning. Något som gjordes på en enhet utöver
+    flödet (`device`) får en egen rad.
   - **Tabellen**: `rows` ger raderna i den ordning de gjordes (ett överhoppat eller ogjort steg står som
     `inte utförd`), `facts` uppgifterna ovanför, `protocol` tabellen som HTML med inline-stilar (Word gör en tabell
     av den vid inklistring, och samma HTML skrivs ut) och som text med tabbar, och `toCsv` en fil med semikolon,
@@ -1709,19 +1711,27 @@ senare.
     som när det skrevs in och kastar det som inte hör till formatet. De egna mallar som flödets grupper kom ur
     följer med som `mallar`, och läggs under Mina mallar hos den som öppnar filen. Alla egna mallar sparas som en
     egen fil med `templatesToFile` (`format: "forensics-toolbox-laboration-mallar"`), och `Öppna` tar båda slagen.
-- **Förbered är en byggare** (1.61). Till vänster ligger byggstenarna: mallarna, Mina mallar, Eget (eget steg, ny
-  grupp, väntan) och åtgärderna som enskilda steg. Flödet till höger har en plats mellan varje steg och varje
-  grupp. **Märket** (`state.mark`, `{ at }` mellan grupper eller `{ group, pos }` i en grupp) är platsen där nästa
-  byggsten hamnar: plus sätter det, och utan märke är det flödets slut. Ett klick på en byggsten och ett släpp
-  efter ett drag går genom samma `place(kind, id, plats)`. En mall blir alltid en egen grupp, ett steg hamnar i
-  gruppen vid märket, och väntan läggs på steget före. Dragen är HTML5-drag (`startDrag`, `targetAt`, `onDrop`):
-  en byggsten ur listan, ett steg (också till en annan grupp) och en hel grupp i rubriken. Allt som går att dra
-  går också att göra med knappar (plus, pilarna, Ändra, minus), så tangentbordet räcker.
+- **Startsidan** (1.74) har en sökruta bland flödena att utgå från: de färdiga (`READY` och `readyFlow` i
+  `lab-core.js`, byggda ur mallarna), de egna mallarna och de senast genomförda (`localStorage['ft-laboration-senaste']`,
+  högst sex, sparade när en laboration startar). Ett kort visar stegen i en förhandsvisning innan det används. Där
+  finns också ett tomt flöde, guiden **Bygg från delar** (`#view-wizard`: enheter, appar, delar, och sedan
+  `buildFlow`) och inläsningen av en genomförd laboration. Det som redan finns i verktyget står först (`#s-resume`).
+- **Förbered är en byggare** i tre kolumner (1.74): byggstenarna till vänster, flödet i mitten och det valda till
+  höger (`#p-detail`). **Det valda** (`state.sel`, `{ step }` eller `{ group }`) är också märket: nästa byggsten
+  hamnar efter det valda steget, sist i den valda gruppen, och utan val sist i flödet (`mark`). En mall blir alltid
+  en egen grupp efter gruppen vid märket. Ett klick på en byggsten och ett släpp efter ett drag går genom samma
+  `place(kind, id, plats)`. Ett eget steg läggs in direkt och skrivs i rutan till höger. Rutan ändrar steget eller
+  gruppen medan man skriver (`editStep`, `editGroup`); det som skrivs i ett fält är en ändring för Ångra tills fokus
+  lämnar det. Under 1180 px ligger rutan över flödet när något är valt. Namnet, enheterna (märken som byter namn på
+  plats) och menyn **Mer** (filerna, utskriften, kodbokstaven och Rensa allt) står ovanför flödet.
+- **Dra och släpp** görs med pekarhändelser (`onPointerDown`, `targetAt`, `showLine`, `drop`), så att det fungerar
+  med mus, penna och finger: greppet på ett steg eller en grupp, och en byggsten ur listan med mus eller penna. En
+  linje visar var det hamnar, och flödet rullar nära kanterna. Mallar och grupper släpps mellan grupper, steg var
+  som helst. Tangenterna gör samma sak: Alt+↑ och Alt+↓ flyttar det valda, Delete tar bort det, Esc tar bort valet.
+  Röktestet drar med `pointerDrag` i `tests/app/cdp.js`.
 - **Ångra**: varje ändring av flödet går genom `change(fn)`, som först sparar flödet som text (högst 50 steg
   bakåt). `fn` som svarar `false` ändrade ingenting, och då sparas inget. Knappen Ångra och Ctrl/Cmd+Z (inte i
   ett textfält) tar tillbaka den senaste. Historiken töms när laborationen börjar och när en fil öppnas.
-- **Det färdiga upplägget** (`#p-quick`, valen av appar och mallar som gör ett helt flöde) visas när flödet är
-  tomt och bakom knappen `Färdigt upplägg`.
 - **Allt ur flödet och loggen är text.** Sidan sätter det med `textContent`, och `protocol` och `checklist` går
   genom `esc`. Ett ord utan mellanslag som är längre än 20 tecken får brytas i tabellerna (`softParts`, `<wbr>`),
   annars blir tabellen bredare än papperet. Texten själv ändras inte, och CSV-filen och textvarianten får den hel.
@@ -1741,7 +1751,11 @@ senare.
   sparades före 1.65 behåller sina gamla texter. Listan med stegen till höger (`#r-list`) har 14 px text, är mellan
   340 och 560 px bred och visar det aktuella stegets hela text. Under 700 px bredd ligger delarna under varandra
   och vyn rullar. `Avbryt laborationen` (`#r-abort`) finns bara när laborationen har börjat, frågar först och har
-  ingen tangent, så att den inte trycks av misstag. `Rensa allt` (`#p-reset`) överst under Förbered tar bort namnet,
+  ingen tangent, så att den inte trycks av misstag. Efter det sista steget visas Tabell av sig själv (`finish()`); en
+  väntan efter det sista steget räknas först ner, och V avbryter den. Överst i Tabell står det som är kvar i ordning:
+  spara loggen, lägg tabellen i protokollet och analysera mot extraktionerna (`renderNext`). Den första knappen som inte
+  är gjord är blå. `Fel tryck? Ångra det sista` (`#t-undo`) finns bara direkt efter det sista steget och går tillbaka
+  till Genomför. `Rensa allt` (`#p-reset`) överst under Förbered tar bort namnet,
   enheterna och stegen (`fresh()`), och loggen om det finns en. De egna mallarna ligger kvar.
 - **QR-koden i rutan** (1.68, `qr-encode.js`, `LabQr`, utan DOM, testad i `qr-encode.test.js` genom att koden läses
   tillbaka med `tools/QR2URL/jsQR.js`). Bredvid koden och klockan i `#r-shot` står en QR-kod med texten

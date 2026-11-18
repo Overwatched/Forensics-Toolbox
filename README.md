@@ -19,7 +19,7 @@ Verktyg för IT-forensik som körs på din egen dator, utan nätverk (onlinekart
 
 **Chattar** *(beta)* visar konversationerna i WhatsApp, Signal, Telegram och Snapchat som i appen, med bilder och tider, och exporterar till HTML eller PDF.
 
-**Laboration** hjälper dig göra en egen laboration: bygg ett flöde av steg, logga tiden för varje steg och läs sedan in loggen med extraktionerna för att se var varje steg syns i telefonen.
+**Laboration** hjälper dig göra en egen laboration: utgå från ett färdigt flöde eller bygg ett eget med dra och släpp, logga tiden för varje steg och läs sedan in loggen med extraktionerna för att se var varje steg syns i telefonen.
 
 ![EXIF & karta: metadata för en hel mapp](docs/images/exif-tabell.png)
 

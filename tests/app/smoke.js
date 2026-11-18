@@ -2186,50 +2186,67 @@ const scenarios = [
         await c.nav('Laboration');
         await c.waitFor(LAB, `!!window.LabCore && !!window.LabTraceView && !!document.getElementById('s-new')`, 30000, 'Laboration laddas');
         const ev = (e) => c.ev(LAB, e);
-        // Verktyget öppnas på två val mitt på sidan, utan flikar och utan något annat att välja på.
-        const start = await ev(`(function(){
-            const shown = (id) => !document.getElementById(id).classList.contains('display-none');
-            const cards = [...document.querySelectorAll('#view-start .start-card')], b = cards.map(x => x.getBoundingClientRect());
-            return { start: shown('view-start'), tabs: shown('tabs'), back: shown('nav-start'), titles: cards.map(x => x.querySelector('.start-title').textContent), desc: cards.every(x => x.querySelector('.start-desc').textContent.length > 20),
-                buttons: [...document.querySelectorAll('button')].filter(x => x.getClientRects().length).length,
-                middle: b.length === 2 && Math.abs((b[0].left + b[1].right) / 2 - innerWidth / 2) < 40 && Math.abs((b[0].top + b[0].bottom) / 2 - innerHeight / 2) < innerHeight * 0.2 };
-        })()`);
-        expect(start.start && !start.tabs && !start.back && start.titles.join('|') === 'Genomför ny laboration|Läs in genomförd laboration' && start.desc && start.buttons === 2 && start.middle, 'Startsidan: ' + JSON.stringify(start));
-        await ev(`document.getElementById('s-new').click(), 1`);
-        await c.waitFor(LAB, `document.querySelectorAll('#p-blocks input').length > 5 && !document.getElementById('tabs').classList.contains('display-none')`, 10000, 'Förbered öppnas från startsidan');
         const key = (k) => ev(`document.body.dispatchEvent(new KeyboardEvent('keydown', { key: ${JSON.stringify(k)}, bubbles: true, cancelable: true })), 1`);
         const text = (id) => ev(`document.getElementById(${JSON.stringify(id)}).textContent`);
         const mode = () => ev(`document.getElementById('view-run').getAttribute('data-mode')`);
         const fits = async (view) => expect(await ev(`document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1`), 'Sidan rullar i sidled i vyn ' + view);
-        // Frågorna om att ersätta och ta bort besvaras med ja. Det som en tidigare körning lämnade i lagringen tas bort.
-        await ev(`window.confirm = () => true, document.getElementById('p-reset').click(), 1`);
+        const search = (q) => ev(`(function(){ const i = document.getElementById('s-q'); i.value = ${JSON.stringify(q)}; i.dispatchEvent(new Event('input', { bubbles: true })); return 1; })()`);
+        // Frågorna om att ersätta och ta bort besvaras med ja. Det som en tidigare körning lämnade tas bort.
+        await ev(`window.confirm = () => true, localStorage.removeItem('ft-laboration-senaste'), document.getElementById('p-reset').click(), document.getElementById('nav-start').click(), 1`);
 
-        // Förbered: två enheter, en app och tre standardflöden, och ett eget steg sist.
+        // Startsidan: sökrutan, det nya och de färdiga flödena, utan flikar.
+        const start = await ev(`(function(){
+            const shown = (id) => !document.getElementById(id).classList.contains('display-none');
+            return { start: shown('view-start'), tabs: shown('tabs'), back: shown('nav-start'), cards: [...document.querySelectorAll('#s-flows .flow-card .card-name')].map(e => e.textContent),
+                filters: [...document.querySelectorAll('#s-filters .filter')].map(b => b.firstChild.textContent), read: shown('s-read') && document.getElementById('s-an-title').textContent === 'Analysera utförd laboration',
+                current: document.getElementById('nav-start').getAttribute('aria-current') };
+        })()`);
+        expect(start.start && !start.tabs && start.back && start.current === 'page' && start.read && start.cards.length >= 8 && start.cards.includes('Snapchat Memories') && start.filters.join('|') === 'Alla|Färdiga|Mina mallar|Senaste', 'Startsidan: ' + JSON.stringify(start));
+        await search('snapchat memories');
+        const found = await ev(`[...document.querySelectorAll('#s-flows .flow-card .card-name')].map(e => e.textContent).join('|') + ' / ' + document.getElementById('s-count').textContent`);
+        expect(found === 'Snapchat Memories / 1 flöde för ”snapchat memories”', 'Sökningen: ' + found);
+        await ev(`document.querySelector('#s-flows .flow-card').click(), 1`);
+        const pv = await ev(`({ open: !document.getElementById('s-preview').classList.contains('display-none'), title: document.getElementById('s-pv-title').textContent, steps: document.querySelectorAll('#s-pv-steps .pv-step').length })`);
+        expect(pv.open && pv.title === 'Snapchat Memories' && pv.steps === 7, 'Förhandsvisningen: ' + JSON.stringify(pv));
+        await key('Escape');
+        expect(await ev(`document.getElementById('s-preview').classList.contains('display-none')`), 'Esc stängde inte förhandsvisningen');
+        await search('');
+        await fits('Start');
+        // Knappen till startsidan står på samma plats i varje vy.
+        const home = () => ev(`(function(){ const r = document.getElementById('nav-start').getBoundingClientRect(); return r.width > 0 ? Math.round(r.left) + ',' + Math.round(r.top) : 'dold'; })()`);
+        const homeAt = await home();
+
+        // Bygg från delar: två enheter, en app och tre delar.
+        await ev(`document.getElementById('s-wizard').click(), 1`);
+        await c.waitFor(LAB, `!document.getElementById('view-wizard').classList.contains('display-none') && document.getElementById('tabs').classList.contains('display-none')`, 10000, 'guiden öppnas');
         await ev(`(function(){
-            const set = (i, v) => { i.value = v; i.dispatchEvent(new Event('input', { bubbles: true })); i.dispatchEvent(new Event('change', { bubbles: true })); };
-            const names = document.querySelectorAll('#p-devices input');
-            set(names[0], ${JSON.stringify(NAME)});
-            set(document.querySelectorAll('#p-devices input')[1], 'iPhone');
-            const want = ['WhatsApp', 'Klockorna i början', 'Text åt båda håll, och läst', 'Lås och avstängning'];
-            for (const l of document.querySelectorAll('#p-apps label.tick, #p-blocks label.tick')) {
-                const box = l.querySelector('input'), on = want.includes(l.querySelector('.tick-label').textContent);
-                if (box.checked !== on) box.click();
-            }
+            const set = (i, v) => { i.value = v; i.dispatchEvent(new Event('input', { bubbles: true })); };
+            set(document.querySelector('[data-focus="w-dev-0"]'), ${JSON.stringify(NAME)});
+            set(document.querySelector('[data-focus="w-dev-1"]'), 'iPhone');
+            document.getElementById('w-next').click();
+            for (const l of document.querySelectorAll('#w-apps label.tick')) { const box = l.querySelector('input'), on = l.querySelector('.tick-label').textContent === 'WhatsApp'; if (box.checked !== on) box.click(); }
+            document.getElementById('w-next').click();
+            const want = ['Klockorna i början', 'Text åt båda håll, och läst', 'Lås och avstängning'];
+            for (const l of document.querySelectorAll('#w-blocks label.tick')) { const box = l.querySelector('input'), on = want.includes(l.querySelector('.tick-label').textContent); if (box.checked !== on) box.click(); }
             return 1;
         })()`);
-        expect(await text('p-preview') === 'Valet ger 15 steg, ungefär 28 minuter varav 18 minuter väntan.', 'Förhandsvisningen: ' + await text('p-preview'));
-        await ev(`document.getElementById('p-create').click(), document.getElementById('p-add').click(), 1`);
-        await ev(`(function(){
-            const what = document.querySelector('.editor textarea');
-            what.value = 'Skriv {kod} i Anteckningar.'; what.dispatchEvent(new Event('input', { bubbles: true }));
-            document.querySelector('.editor button[type="submit"]').click();
-            return 1;
-        })()`);
-        const plan = await ev(`({ steps: [...document.querySelectorAll('#p-steps .step')].map(s => s.querySelector('.step-code').textContent + ' ' + s.querySelector('.step-do').textContent), summary: document.getElementById('p-summary').textContent, chip: document.querySelector('#p-steps .chip').textContent })`);
+        expect(await text('w-preview') === 'Valet ger 15 steg, ungefär 28 minuter varav 18 minuter väntan.', 'Guidens förhandsvisning: ' + await text('w-preview'));
+        await fits('Bygg från delar');
+        expect(await home() === homeAt, 'Startknappen flyttade sig i guiden: ' + await home() + ' mot ' + homeAt);
+        await ev(`document.getElementById('w-create').click(), 1`);
+        await c.waitFor(LAB, `!document.getElementById('view-plan').classList.contains('display-none') && document.querySelectorAll('#p-steps .step').length === 15`, 10000, 'Förbered med stegen ur guiden');
+        // Ett eget steg läggs in direkt, sist, och texten skrivs i rutan till höger.
+        await ev(`document.querySelector('#p-palette .pal-item[data-kind="custom"]').click(), 1`);
+        expect(await ev(`(document.activeElement && document.activeElement.getAttribute('data-focus')) || ''`) === 'd-do', 'Det egna stegets text har inte fokus');
+        await ev(`(function(){ const t = document.querySelector('#p-detail [data-focus="d-do"]'); t.value = 'Skriv {kod} i Anteckningar.'; t.dispatchEvent(new Event('input', { bubbles: true })); return 1; })()`);
+        const plan = await ev(`({ steps: [...document.querySelectorAll('#p-steps .step')].map(s => s.querySelector('.step-code').textContent + ' ' + s.getAttribute('title')), summary: document.getElementById('p-summary').textContent, chip: document.querySelector('#p-steps .chip').textContent,
+            say: document.getElementById('d-say').textContent })`);
         expect(plan.steps.length === 16 && /^16 steg, /.test(plan.summary), 'Stegen: ' + plan.steps.length + ', ' + plan.summary);
-        expect(plan.steps[2] === 'L03 Skriv L03 till iPhone och skicka.' && plan.steps[15] === 'L16 Skriv L16 i Anteckningar.', 'Koderna i stegen: ' + plan.steps[2] + ' | ' + plan.steps[15]);
+        expect(plan.steps[2] === 'L03 Skriv L03 till iPhone och skicka. Klart när meddelandet är skickat.' && plan.steps[15] === 'L16 Skriv L16 i Anteckningar. Klart när det är gjort.', 'Koderna i stegen: ' + plan.steps[2] + ' | ' + plan.steps[15]);
+        expect(plan.say === 'Under genomförandet står detSkriv L16 i Anteckningar.Klart när det är gjort.', 'Rutan med stegets text: ' + plan.say);
         expect(plan.chip === NAME, 'Enhetens namn visas inte som text: ' + plan.chip);
         await fits('Förbered');
+        expect(await home() === homeAt && await ev(`!document.getElementById('nav-start').hasAttribute('aria-current')`), 'Startknappen i Förbered: ' + await home() + ' mot ' + homeAt);
 
         // Genomför: övningstrycket sparas inte, Enter startar, och varje tangent gör sitt.
         await ev(`document.getElementById('p-start').click(), 1`);
@@ -2239,6 +2256,7 @@ const scenarios = [
         await key('Enter');
         expect(await text('r-code') === 'L01' && /^\d\d:\d\d:\d\d\.\d$/.test(await text('r-clock')), 'Efter start: ' + await text('r-code') + ' ' + await text('r-clock'));
         await fits('Genomför');
+        expect(await home() === homeAt, 'Startknappen flyttade sig i Genomför: ' + await home() + ' mot ' + homeAt);
         // Rutan att fotografera har koden, klockan och datumet tätt ihop och är en liten del av vyn. Stegen i listan
         // står med läsbar text, och steget som görs nu med hela sin text.
         const shot = await ev(`(function () {
@@ -2268,9 +2286,21 @@ const scenarios = [
         // Avbryt laborationen: loggen tas bort, flödet står kvar och går att ändra, och nästa start börjar om från L01.
         await key(' ');
         expect(await text('r-code') === 'L02', 'Efter ett tryck: ' + await text('r-code'));
+        // Startknappen mitt i laborationen: flikarna och raden överst på startsidan leder tillbaka till samma steg.
+        await ev(`document.getElementById('nav-start').click(), 1`);
+        const away = await ev(`({ tabs: !document.getElementById('tabs').classList.contains('display-none'), name: document.getElementById('tabs-name').textContent,
+            current: document.getElementById('s-resume-title').textContent + ' | ' + document.getElementById('s-resume').textContent, running: document.getElementById('s-current').classList.contains('running') })`);
+        expect(away.tabs && /^Pågår: Laboration /.test(away.name) && /^Pågår: Laboration .* \| Fortsätt laborationen$/.test(away.current) && away.running, 'Startsidan under laborationen: ' + JSON.stringify(away));
+        await ev(`document.querySelector('#s-flows .flow-card').click(), 1`);
+        expect(/ pågår här\. Använd flödet ersätter den/.test(await text('s-pv-note')) && await ev(`!document.getElementById('s-pv-note').classList.contains('display-none')`), 'Förhandsvisningen säger inte att laborationen pågår: ' + await text('s-pv-note'));
+        await key('Escape');
+        await ev(`document.getElementById('tab-run').click(), 1`);
+        expect(await text('r-code') === 'L02', 'Fliken Genomför ledde inte tillbaka: ' + await text('r-code'));
+        await ev(`document.getElementById('nav-start').click(), document.getElementById('s-resume').click(), 1`);
+        expect(await text('r-code') === 'L02' && await mode() === 'step', 'Fortsätt laborationen ledde inte tillbaka');
         await ev(`window.confirm = (t) => { window.__asked = t; return true; }, document.getElementById('r-abort').click(), 1`);
         const aborted = await ev(`({ asked: window.__asked, plan: !document.getElementById('view-plan').classList.contains('display-none'), locked: !document.getElementById('p-locked').classList.contains('display-none'),
-            steps: document.querySelectorAll('#p-steps .step').length, create: !document.getElementById('p-create').disabled })`);
+            steps: document.querySelectorAll('#p-steps .step').length, create: !document.querySelector('#p-palette .pal-item').disabled && document.querySelectorAll('#p-steps .handle').length > 0 })`);
         expect(/^Laborationen avbryts och loggen med 1 steg tas bort härifrån\./.test(aborted.asked) && aborted.plan && !aborted.locked && aborted.steps === 16 && aborted.create, 'Efter Avbryt laborationen: ' + JSON.stringify(aborted));
         await ev(`window.confirm = () => true, document.getElementById('p-start').click(), 1`);
         expect(await text('r-code') === 'ÖVA' && await ev(`document.getElementById('r-abort').classList.contains('display-none')`), 'Före en ny start: ' + await text('r-code'));
@@ -2287,11 +2317,18 @@ const scenarios = [
         // Anteckningen får tiden då A trycktes, och tangenterna gäller den tills den är sparad.
         await key('a');
         expect(await ev(`document.activeElement.id`) === 'r-note-text', 'Anteckningens ruta har inte fokus');
-        await ev(`document.getElementById('r-note-text').value = 'En bild för mycket <b>här</b>.', document.getElementById('r-note-device').selectedIndex = 2, 1`);
+        await ev(`document.getElementById('r-note-text').value = 'En bild för mycket <b>här</b>.', document.getElementById('r-note-device').selectedIndex = [...document.getElementById('r-note-device').options].findIndex(o => /iPhone utöver flödet$/.test(o.text)), 1`);
         await key(' ');
         expect(await text('r-code') === 'L05', 'Ett mellanslag medan anteckningen var öppen räknades som ett tryck');
         await ev(`document.getElementById('r-note-text').dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })), 1`);
-        expect(/^Anteckningen sparades med tiden \d\d:\d\d:\d\d\.$/.test(await text('r-toast')), 'Anteckningen: ' + await text('r-toast'));
+        expect(/^Anteckningen sparades med tiden \d\d:\d\d:\d\d, på en egen rad\.$/.test(await text('r-toast')), 'Anteckningen: ' + await text('r-toast'));
+        // En vanlig anteckning står på raden för steget på skärmen, som är förvalt.
+        await key('a');
+        const places = await ev(`[...document.getElementById('r-note-device').options].map(o => o.text)`);
+        expect(places[0] === 'På raden för L05, steget du är på' && places[1] === 'På raden för L04, steget du nyss gjorde' && places.length === 4, 'Valen för anteckningen: ' + places);
+        await ev(`document.getElementById('r-note-text').value = 'Skrev fel först.', 1`);
+        await ev(`document.getElementById('r-note-text').dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })), 1`);
+        expect(/^Anteckningen sparades med tiden \d\d:\d\d:\d\d, på raden för L05\.$/.test(await text('r-toast')), 'Anteckningen på raden: ' + await text('r-toast'));
         // Väntan efter L07: mellanslag räknas inte förrän den är slut eller avbruten med V.
         await key(' '); await key(' '); await key(' ');
         expect(await mode() === 'wait' && await text('r-code') === 'VÄNTA' && /^Väntan efter L07: [45]:\d\d kvar\.$/.test(await text('r-do')), 'Väntan: ' + await mode() + ', ' + await text('r-do'));
@@ -2299,11 +2336,23 @@ const scenarios = [
         expect(await ev(`document.querySelectorAll('#r-list li.done, #r-list li.skipped').length`) === 7 && /^Väntan pågår, så trycket räknades inte\./.test(await text('r-toast')), 'Ett tryck under väntan räknades: ' + await text('r-toast'));
         await key('v');
         expect(await mode() === 'step' && await text('r-code') === 'L08', 'Efter avbruten väntan: ' + await mode() + ' ' + await text('r-code'));
-        for (let n = 0; n < 40 && await mode() !== 'done'; n++) await key(await mode() === 'wait' ? 'v' : ' ');
-        expect(await text('r-code') === 'KLAR', 'Flödet blev inte klart: ' + await text('r-code'));
+        const inTable = () => ev(`!document.getElementById('view-table').classList.contains('display-none')`);
+        for (let n = 0; n < 40 && !await inTable(); n++) await key(await mode() === 'wait' ? 'v' : ' ');
+        // Efter det sista steget visas tabellen av sig själv. Ett fel tryck på det sista steget går att ångra där.
+        const next = () => ev(`({ done: document.getElementById('t-done').classList.contains('display-none') ? '' : document.getElementById('t-done-text').textContent, undo: !document.getElementById('t-undo').classList.contains('display-none'),
+            blue: [...document.querySelectorAll('.next-steps .primary-btn')].map(b => b.id).join(), did: [...document.querySelectorAll('.next-steps .next.did')].map(x => x.id).join() })`);
+        let after = await next();
+        expect(await inTable() && /^Laborationen är klar: alla 16 steg är gjorda, det sista \d\d:\d\d:\d\d\.$/.test(after.done) && after.undo && after.blue === 't-save' && after.did === '', 'Efter det sista steget: ' + JSON.stringify(after));
+        await ev(`document.getElementById('t-undo').click(), 1`);
+        expect(await text('r-code') === 'L16' && await mode() === 'step' && /^Trycket för L16 togs tillbaka\./.test(await text('r-toast')), 'Ångra från tabellen: ' + await text('r-code') + ', ' + await text('r-toast'));
+        await key(' ');
+        expect(await inTable(), 'Tabellen visades inte efter det sista steget igen');
+        await ev(`document.getElementById('tab-run').click(), 1`);
+        expect(await text('r-code') === 'KLAR' && await mode() === 'done', 'Genomför efter laborationen: ' + await text('r-code'));
+        await ev(`document.getElementById('r-end').click(), 1`);
+        expect(!(await next()).undo, 'Ångra står kvar när tabellen öppnas igen');
 
         // Tabell: en rad per steg och en för anteckningen, i den ordning det gjordes.
-        await ev(`document.getElementById('r-end').click(), 1`);
         const table = await ev(`({
             head: [...document.querySelectorAll('.protocol th')].map(th => th.textContent),
             rows: [...document.querySelectorAll('.protocol tbody tr')].map(tr => [...tr.cells].map(td => (td.firstElementChild && td.classList.contains('remark') ? td.firstElementChild : td).textContent)),
@@ -2318,8 +2367,9 @@ const scenarios = [
         expect(/^Väntan därefter avbröts efter 0:0\d av 5:00\.$/.test(row('L07')[4]) && row('L07')[1] === 'Alla enheter', 'Raden med väntan: ' + row('L07'));
         const note = table.rows.findIndex((r) => r[2] === 'Utöver flödet: En bild för mycket <b>här</b>.');
         expect(note === 4 && table.rows[note][1] === 'iPhone' && table.rows[note][3] === '', 'Anteckningen står på rad ' + note);
+        expect(/^Anteckning \d\d:\d\d:\d\d: Skrev fel först\.$/.test(row('L05')[4]), 'Anteckningen på L05: ' + row('L05'));
         expect(row('L16')[2] === 'Skriv L16 i Anteckningar.', 'Det egna steget: ' + row('L16'));
-        expect(table.facts.Steg === '15 utförda, 1 inte utförda, 1 anteckning' && /^1 tryck ångrades/.test(table.facts['Ångrat']) && table.facts.Program === 'Forensics Toolbox ' + VERSION, 'Uppgifterna: ' + JSON.stringify(table.facts));
+        expect(table.facts.Steg === '15 utförda, 1 inte utförda, 2 anteckningar' && /^2 tryck ångrades/.test(table.facts['Ångrat']) && table.facts.Program === 'Forensics Toolbox ' + VERSION, 'Uppgifterna: ' + JSON.stringify(table.facts));
         expect(/^Datorns klocka, tidszon .*\(UTC[+-]\d\d:\d\d\)\./.test(table.facts.Klocka), 'Klockan: ' + table.facts.Klocka);
         await fits('Tabell');
 
@@ -2331,10 +2381,12 @@ const scenarios = [
         expect(/^\d{4}-\d\d-\d\d;\d\d:\d\d:\d\d;\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z;Samsung <img /.test(lines[1]) && /;L04;utförd, tiden ungefärlig;/.test(lines[4]), 'Raderna i CSV-filen: ' + lines[1] + ' | ' + lines[4]);
         await ev(`document.getElementById('t-save').click(), 1`);
         const log = JSON.parse(await download(downloads, /^laboration-\d{4}-\d\d-\d\d-.*\.json$/));
-        expect(log.format === 'forensics-toolbox-laboration' && log.flow.steps.length === 16 && log.run.entries.length === 16 && log.run.undone.length === 1 && log.run.notes.length === 1, 'Loggfilen: ' + Object.keys(log));
+        after = await next();
+        expect(after.blue === 't-trace' && after.did === 't-n1,t-n2', 'Efter CSV och loggen: ' + JSON.stringify(after));
+        expect(log.format === 'forensics-toolbox-laboration' && log.flow.steps.length === 16 && log.run.entries.length === 16 && log.run.undone.length === 2 && log.run.notes.length === 2 && log.run.notes[1].step === log.flow.steps[4].id, 'Loggfilen: ' + Object.keys(log));
         const logFile = path.join(downloads, fs.readdirSync(downloads).find((n) => /^laboration-.*\.json$/.test(n)));
         await ev(`document.getElementById('t-again').click(), 1`);
-        expect(await ev(`!document.getElementById('view-plan').classList.contains('display-none') && !document.getElementById('p-create').disabled`), 'Flödet går inte att köra igen');
+        expect(await ev(`!document.getElementById('view-plan').classList.contains('display-none') && !document.querySelector('#p-palette .pal-item').disabled`), 'Flödet går inte att köra igen');
         await c.setFiles(LAB, '#p-file', [logFile]);
         await c.waitFor(LAB, `/^Loggen är öppnad: 16 av 16 steg har ett tryck\.$/.test(document.getElementById('p-status').textContent)`, 10000, 'loggen öppnas igen');
         const again = await ev(`[...document.querySelectorAll('.protocol tbody tr')].map(tr => tr.cells[0].textContent + tr.cells[2].textContent).join('|')`);
@@ -2344,17 +2396,21 @@ const scenarios = [
         const here = await ev(`({ shown: !document.getElementById('view-trace').classList.contains('display-none'), tabs: !document.getElementById('tabs').classList.contains('display-none'), log: document.getElementById('x-log').textContent,
             name: document.getElementById('x-log-name').textContent, chips: [...document.querySelectorAll('#x-devices .trace-card .chip')].map(x => x.textContent), hint: document.querySelector('#x-sheet .empty').textContent,
             tools: !document.getElementById('x-tools').classList.contains('display-none') })`);
-        expect(here.shown && !here.tabs && !here.tools && /: 15 av 16 steg gjorda, \d{4}-\d\d-\d\d \d\d:\d\d:\d\d–\d\d:\d\d:\d\d \(UTC[+-]\d\d:\d\d\)$/.test(here.log) && here.name === 'Loggen som finns här i verktyget.', 'Loggen i jämförelsen: ' + JSON.stringify(here));
+        expect(here.shown && here.tabs && !here.tools && /: 15 av 16 steg gjorda, \d{4}-\d\d-\d\d \d\d:\d\d:\d\d–\d\d:\d\d:\d\d \(UTC[+-]\d\d:\d\d\)$/.test(here.log) && here.name === 'Loggen som finns här i verktyget.', 'Loggen i jämförelsen: ' + JSON.stringify(here));
         expect(here.chips.join('|') === NAME + '|iPhone' && /^Välj extraktionen för varje enhet\./.test(here.hint), 'Enheterna i jämförelsen: ' + JSON.stringify(here));
         await fits('Läs in');
+        expect(await home() === homeAt && await ev(`document.querySelector('#view-trace .trace-intro h2').textContent`) === 'Analysera utförd laboration', 'Analysens vy: ' + await home() + ' mot ' + homeAt);
         await ev(`document.getElementById('nav-start').click(), 1`);
-        const back = await ev(`({ start: !document.getElementById('view-start').classList.contains('display-none'), read: document.getElementById('s-read-desc').textContent, fresh: document.getElementById('s-new-desc').textContent })`);
-        expect(back.start && / Loggen från den senaste laborationen finns redan här\.$/.test(back.read) && / Den senaste laborationen och dess tabell finns kvar\.$/.test(back.fresh), 'Startsidan efter en laboration: ' + JSON.stringify(back));
-        await ev(`document.getElementById('s-new').click(), 1`);
-        expect(await ev(`!document.getElementById('view-plan').classList.contains('display-none')`), 'Startsidans första val öppnar inte Förbered');
+        // På startsidan står laborationen först, och flödet ligger bland de senaste.
+        await ev(`document.querySelector('#s-filters [data-filter="recent"]').click(), 1`);
+        const back = await ev(`({ start: !document.getElementById('view-start').classList.contains('display-none'), resume: document.getElementById('s-resume-title').textContent, shown: !document.getElementById('s-current').classList.contains('display-none'),
+            recent: [...document.querySelectorAll('#s-flows .flow-card')].map(c => c.querySelector('.card-name').textContent + ' ' + c.querySelector('.card-meta').textContent) })`);
+        expect(back.start && back.shown && /^Klar: Laboration \d{4}-\d\d-\d\d$/.test(back.resume) && back.recent.length === 1 && /^Laboration \d{4}-\d\d-\d\d 16 steg /.test(back.recent[0]), 'Startsidan efter en laboration: ' + JSON.stringify(back));
+        await ev(`document.querySelector('#s-filters [data-filter="alla"]').click(), document.getElementById('s-resume').click(), 1`);
+        expect(await ev(`!document.getElementById('view-table').classList.contains('display-none')`), 'Fortsätt öppnar inte tabellen');
         await sleep(300);
         await noInjectedScript(c);
-        await ev(`document.getElementById('tab-plan').click(), document.getElementById('p-reset').click(), 1`);
+        await ev(`document.getElementById('tab-plan').click(), document.getElementById('p-reset').click(), localStorage.removeItem('ft-laboration-senaste'), 1`);
         await c.nav('Härkomst');
         return plan.steps.length + ' steg, ' + table.rows.length + ' rader i tabellen, CSV och logg, QR-koden läst ur rutan';
     }],
@@ -2364,10 +2420,11 @@ const scenarios = [
         await c.nav('Laboration');
         await c.waitFor(LAB, `!!window.LabCore && !!document.getElementById('s-new')`, 30000, 'Laboration laddas');
         const ev = (e) => c.ev(LAB, e);
-        await ev(`document.getElementById('s-new').click(), 1`);
-        await c.waitFor(LAB, `!!document.querySelector('#p-palette .pal-item')`, 10000, 'Förbered öppnas från startsidan');
+        await ev(`window.confirm = () => true, document.getElementById('nav-start').click(), document.getElementById('s-new').click(), 1`);
+        await c.waitFor(LAB, `!!document.querySelector('#p-palette .pal-item') && !document.getElementById('view-plan').classList.contains('display-none')`, 10000, 'Förbered öppnas med ett tomt flöde');
         const text = (id) => ev(`document.getElementById(${JSON.stringify(id)}).textContent`);
         const count = (selector) => ev(`document.querySelectorAll(${JSON.stringify(selector)}).length`);
+        const key = (k, o) => ev(`(document.activeElement && document.activeElement !== document.body ? document.activeElement : document.body).dispatchEvent(new KeyboardEvent('keydown', Object.assign({ key: ${JSON.stringify(k)}, bubbles: true, cancelable: true }, ${JSON.stringify(o || {})}))), 1`);
         // Klickar på det första som väljaren ger, eller på knappen med den texten i det.
         const click = async (selector, label) => expect(await ev(`(function(){
             let e = document.querySelector(${JSON.stringify(selector)});
@@ -2376,22 +2433,26 @@ const scenarios = [
             e.click();
             return true;
         })()`), 'Går inte att klicka på ' + selector + (label ? ' ' + label : ''));
-        const set = async (selector, value) => expect(await ev(`(function(){
+        const set = async (selector, value, kind) => expect(await ev(`(function(){
             const e = document.querySelector(${JSON.stringify(selector)});
             if (!e) return false;
             e.value = ${JSON.stringify(value)};
-            e.dispatchEvent(new Event('input', { bubbles: true }));
-            e.dispatchEvent(new Event('change', { bubbles: true }));
+            e.dispatchEvent(new Event(${JSON.stringify(kind || 'input')}, { bubbles: true }));
             return true;
         })()`), 'Hittar inte ' + selector);
+        const rename = async (n, name) => {
+            await click(`#p-devices .dev-chip:nth-child(${n}) .dev-name`);
+            await set(`#p-devices .dev-chip:nth-child(${n}) .dev-input`, name, 'change');
+        };
         const groups = () => ev(`[...document.querySelectorAll('#p-steps .group')].map(g => ({
             title: g.querySelector('.block').textContent, meta: g.querySelector('.group-meta').textContent,
-            steps: [...g.querySelectorAll('.step')].map(s => s.querySelector('.step-code').textContent + ' ' + s.querySelector('.chip').textContent + ': ' + s.querySelector('.step-do').textContent),
+            steps: [...g.querySelectorAll('.step')].map(s => s.querySelector('.step-code').textContent + ' ' + s.querySelector('.chip').textContent + ': ' + s.getAttribute('title').replace(/ Klart .*$/, '')),
         }))`);
         const shape = (g) => g.map((x) => x.steps.length).join('+');
-        // Ingenting rullar i sidled: inte sidan, inte flödet eller listan, och ingen rad i dem.
+        const pick = async (code) => expect(await ev(`(function(){ const r = [...document.querySelectorAll('#p-steps .step')].find(s => s.querySelector('.step-code').textContent === ${JSON.stringify(code)}); if (!r) return false; r.click(); return true; })()`), 'Hittar inte steget ' + code);
+        // Ingenting rullar i sidled: inte sidan, inte flödet, listan eller rutan till höger, och ingen rad i dem.
         const fits = async (what) => {
-            const wide = await ev(`[document.documentElement, ...document.querySelectorAll('#p-steps, #p-steps .step, #p-steps .group-head, #p-steps .group-panel, #p-palette, .side, .main-head')]
+            const wide = await ev(`[document.documentElement, ...document.querySelectorAll('#p-steps, #p-steps .step, #p-steps .group-head, #p-palette, #p-detail, .side, .flow-head, .dev-bar')]
                 .filter(e => e.scrollWidth > e.clientWidth + 1).map(e => (e.id ? '#' + e.id : e.tagName.toLowerCase() + '.' + e.className) + ' ' + e.scrollWidth + '/' + e.clientWidth)`);
             expect(!wide.length, 'Det sticker ut i sidled ' + what + ': ' + wide.join(', '));
         };
@@ -2399,26 +2460,23 @@ const scenarios = [
         const own = () => ev(`[...document.querySelectorAll('#p-palette .pal-own .pal-label')].map(e => e.textContent)`);
         const dropOwn = async () => { for (let n = 0; n < 20 && await count('#p-palette .pal-own'); n++) await click('#p-palette .pal-own .icon-btn'); };
 
-        // Det som en tidigare körning lämnade tas bort, och frågorna besvaras med ja.
-        await ev(`window.confirm = () => true, document.getElementById('p-reset').click(), 1`);
+        // Det som en tidigare körning lämnade tas bort.
         await dropOwn();
-        await set('#p-devices > :nth-child(1) input', 'Samsung');
-        await set('#p-devices > :nth-child(2) input', 'iPhone');
-        expect(await ev(`!document.getElementById('p-quick').classList.contains('display-none')`), 'Ett tomt flöde visar inte det färdiga upplägget');
-        // Valen i upplägget är fler än som ryms, och knappen som skapar stegen ska ändå synas utan att rulla.
-        expect(await ev(`(function(){ const b = document.getElementById('p-create').getBoundingClientRect(), q = document.getElementById('p-quick').getBoundingClientRect(); return b.height > 0 && b.bottom <= q.bottom && q.bottom <= innerHeight; })()`), 'Knappen Skapa stegen syns inte i det färdiga upplägget');
-        await click('#p-quick-close');
+        await rename(1, 'Samsung');
+        await rename(2, 'iPhone');
+        expect(await ev(`[...document.querySelectorAll('#p-devices .dev-name')].map(b => b.textContent).join()`) === 'Samsung,iPhone', 'Enheternas namn ändrades inte');
+        expect(await count('#p-steps .dropzone') === 1 && /^Nästa byggsten hamnar först/.test(await text('p-where')), 'Ett tomt flöde visar inte ytan att släppa på: ' + await text('p-where'));
 
-        // En mall ur listan blir en grupp, med stegen åt båda håll mellan de två valda enheterna.
+        // En mall ur listan blir en grupp, med stegen åt båda håll mellan de två enheterna, och gruppen blir vald.
         await click('.pal-item[data-id="chat-text"]');
         let g = await groups();
         expect(g.length === 1 && g[0].title === 'WhatsApp: text åt båda håll, och läst' && g[0].meta === '4 steg · WhatsApp · Samsung och iPhone', 'Mallen: ' + JSON.stringify(g.map((x) => [x.title, x.meta])));
         expect(g[0].steps[0] === 'L01 Samsung: Skriv L01 till iPhone och skicka.' && /^L02 iPhone: Lås upp, öppna WhatsApp och chatten med Samsung/.test(g[0].steps[1]), 'Mallens steg: ' + g[0].steps.slice(0, 2).join(' | '));
-        expect(await ev(`document.getElementById('p-quick').classList.contains('display-none')`), 'Det färdiga upplägget står kvar när flödet har steg');
+        expect(await count(G1 + '.sel') === 1 && await ev(`document.querySelector('#p-detail h2').textContent`) === 'Gruppen', 'Mallens grupp är inte vald');
 
-        // Plus sätter märket, och nästa byggsten hamnar där. Koderna efter räknas om.
-        await click(G1 + ' .slot[data-pos="1"] .slot-add');
-        expect(await ev(`(document.querySelector('#p-steps .slot.marked') || {}).dataset.pos + ' ' + (document.querySelector('#p-steps .slot.marked .slot-text') || {}).textContent`) === '1 Nästa byggsten hamnar här.', 'Märket står inte där plus trycktes');
+        // Ett valt steg är märket: nästa byggsten hamnar efter det, och koderna efter räknas om.
+        await pick('L01');
+        expect(/^Nästa byggsten hamnar efter L01\./.test(await text('p-where')) && await ev(`document.querySelector('#p-detail .detail-head').textContent`) === 'L01Skicka text×', 'Märket efter det valda steget: ' + await text('p-where'));
         await click('.pal-item[data-id="screenshot"]');
         g = await groups();
         expect(shape(g) === '5' && /^L02 Samsung: Öppna WhatsApp och ta en skärmdump/.test(g[0].steps[1]) && g[0].steps[3] === 'L04 iPhone: Skriv L04 till Samsung och skicka.', 'Steget vid märket: ' + g[0].steps.join(' | '));
@@ -2426,92 +2484,117 @@ const scenarios = [
         g = await groups();
         expect(shape(g) === '4' && g[0].steps[2] === 'L03 iPhone: Skriv L03 till Samsung och skicka.' && await text('p-note') === 'Den senaste ändringen togs tillbaka.', 'Ångra: ' + shape(g) + ', ' + await text('p-note'));
 
-        // Väntan läggs efter steget före märket, och längden ändras på raden.
-        await click(G1 + ' .slot[data-pos="2"] .slot-add');
-        await click('.pal-item[data-kind="wait"]');
-        expect(await ev(`[...document.querySelectorAll('#p-steps .wait-row')].map(r => r.previousElementSibling.querySelector('.step-code').textContent + ' ' + r.querySelector('.wait-size').value + ' ' + r.querySelector('.wait-unit').value).join()`) === 'L02 1 60', 'Väntan hamnade inte efter L02');
-        await set('#p-steps .wait-size', '3');
+        // Väntan väljs i rutan till höger, och syns på raden och i gruppen.
+        await pick('L02');
+        await set('#p-detail [data-focus="d-wait"]', '180', 'change');
         g = await groups();
-        expect(/varav 3 minuter väntan$/.test(await text('p-summary')) && g[0].meta === '4 steg · väntan 3:00 · WhatsApp · Samsung och iPhone', 'Väntans längd: ' + await text('p-summary') + ' | ' + g[0].meta);
+        expect(/varav 3 minuter väntan$/.test(await text('p-summary')) && g[0].meta === '4 steg · väntan 3:00 · WhatsApp · Samsung och iPhone' && await ev(`document.querySelector('#p-steps .step.sel .wait-chip').textContent`) === 'väntan 3:00', 'Väntan: ' + await text('p-summary') + ' | ' + g[0].meta);
+        // Från och till: samma enhet i båda rutorna byter plats på dem.
+        await set('#p-detail [data-focus="d-other"]', await ev(`document.querySelector('#p-detail [data-focus="d-device"]').value`), 'change');
+        g = await groups();
+        expect(/^L02 Samsung: Lås upp, öppna WhatsApp och chatten med iPhone/.test(g[0].steps[1]), 'Byte av från och till: ' + g[0].steps[1]);
+        await click('#p-undo');
 
-        // Gruppens ruta: rubriken, riktningen, en kopia i en annan app, och gruppen som egen mall.
-        await click(G1 + ' .group-head', 'Ändra');
-        await set(G1 + ' .group-panel [data-focus="g-title"]', 'Först <img src=x onerror=window.__ftxss=1>');
-        await click(G1 + ' .group-panel', 'Byt riktning');
+        // Gruppen: rubriken, riktningen, en kopia i en annan app, och gruppen som egen mall.
+        await click(G1 + ' .group-head .block');
+        await set('#p-detail [data-focus="g-title"]', 'Först <img src=x onerror=window.__ftxss=1>');
+        await click('#p-detail [data-focus="g-swap"]');
         g = await groups();
         expect(g[0].title === 'Först <img src=x onerror=window.__ftxss=1>' && g[0].steps[0] === 'L01 iPhone: Skriv L01 till Samsung och skicka.' && g[0].meta === '4 steg · väntan 3:00 · WhatsApp · iPhone och Samsung', 'Byt riktning: ' + g[0].title + ' | ' + g[0].steps[0] + ' | ' + g[0].meta);
-        await click(G1 + ' .group-panel', 'Kopiera gruppen');
-        expect(await count(G1 + ' .group-panel') === 0 && await count(G2 + ' .group-panel') === 1, 'Kopians ruta är inte öppen');
-        await set(G2 + ' .group-panel [data-focus="g-app"]', 'Signal');
+        await click('#p-detail', 'Kopiera gruppen');
+        expect(await count(G2 + '.sel') === 1, 'Kopian är inte vald');
+        await set('#p-detail [data-focus="g-app"]', 'Signal', 'change');
         g = await groups();
         expect(shape(g) === '4+4' && /^L06 Samsung: Lås upp, öppna Signal och chatten med iPhone/.test(g[1].steps[1]) && /öppna WhatsApp och/.test(g[0].steps[1]), 'Kopian i en annan app: ' + g[1].steps[1] + ' | ' + g[0].steps[1]);
-        await set(G2 + ' .group-panel .tpl-name', 'Min mall');
-        await click(G2 + ' .group-panel', 'Spara som mall');
-        expect(await text('p-note') === 'Mallen Min mall ligger nu under Mina mallar.' && (await own()).join() === 'Min mall', 'Egen mall: ' + await text('p-note') + ' | ' + await own());
-        await click(G2 + ' .group-panel', 'Klar');
-        expect(await count('#p-steps .group-panel') === 0, 'Rutan stängdes inte');
+        await set('#p-detail .tpl-name', 'Min mall');
+        await click('#p-detail', 'Spara som mall');
+        expect(await text('p-note') === 'Mallen Min mall ligger nu under Mina mallar, här och på startsidan.' && (await own()).join() === 'Min mall', 'Egen mall: ' + await text('p-note') + ' | ' + await own());
+        // Esc i ett fält gäller fältet. Utanför fälten tar Esc bort valet.
+        await ev(`document.activeElement && document.activeElement.blur(), 1`);
+        await key('Escape');
+        expect(await count('#p-steps .sel') === 0 && await ev(`document.querySelector('#p-detail h2').textContent`) === 'Steget', 'Esc tog inte bort valet');
 
-        // Riktiga drag: ett steg till en annan grupp, en grupp till en ny plats och en mall ur listan till flödets slut.
-        expect(await c.drag(LAB, G2 + ' .step[data-pos="0"]', G1 + ' .step[data-pos="3"]', 0.8), 'Steget gick inte att dra');
+        // Drag med pekaren: ett steg till en annan grupp, en grupp till en ny plats och en mall ur listan sist.
+        await c.pointerDrag(LAB, G2 + ' .step[data-pos="0"] .handle', G1 + ' .step[data-pos="3"]', 0.8);
         g = await groups();
         expect(shape(g) === '5+3' && g[0].steps[4] === 'L05 iPhone: Skriv L05 till Samsung och skicka.' && /^L06 Samsung: Lås upp, öppna Signal/.test(g[1].steps[0]), 'Steget efter draget: ' + shape(g) + ' | ' + g[0].steps[4] + ' | ' + g[1].steps[0]);
-        expect(await c.drag(LAB, G2 + ' .group-head', G1 + ' .group-head', 0.2), 'Gruppen gick inte att dra');
+        expect(await count('#p-steps .step.sel') === 1 && await ev(`document.querySelector('#p-steps .step.sel .step-code').textContent`) === 'L05', 'Steget som drogs är inte valt');
+        await c.pointerDrag(LAB, G2 + ' .group-head .handle', G1 + ' .group-head', 0.1);
         g = await groups();
         expect(shape(g) === '3+5' && /^Först </.test(g[1].title) && /^L01 Samsung: Lås upp, öppna Signal/.test(g[0].steps[0]), 'Gruppen efter draget: ' + shape(g) + ' | ' + g.map((x) => x.title).join(' | '));
-        expect(await c.drag(LAB, '.pal-item[data-id="camera"]', '#p-steps .slot[data-at="2"]'), 'Mallen gick inte att dra');
+        await key('Escape');
+        await c.pointerDrag(LAB, '.pal-item[data-id="camera"]', '#p-steps .end-zone');
         g = await groups();
         expect(g.length === 3 && g[2].title === 'Kamera och skärmdump' && /^\d+ steg$/.test(g[2].meta), 'Mallen efter draget: ' + g.map((x) => x.title + ' (' + x.meta + ')').join(' | '));
-        expect(await count('#p-steps .slot.over') === 0 && await ev(`document.getElementById('p-steps').hasAttribute('data-drag')`) === false, 'Draget lämnade märken efter sig');
-        await ev(`document.activeElement && document.activeElement.blur(), document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'z', ctrlKey: true, bubbles: true, cancelable: true })), 1`);
+        expect(await count('#p-steps .drop-line') === 0 && await count('.drag-ghost') === 0 && await ev(`document.getElementById('p-steps').hasAttribute('data-drag')`) === false, 'Draget lämnade märken efter sig');
+        await ev(`document.activeElement && document.activeElement.blur(), 1`);
+        await key('z', { ctrlKey: true });
         g = await groups();
         expect(shape(g) === '3+5', 'Ctrl+Z tog inte tillbaka mallen: ' + shape(g));
 
         // Kontrollen säger vad som ser fel ut, på steget och i knappen överst, och hindrar ingenting.
-        expect(await ev(`(document.querySelector('#p-steps .slot.marked') || { dataset: {} }).dataset.at`) === '2', 'Märket står inte sist efter Ångra');
+        await key('Escape');
         await click('.pal-item[data-id="power-on"]');
         const warn = await ev(`({ on: [...document.querySelectorAll('#p-steps .step.has-warn')].map(s => s.querySelector('.step-code').textContent + ': ' + [...s.querySelectorAll('.step-warn')].map(w => w.textContent).join(' / ')), button: document.getElementById('p-check').textContent, hidden: document.getElementById('p-check').classList.contains('display-none') })`);
         expect(warn.on.includes('L09: Enheten har inte stängts av före det här steget.') && !warn.hidden && warn.button === (warn.on.length === 1 ? '1 sak att se över' : warn.on.length + ' saker att se över'), 'Kontrollen: ' + JSON.stringify(warn));
         expect(await ev(`!document.getElementById('p-start').disabled`), 'En varning hindrar genomförandet');
-
-        // Ett eget steg skrivs där märket står.
-        await click(G1 + ' .slot[data-pos="0"] .slot-add');
-        await click('#p-steps .slot.marked', 'Eget steg');
-        await set('#p-steps .editor textarea', 'Öppna Kartor och sök efter {kod}.');
-        await click('#p-steps .editor button[type="submit"]');
+        // Tangenterna: Alt+↑ flyttar det valda steget, och Delete tar bort det.
+        await pick('L09');
+        await key('ArrowUp', { altKey: true });
         g = await groups();
-        expect(shape(g) === '4+6' && /^L01 \S+: Öppna Kartor och sök efter L01\.$/.test(g[0].steps[0]) && await count('#p-steps .editor') === 0, 'Det egna steget: ' + shape(g) + ' | ' + g[0].steps[0]);
+        expect(/^L08 \S+: Starta enheten/.test(g[1].steps[4]) && await ev(`document.activeElement.classList.contains('step') && document.activeElement.querySelector('.step-code').textContent`) === 'L08', 'Alt+↑: ' + g[1].steps.slice(2).join(' | '));
+        await key('Delete');
+        g = await groups();
+        expect(shape(g) === '3+5' && /^L08 togs bort\./.test(await text('p-note')), 'Delete: ' + shape(g) + ' | ' + await text('p-note'));
 
-        // Långa namn utan mellanslag ryms, också i ett smalt fönster.
+        // Ett eget steg efter det valda, som sedan flyttas först.
+        await pick('L01');
+        await click('.pal-item[data-kind="custom"]');
+        await set('#p-detail [data-focus="d-do"]', 'Öppna Kartor och sök efter {kod}.');
+        await ev(`document.querySelector('#p-steps .step.sel').focus(), 1`);
+        await key('ArrowUp', { altKey: true });
+        g = await groups();
+        expect(shape(g) === '4+5' && /^L01 \S+: Öppna Kartor och sök efter L01\.$/.test(g[0].steps[0]), 'Det egna steget: ' + shape(g) + ' | ' + g[0].steps[0]);
+
+        // Långa namn utan mellanslag ryms, också i ett smalt fönster där rutan till höger ligger över flödet.
         await fits('före de långa namnen');
-        await set('#p-devices > :nth-child(1) input', 'W'.repeat(80));
-        await click(G2 + ' .group-head', 'Ändra');
-        await set(G2 + ' .group-panel [data-focus="g-title"]', 'M'.repeat(80));
+        await rename(1, 'W'.repeat(80));
+        await click(G2 + ' .group-head .block');
+        await set('#p-detail [data-focus="g-title"]', 'M'.repeat(80));
         await fits('med långa namn');
         await c.send('Emulation.setDeviceMetricsOverride', { width: 820, height: 900, deviceScaleFactor: 1, mobile: false });
         await sleep(300);
         await fits('med långa namn i ett smalt fönster');
-        await click(G2 + ' .group-panel', 'Klar');
+        expect(await ev(`getComputedStyle(document.getElementById('p-detail')).position === 'fixed' && getComputedStyle(document.getElementById('p-detail')).display !== 'none'`), 'Rutan till höger ligger inte över flödet i ett smalt fönster');
+        await key('Escape');
+        expect(await ev(`getComputedStyle(document.getElementById('p-detail')).display === 'none'`), 'Rutan till höger står kvar utan något valt i ett smalt fönster');
         await fits('i ett smalt fönster');
         await c.send('Emulation.setDeviceMetricsOverride', { width: 1600, height: 1000, deviceScaleFactor: 1, mobile: false });
         await sleep(300);
 
-        // Efter en omstart av verktyget ligger flödet och den egna mallen kvar, och mallen går att lägga in igen.
+        // Efter en omstart av verktyget ligger flödet och den egna mallen kvar, på startsidan och i listan.
         await ev(`location.reload(), 1`);
         await sleep(500);
         await c.waitFor(LAB, `!!window.LabCore && !!document.getElementById('s-new') && !document.getElementById('view-start').classList.contains('display-none')`, 30000, 'startsidan efter omstart');
-        expect(/ Flödet du har börjat på finns kvar: 10 steg\.$/.test(await text('s-new-desc')), 'Startsidan efter omstart: ' + await text('s-new-desc'));
-        await ev(`document.getElementById('s-new').click(), 1`);
-        await c.waitFor(LAB, `!!document.querySelector('#p-palette .pal-item') && document.querySelectorAll('#p-steps .step').length === 10`, 30000, 'flödet finns kvar efter omstart');
+        expect(await text('s-resume-desc') === '9 steg, inte påbörjat.', 'Startsidan efter omstart: ' + await text('s-resume-desc'));
+        await click('#s-filters [data-filter="own"]');
+        expect(await ev(`[...document.querySelectorAll('#s-flows .flow-card .card-name')].map(e => e.textContent).join()`) === 'Min mall', 'Den egna mallen står inte på startsidan');
+        await click('#s-filters [data-filter="alla"]');
+        await click('#s-resume');
+        await c.waitFor(LAB, `!!document.querySelector('#p-palette .pal-item') && document.querySelectorAll('#p-steps .step').length === 9`, 30000, 'flödet finns kvar efter omstart');
         await ev(`window.confirm = () => true, 1`);
-        expect((await own()).join() === 'Min mall' && await ev(`document.getElementById('p-quick').classList.contains('display-none')`), 'Efter omstart: ' + await own());
-        // Mallen sparades ur en grupp i en annan app och åt andra hållet. Den följer appen och enheterna som är valda nu.
-        await set('#p-app', 'Telegram');
+        expect((await own()).join() === 'Min mall', 'Efter omstart: ' + await own());
+        // Mallen sparades ur en grupp i en annan app. Den blir en egen grupp, och appen byts i gruppens ruta.
         await click('#p-palette .pal-own .pal-item');
+        await set('#p-detail [data-focus="g-app"]', 'Telegram', 'change');
         g = await groups();
-        expect(shape(g) === '4+6+4' && g[2].title === 'Telegram: Min mall' && /^L11 W+: Skriv L11 till iPhone och skicka\.$/.test(g[2].steps[0]) && /^L12 iPhone: Lås upp, öppna Telegram och chatten med W+,/.test(g[2].steps[1]), 'Den egna mallen i flödet: ' + shape(g) + ' | ' + (g[2] || { steps: [] }).title + ' | ' + (g[2] || { steps: [] }).steps.slice(0, 2).join(' | '));
+        expect(shape(g) === '4+5+4' && g[2].title === 'Telegram: Min mall' && /öppna Telegram och chatten med/.test(g[2].steps[1]), 'Den egna mallen i flödet: ' + shape(g) + ' | ' + (g[2] || { steps: [] }).title + ' | ' + (g[2] || { steps: [] }).steps.slice(0, 2).join(' | '));
 
         // Mallarna som fil: sparas, tas bort ur listan och kommer tillbaka när filen öppnas.
+        await click('#p-more');
+        expect(await ev(`!document.getElementById('p-menu').classList.contains('display-none')`), 'Menyn Mer öppnas inte');
         await click('#p-save-templates');
+        expect(await ev(`document.getElementById('p-menu').classList.contains('display-none')`), 'Menyn Mer står kvar');
         const stored = JSON.parse(await download(downloads, /^laboration-mallar-\d{4}-\d\d-\d\d.*\.json$/));
         expect(stored.format === 'forensics-toolbox-laboration-mallar' && stored.mallar.length === 1 && stored.mallar[0].label === 'Min mall' && stored.mallar[0].steps.length === 4, 'Filen med mallar: ' + JSON.stringify(stored).slice(0, 300));
         const templateFile = path.join(downloads, fs.readdirSync(downloads).find((n) => /^laboration-mallar-.*\.json$/.test(n)));
@@ -2522,23 +2605,25 @@ const scenarios = [
         expect((await own()).join() === 'Min mall', 'Mallen ur filen: ' + await own());
         await c.setFiles(LAB, '#p-file', [templateFile]);
         await c.waitFor(LAB, `document.getElementById('p-status').textContent === 'Mallarna i filen fanns redan under Mina mallar.'`, 10000, 'samma mallar öppnas en gång till');
-        expect((await own()).length === 1 && shape(await groups()) === '4+6+4', 'En fil med mallar ändrade flödet eller gav en dubblett');
+        expect((await own()).length === 1 && shape(await groups()) === '4+5+4', 'En fil med mallar ändrade flödet eller gav en dubblett');
         fs.rmSync(templateFile);
 
-        // Under ett genomförande är flödet låst: inga plus, inga drag och inga byggstenar.
+        // Under ett genomförande är flödet låst: inga grepp, inga byggstenar och inga fält att ändra.
         await click('#p-start');
         await ev(`document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })), 1`);
         await click('#tab-plan');
-        const locked = await ev(`({ plus: document.querySelectorAll('#p-steps .slot-add').length, drag: document.querySelectorAll('#p-steps [draggable="true"], #p-palette [draggable="true"]').length, open: document.querySelectorAll('#p-palette .pal-item:not([disabled])').length, tools: document.querySelectorAll('#p-steps .step-tools').length, steps: document.querySelectorAll('#p-steps .step').length, note: !document.getElementById('p-locked').classList.contains('display-none') })`);
-        expect(locked.plus === 0 && locked.drag === 0 && locked.open === 0 && locked.tools === 0 && locked.steps === 14 && locked.note, 'Det låsta flödet: ' + JSON.stringify(locked));
+        await pick('L01');
+        const locked = await ev(`({ handles: document.querySelectorAll('#p-steps .handle').length, open: document.querySelectorAll('#p-palette .pal-item:not([disabled])').length, fields: document.querySelectorAll('#p-detail input:not([disabled]):not(.tpl-name), #p-detail select:not([disabled]), #p-detail textarea:not([disabled])').length,
+            actions: document.querySelectorAll('#p-detail .detail-actions').length, steps: document.querySelectorAll('#p-steps .step').length, note: !document.getElementById('p-locked').classList.contains('display-none') })`);
+        expect(locked.handles === 0 && locked.open === 0 && locked.fields === 0 && locked.actions === 0 && locked.steps === 13 && locked.note, 'Det låsta flödet: ' + JSON.stringify(locked));
 
         await sleep(200);
         await noInjectedScript(c);
-        await ev(`document.getElementById('p-reset').click(), 1`);
+        await ev(`document.getElementById('p-reset').click(), localStorage.removeItem('ft-laboration-senaste'), 1`);
         await dropOwn();
         expect(await count('#p-steps .step') === 0 && (await own()).length === 0, 'Städningen efter provet');
         await c.nav('Härkomst');
-        return '3 drag, ångra, kontroll, egen mall kvar efter omstart, mallar som fil, långa namn i smalt fönster';
+        return '3 drag med pekaren, ångra, kontroll, tangenter, egen mall kvar efter omstart, mallar som fil, långa namn i smalt fönster';
     }],
 
     ['Laboration: en genomförd laboration läses in, stegens spår hittas i extraktionen med QR-koden ur bilden, valen räknar om tabellen och källan öppnas i Queries', async ({ c, downloads }) => {
@@ -2652,7 +2737,7 @@ const scenarios = [
         expect((await table()).length === 7, 'Tabellen stod inte kvar efter besöket i Queries');
         await noInjectedScript(c);
         await ev(`document.getElementById('nav-start').click(), 1`);
-        expect(await ev(`!document.getElementById('view-start').classList.contains('display-none') && !/finns redan här/.test(document.getElementById('s-read-desc').textContent)`), 'Den öppnade loggen blev verktygets egen');
+        expect(await ev(`!document.getElementById('view-start').classList.contains('display-none') && !/^(Pågår|Klar): /.test(document.getElementById('s-resume-title').textContent)`), 'Den öppnade loggen blev verktygets egen');
         fs.rmSync(dir, { recursive: true, force: true });
         await c.nav('Härkomst');
         return '7 steg: 3 säkra med QR-koden ur bilden, val, söktid, märken, CSV och källan i Queries';

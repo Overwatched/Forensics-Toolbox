@@ -1,5 +1,17 @@
 Automatiskt byggd från commit `{{SHA}}`.
 
+## Nytt i 1.74
+
+**Laboration är enklare: en startsida med färdiga flöden, en byggare med dra och släpp, och laborationen avslutas av sig själv.**
+
+- **Startsidan:** sök bland åtta färdiga flöden, dina egna mallar och de senaste, eller börja med ett tomt flöde eller med guiden Bygg från delar (enheter, appar och delar). Ett flöde visas i en förhandsvisning innan det används. Överst står Analysera utförd laboration, med en kort text om vad den gör.
+- **Byggaren** har tre delar: byggstenarna till vänster, flödet i mitten och det valda steget eller gruppen till höger. Steg och grupper dras med greppet, med mus, penna eller finger. Ctrl+Z ångrar, Alt+↑/↓ flyttar och Delete tar bort.
+- **Start** står på samma plats i alla vyer. Medan en laboration pågår står flikarna och dess namn kvar överallt, och startsidan har Fortsätt laborationen överst.
+- **Anteckningar** hamnar på raden för steget du är på, eller det du väljer. En anteckning om något utöver flödet står på en egen rad som förut.
+- **Efter det sista steget** visas tabellen direkt, med ett fel tryck att ångra. Över tabellen står det som är kvar i ordning: spara loggen, lägg tabellen i protokollet och analysera mot extraktionerna.
+- **Analysen** säger att en extraktion räcker. Steg på en enhet utan extraktion står som ingen extraktion.
+- **Provat:** enhetstesterna och röktestet i appen, med dra och släpp med pekaren, flikarna tillbaka till en pågående laboration och det sista steget.
+
 ## Nytt i 1.73
 
 **Härkomst och Queries läser telefonens notiser: usagestats på Android och Biome på iOS. Biome ger också appen i förgrunden när knowledgeC saknar den.**
