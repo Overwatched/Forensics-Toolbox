@@ -1,7 +1,7 @@
 {
   "id": "samsung-android",
   "title": "Samsung (Android)",
-  "sourceNote": "Samsungs egna textfiler. Filen tolkas som i Härkomst och raderna läggs i en tabell i minnet; filen i extraktionen ändras inte. Formatet är inte beskrivet av Samsung, utan kontrollerat mot en telefon (SM-A336B). Rubins databaser är SQLite, krypterade med SQLCipher; de dekrypteras i minnet och ändras inte.",
+  "sourceNote": "Samsungs egna filer och databaser. Textfilerna tolkas som i Härkomst och raderna läggs i en tabell i minnet; filerna i extraktionen ändras inte. Formatet är inte beskrivet av Samsung, utan kontrollerat mot en telefon (SM-A336B). Rubins databaser är SQLite, krypterade med SQLCipher; de dekrypteras i minnet och ändras inte.",
   "paramLabels": {},
   "databases": [
     {
@@ -237,6 +237,97 @@
           "subtitle": "Visar tabellerna i databasen. Använd den om en query ger fel om en tabell som saknas: Rubins tabeller skiljer mellan versioner.",
           "returns": "tabell",
           "sql": "SELECT name AS tabell FROM sqlite_master WHERE type = 'table' ORDER BY name;"
+        }
+      ]
+    },
+    {
+      "id": "samsung-trash",
+      "label": "Papperskorgen: trash.db (Samsung)",
+      "blurb": "Samsungs gemensamma papperskorg för Galleriet och Mina filer: filen som ligger i papperskorgen, var den låg, när den raderades och rensas, och appen som raderade den. När en fil återställs eller rensas försvinner raden, men räknaren för id står kvar.",
+      "dbPathHint": "/data/data/com.samsung.android.providers.trash/databases/trash.db (+ -wal). Loggen app_logs/SecTrashProvider_Log.0.log i samma mapp.",
+      "paths": [
+        "data/data/com.samsung.android.providers.trash/databases/trash.db"
+      ],
+      "source": "Schemat kontrollerat mot Samsung A33 (Android 16, 2026-11-11). Tabellerna var tomma i alla extraktioner vi har, så kolumnernas innebörd och tidsenheten (sekunder eller millisekunder, räknas efter storleken) är inte kontrollerade mot raderade filer.",
+      "queries": [
+        {
+          "id": "trash-items",
+          "title": "Filerna i papperskorgen",
+          "recommended": true,
+          "subtitle": "En rad per fil i papperskorgen: namnet, var den låg, när den raderades och rensas, appen som raderade den och användaren.",
+          "returns": "namn, låg i, typ, storlek, raderad, rensas, raderad av, ägare, tagen, användare, i molnet, summa, media-id, fil i papperskorgen",
+          "sql": "-- original_path är var filen låg innan den raderades, _data var den ligger nu (en dold mapp för papperskorgen).\n-- user_id är användaren: 0 är telefonens ägare, 150 Secure Folder.\nSELECT\n  _display_name AS namn,\n  original_path AS lag_i,\n  mime_type AS typ,\n  _size AS storlek,\n  CASE WHEN date_deleted IS NULL OR date_deleted = 0 THEN NULL ELSE datetime(CASE WHEN date_deleted > 100000000000 THEN date_deleted / 1000 ELSE date_deleted END, 'unixepoch', 'localtime') END AS raderad,\n  CASE WHEN date_expires IS NULL OR date_expires = 0 THEN NULL ELSE datetime(CASE WHEN date_expires > 100000000000 THEN date_expires / 1000 ELSE date_expires END, 'unixepoch', 'localtime') END AS rensas,\n  delete_package_name AS raderad_av,\n  owner_package_name AS agare,\n  CASE WHEN datetaken IS NULL OR datetaken = 0 THEN NULL ELSE datetime(CASE WHEN datetaken > 100000000000 THEN datetaken / 1000 ELSE datetaken END, 'unixepoch', 'localtime') END AS tagen,\n  user_id AS anvandare,\n  is_cloud AS i_molnet,\n  original_file_hash AS summa,\n  media_id,\n  _data AS fil_i_papperskorgen\nFROM trashes\nORDER BY date_deleted DESC;"
+        },
+        {
+          "id": "trash-count",
+          "title": "Hur många som någonsin lagts i papperskorgen",
+          "subtitle": "Räknaren för id (sqlite_sequence) mot raderna som finns nu. Fler i räknaren betyder att filer har återställts eller rensats, även när papperskorgen är tom.",
+          "returns": "lagda totalt, kvar nu, återställda eller rensade",
+          "sql": "-- Räknaren står kvar när raderna tas bort. Den nollställs om appens data rensas.\nSELECT\n  COALESCE((SELECT seq FROM sqlite_sequence WHERE name = 'trashes'), 0) AS lagda_totalt,\n  (SELECT COUNT(*) FROM trashes) AS kvar_nu,\n  COALESCE((SELECT seq FROM sqlite_sequence WHERE name = 'trashes'), 0) - (SELECT COUNT(*) FROM trashes) AS aterstallda_eller_rensade;"
+        },
+        {
+          "id": "trash-by-app",
+          "title": "Raderat per app och användare",
+          "subtitle": "Antalet filer i papperskorgen per app som raderade dem och per användare, med den första och senaste raderingen.",
+          "returns": "raderad av, användare, antal, första, senaste",
+          "sql": "SELECT delete_package_name AS raderad_av, user_id AS anvandare, COUNT(*) AS antal,\n  CASE WHEN MIN(date_deleted) IS NULL OR MIN(date_deleted) = 0 THEN NULL ELSE datetime(CASE WHEN MIN(date_deleted) > 100000000000 THEN MIN(date_deleted) / 1000 ELSE MIN(date_deleted) END, 'unixepoch', 'localtime') END AS forsta, CASE WHEN MAX(date_deleted) IS NULL OR MAX(date_deleted) = 0 THEN NULL ELSE datetime(CASE WHEN MAX(date_deleted) > 100000000000 THEN MAX(date_deleted) / 1000 ELSE MAX(date_deleted) END, 'unixepoch', 'localtime') END AS senaste\nFROM trashes\nGROUP BY delete_package_name, user_id\nORDER BY antal DESC;"
+        },
+        {
+          "id": "trash-tables",
+          "title": "Hjälp: lista tabellerna",
+          "group": "advanced",
+          "subtitle": "Tabellerna i databasen och antalet rader i var och en.",
+          "returns": "tabell, rader",
+          "sql": "SELECT 'trashes' AS tabell, COUNT(*) AS rader FROM trashes\nUNION ALL SELECT 'local_metadata', COUNT(*) FROM local_metadata;"
+        }
+      ]
+    },
+    {
+      "id": "samsung-gallery-local",
+      "label": "Galleriet: local.db (Samsung)",
+      "blurb": "Samsungs Galleri: egen papperskorg, återställda filer, en historik över åtgärder och en logg där kategori 2 är raderingar (högst 500 rader sparas).",
+      "dbPathHint": "/data/data/com.sec.android.gallery3d/databases/local.db (+ -wal)",
+      "paths": [
+        "data/data/com.sec.android.gallery3d/databases/local.db"
+      ],
+      "source": "Schemat kontrollerat mot Samsung A33 (Android 16, 2026-11-11). Tabellerna var tomma i alla extraktioner vi har, så kolumnernas innebörd och tidsenheten (sekunder eller millisekunder, räknas efter storleken) är inte kontrollerade mot raderade filer. Loggens kategorier är tolkade efter namnen på databasens triggers (decoding, delete, version, mde, generic, ppp).",
+      "queries": [
+        {
+          "id": "gallery-delete-log",
+          "title": "Raderingsloggen",
+          "recommended": true,
+          "subtitle": "Galleriets loggrader i kategori 2 (radering), med tiden som Galleriet skrev den och raden som den står.",
+          "returns": "id, tid, rad, hash, lagring",
+          "sql": "-- __timestamp är telefonens lokala tid som text. Galleriet sparar de 500 senaste raderna i kategorin.\nSELECT _id AS id, __timestamp AS tid, __log AS rad, hash, volume AS lagring\nFROM log\nWHERE __category = 2\nORDER BY _id;"
+        },
+        {
+          "id": "gallery-trash",
+          "title": "Galleriets papperskorg",
+          "subtitle": "Filerna i Galleriets papperskorg: var de låg, när de raderades och hur länge de sparas.",
+          "returns": "namn, låg i, fil i papperskorgen, typ, raderad, sparas (dagar), i molnet, lagring",
+          "sql": "SELECT\n  __Title AS namn,\n  __originPath AS lag_i,\n  __absPath AS fil_i_papperskorgen,\n  CASE __mediaType WHEN 1 THEN 'bild' WHEN 3 THEN 'video' ELSE __mediaType END AS typ,\n  CASE WHEN __deleteTime IS NULL OR __deleteTime = 0 THEN NULL ELSE datetime(CASE WHEN __deleteTime > 100000000000 THEN __deleteTime / 1000 ELSE __deleteTime END, 'unixepoch', 'localtime') END AS raderad,\n  __expiredPeriod AS sparas,\n  __cloudServerId AS i_molnet,\n  __volumeName AS lagring\nFROM trash\nORDER BY __deleteTime DESC;"
+        },
+        {
+          "id": "gallery-log",
+          "title": "Hela loggen med kategorier",
+          "subtitle": "Alla Galleriets loggrader, med kategorin i ord.",
+          "returns": "id, kategori, kategori i ord, tid, rad",
+          "sql": "SELECT _id AS id, __category AS kategori,\n  CASE __category WHEN 1 THEN 'avkodning' WHEN 2 THEN 'radering' WHEN 3 THEN 'version' WHEN 4 THEN 'delning (mde)' WHEN 5 THEN 'allmänt' WHEN 9 THEN 'efterbehandling (ppp)' ELSE NULL END AS kategori_i_ord,\n  __timestamp AS tid, __log AS rad\nFROM log\nORDER BY __timestamp, _id;"
+        },
+        {
+          "id": "gallery-operations",
+          "title": "Åtgärder och återställda filer",
+          "subtitle": "operation_history (åtgärder med media-id) och recover (filer som återställts), i en lista.",
+          "returns": "tabell, tid, åtgärd, media-id eller sökväg, rad",
+          "sql": "SELECT 'operation_history' AS tabell, timestamp AS tid, action AS atgard, media_id AS media, __log AS rad FROM operation_history\nUNION ALL\nSELECT 'recover', CASE WHEN __timestamp IS NULL OR __timestamp = 0 THEN NULL ELSE datetime(CASE WHEN __timestamp > 100000000000 THEN __timestamp / 1000 ELSE __timestamp END, 'unixepoch', 'localtime') END, __recoverType, __absPath, extra FROM recover\nORDER BY 2;"
+        },
+        {
+          "id": "gallery-tables",
+          "title": "Hjälp: lista tabellerna",
+          "group": "advanced",
+          "subtitle": "Raderna i tabellerna som säger något om raderingar.",
+          "returns": "tabell, rader",
+          "sql": "SELECT 'log' AS tabell, COUNT(*) AS rader FROM log\nUNION ALL SELECT 'trash', COUNT(*) FROM trash\nUNION ALL SELECT 'recover', COUNT(*) FROM recover\nUNION ALL SELECT 'operation_history', COUNT(*) FROM operation_history;"
         }
       ]
     }

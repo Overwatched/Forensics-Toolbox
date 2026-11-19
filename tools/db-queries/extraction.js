@@ -58,13 +58,18 @@
         return 'annan plats än den vanliga';
     }
 
+    // En annan användare än telefonens ägare. På Samsung är 150 Secure Folder och 95 Dual Messenger.
+    function userNote(user) {
+        return 'användare ' + user + (user >= 150 && user <= 160 ? ' (Secure Folder på Samsung)' : user === 95 ? ' (Dual Messenger på Samsung)' : '');
+    }
+
     // Etiketten för en träff: katalogens namn, plus var den ligger om det inte är den vanliga platsen.
     function describe(f) {
         var target = targets().find(function (x) { return x.key === f.key; });
         var pick = ExtractionCore.dbForVersion(target, current.version);
         var notes = [];
         if (!f.primary) notes.push(placeNote(f.db.name));
-        if (f.user) notes.push('användare ' + f.user);
+        if (f.user) notes.push(userNote(f.user));
         if (pick.guessed) notes.push('iOS-versionen hittades inte, kontrollera versionen');
         return { db: pick.db, label: pick.db.label, notes: notes, guessed: pick.guessed };
     }
@@ -210,7 +215,7 @@
         }
         var notes = [];
         if (!f.primary) notes.push(escapeHtml(placeNote(f.db.name)));
-        if (f.user) notes.push('användare ' + escapeHtml(f.user));
+        if (f.user) notes.push(escapeHtml(userNote(f.user)));
         if (describe(f).guessed && !current.override) notes.push('<span class="run-warn">iOS-versionen står inte i extraktionen: välj den till vänster</span>');
         if (f.journal && f.journal.size) notes.push('<span class="run-warn">-journal finns: databasen kan vara mitt i en transaktion</span>');
         $('ex-notes').innerHTML = notes.join(' · ');

@@ -164,6 +164,36 @@ window.SYSTEM_LOGS_CATALOG = {
           "sql": "SELECT\n  datetime(unix_ms / 1000, 'unixepoch', 'localtime') AS tid_lokal,\n  in_i_forgrunden,\n  app,\n  skal,\n  sort,\n  version,\n  tid_utc,\n  fil,\n  position,\n  summa_ok\nFROM forgrund\nWHERE unix_ms BETWEEN {{unixMsStart}} AND {{unixMsEnd}}\nORDER BY unix_ms;"
         }
       ]
+    },
+    {
+      "id": "android-users",
+      "os": "Android",
+      "label": "Telefonens användare: Secure Folder och profiler",
+      "convert": "android-users",
+      "folder": true,
+      "blurb": "Användarna på telefonen ur data/system/users/: telefonens ägare (0), Secure Folder (150 på Samsung), Dual Messenger (95) och andra profiler, med när de skapades och senast användes, och användare som tagits bort.",
+      "dbPathHint": "/data/system/users/ (userlist.xml, <id>.xml och på Samsung persona_cache.xml)",
+      "paths": [
+        "data/system/users/"
+      ],
+      "source": "userlist.xml och <id>.xml (Androids binära XML, ABX, eller text) och Samsungs persona_cache.xml. Kontrollerat mot Samsung A33 (Android 16) med bara användare 0. Secure Folder (150) och Dual Messenger (95) är inte kontrollerade i ett labb.",
+      "queries": [
+        {
+          "id": "users-all",
+          "title": "Användarna på telefonen",
+          "recommended": true,
+          "subtitle": "En rad per användare: id, slaget i ord, när den skapades, senast loggades in och senast var framme. Secure Folder är användare 150 på Samsung.",
+          "returns": "id, slag, typ, namn, skapad (UTC), senast inloggad (UTC), senast framme (UTC), serienummer, flaggor, fil",
+          "sql": "SELECT anvandar_id AS id, slag, typ, namn, skapad_utc, senast_inloggad_utc, senast_framme_utc, serienummer, flaggor, fil\nFROM anvandare\nWHERE rad = 'användare'\nORDER BY anvandar_id;"
+        },
+        {
+          "id": "users-history",
+          "title": "Skapade och borttagna användare",
+          "subtitle": "Nästa serienummer i userlist.xml (över 10 betyder att användare har skapats, också sådana som tagits bort) och Samsungs anteckningar om borttagna användare i persona_cache.xml (fallbackToSingleUserLP är en återställning till bara ägaren, ofta från fabriken).",
+          "returns": "rad, id, tid, text, fil",
+          "sql": "SELECT rad, anvandar_id AS id, tid, text, fil\nFROM anvandare\nWHERE rad <> 'användare'\nORDER BY rad, tid;"
+        }
+      ]
     }
   ]
 };

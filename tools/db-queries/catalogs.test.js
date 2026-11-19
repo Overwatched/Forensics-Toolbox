@@ -497,10 +497,11 @@ test('PowerLog: queryerna körs, tiden rättas med förskjutningen som gällde, 
 
 test('Samsung: eRR.p läses in som tabellen err, och varje query körs mot påhittade rader', async () => {
     const textLogs = require('./text-logs');
-    assert.deepStrictEqual(samsungAndroid.databases.map((d) => [d.id, d.convert || d.cipher]), [['samsung-err-p', 'err-p'], ['samsung-rubin-logging', 'rubin-logging'], ['samsung-rubin-monitoring', 'rubin-monitoring']]);
+    assert.deepStrictEqual(samsungAndroid.databases.map((d) => [d.id, d.convert || d.cipher || 'sqlite']), [['samsung-err-p', 'err-p'], ['samsung-rubin-logging', 'rubin-logging'],
+        ['samsung-rubin-monitoring', 'rubin-monitoring'], ['samsung-trash', 'sqlite'], ['samsung-gallery-local', 'sqlite']]);
     for (const db of samsungAndroid.databases) {
         if (db.convert) assert.ok(textLogs.known(db.convert), db.id + ': okänd tolkning ' + db.convert);
-        else assert.ok(require('./sqlcipher').PROFILES[db.cipher], db.id + ': okänd SQLCipher-profil ' + db.cipher);
+        else if (db.cipher) assert.ok(require('./sqlcipher').PROFILES[db.cipher], db.id + ': okänd SQLCipher-profil ' + db.cipher);
         assert.strictEqual(db.queries.filter((q) => q.recommended).length, 1, db.id + ': en rekommenderad');
         for (const q of db.queries) {
             if (q.hidden) { assert.strictEqual(q.epoch, 'unixMs', db.id + '/' + q.id + ': epoch'); assert.ok(q.fields, db.id + '/' + q.id + ': fields'); continue; }
@@ -542,13 +543,118 @@ test('Samsung: eRR.p läses in som tabellen err, och varje query körs mot påhi
     assert.throws(() => textLogs.toSqlite(S, 'okänd', bytes, 'x'), /Okänd textfil/);
 });
 
+// ---------- Samsungs papperskorg och Galleriet ----------
+
+// Schemana som de står i en Samsung A33 (Android 16). Tabellerna var tomma där, så raderna här är påhittade.
+const SAMSUNG_TRASH_SCHEMA = [
+    "CREATE TABLE `trashes` (`_data` TEXT NOT NULL, `original_path` TEXT NOT NULL, `_id` INTEGER PRIMARY KEY AUTOINCREMENT, `media_id` INTEGER, `sec_media_id` INTEGER, `is_cloud` INTEGER, `parent` INTEGER NOT NULL, `volume_name` TEXT, `title` TEXT, `title_hash` TEXT, `_display_name` TEXT, `_size` INTEGER, `mime_type` TEXT, `media_type` INTEGER NOT NULL, `datetaken` INTEGER, `date_expires` INTEGER NOT NULL, `date_deleted` INTEGER NOT NULL, `generation_modified` INTEGER, `owner_package_name` TEXT, `width` INTEGER, `height` INTEGER, `duration` INTEGER, `orientation_tag` INTEGER, `orientation` INTEGER, `recordingtype` INTEGER, `is_drm` INTEGER, `device_unique_id` TEXT, `user_id` INTEGER, `delete_package_name` TEXT, `cloud_server_id` TEXT, `extra` TEXT, original_file_hash TEXT)",
+    'CREATE TABLE `local_metadata` (`media_id` INTEGER NOT NULL, `generation_modified` INTEGER NOT NULL, PRIMARY KEY(`media_id`))',
+];
+const SAMSUNG_GALLERY_SCHEMA = [
+    'CREATE TABLE log (_id INTEGER PRIMARY KEY AUTOINCREMENT, __category INTEGER NOT NULL, __timestamp TEXT, hash TEXT, volume TEXT, __log TEXT)',
+    'CREATE TABLE trash (__absPath TEXT UNIQUE NOT NULL, __Title TEXT, __absID INTEGER, __mediaType INTEGER, __width INTEGER, __height INTEGER, __orientation INTEGER, __originPath TEXT, __originTitle TEXT, __deleteTime INTEGER, __storageType INTEGER, __burstGroupID INTEGER, __bestImage INTEGER, __cloudServerId TEXT, __cloudTP TEXT, __restoreExtra TEXT, __volumeName TEXT, __volumeValid INTEGER, __expiredPeriod INTEGER, __database_version INTEGER, __cloudOriginalBinaryHash  TEXT, __cloudOriginalBinarySize  INTEGER  DEFAULT 0, __orientationTag  INTEGER)',
+    'CREATE TABLE operation_history (_id INTEGER PRIMARY KEY AUTOINCREMENT, timestamp TEXT ,action TEXT ,media_id TEXT ,__log TEXT)',
+    'CREATE TABLE recover (_id INTEGER PRIMARY KEY AUTOINCREMENT, __absPath TEXT UNIQUE NOT NULL, __recoverType INTEGER DEFAULT 0, __recoverDirty INTEGER DEFAULT 0, __timestamp INTEGER, extra TEXT)',
+];
+
+test('Samsung: papperskorgen och Galleriets logg, varje query körs mot påhittade rader i telefonens schema', async () => {
+    const S = await sqlJs();
+    const dbOf = (id) => samsungAndroid.databases.find((d) => d.id === id);
+    const run = (db, cat, id) => { const r = db.exec(cat.queries.find((q) => q.id === id).sql); return r.length ? r[0] : { columns: [], values: [] }; };
+    const T = Date.UTC(2026, 10, 20, 10, 0, 0);
+    const local = (ms) => { const d = new Date(ms); const p = (n) => String(n).padStart(2, '0'); return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) + ' ' + p(d.getHours()) + ':' + p(d.getMinutes()) + ':' + p(d.getSeconds()); };
+
+    // trash.db: tre filer har lagts i papperskorgen, en finns kvar. date_deleted i millisekunder, date_expires i sekunder.
+    const trash = new S.Database();
+    try {
+        SAMSUNG_TRASH_SCHEMA.forEach((q) => trash.run(q));
+        const row = (id, name, deleted) => trash.run('INSERT INTO trashes (_id, _data, original_path, parent, media_type, _display_name, mime_type, _size, date_deleted, date_expires, datetaken, delete_package_name, owner_package_name, user_id, is_cloud, media_id) VALUES (?, ?, ?, 0, 1, ?, ?, 900, ?, ?, ?, ?, ?, 0, 0, ?)',
+            [id, '/storage/emulated/0/Android/.Trash/com.sec.android.gallery3d/' + name, '/storage/emulated/0/DCIM/Camera/' + name, name, 'image/jpeg', deleted, Math.round(deleted / 1000) + 30 * 86400, T - 3600000, 'com.sec.android.gallery3d', 'com.sec.android.app.camera', 40 + id]);
+        row(1, 'a.jpg', T); row(2, 'b.jpg', T + 60000); row(3, 'c.jpg', T + 120000);
+        trash.run('DELETE FROM trashes WHERE _id IN (1, 2)');
+        const cat = dbOf('samsung-trash');
+        const items = run(trash, cat, 'trash-items');
+        assert.deepStrictEqual(items.values.map((r) => [r[0], r[1], r[4], r[5], r[6], r[9]]),
+            [['c.jpg', '/storage/emulated/0/DCIM/Camera/c.jpg', local(T + 120000), local(Math.round((T + 120000) / 1000) * 1000 + 30 * 86400000), 'com.sec.android.gallery3d', 0]]);
+        assert.deepStrictEqual(run(trash, cat, 'trash-count').values, [[3, 1, 2]], 'tre lagda, en kvar');
+        assert.deepStrictEqual(run(trash, cat, 'trash-by-app').values.map((r) => r.slice(0, 3)), [['com.sec.android.gallery3d', 0, 1]]);
+        assert.deepStrictEqual(run(trash, cat, 'trash-tables').values, [['trashes', 1], ['local_metadata', 0]]);
+    } finally {
+        trash.close();
+    }
+
+    // local.db: raderingsloggen (kategori 2), en annan kategori, papperskorgen och en återställd fil.
+    const gal = new S.Database();
+    try {
+        SAMSUNG_GALLERY_SCHEMA.forEach((q) => gal.run(q));
+        gal.run("INSERT INTO log (__category, __timestamp, __log) VALUES (5, '2026-11-20 11:00:00.000', 'Upgrade'), (2, '2026-11-20 11:01:00.000', '[MOVE_TO_TRASH][1][/storage/emulated/0/DCIM/Camera/c.jpg]')");
+        gal.run('INSERT INTO trash (__absPath, __Title, __mediaType, __originPath, __deleteTime, __expiredPeriod) VALUES (?, ?, 1, ?, ?, 30)', ['/x/.Trash/c.jpg', 'c.jpg', '/storage/emulated/0/DCIM/Camera/c.jpg', T + 120000]);
+        gal.run('INSERT INTO recover (__absPath, __recoverType, __timestamp) VALUES (?, 1, ?)', ['/storage/emulated/0/DCIM/Camera/a.jpg', T + 600000]);
+        const cat = dbOf('samsung-gallery-local');
+        assert.deepStrictEqual(run(gal, cat, 'gallery-delete-log').values.map((r) => [r[1], r[2]]), [['2026-11-20 11:01:00.000', '[MOVE_TO_TRASH][1][/storage/emulated/0/DCIM/Camera/c.jpg]']]);
+        assert.deepStrictEqual(run(gal, cat, 'gallery-trash').values.map((r) => [r[0], r[1], r[3], r[4], r[5]]), [['c.jpg', '/storage/emulated/0/DCIM/Camera/c.jpg', 'bild', local(T + 120000), 30]]);
+        assert.deepStrictEqual(run(gal, cat, 'gallery-log').values.map((r) => r[2]), ['allmänt', 'radering']);
+        assert.deepStrictEqual(run(gal, cat, 'gallery-operations').values.map((r) => [r[0], r[1], r[3]]), [['recover', local(T + 600000), '/storage/emulated/0/DCIM/Camera/a.jpg']]);
+        assert.deepStrictEqual(run(gal, cat, 'gallery-tables').values, [['log', 2], ['trash', 1], ['recover', 1], ['operation_history', 0]]);
+    } finally {
+        gal.close();
+    }
+});
+
+// Androids binära XML med element och attribut som strängar: [namn, { attribut }, [barn]].
+function abxDoc(root) {
+    const out = [0x41, 0x42, 0x58, 0x00, 0x00];
+    const strs = [];
+    const u16 = (n) => { out.push((n >> 8) & 0xff, n & 0xff); };
+    const intern = (s) => { const i = strs.indexOf(s); if (i >= 0) { u16(i); return; } strs.push(s); u16(0xffff); const b = Buffer.from(s, 'utf8'); u16(b.length); out.push(...b); };
+    const utf = (s) => { const b = Buffer.from(String(s), 'utf8'); u16(b.length); out.push(...b); };
+    (function el([name, attrs, kids]) {
+        out.push(0x32); intern(name);
+        for (const [k, v] of Object.entries(attrs || {})) { out.push(0x2f); intern(k); utf(v); }
+        (kids || []).forEach(el);
+        out.push(0x33); intern(name);
+    })(root);
+    out.push(0x01);
+    return new Uint8Array(out);
+}
+
+test('Telefonens användare: userlist.xml och <id>.xml som ABX, persona_cache.xml som text, och Secure Folder känns igen', async () => {
+    const textLogs = require('./text-logs');
+    const S = await sqlJs();
+    const dir = 'Dump/data/system/users/';
+    const T = Date.UTC(2026, 10, 20, 9, 0, 0);
+    const files = [
+        { name: dir + 'userlist.xml', bytes: abxDoc(['users', { nextSerialNumber: '12', version: '11' }, [['user', { id: '0' }], ['user', { id: '150' }]]]) },
+        { name: dir + '0.xml', bytes: abxDoc(['user', { id: '0', serialNumber: '0', flags: '19475', type: 'android.os.usertype.full.SYSTEM', created: '0', lastLoggedIn: String(T) }]) },
+        { name: dir + '150.xml', bytes: abxDoc(['user', { id: '150', serialNumber: '11', flags: '1104', type: 'android.os.usertype.profile.MANAGED', created: String(T - 3600000), lastEnteredForeground: String(T - 60000) }]) },
+        { name: dir + 'persona_cache.xml', bytes: new Uint8Array(Buffer.from('<?xml version="1.0"?>\n<personacache>\n<cache USER-REMOVED="====================&#10;2026.11.19.10.15.00&#10;removeUser userId 10&#10;stack" />\n</personacache>\n')) },
+        { name: dir + '0/settings_global.xml', bytes: new Uint8Array([1, 2, 3]) },
+    ];
+    const conv = textLogs.toSqlite(S, 'android-users', files, 'users/');
+    assert.strictEqual(conv.line, 'users/: 2 användare, bland dem Secure Folder, 2 skapade enligt serienumret lästes in i tabellen anvandare i minnet. Filerna ändrades inte.');
+    const db = new S.Database(conv.bytes);
+    try {
+        const cat = systemLogs.databases.find((d) => d.id === 'android-users');
+        const run = (id) => db.exec(cat.queries.find((q) => q.id === id).sql)[0];
+        assert.deepStrictEqual(run('users-all').values.map((r) => [r[0], r[1], r[4], r[5], r[6]]), [
+            [0, 'telefonens ägare', null, '2026-11-20 09:00:00', null],
+            [150, 'Secure Folder (Samsung)', '2026-11-20 08:00:00', null, '2026-11-20 08:59:00']]);
+        assert.deepStrictEqual(run('users-history').values.map((r) => [r[0], r[1], r[2]]), [
+            ['borttagen enligt persona_cache', 10, '2026-11-19 10:15:00 (telefonens tid)'], ['nästa serienummer', null, null]]);
+        assert.match(run('users-history').values[1][3], /2 användare har skapats/);
+    } finally {
+        db.close();
+    }
+});
+
 // ---------- Systemloggar i en mapp: usagestats och Biome ----------
 
 test('Systemloggar: usagestats och Biome läses in som tabeller ur mappens filer, och varje query körs', async () => {
     const textLogs = require('./text-logs');
     const B = require('../provenance/biome');
     assert.deepStrictEqual(systemLogs.databases.map((d) => [d.id, d.os, d.convert, d.folder]), [
-        ['android-usagestats', 'Android', 'usagestats', true], ['ios-biome-notifications', 'iOS', 'biome-notification-usage', true], ['ios-biome-app-infocus', 'iOS', 'biome-app-infocus', true]]);
+        ['android-usagestats', 'Android', 'usagestats', true], ['ios-biome-notifications', 'iOS', 'biome-notification-usage', true], ['ios-biome-app-infocus', 'iOS', 'biome-app-infocus', true],
+        ['android-users', 'Android', 'android-users', true]]);
     for (const db of systemLogs.databases) {
         assert.ok(textLogs.known(db.convert), db.id + ': okänd tolkning');
         assert.ok(db.paths.every((p) => /\/$/.test(p)), db.id + ': en mapp slutar med /');

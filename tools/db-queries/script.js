@@ -745,6 +745,7 @@ function buildDatabases(photos, android, appUsage, routined, snapchat, snapchatA
             source: db.source,
             note: samsungAndroid.sourceNote,
             convert: db.convert || null,
+            folder: !!db.folder,
             cipher: db.cipher || null,
             runnable: true,
             queries: visibleQueries(db.queries).map((q) => ({
