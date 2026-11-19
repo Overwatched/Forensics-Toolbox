@@ -108,8 +108,8 @@ själv startar, så ramarna med verktygen laddas inte. Idén kommer från Crypto
   `about:srcdoc`-ramar på namnet). Det som inte är inlagt tas bort ur sidopanelen.
 - Kartvyn räknade ut sin mapp ur `document.currentScript.src`, som saknas för ett inlagt skript; det är tåligt nu.
 - Provet: `npm run test:html -- --standalone` kör röktestet och underkänner allt som hämtas via `file://` utöver sidan
-  (Network-händelser). I CI körs den i Edge, också med `IntranetFileLinksEnabled` på, där den vanliga html-versionen
-  körs bredvid för att visa att policyn biter.
+  (Network-händelser). I CI körs den vid varje push i Edge med `IntranetFileLinksEnabled` på (cirka fyra minuter).
+  Den vanliga html-versionen bredvid, som visar att policyn biter, körs bara med edge = alla (se nedan).
 
 ## Projektstruktur
 
@@ -2191,7 +2191,9 @@ besked. Mätt 2026-11-04 på en Mac med 32 GB och påhittade databaser på 5,3 G
 proxy som inte finns, så att inget når internet. Sedan samma sak utan JIT. CI-jobbet `htmltest` kör det i Edge på Windows
 och därefter med riktiga policyer i registret: `DefaultJavaScriptJitSetting` 2, `EnhanceSecurityMode` 2 och
 `URLBlocklist` `*` med `URLAllowlist` `file://*`. Provet skriver ut vad `edge://policy` säger och hur fort en slinga
-går i JavaScript och WebAssembly. Jobbet stoppar inte releasen, tills det har visat sig stabilt.
+går i JavaScript och WebAssembly. Jobbet stoppar inte releasen. Sedan 2026-11-19 körs allt det bara med "Run workflow"
+och edge = alla (cirka en timme). Vid en push körs bara den fristående filen med `IntranetFileLinksEnabled`, eftersom
+det är den som används på datorer där Edge inte visar html-versionens verktyg.
 
 Mätt 2026-11-04 i Edge 156 på en Windows-maskin i CI, med en slinga på 30 miljoner varv:
 

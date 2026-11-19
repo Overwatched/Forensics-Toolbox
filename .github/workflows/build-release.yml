@@ -21,6 +21,11 @@ on:
         type: choice
         options: [windows, alla]
         default: windows
+      edge:
+        description: 'Edge-proven: kort (den fristående filen med IntranetFileLinksEnabled) eller alla (också html-versionen med JIT blockerad, förstärkt säkerhet och låst Edge, cirka en timme)'
+        type: choice
+        options: [kort, alla]
+        default: kort
 
 permissions:
   contents: write
@@ -89,10 +94,12 @@ jobs:
       - name: Kör röktestet i appen
         run: npm run test:app -- --smoke
 
-  # Html-versionen i Edge på Windows, som den körs utan skrivbordsappen: under file:// och utan internet. Sedan
-  # med riktiga policyer: JIT blockerad, förstärkt säkerhet och en Edge som bara når lokala filer. Provet skriver
-  # ut vad edge://policy säger, och hur fort WebAssembly går. Ett eget jobb som inte stoppar releasen, tills det
-  # har visat sig stabilt i CI. Varje steg körs även om ett före det misslyckades.
+  # Edge på Windows, som html-versionen körs utan skrivbordsappen: under file:// och utan internet. Vid varje push
+  # bara den fristående html-filen med IntranetFileLinksEnabled (cirka fyra minuter), policyn som stoppade
+  # html-versionens verktyg på hanterade datorer. Med "Run workflow" och edge = alla körs också html-versionen utan
+  # policy, med JIT blockerad, med förstärkt säkerhet och i en Edge som bara når lokala filer (cirka en timme).
+  # Provet skriver ut vad edge://policy säger, och hur fort WebAssembly går. Ett eget jobb som inte stoppar releasen.
+  # Varje steg körs även om ett före det misslyckades.
   htmltest:
     runs-on: windows-latest
     steps:
@@ -104,32 +111,33 @@ jobs:
       - name: Installera beroenden
         run: npm ci --ignore-scripts
       - name: Kör html-versionen i Edge
+        if: ${{ github.event.inputs.edge == 'alla' }}
         run: npm run test:html -- --browser edge
       - name: Kör den fristående html-filen i Edge
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && github.event.inputs.edge == 'alla' }}
         run: npm run test:html -- --browser edge --standalone --only-plain
       - name: Blockera JIT med policyn
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && github.event.inputs.edge == 'alla' }}
         shell: pwsh
         run: |
           $edge = 'HKLM:\SOFTWARE\Policies\Microsoft\Edge'
           New-Item -Path $edge -Force | Out-Null
           New-ItemProperty -Path $edge -Name 'DefaultJavaScriptJitSetting' -Value 2 -PropertyType DWord -Force | Out-Null
       - name: Kör html-versionen med JIT blockerad
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && github.event.inputs.edge == 'alla' }}
         run: npm run test:html -- --browser edge --only-plain --show-policy
       - name: Slå på förstärkt säkerhet med policyn
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && github.event.inputs.edge == 'alla' }}
         shell: pwsh
         run: |
           $edge = 'HKLM:\SOFTWARE\Policies\Microsoft\Edge'
           Remove-ItemProperty -Path $edge -Name 'DefaultJavaScriptJitSetting'
           New-ItemProperty -Path $edge -Name 'EnhanceSecurityMode' -Value 2 -PropertyType DWord -Force | Out-Null
       - name: Kör html-versionen med förstärkt säkerhet
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && github.event.inputs.edge == 'alla' }}
         run: npm run test:html -- --browser edge --only-plain --show-policy
       - name: Lås Edge till lokala filer
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && github.event.inputs.edge == 'alla' }}
         shell: pwsh
         run: |
           $edge = 'HKLM:\SOFTWARE\Policies\Microsoft\Edge'
@@ -140,7 +148,7 @@ jobs:
           New-ItemProperty -Path "$edge\URLAllowlist" -Name '1' -Value 'file://*' -PropertyType String -Force | Out-Null
           New-ItemProperty -Path "$edge\URLAllowlist" -Name '2' -Value 'edge://*' -PropertyType String -Force | Out-Null
       - name: Kör html-versionen i den låsta Edge
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && github.event.inputs.edge == 'alla' }}
         run: npm run test:html -- --browser edge --only-plain --expect-blocked --show-policy
       # Edge på en del hanterade datorer: IntranetFileLinksEnabled stoppar file://-navigeringar som sidan startar, så
       # html-versionens verktyg laddas inte. Den fristående filen ska fungera ändå. Den vanliga körs för att visa att
@@ -150,11 +158,12 @@ jobs:
         shell: pwsh
         run: |
           $edge = 'HKLM:\SOFTWARE\Policies\Microsoft\Edge'
+          New-Item -Path $edge -Force | Out-Null
           Remove-Item -Path "$edge\URLBlocklist" -Recurse -Force -ErrorAction SilentlyContinue
           Remove-Item -Path "$edge\URLAllowlist" -Recurse -Force -ErrorAction SilentlyContinue
           New-ItemProperty -Path $edge -Name 'IntranetFileLinksEnabled' -Value 1 -PropertyType DWord -Force | Out-Null
       - name: Den vanliga html-versionen med IntranetFileLinksEnabled (väntas misslyckas)
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && github.event.inputs.edge == 'alla' }}
         continue-on-error: true
         run: npm run test:html -- --browser edge --only-plain --show-policy
       - name: Den fristående html-filen med IntranetFileLinksEnabled
