@@ -499,6 +499,48 @@ function mediaStoreDb(SQL) {
     return out;
 }
 
+// Anteckningar: Apples NoteStore.sqlite (texten gzip-packad protobuf) och Samsung Notes sdoc.db, i telefonernas form.
+// En vanlig med checklista, en låst och en raderad; en titel med HTML visas som text.
+function notePb(text, runs) {
+    const varint = (n) => { const out = []; do { let b = n % 128; n = Math.floor(n / 128); if (n) b |= 128; out.push(b); } while (n); return Buffer.from(out); };
+    const num = (f, v) => Buffer.concat([varint(f * 8), varint(v)]);
+    const bytes = (f, b) => { b = Buffer.isBuffer(b) ? b : Buffer.from(b, 'utf8'); return Buffer.concat([varint(f * 8 + 2), varint(b.length), b]); };
+    const runBufs = (runs || [{ len: text.length }]).map((r) => bytes(5, Buffer.concat([num(1, r.len),
+        r.check !== undefined ? bytes(2, bytes(5, Buffer.concat([bytes(1, Buffer.alloc(16, 1)), num(2, r.check ? 1 : 0)]))) : Buffer.alloc(0)])));
+    return require('node:zlib').gzipSync(Buffer.concat([num(1, 0), bytes(2, Buffer.concat([num(1, 0), num(2, 0), bytes(3, Buffer.concat([bytes(2, text), ...runBufs]))]))]));
+}
+function noteStoreDb(SQL) {
+    const db = new SQL.Database();
+    db.run('CREATE TABLE ZICCLOUDSYNCINGOBJECT (Z_PK INTEGER PRIMARY KEY, Z_ENT INTEGER, ZTITLE1, ZTITLE2, ZSNIPPET, ZFOLDER, ZNOTEDATA, ZISPASSWORDPROTECTED, ZMARKEDFORDELETION, ZISPINNED, ZIDENTIFIER, ZPASSWORDHINT, ZFOLDERTYPE, ZOWNER, ZNAME, ZCREATIONDATE3, ZMODIFICATIONDATE1, ZACCOUNT7)');
+    db.run('CREATE TABLE ZICNOTEDATA (Z_PK INTEGER PRIMARY KEY, Z_ENT INTEGER, ZNOTE INTEGER, ZDATA BLOB)');
+    db.run('CREATE TABLE Z_PRIMARYKEY (Z_ENT INTEGER, Z_NAME TEXT, Z_SUPER INTEGER, Z_MAX INTEGER)');
+    [[12, 'ICNote'], [14, 'ICAccount'], [15, 'ICFolder'], [19, 'ICNoteData']].forEach(([e, n]) => db.run('INSERT INTO Z_PRIMARYKEY VALUES (?, ?, 0, 0)', [e, n]));
+    const c = (sec) => sec - COCOA;
+    db.run("INSERT INTO ZICCLOUDSYNCINGOBJECT (Z_PK, Z_ENT, ZNAME) VALUES (3, 14, 'iCloud')");
+    db.run("INSERT INTO ZICCLOUDSYNCINGOBJECT (Z_PK, Z_ENT, ZTITLE2, ZFOLDERTYPE, ZOWNER) VALUES (1, 15, 'Recently Deleted', 1, 3), (2, 15, 'Notes', 0, 3)");
+    db.run('INSERT INTO ZICCLOUDSYNCINGOBJECT (Z_PK, Z_ENT, ZTITLE1, ZFOLDER, ZNOTEDATA, ZISPINNED, ZCREATIONDATE3, ZMODIFICATIONDATE1, ZIDENTIFIER) VALUES (10, 12, ?, 2, 100, 1, ?, ?, ?)', ['Packlista', c(T2), c(T2 + 600), 'NOTE-10']);
+    db.run('INSERT INTO ZICCLOUDSYNCINGOBJECT (Z_PK, Z_ENT, ZTITLE1, ZFOLDER, ZNOTEDATA, ZISPASSWORDPROTECTED, ZPASSWORDHINT, ZCREATIONDATE3, ZMODIFICATIONDATE1) VALUES (11, 12, ?, 2, 101, 1, ?, ?, ?)', ['Koder', 'hundens namn', c(T2 + 60), c(T2 + 120)]);
+    db.run('INSERT INTO ZICCLOUDSYNCINGOBJECT (Z_PK, Z_ENT, ZTITLE1, ZFOLDER, ZNOTEDATA, ZCREATIONDATE3, ZMODIFICATIONDATE1) VALUES (12, 12, ?, 1, 102, ?, ?)', [XSS, c(T2 - 86400), c(T2 - 3600)]);
+    db.run('INSERT INTO ZICNOTEDATA VALUES (100, 19, 10, ?)', [notePb('Packlista\nPass\nLaddare', [{ len: 10 }, { len: 5, check: true }, { len: 7, check: false }])]);
+    db.run('INSERT INTO ZICNOTEDATA VALUES (101, 19, 11, ?)', [Buffer.from('krypterad')]);
+    db.run('INSERT INTO ZICNOTEDATA VALUES (102, 19, 12, ?)', [notePb(XSS + '\nRaderad text')]);
+    const bytes = db.export();
+    db.close();
+    return Buffer.from(bytes);
+}
+function sdocDb(SQL) {
+    const db = new SQL.Database();
+    db.run("CREATE TABLE sdoc (_id INTEGER PRIMARY KEY, UUID TEXT, title TEXT NOT NULL DEFAULT '', content BLOB, createdAt INTEGER, lastModifiedAt INTEGER, isDeleted INTEGER DEFAULT 0, isLock INTEGER DEFAULT 0, isFavorite INTEGER DEFAULT 0, categoryUUID TEXT, recycle_bin_time_moved INTEGER DEFAULT 0, filePath TEXT, accountName TEXT DEFAULT '')");
+    db.run('CREATE TABLE category_tree (UUID TEXT, parentUUID TEXT, isDeleted INTEGER, createdAt INTEGER, displayName TEXT)');
+    db.run("INSERT INTO category_tree VALUES ('uncategorized:///', '', 0, 1, 'Uncategorized'), ('trash:///', '', 0, 1, 'Trash')");
+    const ms = Date.UTC(2026, 9, 10, 8, 0, 0);
+    db.run("INSERT INTO sdoc (_id, UUID, content, createdAt, lastModifiedAt, categoryUUID, filePath) VALUES (1, 'S-1', ?, ?, ?, 'uncategorized:///', '/data/user/0/com.samsung.android.app.notes/SDocData/1.sdocx')", [Buffer.from('Möte kl 10\nRum 4'), ms, ms + 60000]);
+    db.run("INSERT INTO sdoc (_id, UUID, title, content, createdAt, lastModifiedAt, categoryUUID, recycle_bin_time_moved, filePath) VALUES (2, 'S-2', 'Gammal', ?, ?, ?, 'trash:///', ?, '/f/2.sdocx')", [Buffer.from('Gammal\nSlängd'), ms - 86400000, ms - 86400000, ms + 120000]);
+    const bytes = db.export();
+    db.close();
+    return Buffer.from(bytes);
+}
+
 function samsungEntries(SQL, jpeg) {
     const other = (tag) => Buffer.concat([jpeg, Buffer.from(tag)]);
     const rtc = (localText, utcText) => localText + ' [RTC] 148911.38 37981.19    ' + utcText + ' ' + Date.parse(utcText.replace(' ', 'T') + 'Z') / 1000;
@@ -563,6 +605,7 @@ function samsungEntries(SQL, jpeg) {
     ].join('\n');
     return [
         { name: 'data/data/com.android.providers.media.module/databases/external.db', data: Buffer.from(mediaStoreDb(SQL)), deflate: true },
+        { name: 'data/data/com.samsung.android.app.notes/databases/sdoc.db', data: sdocDb(SQL), deflate: true },
         { name: 'data/system/users/service/data/eRR.p', data: errFile, mtime: Date.UTC(2026, 9, 10, 6, 0, 40) / 1000 },
         { name: 'data/log/batterystats/newbatterystats261020100000', data: october, mtime: Date.UTC(2026, 9, 20, 8, 0, 0) / 1000 },
         { name: 'data/media/0/DCIM/Camera/20261007_100000.jpg', data: other('samsung-off'), mtime: TS_OFF + 1 },
@@ -720,11 +763,12 @@ async function build() {
             '<dict><key>elements</key><array><dict><key>containerBundleIdentifier</key><string>com.apple.weather</string><key>widgetIdentifier</key><string>com.apple.weather</string></dict></array><key>gridSize</key><string>small</string><key>iconType</key><string>custom</string></dict>' +
             '<string>com.apple.mobileslideshow</string><string>net.whatsapp.WhatsApp</string>' +
             '<dict><key>displayName</key><string>Verktyg</string><key>listType</key><string>folder</string><key>iconLists</key><array><array><string>com.apple.calculator</string><string>ph.telegra.Telegraph</string></array></array></dict>' +
-            '</array><array><string>com.apple.Preferences</string><string>org.whispersystems.signal</string><string>com.example.okand</string></array></array>' +
+            '</array><array><string>com.apple.Preferences</string><string>org.whispersystems.signal</string><string>com.example.okand</string><string>com.apple.mobilenotes</string></array></array>' +
             '<key>buttonBar</key><array><string>com.apple.mobilephone</string><string>com.apple.MobileSMS</string></array></dict>') },
         { name: 'filesystem1/private/var/preferences/SystemConfiguration/preferences.plist', data: plistXml('<dict><key>System</key><dict><key>System</key><dict><key>ComputerName</key><string>Testtelefon</string></dict></dict></dict>') },
         { name: 'filesystem1/private/var/preferences/com.apple.wifi.known-networks.plist', data: plistXml('<dict><key>wifi.network.ssid.Labbnätet</key><dict><key>SSID</key><data>' + Buffer.from('Labbnätet').toString('base64') + '</data>' +
             '<key>AddedAt</key><date>2024-05-01T10:00:00Z</date><key>JoinedByUserAt</key><date>2024-06-01T08:00:00Z</date><key>SupportedSecurityTypes</key><string>WPA2 Personal</string></dict></dict>') },
+        { name: P + 'Containers/Shared/AppGroup/7A7A7A7A-1111-4222-8333-944444444444/NoteStore.sqlite', data: noteStoreDb(SQL), deflate: true },
         { name: P + 'Library/Biome/streams/restricted/Notification.Usage/local/739000000000000', data: biomeNotifications([{ sec: T2 + 60, app: 'net.whatsapp.WhatsApp', title: 'Kim' }, { sec: T2 + 120, app: 'org.whispersystems.signal', title: 'Lo' }]) },
         { name: 'filesystem1/private/var/containers/Bundle/Application/11111111-2222-3333-4444-555555555555/WhatsApp.app/Info.plist', data: plistXml('<dict><key>CFBundleIdentifier</key><string>net.whatsapp.WhatsApp</string><key>CFBundleDisplayName</key><string>WhatsApp</string><key>CFBundleShortVersionString</key><string>25.1.0</string></dict>') },
     ];

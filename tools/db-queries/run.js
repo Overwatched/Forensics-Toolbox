@@ -336,11 +336,16 @@
         return opened;
     }
 
-    // Telegrams databaser: tabellerna tg_… avkodas i minnet ur Telegrams eget format (postbox.js). De
-    // avkodade raderna sparas med den öppnade filen, så nästa körning går fortare.
+    // Telegrams databaser: tabellerna tg_… avkodas i minnet ur Telegrams eget format (postbox.js), och Apples
+    // anteckningar till anteckning och anteckningsmapp (notes.js). De avkodade raderna sparas med den öppnade filen,
+    // så nästa körning går fortare.
     function attachDerived(db, o, out) {
-        try { out.derived = window.TelegramPostbox ? window.TelegramPostbox.attach(db, o.derived || (o.derived = {})) : null; }
+        var cache = o.derived || (o.derived = {});
+        try { out.derived = window.TelegramPostbox ? window.TelegramPostbox.attach(db, cache) : null; }
         catch (e) { out.derived = null; out.deriveError = 'Telegrams format kunde inte avkodas: ' + (e && e.message ? e.message : e); }
+        if (out.derived || out.deriveError || !window.Notes) return;
+        try { out.derived = window.Notes.attach(db, cache); }
+        catch (e) { out.derived = null; out.deriveError = 'Anteckningarna kunde inte avkodas: ' + (e && e.message ? e.message : e); }
     }
 
     // SQL som bara läser körs mot en databas som hålls öppen, utan kopia av filen. query_only stoppar

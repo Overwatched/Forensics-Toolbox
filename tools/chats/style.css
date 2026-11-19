@@ -440,6 +440,19 @@ body {
 .d-kv-value { font-size: .85em; text-align: right; overflow-wrap: anywhere; }
 .d-kv-src, .d-kv-note { grid-column: 1 / -1; font-size: .7em; color: var(--text-muted); overflow-wrap: anywhere; }
 .d-kv-foot { display: block; padding: .5em .9em .7em; background: var(--surface); }
+/* Anteckningar: urvalet, en rubrik per mapp, märken för fäst, låst och raderad, och texten som i appen. */
+.n-chips { display: flex; gap: .4em; flex-wrap: wrap; padding: .5em .9em .2em; }
+.n-chip { font: inherit; font-size: .8em; color: var(--text); background: var(--surface); border: 1px solid var(--border); border-radius: 1em; padding: .25em .75em; cursor: pointer; }
+.n-chip[aria-pressed="true"] { background: var(--accent-soft); border-color: var(--accent); }
+.n-chip span { color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.n-sec { margin: .9em .9em .2em; font-size: .78em; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: .02em; }
+.n-sec span { font-weight: 400; }
+.n-badge { display: inline-block; font-size: .92em; font-weight: 600; color: var(--text); background: var(--accent-soft); border-radius: .4em; padding: 0 .4em; margin-right: .4em; }
+.n-badge.lock { color: #4a2c00; background: #ffe8b3; }
+.n-badge.del { color: #5c0a04; background: #ffd9d6; }
+.n-head { padding: .4em .9em 0; }
+.n-head:empty { display: none; }
+.n-text { white-space: pre-wrap; overflow-wrap: anywhere; font-size: .95em; line-height: 1.45; padding: .6em .9em .9em; user-select: text; }
 .d-walls { display: flex; gap: .6em; padding: .6em .9em; background: var(--surface); border-bottom: 1px solid var(--border); }
 .d-walls figure { flex: 1; margin: 0; display: flex; flex-direction: column; gap: .3em; align-items: center; }
 .d-walls img { max-width: 100%; max-height: 14em; border-radius: .6em; }

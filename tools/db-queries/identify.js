@@ -143,11 +143,12 @@
         var named = byName(opts.name, databases).map(function (d) { return d.id; });
         var db = new SQL.Database(bytes);
         var out = [];
-        var attach = opts.attach || (root.TelegramPostbox && root.TelegramPostbox.attach);
+        var attach = opts.attach || function (d) {
+            var done = root.TelegramPostbox ? root.TelegramPostbox.attach(d) : null;
+            if (!done && root.Notes) root.Notes.attach(d);
+        };
         try {
-            if (attach) {
-                try { attach(db); } catch (e) { /* inte Telegrams format: tabellerna saknas, och queryerna passar inte */ }
-            }
+            try { attach(db); } catch (e) { /* inte Telegrams format eller Apples anteckningar: tabellerna saknas, och queryerna passar inte */ }
             var words = null;
             databases.forEach(function (d, i) {
                 var list = map[d.id] || [];

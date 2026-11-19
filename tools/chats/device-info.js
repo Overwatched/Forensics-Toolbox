@@ -47,6 +47,8 @@
         { id: 'notifHistory', platform: 'Android', re: /\/system_ce\/0\/notification_history\/history\/\d+$/, many: true, label: 'notification_history' },
         { id: 'biomeNotif', platform: 'iOS', re: /\/Biome\/streams\/restricted\/Notification\.Usage\/local\/\d+$/, many: true, label: 'Biome Notification.Usage' },
         { id: 'iconCache', platform: 'Android', re: /\/data\/(?:data|user\/0)\/[^\/]+\/databases\/app_icons\.db$/, sqlite: true, many: true, label: 'app_icons.db' },
+        { id: 'appleNotes', platform: 'iOS', re: /\/Containers\/Shared\/AppGroup\/[0-9A-Fa-f-]{36}\/NoteStore\.sqlite$/, sqlite: true, label: 'NoteStore.sqlite' },
+        { id: 'samsungNotes', platform: 'Android', re: /\/data\/(?:data|user\/0)\/com\.samsung\.android\.app\.notes\/databases\/sdoc\.db$/, sqlite: true, label: 'sdoc.db (Samsung Notes)' },
     ];
     var BY_ID = {};
     FILES.forEach(function (f) { BY_ID[f.id] = f; });
@@ -523,6 +525,7 @@
         'com.oneplus.gallery': 'Bilder', 'com.miui.gallery': 'Bilder', 'com.coloros.gallery3d': 'Bilder', 'com.oppo.gallery3d': 'Bilder',
         'com.huawei.photos': 'Bilder', 'com.hihonor.photos': 'Bilder', 'com.vivo.gallery': 'Bilder', 'com.motorola.gallery': 'Bilder',
         'com.apple.Preferences': 'Inställningar', 'com.android.settings': 'Inställningar',
+        'com.apple.mobilenotes': 'Anteckningar', 'com.samsung.android.app.notes': 'Anteckningar',
     };
     function roleOf(id) { return APP_ROLE[id] || ''; }
 

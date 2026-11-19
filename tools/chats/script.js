@@ -1775,7 +1775,7 @@
     // tillbaka till appens lista. on: telefonen är vald; screen: 'home', 'app', 'photos', 'albums', 'settings' eller
     // 'setting'; app: appen i 'app'; page: sidan på hemskärmen; filter: urvalet i Bilder; section: delen i Inställningar.
     // photos: bildbiblioteket och info: hemskärmen och inställningarna, båda lästa första gången telefonen visas.
-    state.device = { on: false, screen: 'home', app: '', page: 0, filter: 'all', section: '', photos: null, info: null, gallery: null, limit: LIST_STEP };
+    state.device = { on: false, screen: 'home', app: '', page: 0, filter: 'all', section: '', photos: null, info: null, gallery: null, limit: LIST_STEP, note: null, noteFilter: 'all' };
     var DEVICE_LABEL = 'Rekonstruktion ur databaserna – inte en skärmbild';
     var GLYPH = {
         chat: '<path d="M4 5h16v11H9l-5 4z"/>',
@@ -1783,11 +1783,12 @@
         plane: '<path d="M3 11l18-7-6 17-3-7z"/>',
         ghost: '<path d="M6 20c1-1 2 0 3 0s2-1 3-1 2 1 3 1 2-1 3 0V10a6 6 0 0 0-12 0z"/>',
         photo: '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 16l5-5 4 4 3-3 6 6"/>',
+        note: '<rect x="5" y="3" width="14" height="18" rx="2"/><path d="M8.5 8h7M8.5 12h7M8.5 16h4"/>',
         gear: '<circle cx="12" cy="12" r="3.2"/><path d="M12 2.8v3M12 18.2v3M2.8 12h3M18.2 12h3M5.5 5.5l2.1 2.1M16.4 16.4l2.1 2.1M5.5 18.5l2.1-2.1M16.4 7.6l2.1-2.1"/>',
     };
     // Ikonerna är verktygets egna: appens färg och en enkel symbol, inte appens logga. Andra appar får en färg ur
     // namnet och sin första bokstav.
-    var APP_ICON = { WhatsApp: ['#1fa855', '#fff', 'chat'], Signal: ['#2257d6', '#fff', 'shield'], Telegram: ['#2a9fd8', '#fff', 'plane'], Snapchat: ['#f5d90a', '#16191c', 'ghost'], Bilder: ['#ffffff', '#d6336c', 'photo'], 'Inställningar': ['#8e8e93', '#fff', 'gear'] };
+    var APP_ICON = { WhatsApp: ['#1fa855', '#fff', 'chat'], Signal: ['#2257d6', '#fff', 'shield'], Telegram: ['#2a9fd8', '#fff', 'plane'], Snapchat: ['#f5d90a', '#16191c', 'ghost'], Bilder: ['#ffffff', '#d6336c', 'photo'], 'Inställningar': ['#8e8e93', '#fff', 'gear'], Anteckningar: ['#ffd52e', '#3d3100', 'note'] };
     var ICON_HUES = ['#5b6b8c', '#7a5c99', '#2f7f7a', '#9a5b3c', '#3d6fa8', '#8a4f6b', '#55803f', '#a0673a'];
     var MONTHS = ['januari', 'februari', 'mars', 'april', 'maj', 'juni', 'juli', 'augusti', 'september', 'oktober', 'november', 'december'];
     var PHOTO_SOURCES = window.ProvenanceRoles.collect({ photos: window.PHOTOS_SQLITE_CATALOG || {}, android: window.ANDROID_QUERIES_CATALOG || {} })
@@ -2123,6 +2124,14 @@
                     } else { info.missing.push('Biome Notification.Usage'); info.notifNote = 'Biomes Notification.Usage finns inte i ' + Z() + '.'; }
                 }
                 if (info.notifications) info.notifications.sort(function (a, b) { return (b.ms || 0) - (a.ms || 0); });
+                // Anteckningarna: Apples Anteckningar eller Samsung Notes (Notes, tools/_shared/notes.js).
+                var noteId = info.platform === 'iOS' ? 'appleNotes' : info.platform === 'Android' ? 'samsungNotes' : '';
+                if (noteId && has(noteId) && window.Notes) {
+                    try {
+                        var memo = await dbRows(got[noteId][0], noteId, function (db) { return Notes.read(db); });
+                        if (memo) { memo.file = got[noteId][0].entry.name; info.memos = memo; }
+                    } catch (err) { info.notes.push(label(noteId) + ' kunde inte läsas: ' + errText(err)); }
+                } else if (noteId) info.missing.push(label(noteId));
                 info.sections = sections;
                 info.state = z === state.zip ? 'ready' : 'gone';
             } catch (err) {
@@ -2167,6 +2176,7 @@
     function backOf(P) {
         if (P.screen === 'photos' && P.filter !== 'all') return { screen: 'albums', text: 'Album' };
         if (P.screen === 'setting') return { screen: 'settings', text: 'Inställningar' };
+        if (P.screen === 'note') return { screen: 'notes', text: 'Anteckningar' };
         return { screen: 'home', text: 'Hem' };
     }
 
@@ -2193,6 +2203,8 @@
         else if (P.screen === 'settings') renderSettings(body);
         else if (P.screen === 'setting') renderSetting(body);
         else if (P.screen === 'lock') renderLock(body);
+        else if (P.screen === 'notes') renderNotes(body);
+        else if (P.screen === 'note') renderNote(body);
         else renderPhotos(body);
     }
 
@@ -2203,9 +2215,11 @@
         var chat = apps.filter(function (a) { return a.app === role; })[0];
         if (chat) { badge = badgeHtml(chat.busy, chat.error, chat.count); label += ', ' + (chat.busy ? 'läses' : many(chat.count, 'chatt', 'chattar')); }
         else if (role === 'Bilder' && ph && ph.state !== 'none') { badge = badgeHtml(ph.state === 'busy', ph.state === 'error', ph.items.length); label += ', ' + (ph.state === 'ready' ? many(ph.items.length, 'bild', 'bilder') : ph.state === 'busy' ? 'läses' : 'kunde inte läsas'); }
-        var data = chat ? ' data-device-app="' + esc(role) + '"' : role === 'Bilder' ? ' data-device-photos="1"' : role === 'Inställningar' ? ' data-device-settings="1"' : ' data-home-app="' + esc(it.id) + '" data-where="' + esc(where) + '"';
+        var memos = role === 'Anteckningar' ? deviceMemos() : null;
+        if (memos) { badge = badgeHtml(false, false, memos.notes.length); label += ', ' + many(memos.notes.length, 'anteckning', 'anteckningar'); }
+        var data = chat ? ' data-device-app="' + esc(role) + '"' : role === 'Bilder' ? ' data-device-photos="1"' : role === 'Inställningar' ? ' data-device-settings="1"' : memos ? ' data-device-notes="1"' : ' data-home-app="' + esc(it.id) + '" data-where="' + esc(where) + '"';
         return '<button type="button" class="d-app' + (chat || role ? ' has-data' : '') + '"' + data + ' aria-label="' + esc(label) + '" title="' + esc(name + (it.id ? ' · ' + it.id : '')) + '">' +
-            iconHtml(chat || role === 'Bilder' || role === 'Inställningar' ? role : '', badge, name, phoneIcon(it.id)) + '<span class="d-name">' + esc(name) + '</span></button>';
+            iconHtml(chat || role === 'Bilder' || role === 'Inställningar' || memos ? role : '', badge, name, phoneIcon(it.id)) + '<span class="d-name">' + esc(name) + '</span></button>';
     }
     function cellHtml(c, apps, ph, where, key) {
         var style = 'grid-column:' + (c.x + 1) + ' / span ' + c.w + ';grid-row:' + (c.y + 1) + ' / span ' + c.h;
@@ -2236,11 +2250,13 @@
         apps.forEach(function (a) { if (!onHome[a.app]) extra.push({ kind: 'app', id: '', name: a.app, role: a.app }); });
         if (ph && ph.state !== 'none' && !onHome.Bilder) extra.push({ kind: 'app', id: '', name: 'Bilder', role: 'Bilder' });
         if (info && info.state === 'ready' && info.platform && !onHome['Inställningar']) extra.push({ kind: 'app', id: '', name: 'Inställningar', role: 'Inställningar' });
+        if (deviceMemos() && !onHome.Anteckningar) extra.push({ kind: 'app', id: '', name: 'Anteckningar', role: 'Anteckningar' });
         var extraCells = extra.map(function (e) {
             var chat = apps.filter(function (a) { return a.app === e.role; })[0];
             if (e.role === 'Bilder') return '<button type="button" class="d-app has-data" data-device-photos="1" aria-label="' + esc('Bilder, ' + (ph.state === 'ready' ? many(ph.items.length, 'bild', 'bilder') : ph.state === 'busy' ? 'läses' : 'kunde inte läsas')) + '">' +
                 iconHtml('Bilder', badgeHtml(ph.state === 'busy', ph.state === 'error', ph.items.length), 'Bilder', phoneIcon('', 'Bilder')) + '<span class="d-name">Bilder</span></button>';
             if (e.role === 'Inställningar') return '<button type="button" class="d-app has-data" data-device-settings="1" aria-label="Inställningar">' + iconHtml('Inställningar', '', 'Inställningar', phoneIcon('', 'Inställningar')) + '<span class="d-name">Inställningar</span></button>';
+            if (e.role === 'Anteckningar') { var mm = deviceMemos(); return '<button type="button" class="d-app has-data" data-device-notes="1" aria-label="' + esc('Anteckningar, ' + many(mm.notes.length, 'anteckning', 'anteckningar')) + '">' + iconHtml('Anteckningar', badgeHtml(false, false, mm.notes.length), 'Anteckningar', phoneIcon('', 'Anteckningar')) + '<span class="d-name">Anteckningar</span></button>'; }
             return '<button type="button" class="d-app has-data" data-device-app="' + esc(e.role) + '" aria-label="' + esc(e.role + ', ' + (chat.busy ? 'läses' : many(chat.count, 'chatt', 'chattar'))) + '">' +
                 iconHtml(e.role, badgeHtml(chat.busy, chat.error, chat.count), e.role, phoneIcon('', e.role)) + '<span class="d-name">' + esc(e.role) + '</span></button>';
         });
@@ -2412,6 +2428,85 @@
         body.innerHTML = '<div class="d-kvs">' + html + '</div>';
     }
 
+    // ---------- Anteckningar ----------
+    // Apples Anteckningar eller Samsung Notes, lästa med telefonens övriga filer (loadDeviceInfo, Notes.read).
+
+    function deviceMemos() {
+        var info = state.device.info;
+        return info && info.zip === state.zip && info.state === 'ready' && info.memos ? info.memos : null;
+    }
+    var NOTE_FILTERS = [['all', 'Alla'], ['locked', 'Låsta'], ['deleted', 'Raderade']];
+    function noteBadges(n) {
+        return (n.pinned ? '<span class="n-badge">Fäst</span>' : '') + (n.locked ? '<span class="n-badge lock">Låst</span>' : '') + (n.deleted ? '<span class="n-badge del">Raderad</span>' : '');
+    }
+    function renderNotes(body) {
+        var P = state.device, f = fmt(), m = deviceMemos();
+        body.style.backgroundImage = '';
+        $('c-device-title').textContent = 'Anteckningar';
+        if (!m) {
+            var busy = P.info && P.info.state === 'busy';
+            $('c-device-sub').textContent = '';
+            body.innerHTML = '<p class="d-empty">' + (busy ? '<span class="c-spin" aria-hidden="true"></span> Läser anteckningarna…' : 'Extraktionen har ingen anteckningsdatabas (NoteStore.sqlite eller Samsung Notes).') + '</p>';
+            return;
+        }
+        var counts = { all: m.notes.length, locked: m.notes.filter(function (n) { return n.locked; }).length, deleted: m.notes.filter(function (n) { return n.deleted; }).length };
+        var keep = function (n) { return P.noteFilter === 'locked' ? n.locked : P.noteFilter === 'deleted' ? n.deleted : true; };
+        $('c-device-sub').textContent = (m.app !== 'Anteckningar' ? m.app + ' · ' : '') + many(m.notes.length, 'anteckning', 'anteckningar') + ' · ' + baseName(m.file);
+        var chips = '<div class="n-chips" role="group" aria-label="Urval">' + NOTE_FILTERS.map(function (x) {
+            return '<button type="button" class="n-chip" data-note-filter="' + x[0] + '" aria-pressed="' + (P.noteFilter === x[0]) + '">' + esc(x[1]) + ' <span>' + num(counts[x[0]]) + '</span></button>';
+        }).join('') + '</div>';
+        // En rubrik per mapp, som i appen: de raderade sist. Fästa först i mappen, sedan den senast ändrade.
+        var groups = {}, order = [];
+        m.notes.filter(keep).forEach(function (n) {
+            var k = (n.deleted && !n.folder ? 'Raderade' : n.folder || 'Utan mapp') + (n.account ? ' · ' + n.account : '');
+            if (!groups[k]) { groups[k] = { title: k, trash: n.deleted && (/raderade|papperskorg|trash|deleted/i.test(n.folderKind + ' ' + n.folder) || !n.folder), list: [] }; order.push(k); }
+            groups[k].list.push(n);
+        });
+        order.sort(function (a, b) { return (groups[a].trash - groups[b].trash) || a.localeCompare(b, 'sv'); });
+        var shown = 0, html = order.map(function (k) {
+            var g = groups[k];
+            g.list.sort(function (a, b) { return (b.pinned - a.pinned) || ((b.modifiedMs || 0) - (a.modifiedMs || 0)); });
+            var rows = g.list.filter(function () { return shown++ < P.limit; }).map(function (n) {
+                var first = n.locked ? 'Låst anteckning' + (n.hint ? ' · tips: ' + n.hint : '') : n.error ? n.error : String(n.text || n.snippet || '').split('\n').map(function (l) { return l.trim(); }).filter(Boolean).filter(function (l) { return l !== n.title; })[0] || 'Ingen mer text';
+                return '<button type="button" class="d-row n-row" data-note-id="' + n.id + '" title="' + esc(n.source) + '"><span class="d-row-text">' +
+                    '<span class="d-row-top"><b>' + esc(n.title || 'Ny anteckning') + '</b><time>' + esc(n.modifiedMs ? f(n.modifiedMs).slice(0, 10) : '') + '</time></span>' +
+                    '<span class="d-row-sub">' + noteBadges(n) + esc(first) + '</span></span></button>';
+            }).join('');
+            return rows ? '<p class="n-sec">' + esc(g.title) + ' <span>' + num(g.list.length) + '</span></p>' + rows : '';
+        }).join('');
+        var total = order.reduce(function (s, k) { return s + groups[k].list.length; }, 0);
+        body.innerHTML = chips + (html || '<p class="d-empty">Inga anteckningar i urvalet.</p>') +
+            (total > P.limit ? '<button type="button" class="c-btn d-more" data-device-more="1">Visa fler (' + num(total - P.limit) + ' kvar)</button>' : '') +
+            (m.errors.length ? '<p class="d-empty warn">' + esc(m.errors.slice(0, 3).join(' ')) + '</p>' : '') +
+            '<p class="d-note">Ur ' + esc(m.file) + '. Raderade anteckningar ligger kvar i appen i 30 dagar. En låst antecknings text är krypterad; titeln och tiderna syns.</p>';
+    }
+    function renderNote(body) {
+        var P = state.device, f = fmt(), m = deviceMemos();
+        body.style.backgroundImage = '';
+        var n = m && m.notes.filter(function (x) { return x.id === P.note; })[0];
+        if (!n) { openDevice('notes'); return; }
+        var t = function (ms) { return ms ? f(ms) : ''; };
+        $('c-device-title').textContent = n.title || 'Anteckning';
+        $('c-device-sub').textContent = [n.folder, n.modifiedMs ? 'ändrad ' + t(n.modifiedMs) : ''].filter(Boolean).join(' · ');
+        var text = n.text != null ? '<div class="n-text">' + esc(n.text.replace(/￼/g, '[bilaga]')) + '</div>' : '<p class="d-empty warn">' + esc(n.error || 'Texten finns inte.') + '</p>';
+        var att = n.attachments.length ? kv('Bilagor', n.attachments.map(function (a) { return (a.name || 'namnlös') + (a.uti ? ' (' + a.uti + ')' : ''); }).join(', '), 'Filerna ligger under anteckningskontots Media/ och FallbackImages/ i appgruppen.') : '';
+        var meta = [
+            kv('Skapad', t(n.createdMs), n.app === 'Anteckningar' ? 'ZCREATIONDATE3 (äldre iOS ZCREATIONDATE1)' : 'sdoc · createdAt'),
+            kv('Ändrad', t(n.modifiedMs), n.app === 'Anteckningar' ? 'ZMODIFICATIONDATE1' : 'sdoc · lastModifiedAt'),
+            kv('Mapp', n.folder + (n.folderKind && n.folderKind !== 'vanlig' ? ' (' + n.folderKind + ')' : '') + (n.account ? ' · ' + n.account : '')),
+            n.locked ? kv('Låst', 'Ja' + (n.hint ? ', tipset: ' + n.hint : ''), n.app === 'Anteckningar' ? 'ZISPASSWORDPROTECTED, ZPASSWORDHINT' : 'sdoc · isLock') : '',
+            n.deleted ? kv('Raderad', n.deletedHow + (n.deletedMs ? ', ' + t(n.deletedMs) : ''), n.app === 'Anteckningar' ? 'ZFOLDERTYPE 1 eller ZMARKEDFORDELETION' : 'sdoc · categoryUUID, recycle_bin_time_moved, isDeleted') : '',
+            n.pinned ? kv(n.app === 'Anteckningar' ? 'Fäst' : 'Favorit', 'Ja') : '',
+            n.checklist ? kv('Checklista', n.checked + ' av ' + n.checklist + ' avbockade') : '',
+            n.links.length ? kv('Länkar', n.links.join(' ')) : '',
+            att,
+            kv('Titeln', n.titleFrom === 'första raden' ? 'Första raden i texten (anteckningen har ingen egen titel)' : 'Egen titel', n.titleFrom === 'första raden' ? '' : n.app === 'Anteckningar' ? 'ZTITLE1' : 'sdoc · title'),
+            kv('Källa', n.source, m.file),
+            n.uuid ? kv('Identifierare', n.uuid) : '',
+        ].join('');
+        body.innerHTML = '<div class="n-head">' + noteBadges(n) + '</div>' + text + '<div class="d-kvs">' + meta + '</div>';
+    }
+
     // Låsskärmen: notiserna, den senaste först, med en rubrik per dag och telefonens bakgrund för låsskärmen bakom.
     function renderLock(body) {
         var P = state.device, info = P.info, f = fmt();
@@ -2523,6 +2618,9 @@
         if (b.dataset.devicePhotos) return openDevice('photos', '', { filter: 'all' });
         if (b.dataset.deviceSettings) return openDevice('settings');
         if (b.dataset.deviceLock) return openDevice('lock');
+        if (b.dataset.deviceNotes) return openDevice('notes');
+        if (b.dataset.noteFilter) { state.device.noteFilter = b.dataset.noteFilter; state.device.limit = LIST_STEP; return renderDevice(); }
+        if (b.dataset.noteId !== undefined) { state.device.note = Number(b.dataset.noteId); return openDevice('note'); }
         if (b.dataset.notif !== undefined) return openNotification(Number(b.dataset.notif));
         if (b.dataset.homeApp !== undefined) return openAppSheet(b.dataset.homeApp, b.dataset.where);
         if (b.dataset.folder) return openFolder(b.dataset.folder);
@@ -2633,7 +2731,7 @@
         view: function () { return state.current && state.view ? { from: state.view.from, to: state.view.to, n: state.current.model.messages.length, drawn: $('c-msgs').querySelectorAll('.m').length } : null; },
         device: function () {
             var P = state.device, ph = P.photos, g = P.gallery;
-            return { on: P.on, shown: deviceShown(), screen: P.screen, app: P.app, photos: ph ? { state: ph.state, items: ph.items.length, thumbs: Object.keys(ph.thumbs).length, files: Object.keys(ph.files).length, note: ph.note } : null,
+            return { on: P.on, shown: deviceShown(), screen: P.screen, app: P.app, info: P.info ? { state: P.info.state, notes: P.info.memos ? P.info.memos.notes.length : null } : null, photos: ph ? { state: ph.state, items: ph.items.length, thumbs: Object.keys(ph.thumbs).length, files: Object.keys(ph.files).length, note: ph.note } : null,
                 gallery: g ? { tiles: $('c-device-body').querySelectorAll('.g-tile').length, shown: $('c-device-body').querySelectorAll('.g-tile.has').length, loads: g.stats.loads, failed: g.stats.failed, urls: g.urls.map.size } : null };
         },
     };

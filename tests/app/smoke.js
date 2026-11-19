@@ -1516,6 +1516,53 @@ const scenarios = [
         return r.tag;
     }],
 
+    ['Anteckningar: Telefonen visar NoteStore.sqlite med mappar, låst, raderad och checklistan, och Queries avkodar samma anteckningar', async ({ c }) => {
+        const CHAT = 'chats/index.html';
+        const ev = (e) => c.ev(CHAT, e);
+        await c.nav('Chattar');
+        await c.waitFor(CHAT, `!ChatsApp.busy() && document.querySelectorAll('.c-item').length > 0`, 60000, 'konversationerna');
+        await ev(`document.getElementById('c-device-open').click(), 1`);
+        await c.waitFor(CHAT, `ChatsApp.device().info && ChatsApp.device().info.state === 'ready'`, 60000, 'telefonens filer');
+        // Anteckningar ligger på hemskärmens andra sida.
+        await ev(`(function(){ const d = document.querySelector('#c-device-body .d-dot[data-page="1"]'); if (d) d.click(); return 1; })()`);
+        await c.waitFor(CHAT, `!!document.querySelector('#c-device-body [data-device-notes]')`, 15000, 'appen Anteckningar');
+        const icon = await ev(`document.querySelector('#c-device-body [data-device-notes]').getAttribute('aria-label')`);
+        expect(icon === 'Anteckningar, 3 anteckningar', 'Ikonen: ' + icon);
+        await ev(`document.querySelector('#c-device-body [data-device-notes]').click(), 1`);
+        const list = await ev(`({ title: document.getElementById('c-device-title').textContent, secs: [...document.querySelectorAll('#c-device-body .n-sec')].map(s => s.textContent),
+            rows: [...document.querySelectorAll('#c-device-body .n-row b')].map(b => b.textContent), badges: [...document.querySelectorAll('#c-device-body .n-row')].map(r => [...r.querySelectorAll('.n-badge')].map(b => b.textContent).join('+')),
+            chips: [...document.querySelectorAll('#c-device-body .n-chip')].map(b => b.textContent) })`);
+        expect(list.title === 'Anteckningar' && list.secs.join('|') === 'Notes · iCloud 2|Recently Deleted · iCloud 1', 'Mapparna: ' + JSON.stringify(list));
+        expect(list.rows[0] === 'Packlista' && list.rows[1] === 'Koder' && list.rows[2].startsWith('<img src=x'), 'Raderna (fäst först, HTML som text): ' + JSON.stringify(list.rows));
+        expect(list.badges.join('|') === 'Fäst|Låst|Raderad' && list.chips.join('|') === 'Alla 3|Låsta 1|Raderade 1', 'Märken och urval: ' + JSON.stringify(list));
+        await ev(`document.querySelector('#c-device-body [data-note-filter="deleted"]').click(), 1`);
+        expect(await ev(`document.querySelectorAll('#c-device-body .n-row').length`) === 1, 'Urvalet Raderade');
+        await ev(`document.querySelector('#c-device-body [data-note-filter="all"]').click(), 1`);
+        await ev(`[...document.querySelectorAll('#c-device-body .n-row')].find(r => r.querySelector('b').textContent === 'Packlista').click(), 1`);
+        const note = await ev(`({ screen: ChatsApp.device().screen, text: (document.querySelector('#c-device-body .n-text') || {}).textContent, back: document.getElementById('c-device-back-text').textContent,
+            kv: Object.fromEntries([...document.querySelectorAll('#c-device-body .d-kv')].map(k => [k.querySelector('.d-kv-label').textContent, k.querySelector('.d-kv-value').textContent])) })`);
+        expect(note.screen === 'note' && note.text === 'Packlista\n☑ Pass\n☐ Laddare' && note.back === 'Anteckningar', 'Anteckningen: ' + JSON.stringify(note));
+        expect(note.kv.Checklista === '1 av 2 avbockade' && /ZICCLOUDSYNCINGOBJECT rad 10, ZICNOTEDATA rad 100/.test(note.kv['Källa']) && note.kv.Fäst === 'Ja', 'Uppgifterna: ' + JSON.stringify(note.kv));
+        await ev(`document.getElementById('c-device-back').click(), 1`);
+        await ev(`[...document.querySelectorAll('#c-device-body .n-row')].find(r => r.querySelector('b').textContent === 'Koder').click(), 1`);
+        const locked = await ev(`({ warn: (document.querySelector('#c-device-body .d-empty.warn') || {}).textContent, kv: (document.querySelector('#c-device-body .d-kv') || {}).textContent })`);
+        expect(/^Låst: texten är krypterad/.test(locked.warn), 'Den låsta: ' + JSON.stringify(locked));
+        await noInjectedScript(c);
+        // Queries: samma databas, avkodad i minnet.
+        await c.nav('Queries');
+        await c.ev(QUER, `(function(){ const b = document.querySelector('.side-db[data-family="apple-notes"]'); if (b.getAttribute('aria-expanded') !== 'true') b.click(); return 1; })()`);
+        await c.ev(QUER, `document.querySelector('.side-q[data-db="apple-notes"][data-q="notes-all"]').click(), 1`);
+        await sleep(300);
+        await c.ev(QUER, `document.getElementById('run-button').click(), 1`);
+        await c.waitFor(QUER, `/rad(er)? på/.test(document.getElementById('run-status').textContent) || /run-warn/.test(document.getElementById('run-status').innerHTML)`, 30000, 'körningen');
+        const q = await c.ev(QUER, `({ status: document.getElementById('run-status').innerText, cols: [...document.querySelectorAll('#run-result thead th')].map(t => t.textContent), rows: [...document.querySelectorAll('#run-result tbody tr')].map(tr => [...tr.children].map(td => td.textContent)) })`);
+        const ti = q.cols.indexOf('titel');
+        expect(q.rows.length === 3 && q.rows.map((r) => r[ti]).join('|').startsWith('Packlista|Koder|<img'), 'Queries: ' + JSON.stringify(q.rows.map((r) => r[ti])) + ' ' + q.status);
+        expect(/Anteckningarna avkodades i minnet/.test(await c.ev(QUER, `document.getElementById('run-trace').textContent`)), 'Spårbarheten säger inte att anteckningarna avkodades');
+        await noInjectedScript(c);
+        return list.rows.length + ' anteckningar i Telefonen, checklistan, den låsta och den raderade; 3 rader i Queries';
+    }],
+
     ['Härkomst: sökning på tid listar filerna, och HTML i namnen körs inte', async ({ c }) => {
         // Bytet av zon gör om bedömningen som visas: sökningen startas när den är klar.
         await c.ev(PROV, `(function(){ const z = document.getElementById('zone'); z.value = 'utc'; z.dispatchEvent(new Event('change')); document.getElementById('when-date').value = '2024-06-01'; document.getElementById('when-time').value = '12:35'; return 1; })()`);

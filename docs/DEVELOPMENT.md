@@ -2112,6 +2112,36 @@ Samsung (SM-A336B, Android 16). iPhone-rapporten är jämförd fil för fil med 
 - Labbtelefonen (Samsung A33, Android 16): 92 rader i `files`, F-Droid nedladdad från f-droid.org med Samsungs
   webbläsare, tio raderade poster, och kamerabilden 20261106_145905.jpg nummer 675 efter två Molly-säkerhetskopior.
 
+### Anteckningar (`tools/_shared/notes.js`, `Notes`; `queries/notes/`)
+
+Apples Anteckningar (`NoteStore.sqlite` i appgruppen `group.com.apple.notes`) och Samsung Notes
+(`com.samsung.android.app.notes/databases/sdoc.db`). Byggt 2026-11-19 mot labbtelefonerna: iPhone med iOS 26.4.1 (en
+anteckning i iCloud) och Samsung A33 (två anteckningar). Låsta, raderade, checklistor och bilagor är bara provade med
+påhittade databaser i telefonernas schema (`notes.test.js`, röktestets testzippar).
+- **Texten på iPhone:** `ZICNOTEDATA.ZDATA` är gzip med protobuf: 2 dokument → 3 anteckning → 2 texten och 5
+  formateringen i körningar (1 längd i UTF-16-tecken, 2 styckeformat med 5 checklista där 2 är avbockad, 9 länk, 12
+  bilaga med 1 id och 2 typ). Checklistans rader får ☐ eller ☑ först. En bilaga står som U+FFFC i texten; namnet tas ur
+  ICAttachment (`ZIDENTIFIER`, `ZTYPEUTI`) och ICMedia (`ZFILENAME`). Uppackningen är synkron (`tools/_shared/inflate.js`,
+  DEFLATE med gzip- och zlib-huvud, testad mot Nodes zlib), eftersom Queries avkodar medan databasen öppnas.
+- **Kolumnerna** i `ZICCLOUDSYNCINGOBJECT` skiftar mellan iOS-versionerna och väljs efter schemat: titeln `ZTITLE1`,
+  skapad `ZCREATIONDATE3` (äldre `ZCREATIONDATE1`), ändrad `ZMODIFICATIONDATE1`, mappen `ZFOLDER` med `ZTITLE2` och
+  `ZFOLDERTYPE` (1 Nyligen raderade), kontot genom mappens `ZOWNER` (annars den `ZACCOUNTn` som pekar på ett konto).
+  Entiteterna (ICNote, ICFolder, ICAccount, ICAttachment, ICMedia) tas ur `Z_PRIMARYKEY`.
+- **Låst** (`ZISPASSWORDPROTECTED`): texten är krypterad med anteckningens lösenord och avkodas inte; titeln, tiderna och
+  `ZPASSWORDHINT` syns. **Raderad:** i Nyligen raderade, eller `ZMARKEDFORDELETION` 1.
+- **Samsung Notes:** `content` är texten som UTF-8, `createdAt`/`lastModifiedAt` millisekunder i UTC, `categoryUUID`
+  mappen i `category_tree` (`trash:///` är papperskorgen), `recycle_bin_time_moved` när den flyttades dit, `isLock` och
+  `isFavorite`. Hela anteckningen (bilder, handskrift) ligger i `.sdocx`-filen som `filePath` pekar på, och läses inte.
+  En tom titel blir första raden, som i appen.
+- **Queries:** Apples anteckningar avkodas när databasen öppnas till tabellerna `anteckning` och `anteckningsmapp`
+  (`Notes.attach`, som Telegrams `tg_`-tabeller; `attachDerived` i `run.js` och `rank` i `identify.js` provar båda).
+  Samsung Notes läses direkt med SQL. Underrubriken Anteckningar (beta) under iOS och Android.
+- **Telefonen:** appen Anteckningar (`com.apple.mobilenotes`, `com.samsung.android.app.notes`) har en rubrik per mapp
+  med de raderade sist, fästa först och sedan den senast ändrade, urvalen Alla, Låsta och Raderade, och en vy per
+  anteckning med texten, tiderna, mappen, låst och raderad med fälten de kommer ur, och raderna i databasen.
+- **Inte byggt:** Google Keep (ingen extraktion med `keep.db`), bilagornas bilder, `.sdocx`-filernas innehåll och
+  äldre iOS-anteckningar i `notes.sqlite` (före iOS 9).
+
 ### Raderade bilder och Secure Folder (`queries/android/samsung/`, `android-users` i `queries/system-logs/`)
 
 Byggt 2026-11-19 utan rader att kontrollera mot: tabellerna finns i alla tre Samsung-zipparna (A33, tvåtelefonslabbet
