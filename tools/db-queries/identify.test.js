@@ -99,16 +99,16 @@ test('den valda databasen går före när flera passar, men inte före en som pa
     const files = ['_id', '_data', '_display_name', 'mime_type', 'date_added', 'date_modified', 'datetaken', 'owner_package_name',
         'relative_path', '_size', 'is_trashed', 'volume_name', 'media_type', 'bucket_display_name', 'generation_added',
         'generation_modified', 'is_pending', 'is_download', 'is_favorite', 'width', 'height', 'orientation', 'title', 'duration',
-        'document_id', 'instance_id', 'original_document_id'];
-    // MediaStore har vyn images ovanpå files.
-    const bytes = schemaDb(SQL, { files: files }, 'CREATE VIEW images AS SELECT * FROM files WHERE media_type = 1');
+        'document_id', 'instance_id', 'original_document_id', 'download_uri', 'referer_uri', 'date_expires', 'xmp'];
+    // MediaStore har vyn images ovanpå files, och från Android 14 tabellerna för raderade poster (labbtelefonen, Android 16).
+    const bytes = schemaDb(SQL, { files: files, deleted_media: ['_id', 'old_id', 'generation_modified'], deleted_files: ['_id', 'media_type', 'deleted_generation', 'volume_name'] }, 'CREATE VIEW images AS SELECT * FROM files WHERE media_type = 1');
     const plain = DbIdentify.conclude(DbIdentify.rank(SQL, bytes, databases, { name: 'external.db' }));
     assert.strictEqual(plain.best, 'android-mediastore');
     assert.deepStrictEqual(plain.families.sort(), ['android-camera', 'android-mediastore'], 'kamerans filer ligger i samma external.db');
     const camera = DbIdentify.conclude(DbIdentify.rank(SQL, bytes, databases, { name: 'external.db', prefer: 'android-camera' }));
     assert.strictEqual(camera.best, 'android-camera');
     // Utan vyn passar inte alla MediaStore-queries, men filen gäller ändå MediaStore.
-    const older = DbIdentify.conclude(DbIdentify.rank(SQL, schemaDb(SQL, { files: files }), databases, { name: 'external.db' }));
+    const older = DbIdentify.conclude(DbIdentify.rank(SQL, schemaDb(SQL, { files: files, deleted_media: ['_id', 'old_id', 'generation_modified'], deleted_files: ['_id', 'media_type', 'deleted_generation', 'volume_name'] }), databases, { name: 'external.db' }));
     assert.deepStrictEqual(older.families.sort(), ['android-camera', 'android-mediastore']);
     // Photos.sqlite för iOS 14 vald, men filen är från iOS 17: den som passar helt vinner.
     const photos = DbIdentify.conclude(DbIdentify.rank(SQL, schemaDb(SQL, schemas['17']), databases, { prefer: 'photos-ios14' }));

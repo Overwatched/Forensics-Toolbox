@@ -228,7 +228,7 @@ test('rollqueryer för Härkomst: dolda, med epoch och fältkarta som stämmer m
     assert.deepStrictEqual(roles(snapchat.databases.find((d) => d.id === 'snapchat-arroyo').queries), ['conversation-members', 'coverage', 'messages']);
     assert.deepStrictEqual(roles(snapchat.databases.find((d) => d.id === 'snapchat-friends').queries), ['friends', 'save-setting']);
     assert.deepStrictEqual(roles(snapchat.databases.find((d) => d.id === 'snapchat-notifications').queries), ['coverage', 'notifications']);
-    assert.deepStrictEqual(roles(android.categories.find((c) => c.id === 'mediastore').queries), ['file', 'gallery', 'media-extra', 'neighbours']);
+    assert.deepStrictEqual(roles(android.categories.find((c) => c.id === 'mediastore').queries), ['file', 'gallery', 'media-extra', 'media-origin', 'neighbours']);
 });
 
 // Extraktion: databaserna hittas i en zip på sökvägarna i "paths". De skrivs utan inledande /
@@ -497,11 +497,16 @@ test('PowerLog: queryerna körs, tiden rättas med förskjutningen som gällde, 
 
 test('Samsung: eRR.p läses in som tabellen err, och varje query körs mot påhittade rader', async () => {
     const textLogs = require('./text-logs');
-    assert.deepStrictEqual(samsungAndroid.databases.map((d) => [d.id, d.convert]), [['samsung-err-p', 'err-p']]);
+    assert.deepStrictEqual(samsungAndroid.databases.map((d) => [d.id, d.convert || d.cipher]), [['samsung-err-p', 'err-p'], ['samsung-rubin-logging', 'rubin-logging'], ['samsung-rubin-monitoring', 'rubin-monitoring']]);
     for (const db of samsungAndroid.databases) {
-        assert.ok(textLogs.known(db.convert), db.id + ': okänd tolkning ' + db.convert);
+        if (db.convert) assert.ok(textLogs.known(db.convert), db.id + ': okänd tolkning ' + db.convert);
+        else assert.ok(require('./sqlcipher').PROFILES[db.cipher], db.id + ': okänd SQLCipher-profil ' + db.cipher);
         assert.strictEqual(db.queries.filter((q) => q.recommended).length, 1, db.id + ': en rekommenderad');
-        for (const q of db.queries) assert.ok(q.subtitle && q.returns, db.id + '/' + q.id + ': undertext och returns');
+        for (const q of db.queries) {
+            if (q.hidden) { assert.strictEqual(q.epoch, 'unixMs', db.id + '/' + q.id + ': epoch'); assert.ok(q.fields, db.id + '/' + q.id + ': fields'); continue; }
+            assert.ok(q.subtitle && q.returns, db.id + '/' + q.id + ': undertext och returns');
+            if (/\{\{unixMs/.test(q.sql)) assert.strictEqual(q.timeEpoch, 'unix-ms', db.id + '/' + q.id + ': timeEpoch');
+        }
     }
     // Påhittade rader i eRR.p:s form: huvudet LOGM, antalet rader och sista radens index, sedan raderna.
     const lines = [
@@ -548,7 +553,11 @@ test('Systemloggar: usagestats och Biome läses in som tabeller ur mappens filer
         assert.ok(textLogs.known(db.convert), db.id + ': okänd tolkning');
         assert.ok(db.paths.every((p) => /\/$/.test(p)), db.id + ': en mapp slutar med /');
         assert.strictEqual(db.queries.filter((q) => q.recommended).length, 1, db.id + ': en rekommenderad');
-        for (const q of db.queries) assert.ok(q.subtitle && q.returns, db.id + '/' + q.id + ': undertext och returns');
+        for (const q of db.queries) {
+            if (q.hidden) { assert.strictEqual(q.epoch, 'unixMs', db.id + '/' + q.id + ': epoch'); assert.ok(q.fields, db.id + '/' + q.id + ': fields'); continue; }
+            assert.ok(q.subtitle && q.returns, db.id + '/' + q.id + ': undertext och returns');
+            if (/\{\{unixMs/.test(q.sql)) assert.strictEqual(q.timeEpoch, 'unix-ms', db.id + '/' + q.id + ': timeEpoch');
+        }
     }
     const S = await sqlJs();
     const varint = (n) => { const out = []; do { let b = n % 128; n = Math.floor(n / 128); if (n) b |= 0x80; out.push(b); } while (n); return out; };

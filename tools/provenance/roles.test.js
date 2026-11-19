@@ -15,12 +15,13 @@ const catalogs = {
     snapchat: require(path.join(ROOT, 'queries', 'ios', 'snapchat', 'catalog.json')),
     snapchatAndroid: require(path.join(ROOT, 'queries', 'android', 'snapchat', 'catalog.json')),
     signalAndroid: require(path.join(ROOT, 'queries', 'android', 'signal', 'catalog.json')),
+    samsungAndroid: require(path.join(ROOT, 'queries', 'android', 'samsung', 'catalog.json')),
 };
 
 test('alla källor och roller finns', () => {
     const sources = roles.collect(catalogs);
     const byKey = Object.fromEntries(sources.map((s) => [s.key, s]));
-    assert.deepStrictEqual(Object.keys(byKey).sort(), ['android-mediastore', 'knowledgec', 'photos', 'powerlog', 'routined-cache', 'signal-android-logs', 'signal-android-main', 'snapchat-android-arroyo', 'snapchat-android-cache', 'snapchat-android-core', 'snapchat-android-friends', 'snapchat-android-journal', 'snapchat-android-memories', 'snapchat-android-notifications', 'snapchat-arroyo', 'snapchat-cache', 'snapchat-friends', 'snapchat-gallery', 'snapchat-memories', 'snapchat-notifications', 'wellbeing']);
+    assert.deepStrictEqual(Object.keys(byKey).sort(), ['android-mediastore', 'knowledgec', 'photos', 'powerlog', 'routined-cache', 'samsung-rubin-logging', 'signal-android-logs', 'signal-android-main', 'snapchat-android-arroyo', 'snapchat-android-cache', 'snapchat-android-core', 'snapchat-android-friends', 'snapchat-android-journal', 'snapchat-android-memories', 'snapchat-android-notifications', 'snapchat-arroyo', 'snapchat-cache', 'snapchat-friends', 'snapchat-gallery', 'snapchat-memories', 'snapchat-notifications', 'wellbeing']);
     assert.strictEqual(byKey['signal-android-main'].cipher, 'signal');
     assert.strictEqual(byKey['signal-android-main'].databases[0].cipher, 'signal');
     assert.deepStrictEqual(Object.keys(byKey['signal-android-main'].roles).sort(), ['attachments', 'coverage', 'messages', 'recipients']);
@@ -51,6 +52,11 @@ test('alla källor och roller finns', () => {
     assert.strictEqual(byKey.wellbeing.platform, 'Android');
     assert.strictEqual(byKey.knowledgec.platform, 'iOS');
     assert.ok(byKey['android-mediastore'].paths.length >= 3);
+    assert.deepStrictEqual(Object.keys(byKey['android-mediastore'].roles).sort(), ['file', 'gallery', 'media-extra', 'media-origin', 'neighbours']);
+    // Rubin: krypterad med nyckeln Logging, positioner och appar i förgrunden till Härkomst.
+    assert.strictEqual(byKey['samsung-rubin-logging'].cipher, 'rubin-logging');
+    assert.strictEqual(byKey['samsung-rubin-logging'].platform, 'Android');
+    assert.deepStrictEqual(Object.keys(byKey['samsung-rubin-logging'].roles).sort(), ['app-usage', 'coverage', 'location']);
     const dbs = roles.databases(sources);
     assert.ok(dbs.some((d) => d.id === 'photos-ios17-plus' && d.family === 'photos' && d.ios[0] === 17));
     assert.ok(dbs.every((d) => d.paths.length));

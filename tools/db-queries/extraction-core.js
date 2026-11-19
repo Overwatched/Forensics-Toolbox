@@ -448,7 +448,9 @@
         // En -wal som inte går att lägga på (trasigt huvud, fel sidstorlek) hoppar SQLite över. Här
         // läses databasen likadant utan den, och varningen säger det.
         if (hit.wal && core.stats.error) warnings.push(walName + ' lades inte på: ' + core.stats.error + '. ' + dbName + ' lästes utan -wal, som SQLite gör med en sådan fil. Poster som bara finns i -wal saknas.');
-        if (!hit.wal) warnings.push(dbName + ' lästes utan -wal: ' + (hit.db.report ? 'rapporten har ingen, men den kan ha funnits på telefonen.' : 'extraktionen har ingen.') + ' Poster som bara fanns i -wal kan saknas.');
+        // En databas med en tom -journal bredvid använder rollback-journal (som Samsungs Rubin) och skriver aldrig någon
+        // -wal. En -journal med innehåll har en egen varning, och då kan -wal också ha funnits.
+        if (!hit.wal && !(hit.journal && !hit.journal.size)) warnings.push(dbName + ' lästes utan -wal: ' + (hit.db.report ? 'rapporten har ingen, men den kan ha funnits på telefonen.' : 'extraktionen har ingen.') + ' Poster som bara fanns i -wal kan saknas.');
         if (hit.journal && hit.journal.size) warnings.push(dbName + ' har en -journal: databasen kan vara mitt i en transaktion.');
         if (!core.dbCrcOk) warnings.push('CRC32 för ' + dbName + ' stämmer inte med ' + sourceWord(hit.db) + '.');
         if (hit.wal && !core.walCrcOk) warnings.push('CRC32 för ' + walName + ' stämmer inte med ' + sourceWord(hit.wal) + '.');

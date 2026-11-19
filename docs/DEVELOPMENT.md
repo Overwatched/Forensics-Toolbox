@@ -2073,6 +2073,45 @@ Samsung (SM-A336B, Android 16). iPhone-rapporten är jämförd fil för fil med 
   sökvägens prefix, källans namn och att rapporten säger att en fil kan ha valts bort. På Android kördes 34 queries och 14 filer utan fel, men utan en zip att jämföra med.
 - **Läses inte:** Molly (`im.molly.app`, en fork av Signal, med egen `signal.db` utan nyckel i `secrets.json`) och Samsungs Wellbeing (`com.samsung.android.forest/databases/dwbCommon.db`). Rapportverktyget tolkar det senare.
 
+### Samsungs Rubin (`queries/android/samsung/`, SQLCipher-profilerna `rubin-logging` och `rubin-monitoring`)
+
+- **Var och hur:** `data/data/com.samsung.android.rubin.app/databases/`. De flesta databaserna är krypterade med
+  SQLCipher 2: PBKDF2-HMAC-SHA1 i 4000 varv, HMAC-SHA1, sidor om 4096 byte (reserv 48). Lösenordet är värdet `Logging`
+  eller `Monitoring` för `com.samsung.android.rubin.app` i `extra/Secrets/secrets.json`, 256 byte som hex, och används
+  som byte (`passIsHex`), inte som text. Kontrollerat mot Samsung A33 (Android 16) 2026-11-19: `Logging` öppnar
+  `inferenceengine_logging.db` och `Monitoring` `inferenceengine_monitoring.db`, HMAC stämde för alla sidor. Rubins andra
+  krypterade databaser (`odm.db`, `poi.db`, `pim.db`, `context_fence_database.db` och fler) öppnas inte med någon av dem.
+  `AppSecrets.fromSecretsFile` sparar nycklarna under `named`, och `keysForProfile` ger rätt nyckel för profilen.
+- **Rollback-journal:** Rubin har en tom `-journal` i stället för `-wal`. `ExtractionCore.describe` varnar då inte för
+  att `-wal` saknas; en `-journal` med innehåll ger som förut båda varningarna.
+- **I Queries:** två databaser i Samsung-gruppen. Logging: Händelser i tidsspann (app_usage, screen_state_log,
+  setting_change, location_log, wifi_connection_log, all_bluetooth_log med namnen ur all_bluetooth_dictionary, charging_log
+  och motion_log i en tidslinje), Appar i förgrunden, Positioner, Ändrade inställningar, Wi-Fi, Bluetooth och laddning,
+  Appar som frågade Rubin (api_call_log) och Hur långt loggen räcker. Monitoring: Platser och sammanhang (hemma eller
+  borta, platsens slag, tpo_context_event och gång med telefonen i handen), som är Rubins slutsatser och inte mätningar.
+- **I Härkomst** (`addRubin`): `location_log` i fönstret blir telefonens positioner i faktorn Position (märkta Rubin och
+  källan, till exempel passive_network), och `app_usage` blir appintervall bredvid usagestats, SSRM och batterihistoriken.
+  Täckningen står i protokollet. Utan nyckel sägs det bland varningarna.
+- **Hur långt det räcker:** Rubin rensar gamla rader. I labbtelefonen räckte `app_usage` bara 2026-09-30 och
+  `location_log` hade tre rader, alla från extraktionsdagen; `setting_change` hade 54 och `api_call_log` 113. Samsung-labbets
+  facit (15 delar) gav samma svar med Rubin som utan.
+
+### MediaStore: ursprung och ordning (`queries/android/catalog.json`, kategorin mediastore)
+
+- **`generation_added`** (Android 11 och senare) är en räknare som bara ökar när en fil registreras, oberoende av
+  klockan. Ordningen gäller också när en tid är fel. **`download_uri` och `referer_uri`** (Android 10) säger varifrån en
+  nedladdad fil hämtades och från vilken sida. **`deleted_files`** (Android 14; `_id`, `media_type`, `deleted_generation`)
+  och **`deleted_media`** (Android 12; `old_id`, `generation_modified`) har de poster som tagits bort, utan namn.
+- **Queries:** Nedladdade filer och varifrån de kom, Ordningen filerna kom in (med `tid_bakat` när `date_added` går bakåt
+  mot filen innan), Filerna före och efter en fil (de tio närmaste åt varje håll, och raderade poster mellan dem),
+  Raderade poster (med filen som kom in närmast före), Papperskorgen med utgångsdatum och XMP i bilderna.
+- **Härkomst:** rollen `media-origin` (en egen fråga, så att en äldre databas bara saknar faktorn) ger faktorn
+  **Sammanhang i bildbiblioteket** (`factorContext`), alltid en upplysning: nedladdningen med adress, sida och app,
+  filens nummer i ordningen med de tre närmaste före och efter, antalet raderade poster mellan dem, och om filens tid går
+  bakåt mot filen före den i ordningen (mer än 2 s): då är filens tid inte när den kom in.
+- Labbtelefonen (Samsung A33, Android 16): 92 rader i `files`, F-Droid nedladdad från f-droid.org med Samsungs
+  webbläsare, tio raderade poster, och kamerabilden 20261106_145905.jpg nummer 675 efter två Molly-säkerhetskopior.
+
 ### Samsungs loggar
 
 `tools/provenance/samsung-logs.js` läser tre textfiler som bara finns på Samsung. `addSamsungLogs` i `script.js` läser filerna en gång per extraktion (`state.zip.samsungCache`) och lägger raderna i samma listor som usagestats och appops. Allt är kontrollerat på en telefon (SM-A336B, Android 16): först en rapport, sedan en zip från en loggad session (`tests/app/facit/lab-samsung-a33.json`, `FT_LAB_SAMSUNG_ZIP`).

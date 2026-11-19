@@ -71,6 +71,56 @@
           "description": "Bilder och video som lades till eller togs mellan två tidpunkter."
         },
         {
+          "id": "downloads",
+          "title": "Nedladdade filer och varifrån de kom",
+          "goal": "overview",
+          "params": [],
+          "description": "Filer som en app har laddat ner (is_download = 1), med adressen filen hämtades från (download_uri) och sidan där länken fanns (referer_uri), appen som laddade ner och när. Finns från Android 10.",
+          "sql": "SELECT\n  _display_name,\n  relative_path,\n  owner_package_name,\n  download_uri,\n  referer_uri,\n  datetime(date_added, 'unixepoch', 'localtime') AS tillagd,\n  datetime(date_modified, 'unixepoch', 'localtime') AS andrad,\n  _size,\n  mime_type,\n  is_pending,\n  is_trashed,\n  _id\nFROM files\nWHERE is_download = 1\nORDER BY date_added DESC;"
+        },
+        {
+          "id": "generation-order",
+          "title": "Ordningen filerna kom in (generation_added)",
+          "goal": "timeline",
+          "params": [],
+          "description": "Alla bilder, videor och nedladdningar i den ordning MediaStore registrerade dem. generation_added är en räknare som bara ökar och inte följer klockan, så en fil vars tid går bakåt mot filen innan (tid_bakat = 1) har en tid som inte stämmer med ordningen: ändrad klocka, en fil som kopierats in med gammal tid, eller en tid i filen. Finns från Android 11.",
+          "sql": "SELECT\n  generation_added,\n  generation_modified,\n  _display_name,\n  relative_path,\n  owner_package_name,\n  datetime(date_added, 'unixepoch', 'localtime') AS tillagd,\n  CASE WHEN datetaken > 1000000000000 THEN datetime(datetaken / 1000, 'unixepoch', 'localtime') WHEN datetaken > 0 THEN datetime(datetaken, 'unixepoch', 'localtime') END AS tagen,\n  CASE WHEN date_added < lag(date_added) OVER (ORDER BY generation_added) THEN 1 ELSE 0 END AS tid_bakat,\n  is_download,\n  is_trashed,\n  _id\nFROM files\nWHERE media_type IN (1, 3) OR is_download = 1\nORDER BY generation_added;"
+        },
+        {
+          "id": "generation-neighbours",
+          "title": "Filerna före och efter en fil i ordningen",
+          "goal": "filename",
+          "params": [
+            "filename"
+          ],
+          "description": "De tio filerna som MediaStore registrerade närmast före och efter filen (generation_added), oavsett klocka och mapp, och raderade poster mellan dem. Visar vad som hände runt filen: en bild sparad ur en app strax efter en skärmdump, en nedladdning, en kopia. deleted_files finns från Android 14; i en äldre databas ger frågan fel, och då visar Ordningen filerna kom in samma sak utan de raderade.",
+          "sql": "WITH f AS (SELECT generation_added AS g FROM files WHERE _display_name = '{{filename}}' ORDER BY generation_added LIMIT 1),\n  c AS (SELECT generation_added, _display_name, relative_path, owner_package_name, datetime(date_added, 'unixepoch', 'localtime') AS tillagd, is_download, download_uri, _id\n        FROM files WHERE media_type IN (1, 3) OR is_download = 1 OR _display_name = '{{filename}}'),\n  n AS (\n    SELECT * FROM (SELECT c.*, 'före' AS markering FROM c, f WHERE generation_added < f.g ORDER BY generation_added DESC LIMIT 10)\n    UNION ALL SELECT c.*, 'filen' FROM c, f WHERE generation_added = f.g\n    UNION ALL SELECT * FROM (SELECT c.*, 'efter' FROM c, f WHERE generation_added > f.g ORDER BY generation_added LIMIT 10))\nSELECT generation_added, _display_name, relative_path, owner_package_name, tillagd, markering, is_download, download_uri, _id FROM n\nUNION ALL\nSELECT deleted_generation, '(raderad post ' || _id || ')', NULL, NULL, NULL, 'raderad', NULL, NULL, _id FROM deleted_files\nWHERE deleted_generation BETWEEN (SELECT min(generation_added) FROM n) AND (SELECT max(generation_added) FROM n)\nORDER BY 1;"
+        },
+        {
+          "id": "deleted",
+          "title": "Raderade poster (deleted_files och deleted_media)",
+          "goal": "overview",
+          "params": [],
+          "description": "Poster som tagits bort ur MediaStore, med räknaren när de togs bort och filerna som registrerades närmast före. Namnet på den raderade filen sparas inte, bara id och mediatyp (0 fil, 1 bild, 3 video). deleted_files finns från Android 14, deleted_media från Android 12.",
+          "sql": "SELECT\n  d.deleted_generation AS borttagen_vid,\n  d._id AS raderat_id,\n  CASE d.media_type WHEN 1 THEN 'bild' WHEN 3 THEN 'video' WHEN 2 THEN 'ljud' WHEN 0 THEN 'fil' ELSE d.media_type END AS typ,\n  (SELECT _display_name FROM files WHERE generation_added <= d.deleted_generation ORDER BY generation_added DESC LIMIT 1) AS senast_tillagd_fore,\n  (SELECT datetime(date_added, 'unixepoch', 'localtime') FROM files WHERE generation_added <= d.deleted_generation ORDER BY generation_added DESC LIMIT 1) AS den_tillagd,\n  'deleted_files' AS tabell\nFROM deleted_files d\nUNION ALL\nSELECT m.generation_modified, m.old_id, NULL,\n  (SELECT _display_name FROM files WHERE generation_added <= m.generation_modified ORDER BY generation_added DESC LIMIT 1),\n  (SELECT datetime(date_added, 'unixepoch', 'localtime') FROM files WHERE generation_added <= m.generation_modified ORDER BY generation_added DESC LIMIT 1),\n  'deleted_media'\nFROM deleted_media m\nORDER BY 1;"
+        },
+        {
+          "id": "trash",
+          "title": "Papperskorgen med utgångsdatum",
+          "goal": "overview",
+          "params": [],
+          "description": "Filer i papperskorgen (is_trashed = 1) med när de rensas automatiskt (date_expires), sökvägen och appen som äger filen. Finns från Android 11.",
+          "sql": "SELECT\n  _display_name,\n  _data,\n  owner_package_name,\n  datetime(date_added, 'unixepoch', 'localtime') AS tillagd,\n  datetime(date_modified, 'unixepoch', 'localtime') AS flyttad_till_papperskorgen,\n  datetime(date_expires, 'unixepoch', 'localtime') AS rensas,\n  _size,\n  _id\nFROM files\nWHERE is_trashed = 1\nORDER BY date_modified DESC;"
+        },
+        {
+          "id": "xmp",
+          "title": "XMP i bilderna (redigering och ursprung)",
+          "goal": "overview",
+          "params": [],
+          "description": "Bilder och videor där MediaStore har sparat XMP ur filen: programmet som skapade eller redigerade den (CreatorTool), dokumentets id och historik. Texten visas i början; hela XMP står i kolumnen xmp.",
+          "sql": "SELECT\n  _display_name,\n  relative_path,\n  owner_package_name,\n  length(xmp) AS xmp_byte,\n  substr(CAST(xmp AS TEXT), instr(CAST(xmp AS TEXT), 'CreatorTool'), 80) AS creator_tool,\n  substr(CAST(xmp AS TEXT), 1, 300) AS xmp_borjan,\n  _id\nFROM files\nWHERE xmp IS NOT NULL AND length(xmp) > 0\nORDER BY date_added DESC;"
+        },
+        {
           "id": "schema-probe",
           "title": "Hjälp: lista tabellerna i databasen",
           "goal": "probe",
@@ -180,6 +230,31 @@
             "trashed": "is_trashed"
           },
           "sql": "SELECT\n  _id,\n  _display_name,\n  relative_path,\n  bucket_display_name,\n  owner_package_name,\n  media_type,\n  datetaken,\n  date_added,\n  is_favorite,\n  is_trashed\nFROM files\nWHERE media_type IN (1, 3)\nORDER BY COALESCE(datetaken, date_added * 1000);"
+        },
+        {
+          "id": "role-media-origin",
+          "hidden": true,
+          "role": "media-origin",
+          "title": "Härkomst: var filen kom ifrån och dess plats i ordningen",
+          "description": "Används av Härkomst. Filens nedladdningsadress (download_uri, referer_uri) och räknarna generation_added och generation_modified, med de sex filerna närmast före och efter i ordningen. En egen fråga, så att en äldre databas utan kolumnerna inte stoppar något annat.",
+          "params": [
+            "filename"
+          ],
+          "epoch": "unixS",
+          "fields": {
+            "pk": "_id",
+            "filename": "_display_name",
+            "relativePath": "relative_path",
+            "importer": "owner_package_name",
+            "added": "date_added",
+            "generation": "generation_added",
+            "generationModified": "generation_modified",
+            "isDownload": "is_download",
+            "downloadUri": "download_uri",
+            "refererUri": "referer_uri",
+            "mark": "markering"
+          },
+          "sql": "WITH f AS (SELECT generation_added AS g FROM files WHERE _display_name = '{{filename}}' ORDER BY generation_added LIMIT 1),\n  c AS (SELECT _id, _display_name, relative_path, owner_package_name, date_added, generation_added, generation_modified, is_download, download_uri, referer_uri FROM files WHERE media_type IN (1, 3) OR is_download = 1 OR _display_name = '{{filename}}')\nSELECT * FROM (SELECT c.*, 'före' AS markering FROM c, f WHERE generation_added < f.g ORDER BY generation_added DESC LIMIT 6)\nUNION ALL SELECT c.*, 'filen' FROM c, f WHERE generation_added = f.g\nUNION ALL SELECT * FROM (SELECT c.*, 'efter' FROM c, f WHERE generation_added > f.g ORDER BY generation_added LIMIT 6)\nORDER BY generation_added;"
         }
       ]
     },

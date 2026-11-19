@@ -528,7 +528,7 @@
         }
         (input.locations || []).forEach(function (p) {
             add({ ms: p.ms, kind: 'location', lane: 'location', lat: p.lat, lon: p.lon, accuracy: p.accuracy, locType: p.type,
-                text: 'Position ' + p.lat.toFixed(5) + ', ' + p.lon.toFixed(5) + ' (±' + Math.round(p.accuracy) + ' m, ' + (p.type === 1 ? 'GNSS' : p.type === 4 ? 'Wi-Fi' : 'typ ' + p.type) + ')',
+                text: 'Position ' + p.lat.toFixed(5) + ', ' + p.lon.toFixed(5) + ' (±' + Math.round(p.accuracy) + ' m, ' + (p.typeText || (p.type === 1 ? 'GNSS' : p.type === 4 ? 'Wi-Fi' : 'typ ' + p.type)) + ')',
                 plain: null, source: p.source || input.locationSource });
         });
 
@@ -1091,7 +1091,7 @@
         }
         (input.locations || []).forEach(function (l) {
             out.push({ kind: 'phone', ms: l.ms, lat: l.lat, lon: l.lon, accuracy: l.accuracy, locType: l.type,
-                label: 'Telefonen (' + (l.type === 1 ? 'GNSS' : l.type === 4 ? 'Wi-Fi' : 'typ ' + l.type) + ')', source: l.source || input.locationSource || null });
+                label: 'Telefonen (' + (l.typeText || (l.type === 1 ? 'GNSS' : l.type === 4 ? 'Wi-Fi' : 'typ ' + l.type)) + ')', source: l.source || input.locationSource || null });
         });
         out.forEach(function (p) {
             p.distanceM = filePos && p.kind === 'phone' ? distanceM(filePos, p) : ((p.kind === 'exif' || p.kind === 'memory') && out[0].kind === 'file' ? distanceM(out[0], p) : null);
@@ -1870,6 +1870,30 @@
             plain: 'Telefonen gick ner ' + formatUtc(s.startMs) + ', och det går inte att säga när den startade igen. Den kan ha varit avstängd vid den här tiden.' };
     }
 
+    // Sammanhanget i Androids bildbibliotek (MediaStore): varifrån filen laddades ner (download_uri, referer_uri) och
+    // filerna som registrerades närmast före och efter den. generation_added är en räknare som bara ökar och inte
+    // följer klockan, så ordningen gäller också när en tid är fel. Bara en upplysning: den väger inte åt något håll,
+    // men en tid som går bakåt mot filen före säger att filens tid inte är när den kom in.
+    function factorContext(input) {
+        var o = input.origin;
+        if (!o || o.generation == null) return null;
+        var items = [], fmt = input.format || formatUtc;
+        var name = function (r) { return r.filename + ' (' + [r.app ? appName(r.app, input.appNames) : '', r.addedMs != null ? fmt(r.addedMs) : ''].filter(Boolean).join(', ') + ')'; };
+        if (o.download) {
+            items.push({ state: 'info', text: 'Filen laddades ner' + (o.download.uri ? ' från ' + o.download.uri : '') + (o.download.referer ? ', från sidan ' + o.download.referer : '') +
+                (o.download.app ? ', av ' + appName(o.download.app, input.appNames) : '') + ' (is_download, download_uri, referer_uri).', source: o.source });
+        }
+        var near = function (list, word) {
+            return list.length ? word + ': ' + list.map(name).join('; ') + '.' : '';
+        };
+        items.push({ state: 'info', text: 'Filen är nummer ' + o.generation + ' i bildbibliotekets ordning (generation_added). ' +
+            [near(o.before.slice(-3).reverse(), 'Närmast före'), near(o.after.slice(0, 3), 'Närmast efter')].filter(Boolean).join(' ') +
+            (o.deleted ? ' Mellan dem togs ' + o.deleted + (o.deleted === 1 ? ' post' : ' poster') + ' bort.' : ''), source: o.source });
+        if (o.timeBack) items.push({ state: 'info', text: 'Filen lades till ' + fmt(o.addedMs) + ', före ' + o.timeBack.filename + ' som kom in före den i ordningen (' + fmt(o.timeBack.addedMs) + '). Räknaren följer inte klockan, så filens tid är inte när den kom in: en ändrad klocka, eller en fil som fick en gammal tid när den kopierades in.', source: o.source });
+        return { id: 'context', title: 'Sammanhang i bildbiblioteket', state: 'info', verdictText: o.timeBack ? 'Tiden går emot ordningen' : o.download ? 'Nedladdad' : 'Upplysning', items: items,
+            plain: o.download ? 'Filen laddades ner' + (o.download.uri ? ' från ' + o.download.uri : '') + '.' : 'Filerna som kom in i bildbiblioteket strax före och efter visar vad som hände runt filen.' };
+    }
+
     function factorScreen(input, events, type) {
         var T = input.file.createdMs;
         var on = events.filter(function (e) { return e.kind === 'screen' && covers(e, T); });
@@ -2069,6 +2093,8 @@
             var fPower = factorPower(input, type);
             reinstalled(input, type, [fApp, fCam]);
             factors = [fTime].concat(fPower ? [fPower] : [], [fApp, fCam, fScreen, fPos]);
+            var fContext = factorContext(input);
+            if (fContext) factors.push(fContext);
             if (input.signal) factors.push(factorSignal(input, type));
             if (input.whatsapp) factors.push(factorWhatsApp(input, type));
             if (input.telegram) factors.push(factorTelegram(input, type));
@@ -2129,6 +2155,7 @@
         'Signal': { q: 'Finns filen bland Signals bilagor, och vad hände med den i Signal?', support: 'Bilaga ur Signal', contradiction: 'Togs emot i Signal', info: 'Upplysning', missing: 'Hittas inte' },
         'Telegram': { q: 'Hör filen till ett meddelande i Telegram, och vad hände med den där?', support: 'Fil ur Telegram', contradiction: 'Togs emot i Telegram', info: 'Upplysning', missing: 'Hittas inte' },
         'Telegrams kamera': { q: 'Togs filen med Telegrams kamera på den här telefonen?', support: 'Telegrams kamera', info: 'Upplysning', missing: 'Inte registrerat' },
+        'Sammanhang i bildbiblioteket': { q: 'Varifrån kom filen, och vad kom in i bildbiblioteket strax före och efter den?', info: 'Upplysning' },
         'WhatsApp': { q: 'Finns filen bland WhatsApps mediefiler, och vad hände med den i WhatsApp?', support: 'Fil ur WhatsApp', contradiction: 'Togs emot i WhatsApp', info: 'Upplysning', missing: 'Hittas inte' },
     };
 
@@ -2171,7 +2198,7 @@
         buildEvents: buildEvents, narrative: narrative, build: build, summaryText: summaryText, hypothesis: hypothesis, FACTOR_WORDS: FACTOR_WORDS,
         formatWithOffset: formatWithOffset, formatUtc: formatUtc, duration: duration, appName: appName, isCameraApp: isCameraApp, covers: covers,
         positions: positions, distanceM: distanceM, metres: metres, validCoord: validCoord, inWindows: inWindows, activityAt: activityAt,
-        snapOrigin: snapOrigin, SNAPCHAT: SNAPCHAT, SNAPCHAT_ANDROID: SNAPCHAT_ANDROID, SIGNAL_ANDROID: SIGNAL_ANDROID, SIGNAL_IOS: SIGNAL_IOS, WHATSAPP: WHATSAPP, TELEGRAM: TELEGRAM, WHATSAPP_ANDROID: WHATSAPP_ANDROID, TELEGRAM_ANDROID: TELEGRAM_ANDROID, isSnapchatApp: isSnapchatApp, logInfo: logInfo, factorSignal: factorSignal, factorWhatsApp: factorWhatsApp, factorTelegram: factorTelegram, factorTelegramCamera: factorTelegramCamera,
+        snapOrigin: snapOrigin, SNAPCHAT: SNAPCHAT, SNAPCHAT_ANDROID: SNAPCHAT_ANDROID, SIGNAL_ANDROID: SIGNAL_ANDROID, SIGNAL_IOS: SIGNAL_IOS, WHATSAPP: WHATSAPP, TELEGRAM: TELEGRAM, WHATSAPP_ANDROID: WHATSAPP_ANDROID, TELEGRAM_ANDROID: TELEGRAM_ANDROID, isSnapchatApp: isSnapchatApp, logInfo: logInfo, factorSignal: factorSignal, factorWhatsApp: factorWhatsApp, factorContext: factorContext, factorTelegram: factorTelegram, factorTelegramCamera: factorTelegramCamera,
         STATE_LABEL: STATE_LABEL, TOLERANCE_MS: TOLERANCE_MS, SAME_TIME_MS: SAME_TIME_MS, LATE_MS: LATE_MS,
     };
     if (typeof module !== 'undefined' && module.exports) module.exports = api;

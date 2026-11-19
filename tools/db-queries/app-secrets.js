@@ -17,6 +17,10 @@
     var SIGNAL = 'org.thoughtcrime.securesms';
     var SIGNAL_IOS = 'org.whispersystems.signal';
     var SNAPCHAT_IOS = 'com.toyopagroup.picaboo';
+    // Samsungs Rubin: secrets.json har två nycklar, Logging (inferenceengine_logging.db) och Monitoring
+    // (inferenceengine_monitoring.db), som 512 hextecken.
+    var RUBIN = 'com.samsung.android.rubin.app';
+    var RUBIN_KEYS = { 'rubin-logging': 'Logging', 'rubin-monitoring': 'Monitoring' };
     var SECRETS_RE = /(^|\/)extra\/Secrets\/secrets\.json$/;
     var HEX64 = /^[0-9a-f]{64}$/i;
     var HEX96 = /^[0-9a-f]{96}$/i;
@@ -100,6 +104,11 @@
                 Object.keys(p).forEach(function (k) {
                     var v = p[k];
                     if (/sqlite db key/i.test(k) && typeof v === 'string' && HEX64.test(v.trim())) appEntry(out, item.app).dbKey = v.trim().toLowerCase();
+                    else if (item.app === RUBIN && /^(Logging|Monitoring)$/.test(k) && typeof v === 'string' && /^[0-9a-f]{64,}$/i.test(v.trim())) {
+                        var re = appEntry(out, RUBIN);
+                        re.named = re.named || {};
+                        re.named[k] = v.trim().toLowerCase();
+                    }
                     else if (/attachment key/i.test(k)) { var mk = modernKeyOf(v); if (mk) appEntry(out, item.app).modernKey = mk; }
                 });
             });
@@ -425,6 +434,14 @@
     // Nycklarna för en databas efter dess SQLCipher-profil i katalogen ('signal', 'signal-ios' eller 'snapchat-gallery').
     // Snapchats nyckel tas bara ur nyckelfilerna: en inklistrad nyckel är Signals.
     function keysForProfile(found, profile) {
+        if (RUBIN_KEYS[profile]) {
+            var name = RUBIN_KEYS[profile], hit = null;
+            (found || []).forEach(function (f) {
+                var a = f && f.apps && f.apps[RUBIN];
+                if (!hit && a && a.named && a.named[name]) hit = { dbKey: a.named[name], modernKey: null, source: f.source, modernSource: null };
+            });
+            return hit;
+        }
         if (profile === 'snapchat-gallery') return signalKeys((found || []).filter(function (f) { return f && f.apps; }), SNAPCHAT_IOS);
         return signalKeys(found, profile === 'signal-ios' ? SIGNAL_IOS : SIGNAL);
     }
@@ -437,6 +454,7 @@
 
     // Var nyckeln saknas, för felet när den inte hittas.
     function keyHint(profile) {
+        if (RUBIN_KEYS[profile]) return 'nyckelfilen secrets.json (Rubins nyckel ' + RUBIN_KEYS[profile] + ')';
         return profile === 'signal-ios' || profile === 'snapchat-gallery' ? 'nyckelringen (…_keychain.plist)' : 'nyckelfilen (…_android_keystore.zip eller secrets.json)';
     }
 

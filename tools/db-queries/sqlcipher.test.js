@@ -371,3 +371,31 @@ test('Snapchats Memories på iOS: rå nyckel på 32 byte, sidor på 1024, och in
     // Signals profiler rör inte indexens namn.
     assert.strictEqual(sc.PROFILES.signal.renamedIndexes, undefined);
 });
+
+test('Samsungs Rubin: lösenordet är hextecken som används som byte, PBKDF2 i 4000 varv, och nyckeln hittas i secrets.json', async () => {
+    const S = await sqlJs();
+    const secrets = require('./app-secrets');
+    const hex = crypto.randomBytes(256).toString('hex');
+    const salt = crypto.randomBytes(16);
+    // Krypterad här med Nodes crypto och Rubins inställningar, oberoende av modulen.
+    const key = crypto.pbkdf2Sync(Buffer.from(hex, 'hex'), salt, 4000, 32, 'sha1');
+    const macKey = crypto.pbkdf2Sync(key, Buffer.from(salt.map((b) => b ^ 0x3a)), 2, 32, 'sha1');
+    const plain = await makeDb(30);
+    const pages = [];
+    for (let p = 1; p * PAGE <= plain.length; p++) pages.push(builder.encryptPage({ key, macKey }, plain.subarray((p - 1) * PAGE, p * PAGE), p, salt));
+    const enc = new Uint8Array(Buffer.concat(pages));
+    const found = secrets.fromSecretsFile(Buffer.from(JSON.stringify([
+        { app: 'com.samsung.android.rubin.app', script_title: 'Samsung Rubin extraction', script_output: [{ payload: { Monitoring: crypto.randomBytes(256).toString('hex') } }, { payload: { Logging: hex } }] },
+    ])), 'extra/Secrets/secrets.json');
+    const k = secrets.keysForProfile([found], 'rubin-logging');
+    assert.deepStrictEqual([k.dbKey, k.source], [hex, 'extra/Secrets/secrets.json']);
+    assert.strictEqual(secrets.keysForProfile([found], 'signal'), null, 'Rubins nycklar är inte Signals');
+    assert.match(secrets.keyHint('rubin-monitoring'), /secrets\.json \(Rubins nyckel Monitoring\)/);
+    const r = sc.open(enc, null, k.dbKey, 'rubin-logging', wal);
+    assert.strictEqual(r.stats.cipher.badHmac, 0);
+    const db = new S.Database(r.bytes);
+    assert.strictEqual(db.exec('SELECT count(*) FROM message')[0].values[0][0], 30);
+    db.close();
+    // Samma hex som text (som Signals lösenord) ger fel nyckel.
+    assert.throws(() => sc.open(enc, null, secrets.keysForProfile([found], 'rubin-monitoring').dbKey, 'rubin-logging', wal), /Nyckeln passar inte/);
+});

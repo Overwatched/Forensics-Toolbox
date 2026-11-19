@@ -233,4 +233,4 @@ function encryptSnapGallery(plain, raw, salt) {
     return new Uint8Array(Buffer.concat(pages));
 }
 
-module.exports = { sqlJs, PAGE, makeDb, encryptDb, encryptedWal, makeDbIos, encryptDbIos, encryptedWalIos, makeSnapGallery, encryptSnapGallery };
+module.exports = { sqlJs, PAGE, makeDb, encryptDb, encryptPage, encryptedWal, makeDbIos, encryptDbIos, encryptedWalIos, makeSnapGallery, encryptSnapGallery };

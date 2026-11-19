@@ -9,7 +9,9 @@ Automatiskt byggd från commit `{{SHA}}`.
 - **Låsskärmen** visar notiserna: Androids notishistorik med titel och text, och på iPhone appen, titeln och tiden ur Biome.
 - **Bilder** har album och urval som i telefonen: egna album (på Android mapparna), videor, skärmdumpar, favoriter, bilderna som en app sparade (till exempel Snapchat), dolda och Nyligen raderade.
 - **Inställningar** visar telefonens namn, version och modell, telefonnummer och SIM, kända Wi-Fi-nät med tider, Bluetooth, konton och lägen som flygplansläge och USB-felsökning. Varje rad säger vilken fil och vilket fält den kommer ur. Wi-Fi-lösenord visas inte.
-- **Provat:** enhetstesterna och röktestet i appen, och tre riktiga extraktioner (iPhone med iOS 26, Samsung A33 och Pixel 9a med Android 16). Andra märkens hemskärm är inte provad; utan en känd fil visas apparna med data.
+- **Samsungs Rubin** läses i Queries och Härkomst. Två av Rubins databaser dekrypteras med nycklarna i secrets.json: loggen med appar i förgrunden, skärmen, ändrade inställningar (flygplansläge, Wi-Fi, Bluetooth, plats), positioner, Wi-Fi- och Bluetooth-anslutningar, laddning och rörelse, och Rubins slutsatser om hemma, borta och platser. I Härkomst blir Rubins positioner en del av faktorn Position och apparna en del av App igång.
+- **MediaStore säger mer om en bild på Android:** varifrån en nedladdad fil hämtades (adressen och sidan), i vilken ordning filerna kom in oberoende av klockan, vilka poster som raderats, papperskorgen med utgångsdatum och XMP. Härkomst har en ny upplysning, Sammanhang i bildbiblioteket: nedladdningen, filerna närmast före och efter, och om filens tid går emot ordningen.
+- **Provat:** enhetstesterna och röktestet i appen, och tre riktiga extraktioner (iPhone med iOS 26, Samsung A33 och Pixel 9a med Android 16). Samsung-labbets facit ger samma svar med Rubin. Andra märkens hemskärm är inte provad; utan en känd fil visas apparna med data.
 
 ## Nytt i 1.77
 

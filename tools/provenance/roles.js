@@ -88,7 +88,7 @@
         // (derive), och lagringsdatabasen är en egen källa. WhatsApp och Telegram (beta) på Android är okrypterade:
         // msgstore.db och wa.db under data/data/com.whatsapp, cache4.db under data/data/org.telegram.messenger.
         [[catalogs.signalAndroid, 'Android'], [catalogs.signalIos, 'iOS'], [catalogs.whatsappIos, 'iOS'], [catalogs.telegramIos, 'iOS'],
-            [catalogs.whatsappAndroid, 'Android'], [catalogs.telegramAndroid, 'Android']].forEach(function (pair) {
+            [catalogs.whatsappAndroid, 'Android'], [catalogs.telegramAndroid, 'Android'], [catalogs.samsungAndroid, 'Android']].forEach(function (pair) {
             ((pair[0] || {}).databases || []).forEach(function (db) {
                 var roles = roleMap(db.queries);
                 if (!Object.keys(roles).length) return;

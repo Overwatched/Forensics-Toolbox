@@ -1383,3 +1383,24 @@ test('Biome App.InFocus: skälet till att appen saknas nämner också Biomes tä
     assert.strictEqual(app.state, 'missing');
     assert.match(app.items[0].text, /utanför knowledgeC:s täckning .* Tidpunkten ligger också utanför täckningen i Biome App\.InFocus/);
 });
+
+test('sammanhanget i MediaStore: nedladdningen, filerna före och efter i ordningen, och en tid som går emot ordningen', () => {
+    const src = { db: 'external.db', table: 'files', column: 'generation_added, download_uri, referer_uri', queryId: 'role-media-origin' };
+    const fmt = (ms) => new Date(ms).toISOString().slice(0, 19).replace('T', ' ');
+    const row = (name, app, ms, g) => ({ filename: name, app, addedMs: ms, generation: g, download: false });
+    const before = [row('Snapchat-1.jpg', 'com.snapchat.android', T - 10 * M, 102)];
+    const after = [row('20251204_1.jpg', 'com.sec.android.app.camera', T + M, 134)];
+    assert.strictEqual(core.factorContext({ origin: null }), null);
+    const plain = core.factorContext({ format: fmt, appNames: names, origin: { generation: 108, addedMs: T, download: null, before, after, deleted: 2, timeBack: null, source: src } });
+    assert.deepStrictEqual([plain.id, plain.state, plain.verdictText], ['context', 'info', 'Upplysning']);
+    assert.match(plain.items[0].text, /^Filen är nummer 108 i bildbibliotekets ordning \(generation_added\)\. Närmast före: Snapchat-1\.jpg \(com\.snapchat\.android, 2025-09-24 12:21:09\)\. Närmast efter: 20251204_1\.jpg \(com\.sec\.android\.app\.camera, 2025-09-24 12:32:09\)\. Mellan dem togs 2 poster bort\.$/);
+    assert.strictEqual(plain.items[0].source, src);
+    const down = core.factorContext({ format: fmt, appNames: names, origin: { generation: 67, addedMs: T, download: { uri: 'https://f-droid.org/F-Droid.apk', referer: 'https://f-droid.org/', app: 'com.sec.android.app.sbrowser' }, before: [], after: [], deleted: 0, timeBack: null, source: src } });
+    assert.strictEqual(down.verdictText, 'Nedladdad');
+    assert.match(down.items[0].text, /^Filen laddades ner från https:\/\/f-droid\.org\/F-Droid\.apk, från sidan https:\/\/f-droid\.org\/, av com\.sec\.android\.app\.sbrowser/);
+    const back = core.factorContext({ format: fmt, appNames: names, origin: { generation: 109, addedMs: T - 3 * 86400000, download: null, before, after: [], deleted: 0, timeBack: before[0], source: src } });
+    assert.strictEqual(back.verdictText, 'Tiden går emot ordningen');
+    assert.match(back.items[1].text, /före Snapchat-1\.jpg som kom in före den i ordningen/);
+    // Sammanhanget är bara en upplysning och väger inte i sammanvägningen.
+    assert.strictEqual(core.summaryText({ type: 'camera' }, [plain], names), core.summaryText({ type: 'camera' }, [], names));
+});

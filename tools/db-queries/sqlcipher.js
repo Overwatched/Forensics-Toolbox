@@ -25,6 +25,12 @@
         signal: { id: 'signal', label: 'Signal', settings: 'Signals inställningar', pageSize: 4096, kdf: 'sha1', kdfIter: 1, hmac: 'sha1', hmacLen: 20, fastIter: 2, saltMask: 0x3a, keyIsHex: true },
         'signal-ios': { id: 'signal-ios', label: 'Signal (iOS)', settings: 'Signals inställningar på iOS', pageSize: 4096, rawKey: true, kdf: 'sha512', hmac: 'sha512', hmacLen: 64, fastIter: 2, saltMask: 0x3a, header: 32 },
         'snapchat-gallery': { id: 'snapchat-gallery', label: 'Snapchat Memories (iOS)', settings: 'Snapchats inställningar för Memories på iOS', pageSize: 1024, rawKey: true, kdf: 'sha1', hmac: 'sha1', hmacLen: 20, fastIter: 2, saltMask: 0x3a, renamedIndexes: true },
+        // Samsungs Rubin: SQLCipher 2 (PBKDF2-HMAC-SHA1 i 4000 varv, HMAC-SHA1, sidor på 4096 byte). Lösenordet är
+        // värdet Logging eller Monitoring i secrets.json, 256 byte som hex, och används som byte. Kontrollerat mot
+        // Samsung A33 (Android 16, 2026-11-19): HMAC stämde för alla sidor i inferenceengine_logging.db och
+        // inferenceengine_monitoring.db. Rubins andra databaser har andra nycklar.
+        'rubin-logging': { id: 'rubin-logging', label: 'Samsung Rubin (Logging)', settings: 'Rubins nyckel Logging', pageSize: 4096, kdf: 'sha1', kdfIter: 4000, hmac: 'sha1', hmacLen: 20, fastIter: 2, saltMask: 0x3a, passIsHex: true },
+        'rubin-monitoring': { id: 'rubin-monitoring', label: 'Samsung Rubin (Monitoring)', settings: 'Rubins nyckel Monitoring', pageSize: 4096, kdf: 'sha1', kdfIter: 4000, hmac: 'sha1', hmacLen: 20, fastIter: 2, saltMask: 0x3a, passIsHex: true },
     };
     var BTREE_PAGE_TYPES = [2, 5, 10, 13];
     var HEADER = 'SQLite format 3\u0000';
@@ -300,7 +306,7 @@
             key = raw.slice(0, 32);
         } else {
             salt = db.subarray(0, 16);
-            key = pbkdf2(profile.kdf, utf8(String(passphrase)), salt, profile.kdfIter, 32);
+            key = pbkdf2(profile.kdf, profile.passIsHex ? hexToBytes(String(passphrase).trim()) : utf8(String(passphrase)), salt, profile.kdfIter, 32);
         }
         var macSalt = new Uint8Array(16);
         for (var i = 0; i < 16; i++) macSalt[i] = salt[i] ^ profile.saltMask;

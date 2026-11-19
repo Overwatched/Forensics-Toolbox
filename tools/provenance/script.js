@@ -1645,6 +1645,10 @@
             try { input.snapchatSetting = await snapSaveSetting(run); } catch (e) { console.warn('Inställningen kunde inte läsas', e); }
         }
         if (platform === 'Android') {
+            // Sammanhanget i MediaStore: nedladdningen och filerna före och efter i ordningen (role-media-origin).
+            if (!run.mediaEntry) {
+                try { input.origin = await mediaOrigin(fileRow, run); } catch (e) { console.warn('Sammanhanget i MediaStore kunde inte läsas', e); }
+            }
             // Snapchats inställning Spara till, för filer från Snapchat: den säger om en kopia i galleriet kommer av sig själv.
             if (fileRow.memory || fileRow.memoryImports || fileRow.snapchatCache || ProvenanceSnapchat.isSnapchatApp(fileRow.importer)) {
                 try { input.snapchatSetting = await snapSaveSetting(run); } catch (e) { console.warn('Inställningen kunde inte läsas', e); }
@@ -1959,6 +1963,9 @@
             // Samsungs egna loggar (SSRM och batterihistoriken) räcker längre bakåt.
             try { await addSamsungLogs(input, meta, wins, run); }
             catch (e) { input.warnings.push('Samsungs loggar kunde inte läsas: ' + e.message); console.warn(e); }
+            // Samsungs Rubin: positioner och appar i förgrunden ur inferenceengine_logging.db (krypterad).
+            try { await addRubin(input, meta, range, wins, run); }
+            catch (e) { input.warnings.push('Rubin (inferenceengine_logging.db) kunde inte läsas: ' + e.message); console.warn(e); }
         }
 
         // Snapchats egna register (beta): cachade filer, meddelanden, konton, notiser, Memories och på Android
@@ -2244,6 +2251,47 @@
     // SSRM och batterihistoriken till samma app-, skärm- och kamerarader som usagestats och appops. Raderna som inte går
     // att lita på i tiden står i logUnsure. Bilagan får en pseudoquery per logg med filerna och råraderna i fönstret.
     // eRR.p, med batterihistoriken och SSRM, ger telefonens läge (input.power): avstängd, inte upplåst sedan start eller igång.
+    // Samsungs Rubin (Customization Service): positionerna i location_log och apparna i förgrunden i app_usage, i
+    // fönstret. Databasen är krypterad med SQLCipher och Rubins nyckel Logging ur secrets.json. Utan nyckel sägs det
+    // bland varningarna. Rubin rensar gamla rader, så luckor är vanliga.
+    async function addRubin(input, meta, range, wins, run) {
+        var hit = hitFor('samsung-rubin-logging');
+        var src = sourceByKey('samsung-rubin-logging');
+        if (!hit || !src || !range) return;
+        var keys = AppSecrets.keysForProfile(chosenKeys().concat((state.zip && state.zip.secrets) || []), src.cipher);
+        if (!keys || !keys.dbKey) {
+            input.warnings.push('Rubins logg (inferenceengine_logging.db) finns, men nyckeln saknas: ' + AppSecrets.keyHint(src.cipher) + '. Utan den läses inte Rubins positioner och appar.');
+            input.missingDbs.rubin = 'unread';
+            return;
+        }
+        var db = await loadDb(hit, src.title, { profile: src.cipher, passphrase: keys.dbKey, source: keys.source, hint: AppSecrets.keyHint(src.cipher) });
+        var fmtU = ProvenanceCore.formatUtc;
+        if (src.roles.location) {
+            var locSource = { db: 'inferenceengine_logging.db', table: 'location_log', column: 'time, latitude, longitude, accuracy, provider', queryId: src.roles.location.id };
+            runRole(db, src.roles.location, { window: range }, ['time'], run).rows.forEach(function (r) {
+                if (r.timeMs == null || !ProvenanceCore.inWindows(r.timeMs, wins)) return;
+                input.locations.push({ ms: r.timeMs, lat: Number(r.latitude), lon: Number(r.longitude), accuracy: Number(r.accuracy), type: null,
+                    typeText: 'Rubin, ' + (r.provider || 'okänd källa'), source: locSource });
+            });
+        }
+        if (src.roles['app-usage']) {
+            var appSource = { db: 'inferenceengine_logging.db', table: 'app_usage', column: 'start_time, end_time, package_name', queryId: src.roles['app-usage'].id };
+            var apps = runRole(db, src.roles['app-usage'], { window: range }, ['start', 'end'], run).rows
+                .filter(function (r) { return r.startMs != null && r.endMs != null && r.endMs >= r.startMs; })
+                .map(function (r) { return { startMs: r.startMs, endMs: r.endMs, app: r.app, stream: 'Rubin', source: appSource }; });
+            input.appIntervals = input.appIntervals.concat(apps);
+        }
+        if (src.roles.coverage) {
+            var c = runRole(db, src.roles.coverage, {}, ['first', 'last', 'locFirst', 'locLast'], run).rows[0];
+            if (c) {
+                input.coverage.rubin = { firstMs: c.firstMs, lastMs: c.lastMs, rows: Number(c.rows) };
+                meta.coverage.push(['Rubin app_usage', c.firstMs ? fmtU(c.firstMs) : '', c.lastMs ? fmtU(c.lastMs) : '', Number(c.rows)]);
+                meta.coverage.push(['Rubin location_log', c.locFirstMs ? fmtU(c.locFirstMs) : '', c.locLastMs ? fmtU(c.locLastMs) : '', Number(c.locRows)]);
+            }
+        }
+        input.warnings = input.warnings.concat(db.warnings || []);
+    }
+
     async function addSamsungLogs(input, meta, wins, run) {
         var sam = state.zip.androidLogs && state.zip.androidLogs.samsung;
         if (!sam || (!sam.ssrm.length && !sam.battery.length && !sam.err)) return;
@@ -2558,6 +2606,36 @@
             });
         } catch (e) { console.warn('Längden för video kunde inte läsas ur MediaStore', e); }
         return z.mediaExtras;
+    }
+
+    // Filens plats i MediaStores ordning (generation_added), varifrån den laddades ner och filerna närmast före och efter.
+    // En egen roll (role-media-origin), så att en databas före Android 11 utan kolumnerna bara saknar faktorn. null utan rad.
+    async function mediaOrigin(fileRow, run) {
+        var lib = await libraryPick();
+        var role = lib && lib.roles['media-origin'];
+        if (!role || state.zip.platform !== 'Android' || !fileRow.filename) return null;
+        var db = await loadDb(lib.hit, lib.src.title);
+        var rows;
+        try { rows = runRole(db, role, { filename: fileRow.filename }, ['added'], run).rows; }
+        catch (e) { return null; }
+        var own = rows.filter(function (r) { return r.mark === 'filen' && (fileRow.pk == null || Number(r.pk) === Number(fileRow.pk)); })[0] || rows.filter(function (r) { return r.mark === 'filen'; })[0];
+        if (!own || own.generation == null) return null;
+        var row = function (r) { return { filename: String(r.filename), app: r.importer || '', addedMs: r.addedMs, generation: Number(r.generation), download: Number(r.isDownload) === 1 }; };
+        var before = rows.filter(function (r) { return r.mark === 'före'; }).map(row), after = rows.filter(function (r) { return r.mark === 'efter'; }).map(row);
+        var prev = before[before.length - 1];
+        var deleted = 0;
+        try {
+            var lo = before.length ? before[before.length - 1].generation : Number(own.generation), hi = after.length ? after[0].generation : Number(own.generation);
+            var d = db.sqlDb.exec('SELECT count(*) FROM deleted_files WHERE deleted_generation BETWEEN ' + lo + ' AND ' + hi);
+            deleted = d.length ? Number(d[0].values[0][0]) : 0;
+        } catch (e) { deleted = 0; }
+        return {
+            generation: Number(own.generation), addedMs: own.addedMs,
+            download: Number(own.isDownload) === 1 || own.downloadUri ? { uri: own.downloadUri || '', referer: own.refererUri || '', app: own.importer || '' } : null,
+            before: before, after: after, deleted: deleted,
+            timeBack: prev && prev.addedMs != null && own.addedMs != null && own.addedMs < prev.addedMs - 2000 ? prev : null,
+            source: { db: 'external.db', table: 'files', column: 'generation_added, download_uri, referer_uri', queryId: role.id },
+        };
     }
 
     // En rad i Memories som är en kopia av filen ur kamerarullen: id, när den lades in och om det var i en "featured story".
@@ -6482,9 +6560,10 @@
                 loadLocalJson('../../queries/ios/telegram/catalog.json', 'TELEGRAM_IOS_CATALOG'),
                 loadLocalJson('../../queries/android/whatsapp/catalog.json', 'WHATSAPP_ANDROID_CATALOG'),
                 loadLocalJson('../../queries/android/telegram/catalog.json', 'TELEGRAM_ANDROID_CATALOG'),
+                loadLocalJson('../../queries/android/samsung/catalog.json', 'SAMSUNG_ANDROID_CATALOG'),
             ]);
             state.sources = ProvenanceRoles.collect({ photos: cats[0], android: cats[1], appUsage: cats[2], routined: cats[3], snapchat: cats[4], snapchatAndroid: cats[5], signalAndroid: cats[6], signalIos: cats[7], whatsappIos: cats[8], telegramIos: cats[9],
-                whatsappAndroid: cats[10], telegramAndroid: cats[11] });
+                whatsappAndroid: cats[10], telegramAndroid: cats[11], samsungAndroid: cats[12] });
             state.databases = ProvenanceRoles.databases(state.sources);
             state.targets = ExtractionCore.targets(state.databases);
         } catch (err) {
