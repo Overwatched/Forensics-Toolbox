@@ -1398,7 +1398,8 @@ const scenarios = [
                 try { await Heic.toJpeg(bytes.slice(0, 60), {}); } catch (e) { bad = e.message; }
                 return { is: Heic.is(bytes), before, after: !!window.LIBHEIF_WORKER_SOURCE, ms, type: full.blob.type, full: [full.w, full.h, full.from], small: [small.w, small.h, small.from], drawn: [bmp.width, bmp.height], bad };
             })()`);
-            const standalone = await c.ev(part, `window.FT_STANDALONE === true`).catch(() => false);
+            // I en-fil-versionen är avkodaren inlagd från början. Verktygets ram har då FT_PROTOCOL (src/script.js), inte FT_STANDALONE.
+            const standalone = await c.ev(part, `window.FT_STANDALONE === true || window.FT_PROTOCOL === 'file:'`).catch(() => false);
             expect(r.is && (standalone || !r.before) && r.after && r.type === 'image/jpeg', title + ': avkodaren laddades inte som väntat: ' + JSON.stringify(r));
             expect(r.full.join() === '64,48,primary' && r.small.join() === '32,24,preview' && r.drawn.join() === '64,48', title + ': bilderna: ' + JSON.stringify(r));
             expect(/HEIC/.test(r.bad), title + ': en trasig fil gav inget fel: ' + r.bad);
