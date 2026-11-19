@@ -1370,13 +1370,27 @@
                 }
             } catch (e) { /* ingen tumnagel: bilden visas på annat sätt eller inte alls */ }
         }
-        var plan = ProvenanceMedia.previewPlan({ name: entry.name, size: entry.size, hasBytes: !!bytes, thumb: !!thumb, maxBytes: MAX_PREVIEW, word: Z() });
+        var plan = ProvenanceMedia.previewPlan({ name: entry.name, size: entry.size, hasBytes: !!bytes, thumb: !!thumb, maxBytes: MAX_PREVIEW, word: Z(), heic: !!window.Heic });
         var pv = { source: plan.source, kind: plan.kind, note: plan.note, url: null, mime: '', name: ExtractionCore.baseName(entry.name), thumbName: '' };
-        if (plan.source === 'thumbnail') {
+        if (plan.source === 'heic') {
+            // Går HEIC-filen inte att avkoda visas telefonens tumnagel, om den finns.
+            try {
+                progress('Avkodar HEIC-bilden…');
+                if (!Heic.is(bytes)) throw new Error('Filen heter .HEIC men är inte en HEIC-fil.');
+                pv.url = await Heic.url(bytes, { maxSide: 1600 });
+                pv.mime = 'image/jpeg';
+            } catch (e) {
+                var fall = ProvenanceMedia.previewPlan({ name: entry.name, size: entry.size, hasBytes: !!bytes, thumb: !!thumb, maxBytes: MAX_PREVIEW, word: Z() });
+                pv.source = fall.source;
+                pv.kind = fall.kind;
+                pv.note = 'HEIC-filen kunde inte avkodas (' + e.message + '). ' + fall.note;
+            }
+        }
+        if (pv.source === 'thumbnail') {
             pv.mime = 'image/jpeg';
             pv.url = URL.createObjectURL(new Blob([thumb.bytes], { type: pv.mime }));
             pv.thumbName = ExtractionCore.baseName(thumb.path);
-        } else if (plan.source === 'original' || plan.source === 'video') {
+        } else if (pv.source === 'original' || pv.source === 'video') {
             pv.mime = ProvenanceMedia.mimeOf(entry.name);
             pv.url = URL.createObjectURL(new Blob([bytes], { type: pv.mime }));
         }
@@ -1561,15 +1575,27 @@
     async function rowThumb(tr, thumbEntry, mediaEntry, token) {
         var src = thumbEntry && thumbEntry.size <= MAX_THUMB ? thumbEntry : null;
         var kind = mediaEntry ? ProvenanceMedia.kindOf(mediaEntry.name) : null;
-        if (!src && kind === 'image' && mediaEntry.size <= MAX_ROW_THUMB) src = mediaEntry;
+        if (!src && (kind === 'image' || kind === 'heic' && window.Heic) && mediaEntry.size <= MAX_ROW_THUMB) src = mediaEntry;
         if (!src && kind === 'video' && mediaEntry.size <= MAX_ROW_VIDEO) src = mediaEntry;
         if (!src) return;
         var r = await ExtractionCore.readEntry(state.zip.read, src);
         if (token !== hitToken || !tr.isConnected) return;
         if (src === thumbEntry) return thumbInto(tr, r.bytes, 'image/jpeg');
+        // HEIC utan telefonens tumnagel: filens egen förhandsbild.
+        if (kind === 'heic') {
+            var small = await heicThumb(r.bytes);
+            if (small && token === hitToken && tr.isConnected) thumbInto(tr, small, 'image/jpeg');
+            return;
+        }
         if (kind === 'image') return thumbInto(tr, r.bytes, ProvenanceMedia.mimeOf(src.name));
         var frame = await videoFrame(r.bytes, ProvenanceMedia.mimeOf(src.name));
         if (frame && token === hitToken && tr.isConnected) thumbInto(tr, frame, 'image/jpeg');
+    }
+
+    // Förhandsbilden i en HEIC-fil som en liten JPEG, eller null.
+    async function heicThumb(bytes) {
+        if (!window.Heic || !Heic.is(bytes)) return null;
+        try { return (await Heic.toJpeg(bytes, { preview: true, maxSide: 240 })).blob; } catch (e) { return null; }
     }
 
     function thumbInto(tr, bytes, mime) {
@@ -5318,12 +5344,15 @@
                 var me = w2.media ? ProvenanceMedia.pickBySuffix(entries, w2.media) : null;
                 if (te && te.size <= MAX_THUMB) { src = te; mime = 'image/jpeg'; }
                 else if (me && ProvenanceMedia.kindOf(me.name) === 'image' && me.size <= MAX_ROW_THUMB) { src = me; mime = ProvenanceMedia.mimeOf(me.name); }
+                else if (me && ProvenanceMedia.kindOf(me.name) === 'heic' && window.Heic && me.size <= MAX_ROW_THUMB) { src = me; mime = 'heic'; }
             }
             if (!src) continue;
             try {
                 var r = await ExtractionCore.readEntry(z.read, src);
                 if (state.batch !== b) return;
-                var url = URL.createObjectURL(new Blob([r.bytes], { type: mime }));
+                var shown = mime === 'heic' ? await heicThumb(r.bytes) : r.bytes;
+                if (!shown || state.batch !== b) continue;
+                var url = URL.createObjectURL(shown instanceof Blob ? shown : new Blob([shown], { type: mime }));
                 b.urls.push(url);
                 w2.row.thumbUrl = url;
                 var tr = batchEls[b.rows.indexOf(w2.row)];

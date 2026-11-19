@@ -42,6 +42,7 @@ const XSS = '<img src=x onerror="window.__ftxss=1;try{top.__ftxss=1}catch(e){}">
 const T2 = T + 3 * 86400;                              // Signal och WhatsApp
 const UUID_LIB = '5A5A5A5A-1111-4222-8333-944444444444';  // bildbibliotekets id för IMG_0005
 const SIGNAL_KEY = Buffer.from(Array.from({ length: 48 }, (_, i) => (i * 7 + 3) & 255));  // påhittad
+const HEIC = fs.readFileSync(path.join(ROOT, 'tools', '_shared', 'fixtures', 'prov.heic'));  // 64 × 48 med förhandsbild
 const GROUP_SIGNAL = 'AppGroup/11111111-2222-4333-8444-555555555555/';
 const GROUP_WA = 'AppGroup/66666666-7777-4888-9999-AAAAAAAAAAAA/';
 const T3 = T + 5 * 86400;                              // Telegram
@@ -206,6 +207,11 @@ function whatsappDb(SQL, mediaSha) {
     insert(db, 'ZWAMESSAGE', { Z_PK: 2, ZISFROMME: 0, ZMESSAGETYPE: 1, ZMESSAGEDATE: cocoa(70), ZSENTDATE: cocoa(69), ZCHATSESSION: 1, ZMEDIAITEM: 2, ZMESSAGESTATUS: 8, ZFROMJID: '1@lid' });
     insert(db, 'ZWAMEDIAITEM', { Z_PK: 2, ZMESSAGE: 2, ZMEDIALOCALPATH: 'Media/1@lid/c/d/mottagen.jpg', ZFILESIZE: 1000, ZVCARDNAME: mediaSha.toString('base64'), ZVCARDSTRING: 'image/jpeg' });
     longChat(db);
+    // En HEIC-bild skickad som dokument (typ 8, MIME application/octet-stream) dagen före: Chattar visar bilden märkt
+    // som dokument. Dagen före, så att Queries sökning på T2:s dag bara träffar Lo.
+    insert(db, 'ZWACHATSESSION', { Z_PK: 4, ZSESSIONTYPE: 0, ZCONTACTJID: '4@lid', ZPARTNERNAME: 'Dokumentet', ZLASTMESSAGEDATE: cocoa(-86400) });
+    insert(db, 'ZWAMESSAGE', { Z_PK: 4, ZISFROMME: 0, ZMESSAGETYPE: 8, ZMESSAGEDATE: cocoa(-86400), ZSENTDATE: cocoa(-86401), ZCHATSESSION: 4, ZMEDIAITEM: 4, ZMESSAGESTATUS: 8, ZFROMJID: '4@lid' });
+    insert(db, 'ZWAMEDIAITEM', { Z_PK: 4, ZMESSAGE: 4, ZMEDIALOCALPATH: 'Media/4@lid/e/f/IMG_0042.HEIC', ZFILESIZE: HEIC.length, ZVCARDNAME: crypto.createHash('sha256').update(HEIC).digest('base64'), ZVCARDSTRING: 'application/octet-stream' });
     // En grupp utan meddelanden, för Chattars lista: slaget Grupper, Dölj tomma och sökning på en deltagares nummer.
     insert(db, 'ZWACHATSESSION', { Z_PK: 3, ZSESSIONTYPE: 1, ZCONTACTJID: '120363041234567890@g.us', ZPARTNERNAME: 'Klubben' });
     insert(db, 'ZWAGROUPMEMBER', { Z_PK: 1, ZCHATSESSION: 3, ZMEMBERJID: '46701234567@s.whatsapp.net', ZCONTACTNAME: 'Mo Månsson', ZISADMIN: 1, ZISACTIVE: 1 });
@@ -663,6 +669,7 @@ async function build() {
         { name: P + 'Containers/Shared/' + GROUP_WA + 'ChatStorage.sqlite', data: Buffer.from(whatsappDb(SQL, sha(waReceived))), deflate: true },
         { name: P + 'Containers/Shared/' + GROUP_WA + 'ChatStorage.sqlite-wal', data: '' },
         { name: P + 'Containers/Shared/' + GROUP_WA + 'Message/Media/1@lid/c/d/mottagen.jpg', data: waReceived, mtime: T2 + 71 },
+        { name: P + 'Containers/Shared/' + GROUP_WA + 'Message/Media/4@lid/e/f/IMG_0042.HEIC', data: HEIC, mtime: T2 - 86400 },
         { name: P + 'Media/DCIM/100APPLE/IMG_0007.JPG', data: other('IMG_0007'), mtime: T3 + 1 },
         { name: P + 'Media/DCIM/100APPLE/IMG_0008.JPG', data: tgCamera, mtime: T3 + 301 },
         { name: P + 'Media/DCIM/100APPLE/IMG_0009.JPG', data: other('IMG_0009'), mtime: T + 10 * 86400 },

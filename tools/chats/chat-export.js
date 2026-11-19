@@ -29,7 +29,9 @@
         '.msg.me{align-items:flex-end}',
         '.bubble{max-width:72%;border-radius:14px;padding:7px 11px;background:#f0f0f2;border:1px solid #e2e2e6}',
         '.msg.me .bubble{background:#dcf8c6;border-color:#c7e9ae}',
-        '.who{font-size:11.5px;font-weight:600;color:#3a6ea5;margin-bottom:2px}',
+        '.who{font-size:11.5px;font-weight:700;color:#3a6ea5;margin-bottom:2px}',
+        // En färg per person, som i Chattar (ChatCore.hueOf).
+        '.who.p0{color:#ad1457}.who.p1{color:#1565c0}.who.p2{color:#256b2a}.who.p3{color:#6a1b9a}.who.p4{color:#a0480a}.who.p5{color:#00695c}.who.p6{color:#c62828}.who.p7{color:#4527a0}',
         '.txt{white-space:normal;word-break:break-word}',
         '.media img{display:block;max-width:100%;max-height:420px;border-radius:8px;margin:2px 0}',
         '.file{border:1px dashed #b9b9c0;border-radius:8px;padding:6px 8px;margin:2px 0;font-size:12px;color:#333}',
@@ -69,8 +71,9 @@
         '.phone{--bg:#ece5dd;--them:#fff;--me:#d9fdd3;--me-text:#111b21;width:25.9em;max-width:calc(100% - 6em);margin:0 auto;padding:.9em 0 1.9em;border:.65em solid #111114;border-radius:3em;' +
             'border-image:' + frameImage(480, 104) + ' 48/3em;background:var(--bg);' +
             'color:#111b21;line-height:1.35;-webkit-box-decoration-break:clone;box-decoration-break:clone;-webkit-print-color-adjust:exact;print-color-adjust:exact}',
-        '.phone[data-app="Signal"]{--bg:#fff;--them:#e9e9eb;--me:#2c6bed;--me-text:#fff}',
-        '.phone[data-app="Telegram"]{--bg:#c8d6e5;--me:#e3fee0}',
+        '.phone[data-app="Signal"]{--bg:#fff;--them:#e9e9eb;--me:#2257d6;--me-text:#fff}',
+        '.phone[data-app="Telegram"]{--bg:#c8d6e5;--me:#effdde;--me-text:#000}',
+        '.phone[data-app="Snapchat"]{--bg:#fff;--them:#eaf4fd;--me:#fdecef;--me-text:#16191c}',
         '.phone-head{display:flex;align-items:center;gap:.6em;position:relative;margin:-.9em 0 .5em;padding:2.9em .9em .55em;background:#f6f6f7;border-bottom:1px solid #d8d8dc;border-radius:2.35em 2.35em 0 0;break-inside:avoid;break-after:avoid}',
         '.phone-head::before{content:"";position:absolute;top:.6em;left:50%;margin-left:-3.2em;width:6.4em;height:1.75em;border-radius:1em;background:#111114}',
         '.phone.android{border-width:.55em;border-radius:2.2em;border-image:' + frameImage(352, 88) + ' 40/2.5em}',
@@ -100,11 +103,7 @@
         '@media print{.strip{font-size:11px;columns:29.1em;column-gap:1em}.phone{max-width:none;margin:0 0 0 3.2em}.no{font-size:.8em;margin-right:2.06em}}',
     ].join('\n');
 
-    // Första tecknet i namnet, för ringen i ramens huvud. Ett nummer får #.
-    function initial(name) {
-        var first = Array.from(String(name || '').trim())[0] || '';
-        return /[0-9+]/.test(first) ? '#' : first.toUpperCase() || '?';
-    }
+    function initial(name) { return Core.initialOf(name); }
 
     // Det som står i telefonvyns ram, på skärmen och i exporten: ramen efter plattformen, och i huvudet bara det
     // databasen har om konversationen. Ingen klocka, mottagning eller batterinivå ritas: de finns inte i databasen.
@@ -147,7 +146,7 @@
     function messageHtml(m, model, fmt, media, no) {
         var phone = no !== undefined;
         var sys = m.kind === 'system' || m.kind === 'call';
-        var who = model.group && !m.fromMe && !sys ? '<div class="who">' + esc(Core.senderText(m)) + '</div>' : '';
+        var who = model.group && !m.fromMe && !sys ? '<div class="who p' + Core.hueOf(Core.senderKey(m)) + '">' + esc(Core.senderText(m)) + '</div>' : '';
         var reply = m.reply ? '<div class="reply">Svar på ' + esc(m.reply.from || 'ett meddelande') + (m.reply.text ? ': ' + esc(m.reply.text) : m.reply.found ? '' : ' (finns inte i databasen)') + '</div>' : '';
         var txt = m.text ? '<div class="txt">' + body(m.text) + '</div>' : '';
         var label = !m.text && !m.attachments.length ? '<div class="txt"><em>' + esc(m.kindLabel) + '</em></div>' : '';
@@ -299,7 +298,7 @@
         return name + '-' + d.getFullYear() + pad(d.getMonth() + 1) + pad(d.getDate()) + '-' + pad(d.getHours()) + pad(d.getMinutes()) + '.' + ext;
     }
 
-    var api = { html: html, parts: parts, estimate: estimate, fileName: fileName, phone: phoneFrame, esc: esc, BLOCK: BLOCK };
+    var api = { html: html, parts: parts, estimate: estimate, fileName: fileName, phone: phoneFrame, esc: esc, BLOCK: BLOCK, PHONE_LABEL: PHONE_LABEL };
     if (typeof module !== 'undefined' && module.exports) module.exports = api;
     else root.ChatExport = api;
 })(typeof window !== 'undefined' ? window : this);

@@ -1448,6 +1448,35 @@ senare.
   - Exporten har samma val (Utseende i rutan, med det som visas förvalt) och är alltid ljus. Bubblorna står i en
     remsa (`.strip` > `.phone`) med ett nummer utanför ramen, som är raden i spårbarhetstabellen. Tabellen är
     densamma som i listan.
+- **Utseendet** (1.76):
+  - **Färgerna** per app och läge står i `style.css` som block med en bakgrund och en textfärg för varje bubbla
+    (`--bubble-them`, `--bubble-them-text`, `--bubble-me`, `--bubble-me-text`). Allt annat i bubblan, som citat,
+    länkar och flaggor, tar bubblans textfärg (`currentColor`). Varningen under en bilaga har egna färger.
+    `style.test.js` läser blocken och kräver minst 4,5:1 för text, tid, systemrad, namn och initial i varje app och
+    läge. Förut stod namnet i ett citat i en egen Signal-bubbla med 1,1:1 i ljust läge.
+  - **En färg per person** (`ChatCore.hueOf`, åtta färger `--p0`–`--p7`): namnet i en grupp, ringen med initialen
+    vid avsändaren och ringen i listan. Exporten färgar namnet på samma sätt. Initialen står i `data-initial` och
+    ritas av CSS, så att den inte blir en del av texten.
+  - **Följder** (`ChatCore.sameRun`): meddelanden från samma avsändare, högst fem minuter isär och samma dag, står
+    tätt (`.cont`, `.more`), med mindre hörn mot avsändaren och namnet och ringen en gång per följd. En systemrad,
+    ett samtal eller en saknad tid bryter följden. Exporten har kvar namnet på varje meddelande.
+  - **Till senaste** (`#c-latest`) syns när det senaste meddelandet inte är nära, och ritar slutet av chatten.
+- **Telefonen** (`phone.js`, `ChatPhone`; knappen Telefonen överst i listan): extraktionen som en telefon, i telefonvyns ram.
+  - **Hemskärmen** har en ikon per app med en databas i extraktionen (`homeApps`) och Bilder när ett bildbibliotek
+    finns. Siffran är antalet chattar eller bilder som lästes. Ikonerna är verktygets egna, inte apparnas loggor.
+    Ingen klocka, batterinivå eller mottagning ritas, och foten säger att det är en rekonstruktion.
+  - **En app** visar sina chattar, den senaste först (`appThreads`), 200 i taget. En chatt öppnas i telefonvyn med
+    knappen tillbaka (`#c-phone-back`) till appens lista. Lista över chatten lämnar telefonen.
+  - **Bilder** läser bildbiblioteket med Härkomsts roll `neighbours` över all tid: Photos.sqlite på iOS (bandet efter
+    schemat, `photosBandFromSchema`) och MediaStore på Android. `entryKey` kopplar raden till telefonens tumnagel
+    (`PhotoData/Thumbnails/V2/<mapp>/<fil>/5005.JPG`) och till filen i zippen. Saknas tumnageln förminskas
+    originalet (JPEG, PNG, GIF, WebP, BMP), och en HEIC utan tumnagel visas med förhandsbilden i filen (`Heic`).
+  - **Galleriet** (`ChatPhone.Gallery`) ritar bara raderna som syns och en skärm åt varje håll, med en rubrik per
+    månad (`layout`, `rowsBetween`). Bilderna läses när rullningen har stannat i 120 ms, högst sex åt gången, och
+    högst 400 hålls som blob-adresser (`UrlCache`, aldrig en som syns). Med 20 300 bilder: biblioteket läst på
+    0,23 s, första skärmen på 0,5 s och 152 bilder lästa efter en snabb rullning genom 1 200 rader.
+  - **En bild** öppnar ett ark med tiden och kolumnen, filen i zippen, var bilden i galleriet kommer från,
+    papperskorgen, appen enligt databasen och källan. Bedöm i Härkomst skickar filnamnet dit (`names-for`).
   - I utskriften delas remsan i två spalter per A4-sida. Ramen är en `border-image` (en SVG ur `frameImage`) med
     `box-decoration-break: clone`: en kant ritas om i varje spalt och på varje sida, vilket en bakgrundsbild inte
     gör, och `position: sticky` fungerar inte i utskrift. Märkningen står därför i ramens fot i varje del.
@@ -2200,6 +2229,33 @@ Kartan delas av EXIF & karta och Positioner. Koden ligger i `tools/_shared/map/`
 bygger panelen själv. Positioner läser GPX, KML, CSV, GeoJSON, Google-tidslinje och
 inklistrade koordinater. EXIF & karta kan skicka synliga positioner dit via hubben.
 
+### HEIC (`tools/_shared/heic.js`, `tools/_shared/vendor/libheif/`)
+
+Chromium ritar inte HEIC eller HEIF. `Heic` avkodar bilden med libheif-js 1.23.5 (libheif och HEVC-avkodaren
+libde265 i WebAssembly, LGPL-3.0) i en worker och lämnar den som en JPEG.
+- **Bara det som visas avkodas.** Avkodaren (2 MB, `libheif-worker.js`) laddas första gången en HEIC ska visas,
+  och anroparen frågar efter en bild när den ritas. Två workrar: en för förhandsbilder och små bilder, en för hela
+  bilder, så att en stor bild inte håller kvar en lista.
+- **HEIC känns igen på innehållet** (`Heic.is`: ftyp-lådans märken; AVIF, som Chromium ritar själv, räknas inte).
+- **Förhandsbilden** (`preview: true`): iPhone lägger en bild på 240 × 320 bredvid rutnätet av rutor på 512 × 512.
+  libheif räknar den inte som tumnagel, så workern tar den största bilden som varken är huvudbild eller dold och är
+  mindre än huvudbilden. Uppmätt i appen på tre bilder ur iOS-labbzippen (3024 × 4032): förhandsbilden på 5–60 ms,
+  hela bilden förminskad till 2048 på 0,5–0,6 s. Riktningen är densamma som i telefonens `5005.JPG`.
+- **Var:** Chattar (bilagor och förstoring, och galleriet när telefonens tumnagel saknas), Härkomst (filkortet
+  avkodar filen före tumnageln, `previewPlan` med `heic`; tumnaglarna i listorna tar förhandsbilden) och EXIF &
+  karta (listan och kartan tar förhandsbilden, visningen hela bilden). En fil som inte går att avkoda ger skälet,
+  och Härkomst visar då telefonens tumnagel om den finns.
+- **Skickad som dokument** (Chattar, `ChatCore.heicFile`): en bilaga som är en fil (inte image/*) med ändelsen
+  .heic/.heif/.hif eller HEIC i MIME-typen avkodas och visas, märkt *Dokument* och med *Spara filen* kvar. Är
+  innehållet inte HEIC sägs det i stället. En bild som WhatsApp skickat som dokument (typ *dokument*,
+  `ChatCore.sentAsDocument`) märks på samma sätt, och förstoringens text börjar med *Dokument*.
+- **Licensen:** LGPL-3.0. Biblioteket är en egen fil som kan bytas ut. Licenstexterna och källkodsadresserna ligger
+  i mappen (`README.txt`), och `node scripts/vendor-libheif.js` bygger om den från npm. `heic.test.js` kontrollerar
+  bundlen mot `VERSIONS.json` och avkodar `fixtures/prov.heic` (64 × 48 med en förhandsbild på 32 × 24, byggd av
+  `fixtures/make-heic.js` med ffmpeg och libx265). I html-versionen läggs avkodaren in i Chattar, Härkomst och EXIF &
+  karta från början (`EXTRA` i `build-standalone.js`).
+
+
 Kartvyn (`map-view.js`, logik i `map-core.js`) använder MapLibre GL och Protomaps
 vektorkartor i PMTiles-format.
 
@@ -2276,6 +2332,14 @@ i webbläsaren.
   Nodes `crypto` för längder runt varje blockgräns, och verifierar att resultatet
   är oberoende av hur indata delas upp i bitar
 - Testdata ligger i `tools/**/fixtures/` och tas inte med i bygget
+- **Mätning med en stor extraktion** (för hand, ingår inte i provkörningen): `node tests/app/stress-extraction.js <mapp>`
+  bygger `Stor-iPhone.zip` (omkring 840 MB, 17 s): 20 000 bilder med telefonens tumnaglar (`5005.JPG`, i snitt
+  35 KB), 300 original utan tumnagel och WhatsApp med 50 000 meddelanden i 200 chattar, varav 20 000 i en.
+  `node tests/app/stress.js <zip>` öppnar den i Chattar och skriver ut tider, ritade meddelanden och minne.
+  Uppmätt 2026-11-18 (NVMe, kall läsning): listan efter 2,3 s, den långa chatten på 0,3 s, högst 1 500
+  meddelanden ritade, sökningen på 0,03 s och omkring 970 MB i appens processer. Ett galleri som bara ritar raderna
+  som syns läste listan med 20 300 bilder på 71 ms, en tumnagel på 2,6 ms och ett förminskat original på 28 ms,
+  och höll 60 bilder per sekund vid snabb rullning.
 - **Provkörning av appen** (`tests/app/`, `npm run test:app`): appen startas i Electron utan skärm
   (`harness.js`, samma protokoll och IPC som `electron/main.js`, ett offscreen-fönster, DevTools-protokollet
   på `FT_PORT`, standard 9223) och styrs av `cdp.js`. Saknas skärm (CI) körs Electron med

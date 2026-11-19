@@ -338,6 +338,16 @@
     // En liten bild åt listan och kartan för en fil ur extraktionen, så att innehållet inte ligger kvar i minnet.
     var THUMB_SIDE = 240;
     function smallImage(file) {
+        // HEIC ritas inte av webbläsaren: filens egen förhandsbild avkodas (tools/_shared/heic.js).
+        if (window.Heic && Heic.isName(file.name)) {
+            return file.arrayBuffer().then(function (b) {
+                var bytes = new Uint8Array(b);
+                return Heic.is(bytes) ? Heic.toJpeg(bytes, { preview: true, maxSide: THUMB_SIDE }).then(function (r) { return r.blob; }) : drawSmall(file);
+            }).catch(function () { return null; });
+        }
+        return drawSmall(file);
+    }
+    function drawSmall(file) {
         return new Promise(function (resolve) {
             var url = URL.createObjectURL(file);
             var img = new Image();
@@ -1086,7 +1096,7 @@
         if (/^image\//i.test(mime)) return 'image';
         if (/^video\//i.test(mime)) return 'video';
         var name = (row.name || '').toLowerCase();
-        if (/\.(jpe?g|png|gif|webp|bmp|heic|tif|tiff)$/.test(name)) return 'image';
+        if (/\.(jpe?g|png|gif|webp|bmp|heic|heif|hif|tif|tiff)$/.test(name)) return 'image';
         if (/\.(mp4|mov|m4v|webm|mkv|avi)$/.test(name)) return 'video';
         return '';
     }
@@ -1096,6 +1106,15 @@
         try { return forensicsMedia.pathFor(file) || ''; }
         catch (err) { return ''; }
     }
+
+    // En HEIC visas som en JPEG avkodad ur filen. Annat visas som det är.
+    function heicUrl(file) {
+        return file.arrayBuffer().then(function (b) {
+            var bytes = new Uint8Array(b);
+            return Heic.is(bytes) ? Heic.url(bytes, { maxSide: 2048 }) : URL.createObjectURL(file);
+        });
+    }
+    function isHeicRow(row) { return !!window.Heic && Heic.isName(row.name || (row.file && row.file.name)); }
 
     function renderMedia(row) {
         var token = ++mediaToken;
@@ -1127,15 +1146,32 @@
             host.append(make('p', 'media-note', 'Innehållet läses ur extraktionen genom Härkomst, och extraktionen ändras inte.' + (row.contentState === 'decrypted' ? ' Det som visas är det dekrypterade innehållet.' : '')));
             content(row).then(function (file) {
                 if (token !== mediaToken || selected !== row || !showMedia) return;
-                mediaObjectUrl = URL.createObjectURL(file);
-                show(mediaObjectUrl);
-            }, function (err) {
+                if (!isHeicRow(row)) { mediaObjectUrl = URL.createObjectURL(file); show(mediaObjectUrl); return; }
+                return heicUrl(file).then(function (url) {
+                    if (token !== mediaToken || selected !== row || !showMedia) { URL.revokeObjectURL(url); return; }
+                    mediaObjectUrl = url;
+                    host.append(make('p', 'media-note', 'Bilden är avkodad ur HEIC-filen här (libheif).'));
+                    show(url);
+                });
+            }).catch(function (err) {
                 if (token !== mediaToken || selected !== row) return;
                 host.append(make('p', 'media-note media-miss', 'Innehållet kunde inte visas: ' + (err && err.message || err)));
             });
             return;
         }
         host.append(make('p', 'media-note', 'Källfilen skrivs inte och ändringstiden står kvar. Åtkomsttiden kan uppdateras av operativsystemet när innehållet visas (utom i Linux). Stäng av visningen om åtkomsttiden ska bevaras.'));
+        if (isHeicRow(row)) {
+            heicUrl(row.file).then(function (url) {
+                if (token !== mediaToken || selected !== row || !showMedia) { URL.revokeObjectURL(url); return; }
+                mediaObjectUrl = url;
+                host.append(make('p', 'media-note', 'Bilden är avkodad ur HEIC-filen här (libheif).'));
+                show(url);
+            }).catch(function (err) {
+                if (token !== mediaToken || selected !== row) return;
+                host.append(make('p', 'media-note media-miss', 'HEIC-bilden kunde inte avkodas: ' + (err && err.message || err)));
+            });
+            return;
+        }
         var path = filePath(row.file);
         var ready = path && forensicsMedia.allow
             ? forensicsMedia.allow(path).then(function (ok) {

@@ -15,10 +15,15 @@
     --error: #ff453a;
     --chat-bg: #17171b;
     --bubble-them: #2f2f35;
+    --bubble-them-text: #e8e8ed;
     --bubble-me: #1f5c3a;
+    --bubble-me-text: #e8e8ed;
     --bubble-sys: #3a3420;
-    --bubble-text: #e8e8ed;
+    --bubble-sys-text: #e8e8ed;
     --who: #7fb8ff;
+    /* En färg per person (ChatCore.hueOf): namnet i bubblan och ringen med initialen, med --on-p som text i ringen. */
+    --p0: #f48fb1; --p1: #90caf9; --p2: #a5d6a7; --p3: #ce93d8; --p4: #ffcc80; --p5: #80cbc4; --p6: #ef9a9a; --p7: #b39ddb;
+    --on-p: #1a1a1e;
     --veil: rgba(30, 30, 35, 0.72);
     --mark: #ffd54a;
 }
@@ -40,21 +45,28 @@
     --error: #ff3b30;
     --chat-bg: #ece5dd;
     --bubble-them: #ffffff;
+    --bubble-them-text: #111b21;
     --bubble-me: #d9fdd3;
+    --bubble-me-text: #111b21;
     --bubble-sys: #fff5c4;
-    --bubble-text: #111b21;
+    --bubble-sys-text: #111b21;
     --who: #1f6fbf;
+    --p0: #ad1457; --p1: #1565c0; --p2: #256b2a; --p3: #6a1b9a; --p4: #a0480a; --p5: #00695c; --p6: #c62828; --p7: #4527a0;
+    --on-p: #ffffff;
     --veil: rgba(242, 242, 247, 0.72);
     --mark: #ffe066;
 }
 
-/* Bubblornas färg följer appen. */
-.c-msgs[data-app="Signal"] { --bubble-me: #2c6bed; }
-[data-theme="light"] .c-msgs[data-app="Signal"] { --bubble-me: #2c6bed; --chat-bg: #ffffff; --bubble-them: #e9e9eb; }
-.c-msgs[data-app="Signal"] .m.me .b { color: #fff; }
-.c-msgs[data-app="Telegram"] { --bubble-me: #2b5278; }
-[data-theme="light"] .c-msgs[data-app="Telegram"] { --bubble-me: #e3fee0; --chat-bg: #c8d6e5; }
-.c-msgs[data-app="Snapchat"] { --bubble-me: #3a2f2f; }
+/* Bubblornas färg följer appen, med en textfärg för varje bubbla. Allt annat i bubblan (citat, länkar, flaggor)
+   tar bubblans textfärg. style.test.js läser blocken och kontrollerar kontrasten för varje app och läge. */
+.c-msgs[data-app="WhatsApp"] { --chat-bg: #0b141a; --bubble-them: #202c33; --bubble-them-text: #e9edef; --bubble-me: #005c4b; --bubble-me-text: #e9edef; }
+[data-theme="light"] .c-msgs[data-app="WhatsApp"] { --chat-bg: #efeae2; --bubble-them: #ffffff; --bubble-them-text: #111b21; --bubble-me: #d9fdd3; --bubble-me-text: #111b21; }
+.c-msgs[data-app="Signal"] { --chat-bg: #17171b; --bubble-them: #303030; --bubble-them-text: #ececec; --bubble-me: #2257d6; --bubble-me-text: #ffffff; }
+[data-theme="light"] .c-msgs[data-app="Signal"] { --chat-bg: #ffffff; --bubble-them: #e9e9eb; --bubble-them-text: #1b1b1d; --bubble-me: #2257d6; --bubble-me-text: #ffffff; }
+.c-msgs[data-app="Telegram"] { --chat-bg: #0e1621; --bubble-them: #182533; --bubble-them-text: #f5f5f5; --bubble-me: #2b5278; --bubble-me-text: #f5f5f5; }
+[data-theme="light"] .c-msgs[data-app="Telegram"] { --chat-bg: #c8d6e5; --bubble-them: #ffffff; --bubble-them-text: #000000; --bubble-me: #effdde; --bubble-me-text: #000000; }
+.c-msgs[data-app="Snapchat"] { --chat-bg: #121417; --bubble-them: #1d2a35; --bubble-them-text: #f2f2f2; --bubble-me: #3b2229; --bubble-me-text: #f2f2f2; }
+[data-theme="light"] .c-msgs[data-app="Snapchat"] { --chat-bg: #ffffff; --bubble-them: #eaf4fd; --bubble-them-text: #16191c; --bubble-me: #fdecef; --bubble-me-text: #16191c; }
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
 
@@ -159,7 +171,9 @@ body {
 .c-group-count { text-transform: none; letter-spacing: 0; font-variant-numeric: tabular-nums; }
 .c-group small { grid-column: 1 / -1; text-transform: none; letter-spacing: 0; display: block; font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding-left: 15px; }
 .c-db-none .c-group { opacity: .6; padding-bottom: 2px; }
-.c-item { display: block; width: 100%; text-align: left; font: inherit; color: var(--text); background: none; border: 1px solid transparent; border-radius: 8px; padding: 7px 8px; cursor: pointer; }
+.c-item { display: flex; align-items: center; gap: 10px; width: 100%; text-align: left; font: inherit; color: var(--text); background: none; border: 1px solid transparent; border-radius: 10px; padding: 7px 8px; cursor: pointer; }
+.c-av { flex: none; width: 36px; height: 36px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 15px; font-weight: 700; color: var(--on-p); }
+.c-item-text { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 1px; }
 .c-item:hover { background: var(--surface-hover); }
 .c-item[aria-current="true"] { background: var(--accent-soft); border-color: var(--accent); }
 .c-item-name { font-weight: 600; display: flex; gap: 6px; align-items: baseline; }
@@ -210,9 +224,19 @@ body {
 .c-msgs mark { background: var(--mark); color: #111; border-radius: 2px; padding: 0 1px; }
 .c-none { padding: 16px; }
 .c-day { text-align: center; margin: 14px 0 6px; position: sticky; top: 0; z-index: 1; }
-.c-day span { display: inline-block; font-size: 12px; background: var(--surface); color: var(--text-muted); border: 1px solid var(--border); border-radius: 10px; padding: 2px 10px; }
+.c-day span { display: inline-block; font-size: 12px; font-weight: 600; background: var(--surface); color: var(--text-muted); border-radius: 999px; padding: 3px 12px; box-shadow: 0 1px 2px rgba(0, 0, 0, .16); }
 
-.m { display: flex; align-items: flex-end; gap: 8px; margin: 3px 0; }
+.m { display: flex; align-items: flex-end; gap: 8px; margin: 8px 0 0; }
+/* En följd från samma avsändare (ChatCore.sameRun): tätt, och hörnen mot avsändarens sida är mindre mitt i följden. */
+.m.cont { margin-top: 2px; }
+.m.me.cont .b { border-top-right-radius: 5px; }
+.m.me.more .b { border-bottom-right-radius: 5px; }
+.m:not(.me):not(.sys).cont .b { border-top-left-radius: 5px; }
+.m:not(.me):not(.sys).more .b { border-bottom-left-radius: 5px; }
+/* Ringen med initialen i en grupp, vid det sista meddelandet i en följd. Mitt i följden står en tom plats. */
+.av { flex: none; width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700; color: var(--on-p); }
+.av.blank { visibility: hidden; }
+.av::before, .c-av::before { content: attr(data-initial); }
 .m.me { flex-direction: row-reverse; }
 .m.sys { justify-content: center; }
 .m-check { display: none; align-self: center; }
@@ -223,15 +247,20 @@ body {
 .m.flash .b { animation: flash 1.6s ease-out 1; }
 @keyframes flash { 0%, 40% { box-shadow: 0 0 0 4px var(--accent); } 100% { box-shadow: 0 0 0 0 transparent; } }
 
-.b { max-width: min(72%, 560px); background: var(--bubble-them); color: var(--bubble-text); border-radius: 12px; padding: 6px 9px 4px; box-shadow: 0 1px 1px rgba(0, 0, 0, .18); position: relative; }
-.m.me .b { background: var(--bubble-me); }
-.m.sys .b { background: var(--bubble-sys); font-size: 12.5px; text-align: center; max-width: 80%; }
-.who { font-size: 12px; font-weight: 600; color: var(--who); margin-bottom: 2px; }
+.b { max-width: min(72%, 560px); background: var(--bubble-them); color: var(--bubble-them-text); border-radius: 16px; padding: 6px 10px 4px; box-shadow: 0 1px 1.5px rgba(0, 0, 0, .16); position: relative; line-height: 1.4; }
+.m.me .b { background: var(--bubble-me); color: var(--bubble-me-text); }
+.m.sys .b { background: var(--bubble-sys); color: var(--bubble-sys-text); font-size: 12.5px; text-align: center; max-width: 80%; border-radius: 999px; padding: 4px 14px; box-shadow: none; }
+.who { font-size: 12px; font-weight: 700; color: var(--who); margin-bottom: 2px; }
+.who.p0, .av.p0, .c-av.p0 { --p: var(--p0); } .who.p1, .av.p1, .c-av.p1 { --p: var(--p1); } .who.p2, .av.p2, .c-av.p2 { --p: var(--p2); } .who.p3, .av.p3, .c-av.p3 { --p: var(--p3); }
+.who.p4, .av.p4, .c-av.p4 { --p: var(--p4); } .who.p5, .av.p5, .c-av.p5 { --p: var(--p5); } .who.p6, .av.p6, .c-av.p6 { --p: var(--p6); } .who.p7, .av.p7, .c-av.p7 { --p: var(--p7); }
+.who[class*=" p"] { color: var(--p); }
+.av, .c-av { background: var(--p, var(--border-hover)); }
+.b .link-btn { color: inherit; text-decoration: underline; font-weight: 600; }
 .t { white-space: pre-wrap; word-break: break-word; line-height: 1.4; }
 .t.kind { font-style: italic; opacity: .8; }
-.reply { border-left: 3px solid var(--who); background: rgba(127, 127, 127, .12); border-radius: 4px; padding: 3px 7px; margin-bottom: 4px; font-size: 12.5px; }
-.reply b { display: block; font-size: 11.5px; color: var(--who); }
-.foot { display: flex; gap: 6px; justify-content: flex-end; align-items: center; font-size: 11px; opacity: .78; margin-top: 2px; }
+.reply { border-left: 3px solid color-mix(in srgb, currentColor 55%, transparent); background: color-mix(in srgb, currentColor 9%, transparent); border-radius: 6px; padding: 3px 8px; margin-bottom: 4px; font-size: 12.5px; }
+.reply b { display: block; font-size: 11.5px; color: inherit; }
+.foot { display: flex; gap: 6px; justify-content: flex-end; align-items: center; font-size: 11px; opacity: .8; margin-top: 2px; }
 .flag { font-size: 10.5px; border: 1px solid currentColor; border-radius: 6px; padding: 0 5px; opacity: .85; }
 .clock { background: none; border: none; color: inherit; cursor: pointer; padding: 1px 2px; line-height: 0; border-radius: 4px; }
 .clock:hover, .clock:focus-visible { background: rgba(127, 127, 127, .25); }
@@ -242,6 +271,9 @@ body {
 .att-img img { display: block; max-width: 100%; max-height: 340px; }
 .att video { display: block; max-width: 100%; max-height: 360px; border-radius: 8px; background: #000; }
 .att audio { display: block; width: 280px; max-width: 100%; }
+.att-doc { border: 1px dashed currentColor; border-radius: 8px; padding: 6px; }
+.att-doc-tag { font-size: 11.5px; font-weight: 700; margin-bottom: 4px; }
+.att-doc-info { font-size: 12px; opacity: .9; margin-top: 4px; word-break: break-all; }
 .att-file { border: 1px dashed currentColor; border-radius: 8px; padding: 6px 8px; font-size: 12.5px; opacity: .9; }
 .att-file small { display: block; opacity: .8; word-break: break-all; }
 .att-file pre { white-space: pre-wrap; font-size: 11.5px; margin-top: 4px; max-height: 160px; overflow: auto; }
@@ -249,12 +281,17 @@ body {
 .att-cap { white-space: pre-wrap; word-break: break-word; margin-top: 3px; }
 .att-check { font-size: 10.5px; opacity: .7; margin-top: 2px; }
 .att-check:empty { display: none; }
-.att-check.bad { color: var(--warn); opacity: 1; font-weight: 600; }
+/* Varningen har egna färger, så att den går att läsa på varje bubbla. */
+.att-check.bad { display: inline-block; color: #4a2c00; background: #ffe8b3; opacity: 1; font-weight: 700; border-radius: 6px; padding: 1px 6px; }
 
 /* Telefonvyn: samma meddelanden i en ram med en telefons bredd, omkring 390 punkter vid 16 px text. Ramen följer
    plattformen, och i den står bara det databasen har: ingen klocka, mottagning eller batterinivå. I listvyn syns
    varken ram, huvud eller fot. */
 .c-stage, .c-phone { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.c-phone { position: relative; }
+.c-latest { position: absolute; right: 22px; bottom: 16px; z-index: 2; font: inherit; font-size: 13px; font-weight: 600; color: var(--text); background: var(--surface); border: 1px solid var(--border); border-radius: 999px; padding: 6px 14px; cursor: pointer; box-shadow: 0 4px 14px rgba(0, 0, 0, .22); }
+.c-latest:hover { background: var(--surface-hover); }
+.c-stage.phone .c-latest { bottom: 2.8em; right: 1em; font-size: .8em; }
 .c-phone-head, .c-phone-foot { display: none; }
 .c-stage.phone { align-items: center; justify-content: center; padding: 14px; background: var(--bg); }
 .c-stage.phone .c-phone {
@@ -279,6 +316,53 @@ body {
 .c-stage.phone .m.sys .b { max-width: 88%; font-size: .78em; }
 .c-stage.phone .who, .c-stage.phone .reply { font-size: .8em; }
 .c-stage.phone .foot { font-size: .7em; }
+
+/* Telefonen: hemskärmen, en apps chattar och galleriet i telefonvyns ram (phone.js, script.js). */
+.c-device-open { display: flex; align-items: center; gap: 8px; width: calc(100% - 12px); margin: 0 6px 6px; font: inherit; font-size: 13px; font-weight: 600; color: var(--accent); background: var(--accent-soft); border: 1px solid transparent; border-radius: 10px; padding: 7px 10px; cursor: pointer; }
+.c-device-open:hover { border-color: var(--accent); }
+.c-device-open[aria-pressed="true"] { border-color: var(--accent); }
+.c-device { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.c-device .c-stage.phone { flex: 1; }
+.c-back { flex: none; font: inherit; font-size: .9em; font-weight: 600; color: var(--accent); background: none; border: none; border-radius: 8px; padding: .25em .35em; cursor: pointer; white-space: nowrap; }
+.c-back:hover { background: var(--surface-hover); }
+.c-device-body { flex: 1; min-height: 0; overflow-y: auto; position: relative; background: var(--surface); scrollbar-width: thin; }
+.c-device-body.home { background: linear-gradient(165deg, color-mix(in srgb, var(--accent) 16%, var(--surface)), color-mix(in srgb, var(--accent) 5%, var(--bg))); padding: 1.1em 1em 1em; display: flex; flex-direction: column; gap: 1.2em; }
+.d-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1.1em .4em; }
+.d-app { display: flex; flex-direction: column; align-items: center; gap: .35em; font: inherit; color: var(--text); background: none; border: none; padding: 0; cursor: pointer; min-width: 0; }
+.d-app span.d-name { font-size: .72em; font-weight: 600; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.d-icon { position: relative; width: 3.6em; height: 3.6em; border-radius: 1em; display: flex; align-items: center; justify-content: center; box-shadow: 0 2px 6px rgba(0, 0, 0, .2); }
+.d-icon svg { width: 1.8em; height: 1.8em; }
+.d-badge { position: absolute; top: -.35em; right: -.45em; min-width: 1.35em; height: 1.35em; padding: 0 .35em; border-radius: .7em; background: #d70015; color: #fff; font-size: .68em; font-weight: 700; display: flex; align-items: center; justify-content: center; font-variant-numeric: tabular-nums; }
+.d-badge.wait { background: var(--text-muted); }
+.d-app:focus-visible .d-icon, .d-row:focus-visible, .g-tile:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.d-note { margin-top: auto; font-size: .72em; line-height: 1.45; color: var(--text-muted); background: color-mix(in srgb, var(--surface) 75%, transparent); border-radius: .9em; padding: .7em .8em; }
+.d-row { display: flex; align-items: center; gap: .75em; width: 100%; text-align: left; font: inherit; color: var(--text); background: none; border: none; border-bottom: 1px solid var(--border); padding: .6em .9em; cursor: pointer; }
+.d-row:hover { background: var(--surface-hover); }
+.d-row .c-av { width: 2.7em; height: 2.7em; font-size: 1em; }
+.d-row-text { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: .1em; }
+.d-row-top { display: flex; gap: .5em; align-items: baseline; }
+.d-row-top b { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .95em; }
+.d-row-top time, .d-row-sub { font-size: .75em; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.d-row-sub { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.d-empty { padding: 1.2em 1em; font-size: .85em; color: var(--text-muted); line-height: 1.45; }
+.d-more { display: block; margin: .8em auto; }
+.g-space { position: relative; }
+.g-row { position: absolute; left: 0; right: 0; }
+.g-month { position: absolute; left: 0; right: 0; height: 34px; padding: 10px .7em 0; font-size: .8em; font-weight: 700; text-transform: capitalize; }
+.g-tile { position: absolute; top: 0; padding: 0; border: none; background: var(--surface-hover); color: var(--text-muted); font: inherit; font-size: .7em; font-weight: 700; cursor: pointer; overflow: hidden; }
+.g-tile img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.g-tile.video::after { content: "▶"; position: absolute; right: .35em; bottom: .25em; color: #fff; font-size: 1.1em; text-shadow: 0 1px 3px rgba(0, 0, 0, .7); }
+.g-tile.trashed { outline: 2px solid var(--error); outline-offset: -2px; }
+.c-sheet { position: absolute; inset: 0; z-index: 5; background: rgba(0, 0, 0, .38); display: flex; align-items: flex-end; }
+.c-sheet-box { width: 100%; max-height: 80%; overflow-y: auto; background: var(--surface); color: var(--text); border-radius: 1.2em 1.2em 0 0; padding: .6em 1em 1.1em; display: flex; flex-direction: column; gap: .7em; box-shadow: 0 -8px 24px rgba(0, 0, 0, .3); }
+.c-sheet-grip { width: 2.5em; height: .3em; border-radius: .2em; background: var(--border-hover); align-self: center; }
+.c-sheet-box h2 { font-size: .95em; overflow-wrap: anywhere; }
+.c-sheet-box img { display: block; max-width: 100%; max-height: 12em; border-radius: .6em; align-self: center; }
+.c-sheet-box table { border-collapse: collapse; width: 100%; font-size: .75em; table-layout: fixed; }
+.c-sheet-box th { text-align: left; font-weight: 600; color: var(--text-muted); width: 34%; vertical-align: top; padding: .25em .6em .25em 0; }
+.c-sheet-box td { padding: .25em 0; overflow-wrap: anywhere; vertical-align: top; }
+.c-sheet-actions { display: flex; gap: .5em; flex-wrap: wrap; }
+.c-sheet-actions .c-btn { flex: 1; }
 
 .c-modal { position: fixed; inset: 0; background: rgba(0, 0, 0, .45); display: flex; align-items: center; justify-content: center; z-index: 20; }
 .c-modal-box { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 18px 20px; width: min(560px, 92vw); display: flex; flex-direction: column; gap: 12px; }

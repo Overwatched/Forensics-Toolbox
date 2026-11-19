@@ -174,6 +174,14 @@
         return ['image', 'video', 'audio', 'voice', 'sticker', 'gif'].indexOf(kind) >= 0 ? kind : 'file';
     }
 
+    // En bild som skickats som dokument (WhatsApps dokument) eller en HEIC som appen sparat som en fil. Chattar
+    // visar bilden men säger att den kom som en fil.
+    function sentAsDocument(m, a) { return /dokument|document/i.test(String(m && m.kindLabel || '')) || a.kind === 'file'; }
+    function heicFile(a) {
+        if (!a || a.kind !== 'file') return false;
+        return /\.(heic|heif|hif)$/i.test(String(a.name || a.path || a.entry || '')) || /hei[cf]/i.test(String(a.mime || ''));
+    }
+
     // Sökvägen till en bilaga i extraktionen: rollens fileRoot räknas från databasens mapp.
     function resolvePath(dbPath, fileRoot, rel) {
         if (!rel) return null;
@@ -599,11 +607,40 @@
         return Math.floor(s / 60) + ':' + ('0' + (s % 60)).slice(-2);
     }
 
+    // ---------- Utseendet ----------
+
+    // Samma person eller konversation får samma färg i hela vyn: ett tal 0–7 ur id:t eller namnet.
+    var HUES = 8;
+    function hueOf(key) {
+        var h = 0, s = String(key === null || key === undefined ? '' : key);
+        for (var i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
+        return h % HUES;
+    }
+    function senderKey(m) { return m.fromMe ? 'me' : m.senderId || m.senderName || ''; }
+
+    // Första tecknet i namnet, för ringen med initialen. Ett nummer får #.
+    function initialOf(name) {
+        var first = Array.from(String(name || '').trim())[0] || '';
+        return /[0-9+]/.test(first) ? '#' : first.toUpperCase() || '?';
+    }
+
+    // Två meddelanden i följd från samma avsändare, högst fem minuter isär, ritas ihop: tätare och med namnet en gång.
+    // En systemrad, ett samtal eller en saknad tid bryter följden.
+    var RUN_MS = 5 * 60000;
+    function sameRun(a, b) {
+        if (!a || !b) return false;
+        var sys = function (x) { return x.kind === 'system' || x.kind === 'call'; };
+        if (sys(a) || sys(b) || !!a.fromMe !== !!b.fromMe || senderKey(a) !== senderKey(b)) return false;
+        if (a.sortMs === null || b.sortMs === null || a.sortMs === undefined || b.sortMs === undefined) return false;
+        return Math.abs(b.sortMs - a.sortMs) <= RUN_MS;
+    }
+
     var api = {
+        HUES: HUES, hueOf: hueOf, senderKey: senderKey, initialOf: initialOf, sameRun: sameRun, RUN_MS: RUN_MS,
         ROLES: ROLES, THREAD_KIND: THREAD_KIND, KIND_TEXT: KIND_TEXT,
         sources: sources, databases: databases, threads: threads, members: members, conversation: conversation, timeSpecs: timeSpecs,
         names: names, applyNames: applyNames, snapText: snapText, pbPath: pbPath, idKey: idKey,
-        resolvePath: resolvePath, hexOfBase64: hexOfBase64, mediaKind: mediaKind,
+        resolvePath: resolvePath, hexOfBase64: hexOfBase64, mediaKind: mediaKind, sentAsDocument: sentAsDocument, heicFile: heicFile,
         zoneName: zoneName, formatter: formatter, offsetText: offsetText, parseLocal: parseLocal,
         pick: pick, senderText: senderText, sizeText: sizeText, durationText: durationText,
         readRows: readRows, searchIndex: searchIndex, findAll: findAll, marks: marks, atOrAfter: atOrAfter,

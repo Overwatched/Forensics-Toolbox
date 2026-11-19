@@ -207,6 +207,11 @@
         // De andra verktygen ska inte fråga här efter databaser som är stängda.
         if (window.DbShare && window.DbShare.client) window.DbShare.client.gone();
         closeThread();
+        // Bildbiblioteket hör till extraktionen som stängs.
+        if (state.device) {
+            if (state.device.gallery) { state.device.gallery.destroy(); state.device.gallery = null; }
+            state.device.photos = null;
+        }
         $('bar-zip').textContent = 'Ingen öppen';
         // En annan extraktion har andra appar och namn, så sökningen och valet av app och slag börjar om.
         // Ordningen och Dölj tomma står kvar.
@@ -490,10 +495,11 @@
         var cur = state.current && state.current.db === d && state.current.thread.key === t.key;
         var sub = [t.messages !== null ? many(t.messages, 'meddelande', 'meddelanden') : '', t.lastMs ? 'senast ' + f(t.lastMs).slice(0, 10) : ''].filter(Boolean).join(' · ');
         return '<button type="button" class="c-item" data-db="' + di + '" data-thread="' + esc(t.key) + '"' + (cur ? ' aria-current="true"' : '') + ' title="' + esc(t.address || t.name) + '">' +
+            '<span class="c-av p' + ChatCore.hueOf(t.key) + '" data-initial="' + esc(ChatCore.initialOf(t.name)) + '" aria-hidden="true"></span><span class="c-item-text">' +
             '<span class="c-item-name"><span>' + esc(t.name) + '</span><span class="c-kind">' + esc(t.kindText) + '</span></span>' +
             '<span class="c-item-sub">' + esc(sub) + '</span>' +
             // Sökningen träffade en deltagare och inte konversationens eget namn.
-            (item.who.length ? '<span class="c-item-who">Deltagare: ' + esc(item.who.join(', ')) + '</span>' : '') + '</button>';
+            (item.who.length ? '<span class="c-item-who">Deltagare: ' + esc(item.who.join(', ')) + '</span>' : '') + '</span></button>';
     }
 
     function moreHtml(di, left) {
@@ -555,6 +561,13 @@
             if (again) again.focus({ preventScroll: true });
         }
         watchMore();
+        // Telefonen visar apparna och antalen när databaserna blir lästa.
+        $('c-device-open').classList.toggle('display-none', !state.zip);
+        if (state.device && deviceShown() && state.device.screen !== 'photos') {
+            var top = $('c-device-body').scrollTop;
+            renderDevice();
+            $('c-device-body').scrollTop = top;
+        }
     }
 
     // Resten av en lång lista ritas när raden Visa fler kommer nära det som syns.
@@ -690,7 +703,8 @@
         $('c-to').value = '';
         findCount();
         $('c-view').classList.add('display-none');
-        $('c-empty').classList.remove('display-none');
+        // Medan telefonen visas står den kvar i stället för startrutan.
+        if (!state.device || !deviceShown()) $('c-empty').classList.remove('display-none');
         closePop();
     }
 
@@ -738,6 +752,8 @@
             state.attByPath = found.byPath;
             $('c-empty').classList.add('display-none');
             $('c-view').classList.remove('display-none');
+            // Från telefonen öppnas chatten i telefonvyn, med knappen tillbaka till appens lista.
+            if (state.device.on) { hideDevice(); setLook('phone'); }
             renderHead();
             dateLimits();
             var at = focus === null || focus === undefined ? undefined : byKey[String(focus)];
@@ -793,6 +809,8 @@
         $('c-phone-name').textContent = ph.name;
         $('c-phone-sub').textContent = ph.sub;
         $('c-phone-foot').textContent = ph.label;
+        $('c-phone-back').classList.toggle('display-none', !state.device.on);
+        $('c-phone-back-text').textContent = c.db.src.app;
         var people = m.members;
         $('c-people-toggle').textContent = 'Deltagare (' + (people.length + 1) + ')';
         $('c-people').innerHTML = '<ul>' + people.map(function (p) {
@@ -850,8 +868,16 @@
             '<div class="att-check' + (ch && ch.ok === false ? ' bad' : '') + '" data-for="' + esc(shown) + '">' + esc(checkText(shown)) + '</div>';
         // En fil som redan är läst visas direkt när blocket ritas om.
         var src = state.urls[shown] ? ' src="' + esc(state.urls[shown]) + '"' : '';
+        // En HEIC som skickats som dokument avkodas och visas, men märkt som dokument och med filen kvar att spara.
+        if (ChatCore.heicFile(a)) {
+            return '<div class="att att-doc"><div class="att-doc-tag">Dokument: en HEIC-bild som skickades som fil</div>' +
+                '<button type="button" class="att-img" data-att="' + id + '" title="' + esc(info) + '"><img data-entry="' + esc(shown) + '" data-mime="' + esc(a.mime) + '" data-doc="1"' + src + ' alt="' + esc(name) + '"></button>' +
+                '<div class="att-doc-info">' + marked(info) + ' <button type="button" class="link-btn" data-save="' + esc(shown) + '" data-name="' + esc(name) + '">Spara filen</button></div>' + below + '</div>';
+        }
         if (a.kind === 'image' || a.kind === 'sticker' || a.kind === 'gif' && /^image\//.test(a.mime)) {
-            return '<div class="att"><button type="button" class="att-img" data-att="' + id + '" title="' + esc(info) + '"><img data-entry="' + esc(shown) + '" data-mime="' + esc(a.mime) + '"' + src + ' alt="' + esc(name) + '"></button>' + below + '</div>';
+            var doc = ChatCore.sentAsDocument(m, a);
+            return '<div class="att' + (doc ? ' att-doc' : '') + '">' + (doc ? '<div class="att-doc-tag">Dokument: bilden skickades som fil</div>' : '') +
+                '<button type="button" class="att-img" data-att="' + id + '" title="' + esc(info) + '"><img data-entry="' + esc(shown) + '" data-mime="' + esc(a.mime) + '"' + src + ' alt="' + esc(name) + '"></button>' + below + '</div>';
         }
         if (a.kind === 'video' || a.kind === 'gif') return '<div class="att"><video controls preload="metadata" data-entry="' + esc(shown) + '" data-mime="' + esc(a.mime) + '"' + src + ' title="' + esc(info) + '"></video>' + below + '</div>';
         if (a.kind === 'audio' || a.kind === 'voice') return '<div class="att"><audio controls preload="metadata" data-entry="' + esc(shown) + '" data-mime="' + esc(a.mime) + '"' + src + ' title="' + esc(info) + '"></audio>' + below + '</div>';
@@ -862,8 +888,13 @@
         var model = state.current.model, f = fmt();
         var sys = m.kind === 'system' || m.kind === 'call';
         var hit = state.find && state.find.hits.length && state.find.hits[state.find.pos] === i;
-        var cls = 'm' + (sys ? ' sys' : m.fromMe ? ' me' : '') + (state.picked[m.key] ? ' picked' : '') + (hit ? ' hit' : '');
-        var who = model.group && !m.fromMe && !sys ? '<div class="who">' + esc(ChatCore.senderText(m)) + '</div>' : '';
+        // En följd från samma avsändare ritas ihop. Ett nytt datum bryter den.
+        var list = model.messages, cont = !newDay(i) && ChatCore.sameRun(list[i - 1], m), more = i + 1 < list.length && !newDay(i + 1) && ChatCore.sameRun(m, list[i + 1]);
+        var cls = 'm' + (sys ? ' sys' : m.fromMe ? ' me' : '') + (cont ? ' cont' : '') + (more ? ' more' : '') + (state.picked[m.key] ? ' picked' : '') + (hit ? ' hit' : '');
+        var other = model.group && !m.fromMe && !sys, hue = ' p' + ChatCore.hueOf(ChatCore.senderKey(m));
+        var who = other && !cont ? '<div class="who' + hue + '">' + esc(ChatCore.senderText(m)) + '</div>' : '';
+        // Initialen står i data-initial och ritas av CSS, så att den inte blir en del av meddelandets text.
+        var av = other ? '<span class="av' + hue + (more ? ' blank' : '') + '" data-initial="' + (more ? '' : esc(ChatCore.initialOf(ChatCore.senderText(m)))) + '" aria-hidden="true"></span>' : '';
         var reply = m.reply ? '<div class="reply"><b>' + esc(m.reply.from || 'Svar') + '</b>' + esc(m.reply.text || (m.reply.found ? '' : 'Meddelandet finns inte i databasen')) + '</div>' : '';
         var atts = m.attachments.map(function (a, k) { return attachmentHtml(m, a, k); }).join('');
         var text = m.text ? '<div class="t">' + marked(m.text) + '</div>' : !m.attachments.length ? '<div class="t kind">' + esc(m.kindLabel) + '</div>' : '';
@@ -871,7 +902,7 @@
             .filter(Boolean).map(function (x) { return '<span class="flag">' + esc(x) + '</span>'; }).join('');
         var time = m.sortMs !== null ? f(m.sortMs).slice(11, 16) : '–';
         return '<div class="' + cls + '" data-i="' + i + '" data-key="' + esc(m.key) + '"><label class="m-check"><input type="checkbox" aria-label="Välj meddelandet"' + (state.picked[m.key] ? ' checked' : '') + '></label>' +
-            '<div class="b">' + who + reply + atts + text +
+            av + '<div class="b">' + who + reply + atts + text +
             '<div class="foot">' + flags + '<time title="' + esc(m.sortLabel + ' ' + (m.sortMs !== null ? f(m.sortMs) : 'saknas')) + '">' + esc(time) + '</time>' +
             '<button type="button" class="clock" data-clock="' + esc(m.key) + '" aria-label="Tider och källa för meddelandet" title="' + esc('Tider och källa' + (m.device ? ' · ' + m.device : '')) + '">' + CLOCK + '</button></div></div></div>';
     }
@@ -912,6 +943,7 @@
         box.innerHTML = n ? rangeHtml(from, to, true) : '<p class="muted c-none">Konversationen har inga meddelanden.</p>';
         box.classList.toggle('selecting', state.selecting);
         watchMedia();
+        requestAnimationFrame(updateLatest);
     }
 
     // Visar meddelande i med block runt sig. where: 'end' (sist i chatten), 'start' (överst, med datumet) eller
@@ -990,7 +1022,8 @@
         }
         fill();
     }
-    $('c-look-list').addEventListener('click', function () { setLook('list'); });
+    // Listvyn lämnar telefonen: nästa chatt öppnas som lista.
+    $('c-look-list').addEventListener('click', function () { state.device.on = false; $('c-phone-back').classList.add('display-none'); setLook('list'); });
     $('c-look-phone').addEventListener('click', function () { setLook('phone'); });
 
     // Nästa block ritas när kanten närmar sig, och block långt bort tas bort, så att sidan aldrig har fler än MAX_DRAWN.
@@ -1001,7 +1034,20 @@
         requestAnimationFrame(function () { filling = false; fill(); });
     }, { passive: true });
 
+    // Knappen till det senaste meddelandet syns när det inte står nära.
+    function updateLatest() {
+        var box = $('c-msgs'), v = state.view, n = state.current ? state.current.model.messages.length : 0;
+        var far = !!v && n > 0 && (v.to < n || box.scrollHeight - box.scrollTop - box.clientHeight > 600);
+        $('c-latest').classList.toggle('display-none', !far);
+    }
+    $('c-latest').addEventListener('click', function () {
+        var n = state.current ? state.current.model.messages.length : 0;
+        if (n) showAt(n - 1, 'end');
+        $('c-msgs').focus();
+    });
+
     function fill() {
+        updateLatest();
         if (!state.current || !state.view) return;
         var box = $('c-msgs'), v = state.view, n = state.current.model.messages.length;
         if (box.scrollTop < EDGE && v.from > 0) prepend();
@@ -1193,12 +1239,18 @@
         return { bytes: bytes, attachment: a };
     }
 
-    async function mediaUrl(path, mime) {
+    // heicOnly: filen är ett dokument som ska visas bara om innehållet är HEIC.
+    async function mediaUrl(path, mime, heicOnly) {
         if (state.urls[path]) return state.urls[path];
         var c = state.current;
         var got = await mediaBytes(path);
         if (state.current !== c) throw cancelError();
-        if (!state.urls[path]) state.urls[path] = URL.createObjectURL(new Blob([got.bytes], { type: mime || got.attachment.mime || 'application/octet-stream' }));
+        if (heicOnly && !(window.Heic && Heic.is(got.bytes))) throw Object.assign(new Error('Filen är inte en HEIC-bild.'), { notHeic: true });
+        // HEIC ritas inte av webbläsaren: bilden avkodas (tools/_shared/heic.js) och visas som JPEG.
+        var url = window.Heic && Heic.is(got.bytes) ? await Heic.url(got.bytes, { maxSide: 2048 }) : URL.createObjectURL(new Blob([got.bytes], { type: mime || got.attachment.mime || 'application/octet-stream' }));
+        if (state.current !== c) { URL.revokeObjectURL(url); throw cancelError(); }
+        if (state.urls[path]) URL.revokeObjectURL(url);
+        else state.urls[path] = url;
         return state.urls[path];
     }
 
@@ -1226,11 +1278,17 @@
         }
         var cur = state.current;
         try {
-            var url = await mediaUrl(path, el.dataset.mime);
+            var url = await mediaUrl(path, el.dataset.mime, !!el.dataset.doc);
             if (state.current !== cur) return;
             if (el.getAttribute('src') !== url) el.src = url;
         } catch (err) {
             if (err && err.cancelled) return;
+            if (err && err.notHeic) {
+                var box = el.closest('.att-doc');
+                el.closest('.att-img').remove();
+                box.querySelector('.att-doc-tag').textContent = 'Dokument: filen heter som en HEIC-bild men är det inte.';
+                return;
+            }
             var note = document.createElement('div');
             note.className = 'att-missing';
             note.textContent = 'Filen kunde inte läsas: ' + errText(err);
@@ -1244,7 +1302,7 @@
         state.current.model.messages.forEach(function (m) {
             m.attachments.forEach(function (a, i) {
                 var p = entryOf(a.entry) ? a.entry : a.thumbEntry && entryOf(a.thumbEntry) ? a.thumbEntry : null;
-                if ((a.kind === 'image' || a.kind === 'sticker') && p) out.push({ ref: m.key + ':' + i, m: m, a: a, path: p });
+                if ((a.kind === 'image' || a.kind === 'sticker' || ChatCore.heicFile(a)) && p) out.push({ ref: m.key + ':' + i, m: m, a: a, path: p, doc: ChatCore.heicFile(a) || ChatCore.sentAsDocument(m, a) });
             });
         });
         return out;
@@ -1255,9 +1313,9 @@
         var it = lightbox.list[i];
         if (!it) return;
         lightbox.i = i;
-        $('c-lb-img').src = await mediaUrl(it.path, it.a.mime);
+        $('c-lb-img').src = await mediaUrl(it.path, it.a.mime, ChatCore.heicFile(it.a));
         $('c-lb-img').alt = it.a.name || baseName(it.a.entry);
-        $('c-lb-cap').textContent = ChatCore.senderText(it.m) + ' · ' + (it.m.sortMs !== null ? fmt()(it.m.sortMs) : '') + ' · ' + it.path + (it.a.sha256 ? ' · SHA-256 ' + it.a.sha256 : '');
+        $('c-lb-cap').textContent = (it.doc ? 'Dokument (skickad som fil) · ' : '') + ChatCore.senderText(it.m) + ' · ' + (it.m.sortMs !== null ? fmt()(it.m.sortMs) : '') + ' · ' + it.path + (it.a.sha256 ? ' · SHA-256 ' + it.a.sha256 : '');
         $('c-lb-prev').disabled = i === 0;
         $('c-lb-next').disabled = i === lightbox.list.length - 1;
     }
@@ -1700,6 +1758,278 @@
         if (zip) openZip(zip);
     });
 
+
+    // ---------- Telefonen ----------
+
+    // Hemskärmen med apparna som har data i extraktionen, appens chattar och bilderna, i telefonvyns ram. En chatt
+    // öppnas i telefonvyn med en knapp tillbaka till appens lista. on: telefonen är vald; screen: 'home', 'app' eller
+    // 'photos'; app: appen i 'app'; photos: bildbiblioteket för extraktionen, läst första gången telefonen visas.
+    state.device = { on: false, screen: 'home', app: '', photos: null, gallery: null, limit: LIST_STEP };
+    var DEVICE_LABEL = 'Rekonstruktion ur databaserna – inte en skärmbild';
+    var GLYPH = {
+        chat: '<path d="M4 5h16v11H9l-5 4z"/>',
+        shield: '<path d="M12 3l8 3v6c0 4.5-3.4 8-8 9-4.6-1-8-4.5-8-9V6z"/>',
+        plane: '<path d="M3 11l18-7-6 17-3-7z"/>',
+        ghost: '<path d="M6 20c1-1 2 0 3 0s2-1 3-1 2 1 3 1 2-1 3 0V10a6 6 0 0 0-12 0z"/>',
+        photo: '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 16l5-5 4 4 3-3 6 6"/>',
+    };
+    // Ikonerna är verktygets egna: appens färg och en enkel symbol, inte appens logga.
+    var APP_ICON = { WhatsApp: ['#1fa855', '#fff', 'chat'], Signal: ['#2257d6', '#fff', 'shield'], Telegram: ['#2a9fd8', '#fff', 'plane'], Snapchat: ['#f5d90a', '#16191c', 'ghost'], Bilder: ['#ffffff', '#d6336c', 'photo'] };
+    var MONTHS = ['januari', 'februari', 'mars', 'april', 'maj', 'juni', 'juli', 'augusti', 'september', 'oktober', 'november', 'december'];
+    var PHOTO_SOURCES = window.ProvenanceRoles.collect({ photos: window.PHOTOS_SQLITE_CATALOG || {}, android: window.ANDROID_QUERIES_CATALOG || {} })
+        .filter(function (s) { return s.key === 'photos' || s.key === 'android-mediastore'; });
+    var PHOTO_TARGETS = ExtractionCore.targets(window.ProvenanceRoles.databases(PHOTO_SOURCES));
+
+    function iconHtml(app, badge) {
+        var c = APP_ICON[app] || ['#8e8e93', '#fff', 'chat'];
+        return '<span class="d-icon" style="background:' + c[0] + ';color:' + c[1] + '"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true">' + GLYPH[c[2]] + '</svg>' + (badge || '') + '</span>';
+    }
+    function badgeHtml(busy, error, n) {
+        return busy ? '<span class="d-badge wait">…</span>' : error ? '<span class="d-badge">!</span>' : '<span class="d-badge">' + esc(num(n)) + '</span>';
+    }
+    function devicePlatform() {
+        var ph = state.device.photos;
+        return state.dbs.map(function (d) { return d.src.platform; }).concat(ph && ph.platform ? [ph.platform] : [])[0] || '';
+    }
+    function deviceFrame() { var p = devicePlatform(); return p === 'iOS' ? 'ios' : p === 'Android' ? 'android' : 'plain'; }
+    function monthOf(ms) {
+        if (ms === null || ms === undefined) return 'Utan tid';
+        var d = fmt()(ms);
+        return MONTHS[Number(d.slice(5, 7)) - 1] + ' ' + d.slice(0, 4);
+    }
+
+    // Bildbiblioteket: Photos.sqlite på iOS eller MediaStore på Android, med Härkomsts roll för bilderna i ett
+    // tidsfönster (neighbours) över all tid. Tumnaglarna och filerna i zippen slås upp efter mappen och namnet.
+    function photosBand(sqlDb) {
+        var r = sqlDb.exec("SELECT name FROM sqlite_master WHERE type = 'table'");
+        var tables = r.length ? r[0].values.map(function (v) { return String(v[0]); }) : [];
+        var info = tables.indexOf('ZADDITIONALASSETATTRIBUTES') >= 0 ? sqlDb.exec('PRAGMA table_info(ZADDITIONALASSETATTRIBUTES)') : [];
+        var cols = info.length ? info[0].values.map(function (v) { return String(v[1]); }) : [];
+        var b = Roles().photosBandFromSchema(tables, cols);
+        return b ? b.id : null;
+    }
+    function loadPhotos() {
+        var z = state.zip, P = state.device;
+        if (!z) return Promise.resolve(null);
+        if (P.photos && P.photos.zip === z) return P.photos.loading || Promise.resolve(P.photos);
+        var ph = P.photos = { zip: z, state: 'busy', items: [], thumbs: {}, files: {}, how: {}, note: '', loading: null };
+        ph.loading = (async function () {
+            try {
+                var found = await ExtractionCore.open(z.read, z.file.size, PHOTO_TARGETS, null);
+                var entries = await ExtractionCore.find(z.read, z.file.size, function (name) { return !!ChatPhone.entryKey(name); });
+                entries.forEach(function (e) {
+                    var k = ChatPhone.entryKey(e.name), into = k.kind === 'thumb' ? ph.thumbs : ph.files;
+                    if (!into[k.key]) into[k.key] = e;
+                });
+                var hit = found.found[0];
+                if (!hit) { ph.state = 'none'; return; }
+                // Träffens nyckel är familjen (photos eller android-mediastore), med en databas per iOS-version i Photos.
+                var src = PHOTO_SOURCES.filter(function (x) { return x.databases.some(function (d) { return (d.family || d.id) === hit.key; }); })[0];
+                if (!src) throw new Error('Bildbiblioteket ' + hit.db.name + ' hör inte till någon känd källa.');
+                var loaded = await loadDb({ hit: hit, src: { app: 'Bilder', platform: src.platform }, zip: z, loaded: null });
+                var q = (src.bands ? Roles().rolesFor(src, { dbId: photosBand(loaded.sqlDb) }) : src.roles).neighbours;
+                var rows = Roles().mapRows(q, query(loaded, q, { window: { startMs: Date.UTC(1970, 0, 2), endMs: Date.UTC(2200, 0, 1) } }), ['created', 'added'], { raw: false });
+                loaded.sqlDb.close();
+                if (z !== state.zip) return;
+                ph.items = ChatPhone.photoItems(rows);
+                ph.db = hit.db.name;
+                ph.platform = src.platform;
+                ph.query = q;
+                ph.state = 'ready';
+            } catch (err) {
+                ph.state = 'error';
+                ph.note = errText(err);
+            } finally {
+                ph.loading = null;
+                if (state.device.photos === ph && deviceShown()) renderDevice();
+            }
+        })();
+        return ph.loading;
+    }
+
+    // Bilden i en ruta: telefonens tumnagel, annars originalet förminskat. null när ingen bild går att visa här.
+    async function photoUrl(it) {
+        var ph = state.device.photos, z = ph.zip;
+        var thumb = ph.thumbs[it.key];
+        if (thumb) return URL.createObjectURL(new Blob([(await ExtractionCore.readEntry(z.read, thumb)).bytes], { type: 'image/jpeg' }));
+        var f = ph.files[it.key];
+        if (!f || f.size > MAX_AUTO) return null;
+        // HEIC: filens egen förhandsbild (iPhone lägger en på 240 × 320 i filen), avkodad i en egen tråd.
+        if (it.heif && window.Heic) {
+            var heic = (await ExtractionCore.readEntry(z.read, f)).bytes;
+            if (!Heic.is(heic)) return null;
+            var r = await Heic.toJpeg(heic, { preview: true, maxSide: 320 });
+            ph.how[it.key] = r.from === 'preview' ? 'Förhandsbilden i HEIC-filen' : 'Avkodad ur HEIC-filen';
+            return URL.createObjectURL(r.blob);
+        }
+        if (!it.drawable) return null;
+        var bmp = await createImageBitmap(new Blob([(await ExtractionCore.readEntry(z.read, f)).bytes]), { resizeWidth: 320, resizeQuality: 'medium' });
+        var c = document.createElement('canvas');
+        c.width = bmp.width;
+        c.height = bmp.height;
+        c.getContext('2d').drawImage(bmp, 0, 0);
+        bmp.close();
+        var blob = await new Promise(function (resolve) { c.toBlob(resolve, 'image/jpeg', 0.82); });
+        return blob ? URL.createObjectURL(blob) : null;
+    }
+
+    function deviceShown() { return !$('c-device').classList.contains('display-none'); }
+    function openDevice(screen, app) {
+        var P = state.device;
+        screen = screen || 'home';
+        if (P.screen !== screen || P.app !== (app || '')) P.limit = LIST_STEP;
+        P.on = true;
+        P.screen = screen;
+        P.app = app || '';
+        closeSheet();
+        closePop();
+        $('c-view').classList.add('display-none');
+        $('c-empty').classList.add('display-none');
+        $('c-device').classList.remove('display-none');
+        $('c-device-open').setAttribute('aria-pressed', 'true');
+        renderDevice();
+        if (screen !== 'photos') $('c-device-body').scrollTop = 0;
+    }
+    function hideDevice() {
+        if (state.device.gallery) { state.device.gallery.destroy(); state.device.gallery = null; }
+        closeSheet();
+        $('c-device').classList.add('display-none');
+        $('c-device-open').setAttribute('aria-pressed', 'false');
+    }
+
+    function renderDevice() {
+        var P = state.device, body = $('c-device-body');
+        if (P.gallery && P.screen !== 'photos') { P.gallery.destroy(); P.gallery = null; }
+        $('c-device-phone').dataset.frame = deviceFrame();
+        $('c-device-foot').textContent = DEVICE_LABEL;
+        $('c-device-back').classList.toggle('display-none', P.screen === 'home');
+        if (!P.gallery) body.className = 'c-device-body ' + P.screen;
+        if (!state.zip) {
+            $('c-device-title').textContent = 'Ingen extraktion';
+            $('c-device-sub').textContent = '';
+            body.innerHTML = '<p class="d-empty">Öppna en extraktion i raden högst upp, så visas apparna i den här.</p>';
+            return;
+        }
+        if (P.screen === 'home') renderHome(body);
+        else if (P.screen === 'app') renderAppList(body);
+        else renderPhotos(body);
+    }
+
+    function renderHome(body) {
+        var P = state.device, apps = ChatPhone.homeApps(state.dbs);
+        if (!P.photos || P.photos.zip !== state.zip) loadPhotos();
+        var ph = P.photos;
+        var cells = apps.map(function (a) {
+            return '<button type="button" class="d-app" data-device-app="' + esc(a.app) + '" aria-label="' + esc(a.app + ', ' + (a.busy ? 'läses' : many(a.count, 'chatt', 'chattar'))) + '">' +
+                iconHtml(a.app, badgeHtml(a.busy, a.error, a.count)) + '<span class="d-name">' + esc(a.app) + '</span></button>';
+        });
+        if (ph && ph.state !== 'none') {
+            cells.push('<button type="button" class="d-app" data-device-photos="1" aria-label="' + esc('Bilder, ' + (ph.state === 'ready' ? many(ph.items.length, 'bild', 'bilder') : ph.state === 'busy' ? 'läses' : 'kunde inte läsas')) + '">' +
+                iconHtml('Bilder', badgeHtml(ph.state === 'busy', ph.state === 'error', ph.items.length)) + '<span class="d-name">Bilder</span></button>');
+        }
+        $('c-device-title').textContent = state.zip.file.name.replace(/\.(zip|ufdr)$/i, '');
+        $('c-device-sub').textContent = [devicePlatform(), many(cells.length, 'app med data', 'appar med data')].filter(Boolean).join(' · ');
+        body.innerHTML = (cells.length ? '<div class="d-grid">' + cells.join('') + '</div>' : '<p class="d-empty">Extraktionen har ingen databas för chattapparna eller bildbiblioteket.</p>') +
+            '<p class="d-note">Siffran är antalet chattar eller bilder som lästes ur appens databas. Appar utan databas i ' + esc(Z()) + ' visas inte. Ikonerna är verktygets egna.</p>';
+    }
+
+    function renderAppList(body) {
+        var P = state.device, f = fmt();
+        var a = ChatPhone.homeApps(state.dbs).filter(function (x) { return x.app === P.app; })[0];
+        $('c-device-back-text').textContent = 'Hem';
+        $('c-device-title').textContent = P.app;
+        if (!a) { $('c-device-sub').textContent = ''; body.innerHTML = '<p class="d-empty">Appen finns inte i extraktionen.</p>'; return; }
+        var list = ChatPhone.appThreads(state.dbs, a.dbs), shown = list.slice(0, P.limit);
+        $('c-device-sub').textContent = many(list.length, 'chatt', 'chattar') + ' · ' + a.dbs.map(function (di) { return baseName(state.dbs[di].hit.db.name); }).join(', ');
+        var rows = shown.map(function (x) {
+            var t = x.thread;
+            var sub = [t.kindText, t.messages !== null ? many(t.messages, 'meddelande', 'meddelanden') : ''].filter(Boolean).join(' · ');
+            return '<button type="button" class="d-row" data-db="' + x.db + '" data-thread="' + esc(t.key) + '" title="' + esc(t.address || t.name) + '">' +
+                '<span class="c-av p' + ChatCore.hueOf(t.key) + '" data-initial="' + esc(ChatCore.initialOf(t.name)) + '" aria-hidden="true"></span><span class="d-row-text">' +
+                '<span class="d-row-top"><b>' + esc(t.name) + '</b><time>' + esc(t.lastMs ? f(t.lastMs).slice(0, 10) : '') + '</time></span><span class="d-row-sub">' + esc(sub) + '</span></span></button>';
+        }).join('');
+        var note = a.busy ? '<p class="d-empty">Databaserna läses fortfarande. Listan fylls på när de är klara.</p>' : !list.length ? '<p class="d-empty">Databasen har inga konversationer.</p>' : '';
+        body.innerHTML = rows + note + (list.length > shown.length ? '<button type="button" class="c-btn d-more" data-device-more="1">Visa fler (' + num(list.length - shown.length) + ' kvar)</button>' : '');
+    }
+
+    function renderPhotos(body) {
+        var P = state.device;
+        $('c-device-back-text').textContent = 'Hem';
+        $('c-device-title').textContent = 'Bilder';
+        if (!P.photos || P.photos.zip !== state.zip) loadPhotos();
+        var ph = P.photos;
+        if (ph.state !== 'ready') {
+            $('c-device-sub').textContent = ph.state === 'busy' ? 'Läser bildbiblioteket…' : '';
+            body.innerHTML = ph.state === 'busy' ? '<p class="d-empty"><span class="c-spin" aria-hidden="true"></span> Läser bildbiblioteket…</p>' :
+                ph.state === 'none' ? '<p class="d-empty">Extraktionen har inget bildbibliotek (Photos.sqlite eller MediaStore).</p>' : '<p class="d-empty warn">Bildbiblioteket kunde inte läsas: ' + esc(ph.note) + '</p>';
+            return;
+        }
+        var thumbs = ph.items.filter(function (it) { return ph.thumbs[it.key]; }).length;
+        $('c-device-sub').textContent = many(ph.items.length, 'bild', 'bilder') + ' · ' + baseName(ph.db) + (thumbs ? ' · ' + num(thumbs) + ' med telefonens tumnagel' : '');
+        if (!ph.items.length) { body.innerHTML = '<p class="d-empty">Bildbiblioteket har inga bilder.</p>'; return; }
+        if (P.gallery) return;
+        P.gallery = new ChatPhone.Gallery({ box: body, items: ph.items, url: photoUrl, open: openPhoto, monthOf: monthOf, cols: 4 });
+    }
+
+    // Uppgifterna om en bild, i ett ark i telefonen.
+    function openPhoto(it) {
+        var ph = state.device.photos, f = fmt(), q = ph.query;
+        var thumb = ph.thumbs[it.key], file = ph.files[it.key];
+        var col = it.timeField ? Roles().fieldSpec(q, it.timeField).col : '';
+        var url = state.device.gallery ? state.device.gallery.urls.map.get(it.key) : null;
+        var rows = [
+            [it.timeField === 'added' ? 'Tillagd' : 'Skapad', it.ms !== null ? esc(f(it.ms)) + ' <small>(' + esc(col) + ')</small>' : 'Tiden saknas i databasen.'],
+            ['I ' + esc(Z()), file ? esc(file.name) + ' <small>(' + esc(ChatCore.sizeText(file.size)) + ')</small>' : 'Filen finns inte i ' + esc(Z()) + '.'],
+            ['I galleriet', thumb ? 'Telefonens tumnagel (5005.JPG)' : url ? ph.how[it.key] || 'Förminskad ur originalet' : it.drawable || it.heif ? 'Ingen bild' : 'Formatet kan inte visas här'],
+        ];
+        if (it.trashed) rows.push(['Papperskorgen', 'Ja, bilden ligger i Nyligen raderade.']);
+        if (it.importer) rows.push(['App enligt databasen', esc(it.importer) + ' <small>(' + esc(Roles().fieldSpec(q, 'importer').col) + ')</small>']);
+        var table = /\bFROM\s+(\w+)/i.exec(q.sql || '');
+        rows.push(['Källa', esc(baseName(ph.db)) + (table ? ' · ' + esc(table[1]) : '')]);
+        var sheet = $('c-device-sheet');
+        sheet.innerHTML = '<div class="c-sheet-box"><span class="c-sheet-grip" aria-hidden="true"></span><h2 id="c-sheet-title">' + esc(it.name) + '</h2>' +
+            (url ? '<img src="' + esc(url) + '" alt="">' : '') +
+            '<table>' + rows.map(function (r) { return '<tr><th>' + r[0] + '</th><td>' + r[1] + '</td></tr>'; }).join('') + '</table>' +
+            '<div class="c-sheet-actions">' + (inHub ? '<button type="button" class="c-btn c-primary" data-sheet-assess="1">Bedöm i Härkomst</button>' : '') +
+            '<button type="button" class="c-btn" data-sheet-close="1">Stäng</button></div></div>';
+        sheet.dataset.name = it.name;
+        sheet.classList.remove('display-none');
+        sheet.querySelector('[data-sheet-close]').focus();
+    }
+    function closeSheet() {
+        var sheet = $('c-device-sheet');
+        if (sheet.classList.contains('display-none')) return;
+        sheet.classList.add('display-none');
+        sheet.innerHTML = '';
+    }
+
+    $('c-device-open').addEventListener('click', function () { openDevice('home'); });
+    $('c-device-back').addEventListener('click', function () { openDevice('home'); });
+    $('c-phone-back').addEventListener('click', function () { if (state.current) openDevice('app', state.current.db.src.app); });
+    $('c-device-body').addEventListener('click', function (e) {
+        var b = e.target.closest('button');
+        if (!b || b.classList.contains('g-tile')) return;
+        if (b.dataset.deviceApp) return openDevice('app', b.dataset.deviceApp);
+        if (b.dataset.devicePhotos) return openDevice('photos');
+        if (b.dataset.deviceMore) { state.device.limit += LIST_STEP; var top = this.scrollTop; renderDevice(); this.scrollTop = top; return; }
+        if (b.classList.contains('d-row')) {
+            var d = state.dbs[Number(b.dataset.db)];
+            if (d) openThread(d, b.dataset.thread).catch(showError);
+        }
+    });
+    $('c-device-sheet').addEventListener('click', function (e) {
+        if (e.target === this || e.target.closest('[data-sheet-close]')) return closeSheet();
+        if (e.target.closest('[data-sheet-assess]')) {
+            toHub({ type: 'names-for', to: 'provenance', names: [this.dataset.name], zipName: state.zip ? state.zip.file.name : '' });
+            closeSheet();
+        }
+    });
+    document.addEventListener('keydown', function (e) {
+        if (e.key === 'Escape' && !$('c-device-sheet').classList.contains('display-none')) { e.preventDefault(); closeSheet(); }
+    });
+    // Telefonens bredd ändras med fönstret: galleriet räknar om sina rader.
+    window.addEventListener('resize', function () { if (state.device.gallery) state.device.gallery.paint(true); });
+
     findCount();
     renderList();
 
@@ -1711,5 +2041,10 @@
         list: function () { return state.shown; },
         look: function () { return state.look; },
         view: function () { return state.current && state.view ? { from: state.view.from, to: state.view.to, n: state.current.model.messages.length, drawn: $('c-msgs').querySelectorAll('.m').length } : null; },
+        device: function () {
+            var P = state.device, ph = P.photos, g = P.gallery;
+            return { on: P.on, shown: deviceShown(), screen: P.screen, app: P.app, photos: ph ? { state: ph.state, items: ph.items.length, thumbs: Object.keys(ph.thumbs).length, files: Object.keys(ph.files).length, note: ph.note } : null,
+                gallery: g ? { tiles: $('c-device-body').querySelectorAll('.g-tile').length, shown: $('c-device-body').querySelectorAll('.g-tile.has').length, loads: g.stats.loads, failed: g.stats.failed, urls: g.urls.map.size } : null };
+        },
     };
 })();

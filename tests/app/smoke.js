@@ -625,6 +625,14 @@ const scenarios = [
         await c.ev(CHAT, `document.getElementById('c-first').click(), 1`);
         v = await c.ev(CHAT, `({ v: ChatsApp.view(), first: document.querySelector('#c-msgs .m').dataset.i })`);
         expect(v.v.from === 0 && v.first === '0', 'Första: ' + JSON.stringify(v));
+        // Meddelande 1 och 2 kommer från samma avsändare med fem minuters mellanrum och ritas som en följd. Långt från
+        // slutet finns knappen till det senaste, och den leder dit.
+        const run = await c.ev(CHAT, `['1', '2', '3'].map(i => document.querySelector('#c-msgs .m[data-i="' + i + '"]').className)`);
+        expect(/\bmore\b/.test(run[0]) && !/\bcont\b/.test(run[0]) && /\bcont\b/.test(run[1]) && !/\bmore\b/.test(run[1]) && /\bme\b/.test(run[2]) && !/\bcont\b/.test(run[2]), 'Följden: ' + JSON.stringify(run));
+        await c.waitFor(CHAT, `!document.getElementById('c-latest').classList.contains('display-none')`, 5000, 'knappen Senaste');
+        await c.ev(CHAT, `document.getElementById('c-latest').click(), 1`);
+        await c.waitFor(CHAT, `ChatsApp.view().to === ${L.count} && document.getElementById('c-latest').classList.contains('display-none')`, 5000, 'det senaste efter knappen');
+        await c.ev(CHAT, `document.getElementById('c-first').click(), 1`);
         const blocks = await c.ev(CHAT, `(async function(){ const box = document.getElementById('c-msgs'); let most = 0; for (let k = 0; k < 10; k++) { box.scrollTop = box.scrollHeight; await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r))); most = Math.max(most, ChatsApp.view().drawn); } return { most, v: ChatsApp.view() }; })()`);
         expect(blocks.most <= 1500 && blocks.v.from > 0 && blocks.v.to > 1500, 'Blocken: ' + JSON.stringify(blocks));
         // Sökningen når hela chatten, också det som inte är ritat. Den första träffen är den första från det som syns.
@@ -1144,16 +1152,16 @@ const scenarios = [
         // Från början: allt visas, och varje app och slag säger hur många konversationer det har.
         const all = await read();
         expect(!all.filtered && all.count === '' && all.items.length === all.total && all.total === all.shown, 'Från början: ' + JSON.stringify(all));
-        expect(all.apps.length === 3 && all.apps.includes('WhatsApp 3'), 'Apparna: ' + all.apps);
+        expect(all.apps.length === 3 && all.apps.includes('WhatsApp 4'), 'Apparna: ' + all.apps);
         expect(all.kinds.join(', ') === 'Enskilda ' + (all.total - 1) + ', Grupper 1', 'Slagen: ' + all.kinds);
         expect(all.empty === 'Dölj tomma (1)', 'De tomma: ' + all.empty);
 
         // En app: bara den står kvar, och raden under valen säger hur mycket som visas.
         await press('app', 'WhatsApp');
         const wa = await read();
-        expect(wa.apps.includes('WhatsApp 3*') && wa.groups.join() === 'WhatsApp · iOS [3 av 3]', 'Vald app: ' + JSON.stringify(wa));
-        expect(wa.count === 'Visar 3 av ' + all.total + ' konversationer. Visa alla' && wa.items.length === 3, 'Raden under valen: ' + wa.count);
-        expect(wa.kinds.join(', ') === 'Enskilda 2, Grupper 1', 'Slagen i appen: ' + wa.kinds);
+        expect(wa.apps.includes('WhatsApp 4*') && wa.groups.join() === 'WhatsApp · iOS [4 av 4]', 'Vald app: ' + JSON.stringify(wa));
+        expect(wa.count === 'Visar 4 av ' + all.total + ' konversationer. Visa alla' && wa.items.length === 4, 'Raden under valen: ' + wa.count);
+        expect(wa.kinds.join(', ') === 'Enskilda 3, Grupper 1', 'Slagen i appen: ' + wa.kinds);
         // Appen och slaget tillsammans, och sedan utan de tomma.
         await press('kind', 'group');
         const groups = await read();
@@ -1185,11 +1193,11 @@ const scenarios = [
         // Namn A–Ö i svensk ordning, och en databas som fälls ihop tar sina rader med sig.
         const sort = (value) => c.ev(CHAT, `(function(){ const s = document.getElementById('c-sort'); s.value = ${JSON.stringify(value)}; s.dispatchEvent(new Event('change', { bubbles: true })); return 1; })()`);
         await sort('name');
-        expect(names(await read()).slice(0, 3).join() === 'Klubben,Lo,Långa', 'Namn A–Ö: ' + names(await read()));
+        expect(names(await read()).slice(0, 4).join() === 'Dokumentet,Klubben,Lo,Långa', 'Namn A–Ö: ' + names(await read()));
         await sort('recent');
         await c.ev(CHAT, `document.querySelector('#c-list .c-group[data-group="0"]').click(), 1`);
         const folded = await read();
-        expect(folded.groups[0] === 'WhatsApp · iOS [3] hopfälld' && folded.items.length === all.total - 3, 'Hopfälld: ' + JSON.stringify(folded.groups) + ', ' + folded.items.length + ' rader');
+        expect(folded.groups[0] === 'WhatsApp · iOS [4] hopfälld' && folded.items.length === all.total - 4, 'Hopfälld: ' + JSON.stringify(folded.groups) + ', ' + folded.items.length + ' rader');
         await c.ev(CHAT, `document.querySelector('#c-list .c-group[data-group="0"]').click(), 1`);
         expect(JSON.stringify(await read()) === JSON.stringify(all), 'Utfälld igen');
         await noInjectedScript(c);
@@ -1316,6 +1324,106 @@ const scenarios = [
         expect(after.look === 'list' && !after.stage && !after.head && after.foot === '' && after.pressed === 'true,false', 'Tillbaka i listan: ' + JSON.stringify(after));
         await noInjectedScript(c);
         return 'ramen ' + Math.round(phone.width) + ' px, platsen står kvar vid bytet, ' + asPhone.pages + ' sidor som telefon mot ' + asList.pages + ' som lista, exporten har ramen och numren';
+    }],
+
+    ['Chattar: telefonen visar apparna med data, appens chattar, en chatt med knappen tillbaka och galleriet ur bildbiblioteket', async ({ c }) => {
+        const CHAT = 'chats/index.html';
+        const ev = (e) => c.ev(CHAT, e);
+        await c.nav('Chattar');
+        await c.waitFor(CHAT, `!ChatsApp.busy() && document.querySelectorAll('.c-item').length > 0`, 60000, 'konversationerna');
+        expect(await ev(`!document.getElementById('c-device-open').classList.contains('display-none')`), 'Knappen Telefonen syns inte med en extraktion öppen');
+        await ev(`document.getElementById('c-device-open').click(), 1`);
+        await c.waitFor(CHAT, `ChatsApp.device().photos && ChatsApp.device().photos.state === 'ready'`, 60000, 'bildbiblioteket');
+        const home = await ev(`({ d: ChatsApp.device(), apps: [...document.querySelectorAll('#c-device-body .d-app')].map(a => a.getAttribute('aria-label')), title: document.getElementById('c-device-title').textContent,
+            sub: document.getElementById('c-device-sub').textContent, foot: document.getElementById('c-device-foot').textContent, frame: document.getElementById('c-device-phone').dataset.frame,
+            back: !document.getElementById('c-device-back').classList.contains('display-none'), view: !document.getElementById('c-view').classList.contains('display-none'), empty: !document.getElementById('c-empty').classList.contains('display-none') })`);
+        expect(home.d.shown && home.d.screen === 'home' && !home.view && !home.empty && !home.back && home.frame === 'ios' && home.foot === 'Rekonstruktion ur databaserna – inte en skärmbild', 'Hemskärmen: ' + JSON.stringify(home));
+        expect(home.apps.some((a) => /^WhatsApp, \d+ chattar?$/.test(a)) && home.apps.includes('Bilder, 10 bilder') && /appar med data$/.test(home.sub), 'Apparna på hemskärmen: ' + JSON.stringify(home.apps) + ' | ' + home.sub);
+        // WhatsApp: chattarna med HTML i namnet som text, och en chatt öppnas i telefonvyn med knappen tillbaka.
+        await ev(`document.querySelector('[data-device-app="WhatsApp"]').click(), 1`);
+        const rows = await ev(`[...document.querySelectorAll('#c-device-body .d-row b')].map(b => b.textContent)`);
+        expect(await ev(`ChatsApp.device().screen`) === 'app' && rows.some((r) => r.startsWith('Lo <img')) && await ev(`!document.getElementById('c-device-back').classList.contains('display-none')`), 'WhatsApp i telefonen: ' + JSON.stringify(rows));
+        await ev(`[...document.querySelectorAll('#c-device-body .d-row')].find(b => b.querySelector('b').textContent.startsWith('Lo <img') && /2 meddelanden/.test(b.textContent)).click(), 1`);
+        await c.waitFor(CHAT, `!ChatsApp.busy() && ChatsApp.view() && ChatsApp.view().n === 2`, 30000, 'chatten ur telefonen');
+        const chat = await ev(`({ look: ChatsApp.look(), device: ChatsApp.device().shown, back: !document.getElementById('c-phone-back').classList.contains('display-none'), text: document.getElementById('c-phone-back-text').textContent,
+            stage: document.getElementById('c-stage').classList.contains('phone') })`);
+        expect(chat.look === 'phone' && chat.stage && !chat.device && chat.back && chat.text === 'WhatsApp', 'Chatten ur telefonen: ' + JSON.stringify(chat));
+        await ev(`document.getElementById('c-phone-back').click(), 1`);
+        expect(await ev(`ChatsApp.device().shown && ChatsApp.device().screen === 'app' && ChatsApp.device().app === 'WhatsApp'`), 'Tillbaka från chatten ledde inte till WhatsApps lista');
+        await ev(`document.getElementById('c-device-back').click(), 1`);
+        expect(await ev(`ChatsApp.device().screen === 'home'`), 'Hem ledde inte till hemskärmen');
+        // Bilderna: tio i bildbiblioteket. Den riktiga bilden ritas, en trasig fil och HTML i ett namn står som text.
+        await ev(`document.querySelector('[data-device-photos]').click(), 1`);
+        await c.waitFor(CHAT, `ChatsApp.device().gallery && ChatsApp.device().gallery.tiles === 10 && document.querySelectorAll('#c-device-body .g-tile.has, #c-device-body .g-tile.none').length === 10`, 30000, 'galleriets bilder');
+        const g = await ev(`({ g: ChatsApp.device().gallery, months: [...document.querySelectorAll('#c-device-body .g-month')].map(m => m.textContent), sub: document.getElementById('c-device-sub').textContent,
+            drawn: [...document.querySelectorAll('#c-device-body .g-tile.has img')].filter(i => i.naturalWidth > 0).length })`);
+        expect(g.drawn >= 1 && g.months.length >= 2 && /^10 bilder · Photos\.sqlite/.test(g.sub), 'Galleriet: ' + JSON.stringify(g));
+        await ev(`[...document.querySelectorAll('#c-device-body .g-tile')].find(t => t.getAttribute('aria-label') === 'IMG_0002.JPG').click(), 1`);
+        const sheet = await ev(`({ shown: !document.getElementById('c-device-sheet').classList.contains('display-none'), rows: Object.fromEntries([...document.querySelectorAll('#c-device-sheet tr')].map(r => [r.cells[0].textContent, r.cells[1].textContent])),
+            assess: !!document.querySelector('#c-device-sheet [data-sheet-assess]') })`);
+        expect(sheet.shown && /\(ZDATECREATED\)$/.test(sheet.rows.Skapad) && /Media\/DCIM\/100APPLE\/IMG_0002\.JPG/.test(sheet.rows['I zippen']) && sheet.assess, 'Arket med bilden: ' + JSON.stringify(sheet));
+        await ev(`document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })), 1`);
+        expect(await ev(`document.getElementById('c-device-sheet').classList.contains('display-none')`), 'Esc stängde inte arket');
+        // Bedöm i Härkomst: namnet skickas dit och bedöms i samma extraktion.
+        await ev(`document.querySelector('#c-device-body .g-tile').click(), 1`);
+        const name = await ev(`document.getElementById('c-sheet-title').textContent`);
+        await ev(`document.querySelector('#c-device-sheet [data-sheet-assess]').click(), 1`);
+        await c.waitFor(PROV, `document.getElementById('filename').value === ${JSON.stringify(name)}`, 15000, 'namnet i Härkomst').catch(async () => {
+            throw new Error('Härkomst fick ' + await c.ev(PROV, `document.getElementById('filename').value`) + ', inte ' + name);
+        });
+        // Listvyn lämnar telefonen: nästa chatt öppnas som lista, utan knappen tillbaka.
+        await c.nav('Chattar');
+        await ev(`[...document.querySelectorAll('.c-item')].find(b => b.innerText.includes('Långa chatten')).click(), 1`);
+        await c.waitFor(CHAT, `!ChatsApp.busy() && ChatsApp.view() && ChatsApp.view().n > 100`, 30000, 'den långa chatten');
+        await ev(`document.getElementById('c-look-list').click(), 1`);
+        expect(await ev(`ChatsApp.look() === 'list' && !ChatsApp.device().on && document.getElementById('c-phone-back').classList.contains('display-none')`), 'Listvyn lämnade inte telefonen');
+        await noInjectedScript(c);
+        return home.apps.join(', ') + '; ' + g.drawn + ' av 10 bilder ritade, ' + g.months.length + ' månader';
+    }],
+
+    ['HEIC: avkodaren laddas först när den behövs och ritar testfilen i Chattar, Härkomst och EXIF & karta, med förhandsbilden för listor', async ({ c }) => {
+        const b64 = fs.readFileSync(path.join(__dirname, '..', '..', 'tools', '_shared', 'fixtures', 'prov.heic')).toString('base64');
+        const out = [];
+        for (const [title, part] of [['Chattar', 'chats/index.html'], ['Härkomst', PROV], ['EXIF & karta', 'exif-viewer/index.html']]) {
+            await c.nav(title);
+            await c.waitFor(part, `!!window.Heic`, 30000, 'Heic i ' + title);
+            const r = await c.ev(part, `(async function () {
+                const bytes = Uint8Array.from(atob(${JSON.stringify(b64)}), (ch) => ch.charCodeAt(0));
+                const before = !!window.LIBHEIF_WORKER_SOURCE, t = performance.now();
+                const full = await Heic.toJpeg(bytes, {});
+                const small = await Heic.toJpeg(bytes, { preview: true, maxSide: 240 });
+                const ms = Math.round(performance.now() - t);
+                const bmp = await createImageBitmap(full.blob);
+                let bad = '';
+                try { await Heic.toJpeg(bytes.slice(0, 60), {}); } catch (e) { bad = e.message; }
+                return { is: Heic.is(bytes), before, after: !!window.LIBHEIF_WORKER_SOURCE, ms, type: full.blob.type, full: [full.w, full.h, full.from], small: [small.w, small.h, small.from], drawn: [bmp.width, bmp.height], bad };
+            })()`);
+            const standalone = await c.ev(part, `window.FT_STANDALONE === true`).catch(() => false);
+            expect(r.is && (standalone || !r.before) && r.after && r.type === 'image/jpeg', title + ': avkodaren laddades inte som väntat: ' + JSON.stringify(r));
+            expect(r.full.join() === '64,48,primary' && r.small.join() === '32,24,preview' && r.drawn.join() === '64,48', title + ': bilderna: ' + JSON.stringify(r));
+            expect(/HEIC/.test(r.bad), title + ': en trasig fil gav inget fel: ' + r.bad);
+            out.push(title + ' ' + r.ms + ' ms');
+        }
+        return out.join(', ');
+    }],
+
+    ['Chattar: en HEIC som skickats som dokument avkodas och visas, märkt som dokument och med filen att spara', async ({ c }) => {
+        const CHAT = 'chats/index.html';
+        const ev = (e) => c.ev(CHAT, e);
+        await c.nav('Chattar');
+        await c.waitFor(CHAT, `!ChatsApp.busy() && [...document.querySelectorAll('.c-item')].some(b => b.innerText.includes('Dokumentet'))`, 60000, 'chatten Dokumentet');
+        await ev(`[...document.querySelectorAll('.c-item')].find(b => b.innerText.includes('Dokumentet')).click(), 1`);
+        await c.waitFor(CHAT, `!ChatsApp.busy() && ChatsApp.view() && ChatsApp.view().n === 1`, 30000, 'meddelandet');
+        await c.waitFor(CHAT, `(function(){ const i = document.querySelector('#c-msgs .att-doc img'); return !!i && i.naturalWidth > 0; })()`, 30000, 'bilden i dokumentet');
+        const r = await ev(`(function(){ const d = document.querySelector('#c-msgs .att-doc'), i = d.querySelector('img');
+            return { tag: d.querySelector('.att-doc-tag').textContent, size: [i.naturalWidth, i.naturalHeight], save: !!d.querySelector('[data-save]'), info: d.querySelector('.att-doc-info').textContent }; })()`);
+        expect(r.tag === 'Dokument: en HEIC-bild som skickades som fil' && r.size.join() === '64,48' && r.save && /IMG_0042\.HEIC/.test(r.info), 'Dokumentet: ' + JSON.stringify(r));
+        await ev(`document.querySelector('#c-msgs .att-doc .att-img').click(), 1`);
+        await c.waitFor(CHAT, `document.getElementById('c-lb-img').naturalWidth === 64`, 15000, 'förstoringen');
+        const cap = await ev(`document.getElementById('c-lb-cap').textContent`);
+        expect(/^Dokument \(skickad som fil\) · /.test(cap), 'Förstoringens text: ' + cap);
+        await ev(`document.getElementById('c-lb-close').click(), 1`);
+        return r.tag;
     }],
 
     ['Härkomst: sökning på tid listar filerna, och HTML i namnen körs inte', async ({ c }) => {

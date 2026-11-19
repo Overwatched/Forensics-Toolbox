@@ -169,7 +169,7 @@ test('export: avsändarens namn i en grupp', async () => {
     const { model } = await load(4);
     assert.strictEqual(model.group, true);
     const out = exp.html({ model, messages: model.messages, zone: 'UTC', selection: 'hela konversationen', meta: {} });
-    assert.ok(out.includes('<div class="who">Lo</div>'));
+    assert.match(out, /<div class="who p[0-7]">Lo<\/div>/);
     assert.ok(out.includes('Mo — 333@lid (har lämnat)'));
     assert.ok(out.includes('Lo — 222@lid (administratör)'));
 });
@@ -421,7 +421,7 @@ test('export som telefon: ramen för Android och för en okänd plattform, grupp
     assert.deepStrictEqual([exp.phone(group).initial, exp.phone(group).sub], ['K', 'Grupp · 3 deltagare']);
     const out = html(group);
     assert.ok(out.includes('<b>Klubben</b><small>Grupp · 3 deltagare</small>'));
-    assert.ok(out.includes('<div class="who">Lo</div>'));
+    assert.match(out, /<div class="who p[0-7]">Lo<\/div>/);
     // Ett nummer som namn får # i ringen, och adressen skrivs inte två gånger.
     const number = { thread: { name: '+46700000005', address: '+46700000005', kindText: 'Enskild chatt' }, source: { platform: 'iOS' }, group: false, members: [] };
     assert.deepStrictEqual([exp.phone(number).initial, exp.phone(number).sub], ['#', 'Enskild chatt']);
@@ -623,4 +623,31 @@ test('listan: senaste först, flest meddelanden eller namn i svensk ordning, och
     assert.deepStrictEqual(core.LIST_SORTS.map((s) => s[0]), ['recent', 'messages', 'name']);
     // Ordningen ändrar inte trådarna som listan fick.
     assert.deepStrictEqual(threads.map((t) => t.name), names);
+});
+
+test('utseendet: samma färg för samma person, initialen och följder från samma avsändare', () => {
+    assert.strictEqual(core.hueOf('46701234567@s.whatsapp.net'), core.hueOf('46701234567@s.whatsapp.net'));
+    const hues = new Set(['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l'].map(core.hueOf));
+    assert.ok([...hues].every((h) => h >= 0 && h < core.HUES) && hues.size > 3, 'Färgerna: ' + [...hues]);
+    assert.deepStrictEqual(['Åsa', '+46 70', ' kim', ''].map(core.initialOf), ['Å', '#', 'K', '?']);
+    const t = Date.UTC(2026, 10, 18, 12, 0, 0);
+    const m = (o) => Object.assign({ kind: 'text', fromMe: false, senderId: 'x', senderName: 'Lo', sortMs: t }, o);
+    assert.ok(core.sameRun(m({}), m({ sortMs: t + core.RUN_MS })), 'Inom fem minuter');
+    assert.ok(!core.sameRun(m({}), m({ sortMs: t + core.RUN_MS + 1 })), 'Mer än fem minuter');
+    assert.ok(!core.sameRun(m({}), m({ senderId: 'y' })), 'Annan avsändare');
+    assert.ok(!core.sameRun(m({}), m({ fromMe: true, senderId: '' })), 'Annan riktning');
+    assert.ok(core.sameRun(m({ fromMe: true, senderId: '' }), m({ fromMe: true, senderId: '' })), 'Två egna');
+    assert.ok(!core.sameRun(m({}), m({ kind: 'system' })) && !core.sameRun(m({}), m({ sortMs: null })) && !core.sameRun(null, m({})), 'Systemrad, utan tid, inget före');
+});
+
+test('en bild som skickats som dokument och en HEIC som är en fil känns igen', () => {
+    const doc = { kindLabel: 'dokument' }, img = { kindLabel: 'bild' };
+    assert.strictEqual(core.sentAsDocument(doc, { kind: 'image' }), true);
+    assert.strictEqual(core.sentAsDocument(img, { kind: 'image' }), false);
+    assert.strictEqual(core.sentAsDocument(img, { kind: 'file' }), true);
+    assert.strictEqual(core.heicFile({ kind: 'file', name: 'IMG_0042.HEIC', mime: 'application/octet-stream' }), true);
+    assert.strictEqual(core.heicFile({ kind: 'file', path: 'Media/x/a.heif' }), true);
+    assert.strictEqual(core.heicFile({ kind: 'file', name: 'blob', mime: 'image/heic-sequence' }), true);
+    assert.strictEqual(core.heicFile({ kind: 'file', name: 'rapport.pdf', mime: 'application/pdf' }), false);
+    assert.strictEqual(core.heicFile({ kind: 'image', name: 'IMG_1.HEIC', mime: 'image/heic' }), false, 'redan en bild');
 });

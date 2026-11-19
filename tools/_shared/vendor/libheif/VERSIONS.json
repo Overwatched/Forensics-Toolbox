@@ -1,0 +1,10 @@
+{
+  "package": {
+    "name": "libheif-js",
+    "version": "1.23.5",
+    "integrity": "sha512-umXZPthnWZtF3iG/5mQG+AZ2V6i0UeYpo3z2CkggTEgL8dKmIIwJT6TDuAMuabXa1yTW8uJ1ZAgR+CxNTklYYw==",
+    "resolved": "https://registry.npmjs.org/libheif-js/-/libheif-js-1.23.5.tgz"
+  },
+  "bundleSha256": "074b2b55ef3de477ba9f794ca381f3f0324c1cba8c91b4af07395f39c22d54cc",
+  "bundleBytes": 2044206
+}

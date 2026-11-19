@@ -29,8 +29,12 @@ const TOOLBOX_HTML = path.join(ROOT, 'Toolbox.html');
 const SHARED_BYTES = 512 * 1024;
 const EXCLUDE = [/^tools\/CyberChef\//i];
 // Skript som ett verktyg läser in själv när det behövs (loadScript), och som därför inte står i dess html.
+const HEIC = 'tools/_shared/vendor/libheif/libheif-worker.js';
 const EXTRA = {
-    'tools/provenance/index.html': ['tools/exif-viewer/vendor/exiftool/exiftool-worker.js', 'tools/exif-viewer/vendor/exiftool/zeroperl-wasm.js'],
+    'tools/provenance/index.html': ['tools/exif-viewer/vendor/exiftool/exiftool-worker.js', 'tools/exif-viewer/vendor/exiftool/zeroperl-wasm.js', HEIC],
+    // HEIC-avkodaren (tools/_shared/heic.js) laddas när en HEIC ska visas.
+    'tools/chats/index.html': [HEIC],
+    'tools/exif-viewer/index.html': [HEIC],
 };
 const MARKER = '<script>window.FT_STANDALONE = true;</script>';
 

@@ -1,5 +1,14 @@
 Automatiskt byggd från commit `{{SHA}}`.
 
+## Nytt i 1.76
+
+**Chattar får ett nytt utseende, en telefon att bläddra i, och alla vyer ritar HEIC.**
+
+- **Färgerna i bubblorna** är rättade: text och bakgrund har tydlig kontrast i varje app och i både ljust och mörkt läge. I grupper får varje person en egen färg och en ring med sin initial, och meddelanden i följd från samma person står ihop. Knappen Till senaste tar dig till slutet av chatten.
+- **Telefonen** (knappen överst i Chattars lista) visar extraktionen som en telefon: en hemskärm med apparna som har data, appens chattar och ett galleri ur bildbiblioteket. Galleriet ritar bara det som syns, så det klarar tiotusentals bilder. En bild kan skickas till Härkomst för bedömning.
+- **HEIC** visas i Chattar, Härkomst och EXIF & karta. Bara bilder som visas avkodas: listor och gallerier använder bildens inbyggda förhandsbild, och hela bilden avkodas när den öppnas. En HEIC som skickats som dokument visas också, men märkt som dokument och med filen kvar att spara.
+- **Provat:** enhetstesterna och röktestet i appen, och en påhittad extraktion med 20 000 bilder och 50 000 WhatsApp-meddelanden.
+
 ## Nytt i 1.75
 
 **Laboration sparar flera laborationer, och fem nya färdiga flöden.**

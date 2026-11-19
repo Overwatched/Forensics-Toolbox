@@ -45,6 +45,11 @@ test('vad som visas: originalet för JPEG, tumnageln för HEIC och video, annars
     assert.strictEqual(mov.note, 'Telefonens egen miniatyr av videon.');
     assert.strictEqual(media.previewPlan({ name: 'clip.mp4', size: 2e6, hasBytes: true, thumb: false, maxBytes: 20e6 }).source, 'video');
     assert.strictEqual(media.previewPlan({ name: 'IMG_1.MOV', size: 2e6, hasBytes: true, thumb: false, maxBytes: 20e6 }).source, 'none', 'MOV utan tumnagel: inget');
+    // Med avkodaren (tools/_shared/heic.js) visas HEIC-filen själv, före tumnageln, så länge den inte är för stor.
+    const decoded = media.previewPlan({ name: 'IMG_1.HEIC', size: 2e6, hasBytes: true, thumb: true, maxBytes: 20e6, heic: true });
+    assert.deepStrictEqual([decoded.source, decoded.kind], ['heic', 'image']);
+    assert.match(decoded.note, /HEIC-filen/);
+    assert.strictEqual(media.previewPlan({ name: 'IMG_1.HEIC', size: 50e6, hasBytes: true, thumb: true, maxBytes: 20e6, heic: true }).source, 'thumbnail', 'stor HEIC: tumnageln');
     const none = media.previewPlan({ name: 'IMG_1.HEIC', size: 2e6, hasBytes: true, thumb: false, maxBytes: 20e6 });
     assert.strictEqual(none.source, 'none');
     assert.match(none.note, /HEIC/);

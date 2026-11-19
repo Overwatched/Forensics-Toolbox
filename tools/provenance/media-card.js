@@ -77,14 +77,15 @@
         return hits[0] || null;
     }
 
-    // Vad som ska visas. opts: { name, size, hasBytes, thumb (finns tumnagel), maxBytes }.
-    // Originalet för JPEG/PNG som lästs och inte är för stort, annars systemets tumnagel, annars
-    // videon direkt för MP4, annars ingenting med skälet i klartext.
+    // Vad som ska visas. opts: { name, size, hasBytes, thumb (finns tumnagel), maxBytes, heic (HEIC kan avkodas) }.
+    // Originalet för JPEG/PNG som lästs och inte är för stort, och för HEIC när avkodaren finns, annars systemets
+    // tumnagel, annars videon direkt för MP4, annars ingenting med skälet i klartext.
     function previewPlan(opts) {
         opts = opts || {};
         var kind = kindOf(opts.name);
         var small = opts.size != null && opts.maxBytes != null ? opts.size <= opts.maxBytes : true;
         if (kind === 'image' && opts.hasBytes && small) return { source: 'original', kind: 'image', note: 'Bilden i förminskad form.' };
+        if (kind === 'heic' && opts.heic && opts.hasBytes && small) return { source: 'heic', kind: 'image', note: 'Bilden avkodad ur HEIC-filen här (libheif), i förminskad form.' };
         if (opts.thumb) return { source: 'thumbnail', kind: 'image', note: kind === 'video' ? 'Telefonens egen miniatyr av videon.' : 'Telefonens egen miniatyr av bilden.' };
         if (kind === 'video' && opts.hasBytes && small && /\.(mp4|m4v|webm)$/i.test(baseName(opts.name))) return { source: 'video', kind: 'video', note: 'En bildruta ur videon.' };
         if (kind === 'image' && opts.hasBytes) return { source: 'original', kind: 'image', note: 'Bilden i förminskad form.' };
