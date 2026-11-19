@@ -69,8 +69,10 @@
         m = /^([0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12})~(\d+)$/i.exec(s);
         if (m) return { kind: 'recording', recordingId: m[1].toUpperCase() };
         // iOS 26: en sparad snap i Memories. Filen och förhandsbilden har snappens id i nyckeln.
-        m = /^snap-(media|rendered-lowres)-([0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12})$/i.exec(s);
-        if (m) return { kind: 'memory', snapId: m[2].toUpperCase(), part: m[1] === 'media' ? 'media' : 'lowres' };
+        // Texten och ritningen på bilden ligger i en egen fil, snap-overlay-<id> (WebP, samma nyckel; labbet 2026-11-19).
+        // En sparad video har nyckeln <id>~<n> som en inspelning, med typ 19 (se memoryVideoKey).
+        m = /^snap-(media|rendered-lowres|overlay)-([0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12})$/i.exec(s);
+        if (m) return { kind: 'memory', snapId: m[2].toUpperCase(), part: m[1] === 'media' ? 'media' : m[1] === 'overlay' ? 'overlay' : 'lowres' };
         // iOS 26: en skickad snap har två id:n, som båda står i meddelandets local_message_references.
         m = /^([0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12})~([0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12})$/i.exec(s);
         if (m) return { kind: 'sent', recipient: null, mediaId: m[2].toUpperCase(), refs: [m[1].toLowerCase(), m[2].toLowerCase()] };
@@ -260,6 +262,22 @@
 
     function hexId(v) { return v == null ? null : String(v).replace(/-/g, '').toLowerCase() || null; }
 
+    // En sparad video på iOS ligger i cachen under <snap-id>~<n> med MEDIA_CONTEXT_TYPE 19 (Memories), samma form som en
+    // inspelning. Två filer i labbet 2026-11-19, båda MP4. -> snappens id i versaler, eller null.
+    function memoryVideoKey(external, context) {
+        if (Number(context) !== 19) return null;
+        var m = /^([0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12})~\d+$/i.exec(String(external || ''));
+        return m ? m[1].toUpperCase() : null;
+    }
+
+    // Video eller bild. iOS (scdb-27): ZMEDIAFORMAT 0 är video och 1 bild; ZMEDIATYPE var 0 för båda (labbet 2026-11-19,
+    // två videor och sjutton bilder). Android (memories.db): media_type 1 är video.
+    function isVideoMemory(m) {
+        if (!m) return false;
+        if (m.mediaFormat != null && m.mediaFormat !== '') return Number(m.mediaFormat) === 0;
+        return Number(m.mediaType) === 1;
+    }
+
     // Nyckeln och IV till en sparad snaps fil på iOS ur ZGALLERYSNAP.ZENCRYPTION, ett arkiv (NSKeyedArchiver,
     // klassen SCMemoriesSnapEncryption) med KEY (32 byte) och IV (16 byte). archive: den tolkade plisten
     // ({ $objects, $top }). Värdena kan stå som data eller som base64-text. null när de saknas.
@@ -348,6 +366,22 @@
             version: version, changed: version == null ? null : version > 0, updatedMs: row.updatedMs == null ? null : Number(row.updatedMs) };
     }
 
+    // Inställningen Spara till på iOS: primary.docobjects, userproperties itemId 24, en FlatBuffer där värdet står som en
+    // längdprefixad text (labbtelefonen 2026-11-19: MEMORIES, och MEMORIES_AND_CAMERA_ROLL i en äldre sida). -> värdet eller null.
+    function saveSettingFromFlat(p) {
+        var b = toBytes(p);
+        if (!b) return null;
+        var names = Object.keys(SAVE_SETTING).sort(function (x, y) { return y.length - x.length; });
+        for (var i = 0; i + 4 < b.length; i++) {
+            var n = b[i] | (b[i + 1] << 8) | (b[i + 2] << 16) | (b[i + 3] << 24);
+            if (n < 6 || n > 40 || i + 4 + n > b.length) continue;
+            var text = '';
+            for (var j = 0; j < n; j++) text += String.fromCharCode(b[i + 4 + j]);
+            if (names.indexOf(text) >= 0 && (i + 4 + n === b.length || b[i + 4 + n] === 0)) return text;
+        }
+        return null;
+    }
+
     // Varifrån en rad i Memories kommer (Android, labbet 2026-11-16):
     //   cameraRoll: camera_roll_id är satt. Snapchat har lagt in en bild ur kamerarullen; tiden är filens, inte en tagning.
     //               På Android 13 är värdet MediaStores _id, på Android 16 ett uuid.
@@ -357,6 +391,7 @@
     // savedMs är tiden då snappen sparades, ur raden eller posten, eller null.
     function memoryOrigin(m) {
         if (!m) return null;
+        if (m.ios) return iosMemoryOrigin(m);
         var roll = m.cameraRollId != null && String(m.cameraRollId) !== '';
         var synced = !roll && m.createdMs != null && m.capturedMs != null && Number(m.createdMs) === Number(m.capturedMs);
         var entryMs = m.entryCreatedMs != null && isFinite(m.entryCreatedMs) && m.entryCreatedMs > 0 ? Number(m.entryCreatedMs) : null;
@@ -364,6 +399,20 @@
             featured: String(m.entryId || '').toLowerCase() === 'featured', synced: synced, local: !roll && !synced,
             savedMs: roll ? null : synced ? entryMs : m.createdMs, savedFrom: roll ? null : synced ? (entryMs ? 'entry' : null) : 'snap',
             deleted: Number(m.deleted) === 1, private: Number(m.private) === 1, copyOf: m.copyFrom || null };
+    }
+
+    // Varifrån en rad i Memories kommer på iOS (scdb-27, labbet 2026-11-19). ZCREATETIMEUTC är när snappen sparades för en
+    // bild som sparas direkt. För en video och för snaps i en story som sparas efteråt är ZCREATETIMEUTC tagningstiden, och
+    // tiden då posten sparades står i ZGALLERYENTRY.ZDUPLICATETIMEUTC (samma sekund som filen lades i cachen). Den senare av
+    // de två är alltså när snappen sparades. My Eyes Only: posten har ZISPRIVATE 1 och snappen ZDUPLICATEDFROMSNAPID, och
+    // kopian behåller originalets tider.
+    function iosMemoryOrigin(m) {
+        var created = m.createdMs != null && isFinite(m.createdMs) ? Number(m.createdMs) : null;
+        var entry = m.entrySavedMs != null && isFinite(m.entrySavedMs) && m.entrySavedMs > 0 ? Number(m.entrySavedMs) : null;
+        var later = entry != null && (created == null || entry - created > 1000);
+        return { cameraRoll: false, mediaStoreId: null, featured: false, synced: false, local: true,
+            savedMs: later ? entry : created, savedFrom: later ? 'entry' : 'snap', deleted: false,
+            private: Number(m.private) === 1, copyOf: m.copyFrom || null };
     }
 
     // En fil i galleriet som hör till en snap som sparades på telefonen: kopian Snapchat lägger där när snappen sparas
@@ -389,7 +438,7 @@
     function linkVideoByDuration(memories, file) {
         if (!file || file.durationMs == null || !(file.durationMs > 0)) return null;
         var hits = (memories || []).filter(function (m) {
-            return Number(m.mediaType) === 1 && !memoryOrigin(m).cameraRoll && m.duration != null && Math.abs(Number(m.duration) * 1000 - file.durationMs) <= SAME_DURATION_MS;
+            return isVideoMemory(m) && !memoryOrigin(m).cameraRoll && !memoryOrigin(m).private && m.duration != null && Math.abs(Number(m.duration) * 1000 - file.durationMs) <= SAME_DURATION_MS;
         });
         return hits.length === 1 ? { row: hits[0], deltaMs: null, by: 'duration', diffMs: Math.round(Math.abs(Number(hits[0].duration) * 1000 - file.durationMs)) } : null;
     }
@@ -408,7 +457,7 @@
             // Tiden då snappen sparades: raden, eller Memories-posten när raden är hämtad från servern.
             var saved = o.savedMs != null ? o.savedMs : m.createdMs;
             if (saved == null || o.cameraRoll) return;
-            if (file.video != null && (Number(m.mediaType) === 1) !== !!file.video) return;
+            if (file.video != null && isVideoMemory(m) !== !!file.video) return;
             var d = Math.abs(saved - anchor);
             if (d > MEMORY_LINK_MS) return;
             if (!best || d < best.deltaMs) best = { row: m, deltaMs: d };
@@ -456,6 +505,8 @@
         // iOS: en cachefil vars nyckel bär snappens id hör till den snappen i Memories, utan att tiden behöver jämföras.
         var fileRow = fileKey ? (ctx.cacheRows || []).find(function (r) { return String(r.key).toLowerCase() === fileKey; }) : null;
         var fileExt = fileRow ? parseExternalKey(fileRow.external) : null;
+        var videoId = fileRow ? memoryVideoKey(fileRow.external, fileRow.context) : null;
+        if (videoId) fileExt = { kind: 'memory', snapId: videoId, part: 'media' };
         if (fileExt && fileExt.kind === 'memory') {
             var own = (ctx.memories || []).find(function (m) { return String(m.id || '').toUpperCase() === fileExt.snapId; });
             if (own) memory = { row: own, deltaMs: null, by: 'id', part: fileExt.part };
@@ -497,6 +548,13 @@
         (ctx.cacheRows || []).forEach(function (r) {
             var info = contextInfo(r.context);
             var ext = parseExternalKey(r.external);
+            // Snapchat 14.30 på iOS (labbet 2026-11-19): en skickad snap har bara ett uuid som nyckel (typ 3), och samma uuid
+            // står i det egna meddelandets local_message_references. Meddelandet kan skrivas senare än filen, när telefonen
+            // varit i flygplansläge (1 min 32 s i labbet).
+            if (ext.kind === 'uuid' && info.code === 3) {
+                var own3 = messageForRefs([ext.id]);
+                if (own3 && (!own3.senderId || isOwn(hexId(own3.senderId), ctx))) ext = { kind: 'sent', recipient: null, mediaId: ext.id.toUpperCase(), refs: [ext.id] };
+            }
             var isFile = fileKey && String(r.key).toLowerCase() === fileKey;
             var linkedMessage = ext.kind === 'message' ? byMessage[ext.conversationId + ':' + ext.serverMessageId] || null : ext.kind === 'chat' ? messageForSnap(ext.snapId)
                 : ext.kind === 'sent' && ext.refs ? messageForRefs(ext.refs) : null;
@@ -583,12 +641,12 @@
         // Memories följer kontot, och kontot kan vara inloggat på flera enheter: att snappen togs på den här telefonen
         // visar kameraloggen, inte Memories. Därför säger meningarna inte "på den här telefonen".
         (ctx.memories || []).forEach(function (m) {
-            var video = Number(m.mediaType) === 1;
+            var video = isVideoMemory(m);
             var front = Number(m.front) === 1;
             var cam = front ? 'frontkamera' : 'bakre kamera';
             var isFile = !!(memory && memory.row === m);
             var noun = video ? 'video' : 'bild';
-            var o = ctx.memoryColumns ? { local: true } : memoryOrigin(m);
+            var o = memoryOrigin(m);
             var tail = (o.private ? ', i My Eyes Only' : '') + (o.deleted ? ', borttagen ur Memories (has_deleted)' : '') + (o.copyOf ? ', kopia av snap ' + String(o.copyOf).slice(0, 8) + '…' : '');
             var common = { kind: 'snap-memory', lane: 'snapchat', app: app, isFile: isFile, bold: isFile, video: video, front: front, memoryId: m.id, latitude: m.latitude, longitude: m.longitude };
             if (o.cameraRoll) {
@@ -600,7 +658,7 @@
             }
             if (m.capturedMs != null) {
                 events.push(Object.assign({}, common, { ms: m.capturedMs, captured: true,
-                    text: 'Snapchat Memories: ' + noun + ' tagen med ' + cam + 'n (' + memCols.captured + (video ? (ctx.memoryColumns ? ', start eller slut är inte kontrollerat på iOS' : ', inspelningens slut') : '') + ')' + (m.width && m.height ? ', ' + m.width + '×' + m.height : '') + (video && m.duration ? ', ' + Number(m.duration).toFixed(1).replace('.', ',') + ' s' : '') + (Number(m.hasLocation) === 1 ? ', med position' : '') +
+                    text: 'Snapchat Memories: ' + noun + ' tagen med ' + cam + 'n (' + memCols.captured + (video ? ', inspelningens slut' : '') + ')' + (m.width && m.height ? ', ' + m.width + '×' + m.height : '') + (video && m.duration ? ', ' + Number(m.duration).toFixed(1).replace('.', ',') + ' s' : '') + (Number(m.hasLocation) === 1 ? ', med position' : '') +
                         (o.synced ? ', raden hämtad från Snapchats server (' + memCols.created + ' = ' + memCols.captured + ')' : '') + tail,
                     plain: (isFile ? 'Den bedömda ' + noun + 'en ' : 'En ' + noun + ' ') + (video ? 'spelas in' : 'tas') + ' med Snapchats ' + cam,
                     source: Object.assign({}, srcMem, { column: memCols.captured + ', ' + memCols.front + ', ' + memCols.type }) }));
@@ -608,10 +666,11 @@
             // En rad från servern har ingen egen sparad-tid (create_time är tagningstiden); Memories-postens tid står kvar.
             var savedMs = o.savedMs !== undefined ? o.savedMs : m.createdMs;
             if (savedMs != null) {
-                var col = o.savedFrom === 'entry' ? 'memories_entry.create_time' : memCols.created;
+                var col = o.savedFrom === 'entry' ? (m.ios ? 'ZGALLERYENTRY.ZDUPLICATETIMEUTC' : 'memories_entry.create_time') : memCols.created;
                 events.push(Object.assign({}, common, { ms: savedMs, captured: false,
-                    text: 'Snapchat Memories: ' + noun + 'en sparas i Memories (' + col + ')' + (m.zone ? ', tidszon ' + m.zone : '') + tail,
-                    plain: o.copyOf && o.private ? 'Den flyttas till My Eyes Only' : 'Den sparas i Snapchats Memories',
+                    text: 'Snapchat Memories: ' + (video ? 'videon' : 'bilden') + ' sparas i Memories (' + col + ')' + (m.zone ? ', tidszon ' + m.zone : '') + tail,
+                    // iOS: kopian i My Eyes Only behåller originalets tider; när den flyttades syns i cachen.
+                    plain: o.copyOf && o.private ? (m.ios ? 'Den sparas i Snapchats Memories och flyttas senare till My Eyes Only' : 'Den flyttas till My Eyes Only') : 'Den sparas i Snapchats Memories',
                     source: Object.assign({}, srcMem, { column: col }) }));
             }
         });
@@ -630,6 +689,8 @@
         if (hiddenJournal) notes.push(hiddenJournal + ' poster i Snapchats filhanterare (tumnaglar, modeller, bitmoji …) i fönstret visas inte.');
 
         events.sort(function (a, b) { return a.ms - b.ms; });
+        // De skickade snapsen i hela fönstret, också de som inte får plats bland händelserna: bilden jämförs med dem.
+        var sent = events.filter(function (e) { return e.kind === 'snap-cache' && e.sent; });
         if (events.length > MAX_EVENTS) {
             // De närmast T behålls, plus allt som rör den bedömda filen.
             var center = ctx.centerMs != null ? ctx.centerMs : events[0].ms;
@@ -640,12 +701,12 @@
             events = kept.sort(function (a, b) { return a.ms - b.ms; });
         }
         if (hidden) notes.push(hidden + ' cacheposter för linser, resurser och andra typer (' + Object.keys(hiddenTypes).sort(function (a, b) { return a - b; }).join(', ') + ') i fönstret visas inte.');
-        return { events: events, link: link, memory: memory, notes: notes, hidden: hidden };
+        return { events: events, sent: sent, link: link, memory: memory, notes: notes, hidden: hidden };
     }
 
     var api = {
         PICABOO: PICABOO, ANDROID: ANDROID, appId: appId, isSnapchatApp: isSnapchatApp, JOURNAL: JOURNAL, linkMemory: linkMemory, hexId: hexId,
-        SAVE_SETTING: SAVE_SETTING, saveSetting: saveSetting, memoryOrigin: memoryOrigin, copyKind: copyKind, AUTO_COPY_MS: AUTO_COPY_MS,
+        SAVE_SETTING: SAVE_SETTING, saveSetting: saveSetting, saveSettingFromFlat: saveSettingFromFlat, memoryOrigin: memoryOrigin, isVideoMemory: isVideoMemory, memoryVideoKey: memoryVideoKey, copyKind: copyKind, AUTO_COPY_MS: AUTO_COPY_MS,
         linkVideoByDuration: linkVideoByDuration, SAME_DURATION_MS: SAME_DURATION_MS, isGalleryName: isGalleryName, sentFrom: sentFrom,
         memoryCipher: memoryCipher, unpad: unpad, grayDiff: grayDiff, SAME_IMAGE_DIFF: SAME_IMAGE_DIFF, jpegCore: jpegCore, sameBytes: sameBytes,
         CONTEXT: CONTEXT, contextInfo: contextInfo, parseExternalKey: parseExternalKey,

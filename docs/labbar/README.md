@@ -1,6 +1,6 @@
 # Labbar som väntar
 
-Flöden till verktyget Laboration. Öppna verktyget, välj **Genomför ny laboration**, och sedan **Öppna flöde, logg eller mallar…** under Fil. Flödet går att ändra innan labben börjar. Spara loggen när labben är klar och lägg den bredvid extraktionerna.
+Flöden till verktyget Laboration. Öppna verktyget och välj **Öppna fil…** på startsidan, under Ny laboration. Flödet går att ändra innan labben börjar. Spara loggen när labben är klar och lägg den bredvid extraktionerna.
 
 ## Snapchat Memories (förberedd 2026-11-16)
 
@@ -29,6 +29,27 @@ Skriv lösenkoden till My Eyes Only i labbens anteckningar, inte här.
 `snapchat-memories-oneplus-del1.json` (14 steg, P01–P14) och `snapchat-memories-oneplus-del2.json` (7 steg, Q01–Q07) är samma labb för en enda telefon. Bilden och videon som skickas ur Memories går till en vän i Snapchat, ett annat konto. Skriv vännens användarnamn i anteckningarna. Det som bara går med två telefoner (att den andra öppnar snappen) är borttaget.
 
 Genomförd 2026-11-16 med hela `/data` extraherat efter varje del. Det som kom fram är byggt i 1.71 och står i `docs/DEVELOPMENT.md` (Snapchat Memories på Android). Facit: `tests/app/facit/lab-snapchat-memories-oneplus.json`.
+
+### En telefon (iPhone)
+
+`snapchat-memories-iphone-del1.json` (16 steg, S01–S16) och `snapchat-memories-iphone-del2.json` (8 steg, T01–T08) är OnePlus-labben för iPhone, med det som 1.71 lärde oss på Android:
+
+| Steg | Vad det prövar på iOS |
+|---|---|
+| Spara till läses av och sätts till bara Memories (S02) | Var iOS lagrar inställningen, som `core.db` på Android |
+| Bakre och främre kamera, video (S03–S05) | Kameran, videons typkod och om tagningstiden är start eller slut (tryck när du släpper avtryckaren) |
+| Bild med text skickad ur Memories, video skickad (S06–S08) | Överlägg, och kopplingen till chatten för bild och video |
+| Två bilder i Min story (S09) | En Memories-post med flera snaps |
+| Exporter genast, senare och av video (S10–S12) | Exporten till kamerarullen på iOS |
+| Spara till = Memories och kamerarullen, en bild sparas (S13) | Om iOS lägger en egen kopia i kamerarullen samma sekund, och var ändringen syns |
+| My Eyes Only (S14) | Var den lagras och om den går att läsa |
+| Del 2: Radera app, installera, öppna en bild (T02–T06) | Vad som finns kvar när filen bara finns på servern, om nyckeln i nyckelringen överlever, och om Biome och knowledgeC behåller Snapchats rader |
+
+Del 1 genomförd två gånger i rad 2026-11-19 (i den första var telefonen i flygplansläge fram till S09), med en hel extraktion efter båda. Det som kom fram är byggt och står i `docs/DEVELOPMENT.md` (Snapchat Memories på iOS). Facit: `tests/app/facit/lab-snapchat-memories-iphone.json`. Del 2 (ominstallationen) är inte gjord.
+
+Välj **Radera app**, inte **Ladda bort app**: då ligger appens data kvar. Vännen och lösenkoden till My Eyes Only skrivs i anteckningarna.
+
+Extraktion efter varje del: fullständigt filsystem **med nyckelringen**, annars går `gallery.encrypteddb` (positionerna) och den sparade filen inte att läsa. Lägg nyckelringen bredvid zippen som i labben 2026-11-11. Spara loggen från Laboration bredvid och skriv SHA-256 på zippen i anteckningarna.
 
 ### Extraktion med root (provad 2026-11-16)
 

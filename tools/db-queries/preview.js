@@ -137,6 +137,8 @@
         [/^(ZMEDIATYPE|ZCAMERAFRONTFACING)$/, function () { return '0'; }],
         [/^ZHASLOCATION$/, function () { return '1'; }],
         [/^ZSERVLETMEDIAFORMAT$/, function () { return 'image_jpeg'; }],
+        [/^(text_eller_ritning|my_eyes_only)$/i, function (i) { return String(i % 2); }],
+        [/^kopia_av$/i, function () { return ''; }],
         [/^key$/i, pick(['67F4A4FC9E7EA492DEFC059260D154E6.media', 'C025B6FFB844EF85C721AA05B78DA32D.posted_story_snap', '7CF641F2121BC4035AC4E5296671CE44.overlay'])],
         [/^mapp$/i, pick(['memories_media', 'posted_story_snap', 'memories_overlay'])],
         [/^user_?id$/i, function () { return '9e6f7a8b-1c2d-4e3f-8a9b-0c1d2e3f4a5b'; }],

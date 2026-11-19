@@ -387,15 +387,16 @@ async function snapchatIosEntries(SQL, jpeg, photos) {
     arroyo.run('INSERT INTO conversation_message VALUES (?, 3, 6, ?, ?, ?, ?, ?, ?, 0, 1, 0)', [SC_CONV, snapMessageContent(SC_ACCOUNT), 'COMMITTED', ms(sentAt) + 500, ms(sentAt) + 30000, refs(SC_REFS.sent), SC_ACCOUNT]);
     // scdb-27.sqlite3 (Core Data): snappen med Cocoa-tider och nyckeln till filen i ett arkiv.
     const scdb = new SQL.Database();
-    scdb.run('CREATE TABLE ZGALLERYENTRY (Z_PK INTEGER PRIMARY KEY, Z_ENT INTEGER, ZENTRYID VARCHAR, ZCREATETIMEUTC TIMESTAMP)');
-    scdb.run('CREATE TABLE ZGALLERYSNAP (Z_PK INTEGER PRIMARY KEY, Z_ENT INTEGER, ZENTRY INTEGER, ZSNAPID VARCHAR, ZMEDIAID VARCHAR, ZMEDIATYPE INTEGER, ZCREATETIMEUTC TIMESTAMP, ZCAPTURETIMEUTC TIMESTAMP, ZTIMEZONENAME VARCHAR, ZWIDTH INTEGER, ZHEIGHT INTEGER, ZDURATION FLOAT, ZCAMERAFRONTFACING INTEGER, ZHASLOCATION INTEGER, ZSERVLETMEDIAFORMAT VARCHAR, ZENCRYPTION BLOB)');
+    // Kolumnerna efter ZCREATETIMEUTC och ZENCRYPTION (ZMEDIAFORMAT, text, My Eyes Only, posten sparad) som i scdb-27 på labbtelefonen 2026-11-19.
+    scdb.run('CREATE TABLE ZGALLERYENTRY (Z_PK INTEGER PRIMARY KEY, Z_ENT INTEGER, ZENTRYID VARCHAR, ZCREATETIMEUTC TIMESTAMP, ZISPRIVATE INTEGER DEFAULT 0, ZDUPLICATETIMEUTC TIMESTAMP)');
+    scdb.run('CREATE TABLE ZGALLERYSNAP (Z_PK INTEGER PRIMARY KEY, Z_ENT INTEGER, ZENTRY INTEGER, ZSNAPID VARCHAR, ZMEDIAID VARCHAR, ZMEDIATYPE INTEGER, ZCREATETIMEUTC TIMESTAMP, ZCAPTURETIMEUTC TIMESTAMP, ZTIMEZONENAME VARCHAR, ZWIDTH INTEGER, ZHEIGHT INTEGER, ZDURATION FLOAT, ZCAMERAFRONTFACING INTEGER, ZHASLOCATION INTEGER, ZSERVLETMEDIAFORMAT VARCHAR, ZENCRYPTION BLOB, ZMEDIAFORMAT INTEGER DEFAULT 1, ZHASOVERLAYIMAGE INTEGER DEFAULT 0, ZDUPLICATEDFROMSNAPID VARCHAR)');
     const archive = bplist({ $version: 100000, $archiver: 'NSKeyedArchiver', $top: { root: new Uid(1) },
         $objects: ['$null', { $class: new Uid(4), KEY: new Uid(2), IV: new Uid(3) }, SC_MEDIA_KEY, SC_MEDIA_IV, { $classname: 'SCMemoriesSnapEncryption', $classes: ['SCMemoriesSnapEncryption', 'NSObject'] }] });
-    scdb.run('INSERT INTO ZGALLERYENTRY VALUES (1, 2, ?, ?)', [SC_SNAP, saved - COCOA]);
-    scdb.run("INSERT INTO ZGALLERYSNAP VALUES (1, 6, 1, ?, ?, 0, ?, ?, 'Europe/Stockholm', 640, 480, 10.0, 0, 1, 'image_jpeg', ?)", [SC_SNAP, SC_SNAP, saved - COCOA, capture + 0.328 - COCOA, archive]);
-    scdb.run('INSERT INTO ZGALLERYENTRY VALUES (2, 2, ?, ?)', [SC_ENTRY2, T4 + 3610 - COCOA]);
-    scdb.run("INSERT INTO ZGALLERYSNAP VALUES (2, 6, 2, ?, ?, 0, ?, ?, 'Europe/Stockholm', 48, 64, 10.0, 0, 0, 'image_png', ?)", [SC_SNAP2, SC_SNAP2, T4 + 3610 - COCOA, T4 + 3600 - COCOA, archive]);
-    scdb.run("INSERT INTO ZGALLERYSNAP VALUES (3, 6, 2, ?, ?, 0, ?, ?, 'Europe/Stockholm', 1080, 1920, 10.0, 1, 1, 'image_jpeg', ?)", [SC_SNAP3, SC_SNAP3, T4 + 3612 - COCOA, T4 + 3605 - COCOA, archive]);
+    scdb.run('INSERT INTO ZGALLERYENTRY VALUES (1, 2, ?, ?, 0, ?)', [SC_SNAP, saved - COCOA, saved - COCOA]);
+    scdb.run("INSERT INTO ZGALLERYSNAP VALUES (1, 6, 1, ?, ?, 0, ?, ?, 'Europe/Stockholm', 640, 480, 10.0, 0, 1, 'image_jpeg', ?, 1, 0, NULL)", [SC_SNAP, SC_SNAP, saved - COCOA, capture + 0.328 - COCOA, archive]);
+    scdb.run('INSERT INTO ZGALLERYENTRY VALUES (2, 2, ?, ?, 0, ?)', [SC_ENTRY2, T4 + 3610 - COCOA, T4 + 3610 - COCOA]);
+    scdb.run("INSERT INTO ZGALLERYSNAP VALUES (2, 6, 2, ?, ?, 0, ?, ?, 'Europe/Stockholm', 48, 64, 10.0, 0, 0, 'image_png', ?, 1, 0, NULL)", [SC_SNAP2, SC_SNAP2, T4 + 3610 - COCOA, T4 + 3600 - COCOA, archive]);
+    scdb.run("INSERT INTO ZGALLERYSNAP VALUES (3, 6, 2, ?, ?, 0, ?, ?, 'Europe/Stockholm', 1080, 1920, 10.0, 1, 1, 'image_jpeg', ?, 1, 0, NULL)", [SC_SNAP3, SC_SNAP3, T4 + 3612 - COCOA, T4 + 3605 - COCOA, archive]);
     // gallery.encrypteddb: positionen under samma snap-id, krypterad med nyckeln i nyckelringen.
     const galleryPlain = await cipherBuilder.makeSnapGallery([{ snapId: SC_SNAP, lat: SC_POS.lat, lon: SC_POS.lon, key: SC_MEDIA_KEY, iv: SC_MEDIA_IV }, { snapId: SC_SNAP3, lat: SC_POS3.lat, lon: SC_POS3.lon }]);
     const gallery = cipherBuilder.encryptSnapGallery(galleryPlain, SC_GALLERY_KEY, Buffer.from(Array.from({ length: 16 }, (_, i) => 200 - i)));

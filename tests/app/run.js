@@ -14,7 +14,8 @@
 //   npm run test:app -- --smoke     bara röktestet
 //   npm run test:app -- --facit     bara labbtesterna (kräver minst en labbzipp)
 //   npm run test:app -- --samsung   bara Samsungs loggar (kräver FT_LAB_SAMSUNG_REPORT eller FT_LAB_SAMSUNG_ZIP)
-//   npm run test:app -- --memories  bara laborationen Snapchat Memories (zipparna i FT_LAB_MEMORIES_DIR eller ~/Documents/Exampleextractions)
+//   npm run test:app -- --memories  bara laborationerna Snapchat Memories (OnePlus: FT_LAB_MEMORIES_DIR eller ~/Documents/Exampleextractions;
+//                                   iPhone: FT_LAB_MEMORIES_IOS_DIR eller ~/Desktop/vm-images/Snapchat Laboration)
 //   FT_SHOTS=<mapp>                 skärmdumpar efter varje del
 //   FT_ONLY=<text>                  bara delarna med den texten i namnet, medan man arbetar med en av dem
 'use strict';
@@ -75,7 +76,8 @@ async function main() {
     const samsungReport = process.env.FT_LAB_SAMSUNG_REPORT && fs.existsSync(process.env.FT_LAB_SAMSUNG_REPORT) ? process.env.FT_LAB_SAMSUNG_REPORT : null;
     const samsungZip = process.env.FT_LAB_SAMSUNG_ZIP && fs.existsSync(process.env.FT_LAB_SAMSUNG_ZIP) ? process.env.FT_LAB_SAMSUNG_ZIP : null;
     const memZips = require('./lab-memories').zipsIn();
-    if (onlyFacit && !lab && !labIos && !labIosLog && !namedZips.length && !ufedReports.length && !samsungReport && !samsungZip && !memZips) {
+    const memIosZips = require('./lab-memories').zipsIn(null, require('./lab-memories').facitIos);
+    if (onlyFacit && !lab && !labIos && !labIosLog && !namedZips.length && !ufedReports.length && !samsungReport && !samsungZip && !memZips && !memIosZips) {
         console.error('Labbzipparna finns inte. Ange sökvägarna i FT_LAB_ZIP, FT_LAB_IOS_DIR och FT_LAB_IOS_LOG_DIR.');
         process.exit(1);
     }
@@ -106,6 +108,8 @@ async function main() {
         const beforeMemories = groups.length;
         if (!onlySmoke && !onlySamsung && memZips) groups.push(['Facit mot laborationen Snapchat Memories (OnePlus, 2026-11-16)', require('./lab-memories').scenarios(memZips)]);
         if (!onlySmoke && !memZips) console.log('Snapchat Memories-labben: zipparna finns inte, hoppar över (FT_LAB_MEMORIES_DIR).\n');
+        if (!onlySmoke && !onlySamsung && memIosZips) groups.push(['Facit mot laborationen Snapchat Memories (iPhone, 2026-11-19)', require('./lab-memories').scenarios(memIosZips, require('./lab-memories').facitIos)]);
+        if (!onlySmoke && !memIosZips) console.log('Snapchat Memories-labben på iPhone: zippen finns inte, hoppar över (FT_LAB_MEMORIES_IOS_DIR).\n');
         if (onlyMemories) groups.splice(0, beforeMemories);
         for (const [group, list] of groups) {
             console.log(group);

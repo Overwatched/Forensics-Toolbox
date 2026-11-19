@@ -1,0 +1,204 @@
+{
+  "description": "Facit från två laborationer Snapchat Memories på labbtelefonen (iPhone, iOS 26.4.1, Snapchat 14.30.0.59, tidszon Europe/Stockholm), 2026-11-19, med flödet docs/labbar/snapchat-memories-iphone-del1.json. Lab 1 08:18:02–08:27:44 och lab 2 08:29:06–08:36:41 (loggarna från Laboration ligger inte i repot). I lab 1 var telefonen i flygplansläge fram till S09: de snaps som togs då har ingen position, och snapsen som skickades i S07 och S08 skrevs i arroyo.db först 07:23:39 UTC. En hel extraktion (FFS, med nyckelringen under extra/) efter båda; zippen ligger inte i repot. Stegens tider är knapptrycken; en tagning ska ligga mellan föregående stegs tryck och stegets eget, utom videon, som tas när avtryckaren släpps (2 s marginal). Raderna i Memories, cachen och bildbiblioteket lästes ur extraktionen och stämmer med stegen.",
+  "base": "Desktop/vm-images/Snapchat Laboration",
+  "zips": {
+    "lab": "EXTRACTION_FFS.zip"
+  },
+  "setting": "MEMORIES",
+  "files": [
+    {
+      "zip": "lab",
+      "name": "IMG_0061.JPG",
+      "step": "S10 (lab 1)",
+      "what": "Bild sparad och exporterad genast: omkodad, kopplad på bilden",
+      "memory": "73026DC2",
+      "by": "image",
+      "copy": "export",
+      "front": false,
+      "capturedBetween": [
+        "2026-11-19T08:24:19.296+01:00",
+        "2026-11-19T08:24:52.320+01:00"
+      ]
+    },
+    {
+      "zip": "lab",
+      "name": "IMG_0062.JPG",
+      "step": "S11 (lab 1)",
+      "what": "Den första bilden exporterad fem minuter senare, tagen i flygplansläge (ingen position)",
+      "memory": "5CB4F235",
+      "by": "image",
+      "copy": "export",
+      "front": false,
+      "capturedBetween": [
+        "2026-11-19T08:20:11.755+01:00",
+        "2026-11-19T08:20:31.148+01:00"
+      ]
+    },
+    {
+      "zip": "lab",
+      "name": "IMG_0063.MP4",
+      "step": "S12 (lab 1)",
+      "what": "Videon exporterad, kopplad på längden; tagningstiden är inspelningens slut, 1,5 s efter trycket i S05",
+      "memory": "657A4D5D",
+      "by": "duration",
+      "copy": "export",
+      "video": true,
+      "capturedBetween": [
+        "2026-11-19T08:20:55.212+01:00",
+        "2026-11-19T08:21:19.516+01:00"
+      ]
+    },
+    {
+      "zip": "lab",
+      "name": "IMG_0064.JPG",
+      "step": "S13 (lab 1)",
+      "what": "Spara till = Memories och kamerarullen: Snapchats egen kopia samma sekund",
+      "memory": "C195C4A3",
+      "by": "time",
+      "copy": "auto",
+      "front": false,
+      "capturedBetween": [
+        "2026-11-19T08:25:25.568+01:00",
+        "2026-11-19T08:26:25.219+01:00"
+      ]
+    },
+    {
+      "zip": "lab",
+      "name": "IMG_0067.JPG",
+      "step": "S10 (lab 2)",
+      "what": "Bild sparad och exporterad genast",
+      "memory": "4243666B",
+      "by": "image",
+      "copy": "export",
+      "capturedBetween": [
+        "2026-11-19T08:32:03.111+01:00",
+        "2026-11-19T08:32:26.999+01:00"
+      ]
+    },
+    {
+      "zip": "lab",
+      "name": "IMG_0068.JPG",
+      "step": "S11 (lab 2)",
+      "what": "Den första bilden i lab 2 exporterad senare",
+      "memory": "549726DB",
+      "by": "image",
+      "copy": "export",
+      "capturedBetween": [
+        "2026-11-19T08:29:43.237+01:00",
+        "2026-11-19T08:29:55.637+01:00"
+      ]
+    },
+    {
+      "zip": "lab",
+      "name": "IMG_0069.MP4",
+      "step": "S12 (lab 2)",
+      "what": "Videon i lab 2 exporterad, kopplad på längden",
+      "memory": "DEA7DEE1",
+      "by": "duration",
+      "copy": "export",
+      "video": true,
+      "capturedBetween": [
+        "2026-11-19T08:30:08.037+01:00",
+        "2026-11-19T08:30:24.245+01:00"
+      ]
+    },
+    {
+      "zip": "lab",
+      "name": "IMG_0070.JPG",
+      "step": "S13 (lab 2)",
+      "what": "Snapchats egen kopia i lab 2",
+      "memory": "8D4DA450",
+      "by": "time",
+      "copy": "auto",
+      "capturedBetween": [
+        "2026-11-19T08:32:55.208+01:00",
+        "2026-11-19T08:33:25.977+01:00"
+      ]
+    },
+    {
+      "zip": "lab",
+      "name": "BF638C48-5BAC-4F70-8D4F-5AFE052EE090",
+      "step": "S04 (lab 1)",
+      "what": "Snap-id: bilden med frontkameran, dekrypterad ur cachen",
+      "memory": "BF638C48",
+      "by": "id",
+      "front": true,
+      "capturedBetween": [
+        "2026-11-19T08:20:31.148+01:00",
+        "2026-11-19T08:20:55.212+01:00"
+      ]
+    },
+    {
+      "zip": "lab",
+      "name": "6CF28322-CAF5-4670-A7CE-7E75E9BF8CBE",
+      "step": "S09 (lab 1)",
+      "what": "Snap-id: första bilden i storyn; sparad i Memories när storyn sparades (ZDUPLICATETIMEUTC), inte när den togs; den andra bilden i storyn togs 08:23:13, så posten sparades efter det",
+      "memory": "6CF28322",
+      "by": "id",
+      "savedBetween": [
+        "2026-11-19T08:23:14.000+01:00",
+        "2026-11-19T08:24:19.296+01:00"
+      ],
+      "capturedBetween": [
+        "2026-11-19T08:22:35.118+01:00",
+        "2026-11-19T08:24:19.296+01:00"
+      ]
+    },
+    {
+      "zip": "lab",
+      "name": "EE2BBC28-816A-41DE-81C4-63863849D305",
+      "step": "S06–S07 (lab 1)",
+      "what": "Snap-id: bilden med text, skickad ur Memories i flygplansläge; samma bild som den skickade snappen när texten ritas ovanpå",
+      "memory": "EE2BBC28",
+      "by": "id",
+      "sends": 1,
+      "capturedBetween": [
+        "2026-11-19T08:21:17.516+01:00",
+        "2026-11-19T08:21:41.901+01:00"
+      ]
+    },
+    {
+      "zip": "lab",
+      "name": "C7499C6F-7EED-4BCF-9BE0-B3AE380EDA03",
+      "step": "S06–S07 (lab 2)",
+      "what": "Snap-id: bilden med text i lab 2, skickad ur Memories",
+      "memory": "C7499C6F",
+      "by": "id",
+      "sends": 1,
+      "capturedBetween": [
+        "2026-11-19T08:30:22.245+01:00",
+        "2026-11-19T08:30:39.766+01:00"
+      ]
+    }
+  ],
+  "searches": [
+    {
+      "zip": "lab",
+      "id": "73026DC2",
+      "what": "Början av snappens id: filen i cachen och exporten i kamerarullen",
+      "paths": [
+        "b733daf1b62936739a127f0f1f90d6fc",
+        "DCIM/100APPLE/IMG_0061.JPG"
+      ]
+    },
+    {
+      "zip": "lab",
+      "id": "657A4D5D",
+      "what": "Videon: två filer i cachen (<id>~1, typ 19) och exporten",
+      "paths": [
+        "4da0121bbad32fd5071277a6140df7ce",
+        "49fa2ffa6afdae30915cc12f59be3117",
+        "DCIM/100APPLE/IMG_0063.MP4"
+      ]
+    },
+    {
+      "zip": "lab",
+      "id": "C195C4A3",
+      "what": "Snapchats egen kopia",
+      "paths": [
+        "6f2ee04bc9437c2b2c81c195659b9f1d",
+        "DCIM/100APPLE/IMG_0064.JPG"
+      ]
+    }
+  ]
+}

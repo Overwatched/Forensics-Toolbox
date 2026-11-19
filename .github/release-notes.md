@@ -1,5 +1,18 @@
 Automatiskt byggd från commit `{{SHA}}`.
 
+## Nytt i 1.77
+
+**Härkomst tolkar Snapchats Memories på iPhone mycket bättre, och Laboration öppnar en sparad fil från startsidan.**
+
+- **Exporter ur Memories** kopplas till sin snap också på iPhone. Snapchat kodar om bilden när den exporteras, så programmet jämför bilderna i stället för bytena och säger hur lika de är. En video kopplas på längden. Programmet skiljer Snapchats egen kopia, som läggs till samma sekund som snappen sparas, från en export senare.
+- **Video och story:** en video känns igen på ZMEDIAFORMAT, och tagningstiden är inspelningens slut. För en video och en story står när den sparades i Memories-postens tid (ZDUPLICATETIMEUTC), inte när den togs.
+- **Text på bilden** ritas ovanpå när en sparad snap jämförs med snaps som skickats, så en bild med text som skickats ur Memories hittas i chatten.
+- **My Eyes Only:** programmet säger att snappen ligger där och vilken snap den är en kopia av. Innehållet är krypterat med användarens lösenkod och kan inte visas. Sökning på originalets id hittar kopian.
+- **Sökning på id:** början av ett snap-id räcker på iPhone också, och listan visar snappens fil i cachen och exporten eller kopian i kamerarullen med skälet.
+- **Inställningen Spara till** läses på iPhone och står i bedömningen.
+- **Laboration:** kortet Öppna fil… på startsidan öppnar ett sparat flöde, en logg eller mallar. Två nya flöden för Snapchat Memories på en iPhone ligger i `docs/labbar/`.
+- **Provat:** enhetstesterna, röktestet och html-versionen, och 16 kontroller mot en riktig iPhone-extraktion efter två laborationer (bilder, video, story, text, export, Snapchats kopia och My Eyes Only).
+
 ## Nytt i 1.76
 
 **Chattar får ett nytt utseende, en telefon att bläddra i, och alla vyer ritar HEIC.**

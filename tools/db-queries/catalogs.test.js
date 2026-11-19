@@ -66,7 +66,8 @@ test('snapchat (beta): en rekommenderad query per databas, undertext på alla, t
     assert.deepStrictEqual(memories.queries.filter((q) => q.hidden).map((q) => q.role).sort(), ['coverage', 'memories', 'memory-id']);
     const memRole = memories.queries.find((q) => q.role === 'memories');
     assert.deepStrictEqual([memRole.fields.id, memRole.fields.captured, memRole.fields.created, memRole.fields.encryption], ['ZSNAPID', 'ZCAPTURETIMEUTC', 'ZCREATETIMEUTC', 'ZENCRYPTION']);
-    assert.match(memories.queries.find((q) => q.role === 'memory-id').sql, /upper\(s\.ZSNAPID\) = upper\('\{\{snapId\}\}'\)[\s\S]*ZMEDIAID[\s\S]*ZENTRYID/);
+    // Början av ett id räcker, och originalets id hittar kopian i My Eyes Only (labbet 2026-11-19).
+    assert.match(memories.queries.find((q) => q.role === 'memory-id').sql, /upper\(s\.ZSNAPID\) LIKE upper\('\{\{snapId\}\}'\) \|\| '%'[\s\S]*ZMEDIAID[\s\S]*ZENTRYID[\s\S]*ZDUPLICATEDFROMSNAPID/);
     const gallery = snapchat.databases.find((d) => d.id === 'snapchat-gallery');
     assert.strictEqual(gallery.cipher, 'snapchat-gallery', 'gallery.encrypteddb är krypterad med Snapchats inställningar');
     assert.deepStrictEqual(gallery.paths, ['gallery.encrypteddb']);
@@ -225,7 +226,7 @@ test('rollqueryer för Härkomst: dolda, med epoch och fältkarta som stämmer m
     assert.deepStrictEqual(roles(routined.databases[0].queries), ['coverage', 'location']);
     assert.deepStrictEqual(roles(snapchat.databases.find((d) => d.id === 'snapchat-cache').queries), ['cache-key', 'cache-memory', 'cache-window', 'coverage']);
     assert.deepStrictEqual(roles(snapchat.databases.find((d) => d.id === 'snapchat-arroyo').queries), ['conversation-members', 'coverage', 'messages']);
-    assert.deepStrictEqual(roles(snapchat.databases.find((d) => d.id === 'snapchat-friends').queries), ['friends']);
+    assert.deepStrictEqual(roles(snapchat.databases.find((d) => d.id === 'snapchat-friends').queries), ['friends', 'save-setting']);
     assert.deepStrictEqual(roles(snapchat.databases.find((d) => d.id === 'snapchat-notifications').queries), ['coverage', 'notifications']);
     assert.deepStrictEqual(roles(android.categories.find((c) => c.id === 'mediastore').queries), ['file', 'media-extra', 'neighbours']);
 });

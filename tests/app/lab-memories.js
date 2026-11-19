@@ -1,6 +1,8 @@
-// Facit mot laborationen Snapchat Memories på labbtelefonen (2026-11-16): Härkomst bedömer Snapchats filer i galleriet
-// ur två hela extraktioner, före och efter en ominstallation, och det som programmet säger jämförs med vad som gjordes.
-// Körs bara när zipparna finns (FT_LAB_MEMORIES_DIR, annars ~/Documents/Exampleextractions). Läser bara zipparna.
+// Facit mot laborationerna Snapchat Memories: Härkomst bedömer Snapchats filer i galleriet och sparade snaps på sitt id,
+// och det som programmet säger jämförs med vad som gjordes. OnePlus (Android, 2026-11-16): två hela extraktioner, före och
+// efter en ominstallation, i FT_LAB_MEMORIES_DIR eller ~/Documents/Exampleextractions. iPhone (iOS, 2026-11-19): en hel
+// extraktion efter två laborationer, i FT_LAB_MEMORIES_IOS_DIR eller ~/Desktop/vm-images/Snapchat Laboration.
+// Körs bara när zipparna finns. Läser bara zipparna.
 'use strict';
 
 const fs = require('node:fs');
@@ -9,10 +11,13 @@ const path = require('node:path');
 const { sleep } = require('./cdp');
 const { expect, PROV } = require('./smoke');
 
-const facit = require('./facit/lab-snapchat-memories-oneplus.json');
+const facitAndroid = require('./facit/lab-snapchat-memories-oneplus.json');
+const facitIos = require('./facit/lab-snapchat-memories-iphone.json');
 
-function zipsIn(dir) {
-    const d = dir || process.env.FT_LAB_MEMORIES_DIR || path.join(os.homedir(), 'Documents', facit.dir);
+function zipsIn(dir, facit) {
+    facit = facit || facitAndroid;
+    const d = dir || (facit === facitIos ? process.env.FT_LAB_MEMORIES_IOS_DIR : process.env.FT_LAB_MEMORIES_DIR)
+        || (facit.base ? path.join(os.homedir(), facit.base) : path.join(os.homedir(), 'Documents', facit.dir));
     const out = {};
     for (const [k, rel] of Object.entries(facit.zips)) {
         const p = path.join(d, rel);
@@ -38,16 +43,19 @@ async function assess(c, name) {
         const hits = !document.getElementById('hits').classList.contains('display-none') ? Array.from(document.querySelectorAll('#hits tr.pick')).map(tr => tr.innerText) : null;
         const m = ProvenanceApp.model();
         if (hits) return { hits };
-        if (!m || m.file.filename !== ${JSON.stringify(name)}) return { error: document.getElementById('run-status').innerText };
+        // Ett snap-id bedömer snappens fil i cachen, som har ett annat namn.
+        const byId = m && m.file.memory && String(m.file.memory.id).toUpperCase().indexOf(${JSON.stringify(name.toUpperCase())}) === 0;
+        if (!m || (m.file.filename !== ${JSON.stringify(name)} && !byId)) return { error: document.getElementById('run-status').innerText };
         const mem = m.file.memory;
         return { importerFrom: m.file.importerFrom || null,
-            memory: mem ? { id: mem.id, by: mem.by, copy: mem.copy, front: mem.front, capturedMs: mem.capturedMs, synced: !!(mem.origin && mem.origin.synced), meo: !!mem.meo, imports: (mem.imports || []).map(i => i.id) } : null,
+            memory: mem ? { id: mem.id, by: mem.by, copy: mem.copy, front: mem.front, capturedMs: mem.capturedMs, savedMs: mem.savedMs, video: !!mem.video, sends: (mem.sends || []).length,
+                synced: !!(mem.origin && mem.origin.synced), meo: !!mem.meo, imports: (mem.imports || []).map(i => i.id) } : null,
             imports: (m.file.memoryImports || []).map(i => i.id),
             factors: Object.fromEntries(m.factors.map(f => [f.id, { state: f.state, verdict: f.verdict, text: f.items.map(i => i.text).join(' | ') }])) };
     })()`);
 }
 
-function check(f, d) {
+function check(f, d, facit) {
     expect(!d.error, f.name + ': ' + d.error);
     expect(!d.hits, f.name + ' gav en vallista');
     const m = d.memory;
@@ -56,6 +64,12 @@ function check(f, d) {
     if (f.by) expect(m.by === f.by, 'Kopplingen: ' + m.by + ', facit ' + f.by);
     if (f.copy) expect(m.copy === f.copy, 'Kopian: ' + m.copy + ', facit ' + f.copy);
     if (f.front != null) expect(m.front === f.front, 'Kameran: ' + (m.front ? 'fram' : 'bak'));
+    if (f.video != null) expect(m.video === f.video, 'Sorten: ' + (m.video ? 'video' : 'bild'));
+    if (f.sends != null) expect(m.sends === f.sends, 'Skickade snaps med samma bild: ' + m.sends + ', facit ' + f.sends);
+    if (f.savedBetween) {
+        const [a, b] = f.savedBetween.map(Date.parse);
+        expect(m.savedMs >= a && m.savedMs <= b, 'Sparad ' + new Date(m.savedMs).toISOString() + ', utanför ' + f.savedBetween.join(' – '));
+    }
     if (f.meo) expect(m.meo, 'My Eyes Only syns inte');
     if (f.synced) expect(m.synced, 'Raden är inte märkt som hämtad från servern');
     if (f.capturedBetween) {
@@ -70,7 +84,8 @@ function check(f, d) {
     return f.step + (m ? ', snap ' + String(m.id).slice(0, 8) + (m.copy ? ', ' + m.copy : '') : '');
 }
 
-function scenarios(zips) {
+function scenarios(zips, facit) {
+    facit = facit || facitAndroid;
     const out = [];
     const opened = {};
     const ensure = async (c, key) => {
@@ -80,7 +95,7 @@ function scenarios(zips) {
         await openZip(c, zips[key]);
         opened.current = key;
     };
-    for (const f of facit.files) out.push([f.zip + ' ' + f.name + ': ' + f.what, async ({ c }) => { await ensure(c, f.zip); return check(f, await assess(c, f.name)); }]);
+    for (const f of facit.files) out.push([f.zip + ' ' + f.name + ': ' + f.what, async ({ c }) => { await ensure(c, f.zip); return check(f, await assess(c, f.name), facit); }]);
     for (const s of facit.searches) out.push([s.zip + ' sök ' + s.id + ': ' + s.what, async ({ c }) => {
         await ensure(c, s.zip);
         const d = await assess(c, s.id);
@@ -99,4 +114,4 @@ function scenarios(zips) {
     return out;
 }
 
-module.exports = { scenarios, zipsIn, facit };
+module.exports = { scenarios, zipsIn, facit: facitAndroid, facitIos };

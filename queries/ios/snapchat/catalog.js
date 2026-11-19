@@ -123,8 +123,8 @@ window.SNAPCHAT_CATALOG = {
             "lastRead": "LAST_READ_TIMESTAMP_MILLIS",
             "user": "USER_ID"
           },
-          "sql": "SELECT\n  c.CACHE_KEY,\n  c.MEDIA_CONTEXT_TYPE,\n  c.EXTERNAL_KEY,\n  c.CREATION_TIMESTAMP_MILLIS,\n  c.EXPIRATION_TIMESTAMP_MILLIS,\n  c.DELETED_TIMESTAMP_MILLIS,\n  m.FILE_SIZE_BYTES,\n  m.LAST_READ_TIMESTAMP_MILLIS,\n  c.USER_ID\nFROM CACHE_FILE_CLAIM c\nLEFT JOIN CACHE_FILE_METADATA m ON m.CACHE_KEY = c.CACHE_KEY AND m.USER_ID = c.USER_ID\nWHERE lower(c.EXTERNAL_KEY) IN (lower('snap-media-{{snapId}}'), lower('snap-rendered-lowres-{{snapId}}'))\nORDER BY c.CREATION_TIMESTAMP_MILLIS;",
-          "description": "Används av Härkomst. Cachefilerna vars EXTERNAL_KEY bär snappens id (snap-media-<id> är filen, snap-rendered-lowres-<id> förhandsbilden)."
+          "sql": "SELECT\n  c.CACHE_KEY,\n  c.MEDIA_CONTEXT_TYPE,\n  c.EXTERNAL_KEY,\n  c.CREATION_TIMESTAMP_MILLIS,\n  c.EXPIRATION_TIMESTAMP_MILLIS,\n  c.DELETED_TIMESTAMP_MILLIS,\n  m.FILE_SIZE_BYTES,\n  m.LAST_READ_TIMESTAMP_MILLIS,\n  c.USER_ID\nFROM CACHE_FILE_CLAIM c\nLEFT JOIN CACHE_FILE_METADATA m ON m.CACHE_KEY = c.CACHE_KEY AND m.USER_ID = c.USER_ID\nWHERE lower(c.EXTERNAL_KEY) IN (lower('snap-media-{{snapId}}'), lower('snap-rendered-lowres-{{snapId}}'), lower('snap-overlay-{{snapId}}'))\n   OR (c.MEDIA_CONTEXT_TYPE = 19 AND lower(c.EXTERNAL_KEY) LIKE lower('{{snapId}}~%'))\nORDER BY c.CREATION_TIMESTAMP_MILLIS;",
+          "description": "Används av Härkomst. Cachefilerna vars EXTERNAL_KEY bär snappens id: snap-media-<id> är filen för en bild, <id>~<n> (typ 19) för en video, snap-overlay-<id> texten och ritningen på den, snap-rendered-lowres-<id> förhandsbilden."
         },
         {
           "id": "role-coverage",
@@ -356,7 +356,7 @@ window.SNAPCHAT_CATALOG = {
       "paths": [
         "DocObjects/primary.docobjects"
       ],
-      "source": "Kontrollerad mot extraktion (iOS 18.5). userId är samma uuid som avsändar-id i arroyo.db. Kolumnen p är en FlatBuffer där användarnamn och visningsnamn ligger som längdprefixade strängar i klartext.",
+      "source": "Kontrollerad mot extraktion (iOS 18.5). userId är samma uuid som avsändar-id i arroyo.db. Kolumnen p är en FlatBuffer där användarnamn och visningsnamn ligger som längdprefixade strängar i klartext. userproperties itemId 24 är inställningen Spara till (labbtelefonen, iOS 26.4.1, 2026-11-19): värdet står som text i FlatBuffern.",
       "queries": [
         {
           "id": "snapchatters",
@@ -404,6 +404,20 @@ window.SNAPCHAT_CATALOG = {
             "p": "p"
           },
           "sql": "SELECT userId, p\nFROM snapchatter;"
+        },
+        {
+          "id": "role-save-setting",
+          "hidden": true,
+          "role": "save-setting",
+          "title": "Härkomst: inställningen Spara till",
+          "description": "Används av Härkomst. Snapchats inställning för var sparade snaps hamnar (userproperties itemId 24, samma nummer som på Android). Värdet (MEMORIES, MEMORIES_AND_CAMERA_ROLL eller CAMERA_ROLL) står som text i FlatBuffern p.",
+          "params": [],
+          "epoch": "unixMs",
+          "fields": {
+            "p": "p",
+            "writeStatus": "writeStatus"
+          },
+          "sql": "SELECT\n  p,\n  writeStatus\nFROM userproperties\nWHERE itemId = 24\nORDER BY writeStatus;"
         }
       ],
       "chatApp": "Snapchat"
@@ -484,7 +498,7 @@ window.SNAPCHAT_CATALOG = {
       "paths": [
         "scdb-27.sqlite3"
       ],
-      "source": "Kontrollerad mot en labbtelefon (iOS 26.4.1, 2026-11-16) med en sparad snap. Tiderna är Cocoa-sekunder (sekunder sedan 2001-01-01 UTC). ZSNAPID, ZMEDIAID och ZGALLERYENTRY.ZENTRYID var samma id. ZCAMERAFRONTFACING 0 = bakre kameran. ZMEDIATYPE 0 var en bild; video är inte kontrollerad. ZHASLOCATION säger att det finns en position, men koordinaterna står i gallery.encrypteddb (snap_location_table). ZENCRYPTION är ett arkiv (NSKeyedArchiver) med KEY (32 byte) och IV (16 byte): filen i cachen är AES-256-CBC med dem, också när IS_ENCRYPTED står som falskt.",
+      "source": "Kontrollerad mot en labbtelefon (iOS 26.4.1, Snapchat 14.30): en sparad snap 2026-11-16 och 18 i två laborationer 2026-11-19 (bakre och främre kamera, video, text, story, export, My Eyes Only). Tiderna är Cocoa-sekunder (sekunder sedan 2001-01-01 UTC). ZSNAPID, ZMEDIAID och ZGALLERYENTRY.ZENTRYID var samma id. ZCAMERAFRONTFACING 0 = bakre kameran, 1 = främre. ZMEDIATYPE var 0 för både bild och video; ZMEDIAFORMAT 0 var video och 1 bild, och en video har ZSERVLETMEDIAFORMAT tom och ZDURATION som längden (en bild har 10). ZCAPTURETIMEUTC för en video var inspelningens slut (0,1 och 1,5 s efter att avtryckaren släpptes). För en video och för snaps i en story som sparades efteråt var ZCREATETIMEUTC = ZCAPTURETIMEUTC, och när posten sparades i Memories stod i ZGALLERYENTRY.ZDUPLICATETIMEUTC (samma sekund som filen lades i cachen). En story med två snaps blev två poster. My Eyes Only: snappen kopieras till en ny rad med ZDUPLICATEDFROMSNAPID = originalets id, posten får ZISPRIVATE 1, och originalets rad tas bort; filen i cachen är densamma men går inte att dekryptera med nyckeln i ZENCRYPTION. ZHASLOCATION säger att det finns en position, men koordinaterna står i gallery.encrypteddb (snap_location_table); i flygplansläge fick snapsen ingen position. ZENCRYPTION är ett arkiv (NSKeyedArchiver) med KEY (32 byte) och IV (16 byte): filen i cachen är AES-256-CBC med dem, också när IS_ENCRYPTED står som falskt. Samma nyckel dekrypterar texten på bilden (snap-overlay-<id>, WebP).",
       "queries": [
         {
           "id": "snaps",
@@ -496,18 +510,18 @@ window.SNAPCHAT_CATALOG = {
             "timeStart",
             "timeEnd"
           ],
-          "returns": "tagen, sparad, typ, frontkamera, bredd, höjd, längd, tidszon, har position, format, snap-id, Memories-id, UTC",
-          "sql": "SELECT\n  datetime(s.ZCAPTURETIMEUTC + 978307200, 'unixepoch', 'localtime') AS tagen_lokal,\n  datetime(s.ZCREATETIMEUTC + 978307200, 'unixepoch', 'localtime') AS sparad_lokal,\n  s.ZMEDIATYPE,\n  s.ZCAMERAFRONTFACING,\n  s.ZWIDTH,\n  s.ZHEIGHT,\n  s.ZDURATION,\n  s.ZTIMEZONENAME,\n  s.ZHASLOCATION,\n  s.ZSERVLETMEDIAFORMAT,\n  s.ZSNAPID,\n  e.ZENTRYID,\n  datetime(s.ZCAPTURETIMEUTC + 978307200, 'unixepoch') AS tagen_utc\nFROM ZGALLERYSNAP s\nLEFT JOIN ZGALLERYENTRY e ON e.Z_PK = s.ZENTRY\nWHERE s.ZCAPTURETIMEUTC BETWEEN {{cocoaStart}} AND {{cocoaEnd}}\n   OR s.ZCREATETIMEUTC BETWEEN {{cocoaStart}} AND {{cocoaEnd}}\nORDER BY s.ZCAPTURETIMEUTC;"
+          "returns": "tagen, sparad (ZGALLERYENTRY.ZDUPLICATETIMEUTC när den är senare, som för video och story), typ (ZMEDIAFORMAT), frontkamera, bredd, höjd, längd, tidszon, har position, format, text eller ritning, My Eyes Only, kopia av, snap-id, Memories-id, UTC",
+          "sql": "SELECT\n  datetime(s.ZCAPTURETIMEUTC + 978307200, 'unixepoch', 'localtime') AS tagen_lokal,\n  datetime(max(s.ZCREATETIMEUTC, ifnull(e.ZDUPLICATETIMEUTC, s.ZCREATETIMEUTC)) + 978307200, 'unixepoch', 'localtime') AS sparad_lokal,\n  CASE s.ZMEDIAFORMAT WHEN 0 THEN 'video' WHEN 1 THEN 'bild' ELSE 'ZMEDIAFORMAT ' || s.ZMEDIAFORMAT END AS typ,\n  s.ZCAMERAFRONTFACING,\n  s.ZWIDTH,\n  s.ZHEIGHT,\n  s.ZDURATION,\n  s.ZTIMEZONENAME,\n  s.ZHASLOCATION,\n  s.ZSERVLETMEDIAFORMAT,\n  s.ZHASOVERLAYIMAGE AS text_eller_ritning,\n  e.ZISPRIVATE AS my_eyes_only,\n  s.ZDUPLICATEDFROMSNAPID AS kopia_av,\n  s.ZSNAPID,\n  e.ZENTRYID,\n  datetime(s.ZCAPTURETIMEUTC + 978307200, 'unixepoch') AS tagen_utc\nFROM ZGALLERYSNAP s\nLEFT JOIN ZGALLERYENTRY e ON e.Z_PK = s.ZENTRY\nWHERE s.ZCAPTURETIMEUTC BETWEEN {{cocoaStart}} AND {{cocoaEnd}}\n   OR s.ZCREATETIMEUTC BETWEEN {{cocoaStart}} AND {{cocoaEnd}}\nORDER BY s.ZCAPTURETIMEUTC;"
         },
         {
           "id": "by-snap-id",
           "title": "Sök på snap-id",
-          "subtitle": "Visar den sparade snap som har id:t, som ZSNAPID, ZMEDIAID eller Memories-id (ZENTRYID). Skiftläget spelar ingen roll.",
+          "subtitle": "Visar de sparade snaps vars id börjar med texten: ZSNAPID, ZMEDIAID, Memories-id (ZENTRYID) eller originalets id för en kopia i My Eyes Only (ZDUPLICATEDFROMSNAPID). Skiftläget spelar ingen roll, och början av ett id räcker.",
           "params": [
             "snapId"
           ],
-          "returns": "tagen, sparad, typ, frontkamera, bredd, höjd, längd, tidszon, har position, format, snap-id, Memories-id, UTC",
-          "sql": "SELECT\n  datetime(s.ZCAPTURETIMEUTC + 978307200, 'unixepoch', 'localtime') AS tagen_lokal,\n  datetime(s.ZCREATETIMEUTC + 978307200, 'unixepoch', 'localtime') AS sparad_lokal,\n  s.ZMEDIATYPE,\n  s.ZCAMERAFRONTFACING,\n  s.ZWIDTH,\n  s.ZHEIGHT,\n  s.ZDURATION,\n  s.ZTIMEZONENAME,\n  s.ZHASLOCATION,\n  s.ZSERVLETMEDIAFORMAT,\n  s.ZSNAPID,\n  e.ZENTRYID,\n  datetime(s.ZCAPTURETIMEUTC + 978307200, 'unixepoch') AS tagen_utc\nFROM ZGALLERYSNAP s\nLEFT JOIN ZGALLERYENTRY e ON e.Z_PK = s.ZENTRY\nWHERE upper(s.ZSNAPID) = upper('{{snapId}}')\n   OR upper(s.ZMEDIAID) = upper('{{snapId}}')\n   OR upper(e.ZENTRYID) = upper('{{snapId}}')\nORDER BY s.ZCAPTURETIMEUTC;"
+          "returns": "tagen, sparad (ZGALLERYENTRY.ZDUPLICATETIMEUTC när den är senare, som för video och story), typ (ZMEDIAFORMAT), frontkamera, bredd, höjd, längd, tidszon, har position, format, text eller ritning, My Eyes Only, kopia av, snap-id, Memories-id, UTC",
+          "sql": "SELECT\n  datetime(s.ZCAPTURETIMEUTC + 978307200, 'unixepoch', 'localtime') AS tagen_lokal,\n  datetime(max(s.ZCREATETIMEUTC, ifnull(e.ZDUPLICATETIMEUTC, s.ZCREATETIMEUTC)) + 978307200, 'unixepoch', 'localtime') AS sparad_lokal,\n  CASE s.ZMEDIAFORMAT WHEN 0 THEN 'video' WHEN 1 THEN 'bild' ELSE 'ZMEDIAFORMAT ' || s.ZMEDIAFORMAT END AS typ,\n  s.ZCAMERAFRONTFACING,\n  s.ZWIDTH,\n  s.ZHEIGHT,\n  s.ZDURATION,\n  s.ZTIMEZONENAME,\n  s.ZHASLOCATION,\n  s.ZSERVLETMEDIAFORMAT,\n  s.ZHASOVERLAYIMAGE AS text_eller_ritning,\n  e.ZISPRIVATE AS my_eyes_only,\n  s.ZDUPLICATEDFROMSNAPID AS kopia_av,\n  s.ZSNAPID,\n  e.ZENTRYID,\n  datetime(s.ZCAPTURETIMEUTC + 978307200, 'unixepoch') AS tagen_utc\nFROM ZGALLERYSNAP s\nLEFT JOIN ZGALLERYENTRY e ON e.Z_PK = s.ZENTRY\nWHERE upper(s.ZSNAPID) LIKE upper('{{snapId}}') || '%'\n   OR upper(s.ZMEDIAID) LIKE upper('{{snapId}}') || '%'\n   OR upper(e.ZENTRYID) LIKE upper('{{snapId}}') || '%'\n   OR upper(s.ZDUPLICATEDFROMSNAPID) LIKE upper('{{snapId}}') || '%'\nORDER BY s.ZCAPTURETIMEUTC;"
         },
         {
           "id": "tables",
@@ -523,7 +537,7 @@ window.SNAPCHAT_CATALOG = {
           "hidden": true,
           "role": "memories",
           "title": "Härkomst: sparade snaps i tidsfönstret",
-          "description": "Används av Härkomst. Snaps tagna eller sparade i fönstret med råa tider och nyckeln till filen.",
+          "description": "Används av Härkomst. Snaps tagna eller sparade i fönstret med råa tider och nyckeln till filen. ZMEDIAFORMAT 0 är video och 1 bild (ZMEDIATYPE var 0 för båda). ZGALLERYENTRY.ZDUPLICATETIMEUTC är när posten sparades i Memories; för en video och en story är ZCREATETIMEUTC tagningstiden.",
           "params": [
             "timeStart",
             "timeEnd"
@@ -543,16 +557,21 @@ window.SNAPCHAT_CATALOG = {
             "front": "ZCAMERAFRONTFACING",
             "hasLocation": "ZHASLOCATION",
             "format": "ZSERVLETMEDIAFORMAT",
+            "mediaFormat": "ZMEDIAFORMAT",
+            "overlay": "ZHASOVERLAYIMAGE",
+            "copyFrom": "ZDUPLICATEDFROMSNAPID",
+            "private": "ZISPRIVATE",
+            "entrySaved": "ZDUPLICATETIMEUTC",
             "encryption": "ZENCRYPTION"
           },
-          "sql": "SELECT\n  s.ZSNAPID,\n  s.ZMEDIAID,\n  e.ZENTRYID,\n  s.ZMEDIATYPE,\n  s.ZCREATETIMEUTC,\n  s.ZCAPTURETIMEUTC,\n  s.ZTIMEZONENAME,\n  s.ZWIDTH,\n  s.ZHEIGHT,\n  s.ZDURATION,\n  s.ZCAMERAFRONTFACING,\n  s.ZHASLOCATION,\n  s.ZSERVLETMEDIAFORMAT,\n  s.ZENCRYPTION\nFROM ZGALLERYSNAP s\nLEFT JOIN ZGALLERYENTRY e ON e.Z_PK = s.ZENTRY\nWHERE s.ZCAPTURETIMEUTC BETWEEN {{cocoaStart}} AND {{cocoaEnd}}\n   OR s.ZCREATETIMEUTC BETWEEN {{cocoaStart}} AND {{cocoaEnd}}\nORDER BY s.ZCAPTURETIMEUTC;"
+          "sql": "SELECT\n  s.ZSNAPID,\n  s.ZMEDIAID,\n  e.ZENTRYID,\n  s.ZMEDIATYPE,\n  s.ZCREATETIMEUTC,\n  s.ZCAPTURETIMEUTC,\n  s.ZTIMEZONENAME,\n  s.ZWIDTH,\n  s.ZHEIGHT,\n  s.ZDURATION,\n  s.ZCAMERAFRONTFACING,\n  s.ZHASLOCATION,\n  s.ZSERVLETMEDIAFORMAT,\n  s.ZMEDIAFORMAT,\n  s.ZHASOVERLAYIMAGE,\n  s.ZDUPLICATEDFROMSNAPID,\n  e.ZISPRIVATE,\n  e.ZDUPLICATETIMEUTC,\n  s.ZENCRYPTION\nFROM ZGALLERYSNAP s\nLEFT JOIN ZGALLERYENTRY e ON e.Z_PK = s.ZENTRY\nWHERE s.ZCAPTURETIMEUTC BETWEEN {{cocoaStart}} AND {{cocoaEnd}}\n   OR s.ZCREATETIMEUTC BETWEEN {{cocoaStart}} AND {{cocoaEnd}}\nORDER BY s.ZCAPTURETIMEUTC;"
         },
         {
           "id": "role-memory-id",
           "hidden": true,
           "role": "memory-id",
           "title": "Härkomst: en sparad snap efter id",
-          "description": "Används av Härkomst. Den sparade snap som har id:t (ZSNAPID, ZMEDIAID eller ZENTRYID).",
+          "description": "Används av Härkomst. De sparade snaps vars id (ZSNAPID, ZMEDIAID, ZENTRYID eller ZDUPLICATEDFROMSNAPID för en kopia i My Eyes Only) börjar med texten. Ett helt id ger en snap; början av ett (minst åtta tecken) kan ge flera.",
           "params": [
             "snapId"
           ],
@@ -571,9 +590,14 @@ window.SNAPCHAT_CATALOG = {
             "front": "ZCAMERAFRONTFACING",
             "hasLocation": "ZHASLOCATION",
             "format": "ZSERVLETMEDIAFORMAT",
+            "mediaFormat": "ZMEDIAFORMAT",
+            "overlay": "ZHASOVERLAYIMAGE",
+            "copyFrom": "ZDUPLICATEDFROMSNAPID",
+            "private": "ZISPRIVATE",
+            "entrySaved": "ZDUPLICATETIMEUTC",
             "encryption": "ZENCRYPTION"
           },
-          "sql": "SELECT\n  s.ZSNAPID,\n  s.ZMEDIAID,\n  e.ZENTRYID,\n  s.ZMEDIATYPE,\n  s.ZCREATETIMEUTC,\n  s.ZCAPTURETIMEUTC,\n  s.ZTIMEZONENAME,\n  s.ZWIDTH,\n  s.ZHEIGHT,\n  s.ZDURATION,\n  s.ZCAMERAFRONTFACING,\n  s.ZHASLOCATION,\n  s.ZSERVLETMEDIAFORMAT,\n  s.ZENCRYPTION\nFROM ZGALLERYSNAP s\nLEFT JOIN ZGALLERYENTRY e ON e.Z_PK = s.ZENTRY\nWHERE upper(s.ZSNAPID) = upper('{{snapId}}')\n   OR upper(s.ZMEDIAID) = upper('{{snapId}}')\n   OR upper(e.ZENTRYID) = upper('{{snapId}}')\nORDER BY s.ZCAPTURETIMEUTC;"
+          "sql": "SELECT\n  s.ZSNAPID,\n  s.ZMEDIAID,\n  e.ZENTRYID,\n  s.ZMEDIATYPE,\n  s.ZCREATETIMEUTC,\n  s.ZCAPTURETIMEUTC,\n  s.ZTIMEZONENAME,\n  s.ZWIDTH,\n  s.ZHEIGHT,\n  s.ZDURATION,\n  s.ZCAMERAFRONTFACING,\n  s.ZHASLOCATION,\n  s.ZSERVLETMEDIAFORMAT,\n  s.ZMEDIAFORMAT,\n  s.ZHASOVERLAYIMAGE,\n  s.ZDUPLICATEDFROMSNAPID,\n  e.ZISPRIVATE,\n  e.ZDUPLICATETIMEUTC,\n  s.ZENCRYPTION\nFROM ZGALLERYSNAP s\nLEFT JOIN ZGALLERYENTRY e ON e.Z_PK = s.ZENTRY\nWHERE upper(s.ZSNAPID) LIKE upper('{{snapId}}') || '%'\n   OR upper(s.ZMEDIAID) LIKE upper('{{snapId}}') || '%'\n   OR upper(e.ZENTRYID) LIKE upper('{{snapId}}') || '%'\n   OR upper(s.ZDUPLICATEDFROMSNAPID) LIKE upper('{{snapId}}') || '%'\nORDER BY s.ZCAPTURETIMEUTC;"
         },
         {
           "id": "role-coverage",

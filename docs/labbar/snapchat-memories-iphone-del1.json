@@ -1,0 +1,254 @@
+{
+  "format": "forensics-toolbox-laboration",
+  "version": 1,
+  "sparad": "2026-11-19T12:00:00.000+01:00",
+  "program": "Forensics Toolbox",
+  "flow": {
+    "name": "Snapchat Memories del 1, iPhone",
+    "prefix": "S",
+    "devices": [
+      {
+        "id": "d1",
+        "name": "iPhone"
+      }
+    ],
+    "groups": [
+      {
+        "id": "g1",
+        "title": "Klockan i början",
+        "app": "",
+        "a": "",
+        "b": "",
+        "template": ""
+      },
+      {
+        "id": "g2",
+        "title": "Memories på iPhone",
+        "app": "Snapchat",
+        "a": "",
+        "b": "",
+        "template": ""
+      },
+      {
+        "id": "g3",
+        "title": "Klockan i slutet",
+        "app": "",
+        "a": "",
+        "b": "",
+        "template": ""
+      }
+    ],
+    "steps": [
+      {
+        "id": "s3",
+        "action": "photo",
+        "group": "g1",
+        "block": "Klockan i början",
+        "device": "d1",
+        "other": "",
+        "app": "Kamera",
+        "do": "Fotografera rutan med koden och klockan. Resten av skärmen behöver inte komma med.",
+        "done": "Tog en bild av skärmen med kameran.",
+        "press": "när bilden är tagen",
+        "wait": 0
+      },
+      {
+        "id": "s4",
+        "action": "custom",
+        "group": "g2",
+        "block": "Memories på iPhone",
+        "device": "d1",
+        "other": "",
+        "app": "Snapchat",
+        "do": "Öppna Snapchat, profilen, inställningarna och Memories. Skriv i anteckningarna vad Spara till står på. Ändra det till Memories (bara Memories) om det står något annat. Stäng inställningarna.",
+        "done": "Läste av Spara till i Snapchats inställningar och satte det till bara Memories.",
+        "press": "när inställningen är satt",
+        "wait": 0
+      },
+      {
+        "id": "s5",
+        "action": "custom",
+        "group": "g2",
+        "block": "Memories på iPhone",
+        "device": "d1",
+        "other": "",
+        "app": "Snapchat",
+        "do": "Ta en bild av rutan med koden och klockan med den bakre kameran, utan text, ritning eller filter. Spara bilden i Memories med spara-knappen. Skicka den inte.",
+        "done": "Tog en bild med Snapchats bakre kamera och sparade den i Memories utan att skicka den.",
+        "press": "när den är sparad",
+        "wait": 0
+      },
+      {
+        "id": "s6",
+        "action": "custom",
+        "group": "g2",
+        "block": "Memories på iPhone",
+        "device": "d1",
+        "other": "",
+        "app": "Snapchat",
+        "do": "Byt till frontkameran. Vänd telefonen mot rutan, ta en bild och spara den i Memories. Skicka den inte. Byt tillbaka till den bakre kameran.",
+        "done": "Tog en bild med Snapchats frontkamera och sparade den i Memories.",
+        "press": "när den är sparad",
+        "wait": 0
+      },
+      {
+        "id": "s7",
+        "action": "custom",
+        "group": "g2",
+        "block": "Memories på iPhone",
+        "device": "d1",
+        "other": "",
+        "app": "Snapchat",
+        "do": "Håll inne avtryckaren och spela in en video på ungefär fem sekunder av rutan med den bakre kameran. Tryck på knappen i samma ögonblick som du släpper avtryckaren. Spara videon i Memories. Skicka den inte.",
+        "done": "Spelade in en video med Snapchats bakre kamera och sparade den i Memories.",
+        "press": "när du släpper avtryckaren",
+        "wait": 0
+      },
+      {
+        "id": "s8",
+        "action": "custom",
+        "group": "g2",
+        "block": "Memories på iPhone",
+        "device": "d1",
+        "other": "",
+        "app": "Snapchat",
+        "do": "Ta en bild av rutan, skriv {kod} som text på bilden och spara den i Memories. Skicka den inte här.",
+        "done": "Tog en bild med texten {kod} och sparade den i Memories.",
+        "press": "när den är sparad",
+        "wait": 0
+      },
+      {
+        "id": "s9",
+        "action": "custom",
+        "group": "g2",
+        "block": "Memories på iPhone",
+        "device": "d1",
+        "other": "",
+        "app": "Snapchat",
+        "do": "Öppna Memories, välj bilden med texten {förra} och skicka den därifrån till en vän i Snapchat (ett annat konto). Skriv vännens användarnamn i anteckningarna.",
+        "done": "Skickade bilden med texten {förra} ur Memories till en vän i Snapchat.",
+        "press": "när meddelandet är skickat",
+        "wait": 0
+      },
+      {
+        "id": "s10",
+        "action": "custom",
+        "group": "g2",
+        "block": "Memories på iPhone",
+        "device": "d1",
+        "other": "",
+        "app": "Snapchat",
+        "do": "Öppna Memories och skicka den senaste videon du sparade till samma vän.",
+        "done": "Skickade den senast sparade videon ur Memories till samma vän.",
+        "press": "när meddelandet är skickat",
+        "wait": 0
+      },
+      {
+        "id": "s11",
+        "action": "custom",
+        "group": "g2",
+        "block": "Memories på iPhone",
+        "device": "d1",
+        "other": "",
+        "app": "Snapchat",
+        "do": "Ta två bilder av rutan och lägg upp dem i Min story, en i taget. Spara sedan hela storyn i Memories (Min story, menyn med tre punkter, Spara story).",
+        "done": "Lade upp två bilder i Min story och sparade storyn i Memories.",
+        "press": "när storyn är sparad",
+        "wait": 0
+      },
+      {
+        "id": "s12",
+        "action": "custom",
+        "group": "g2",
+        "block": "Memories på iPhone",
+        "device": "d1",
+        "other": "",
+        "app": "Snapchat",
+        "do": "Ta en bild av rutan, spara den i Memories och exportera den genast ur Memories till kamerarullen.",
+        "done": "Tog en bild, sparade den i Memories och exporterade den direkt till kamerarullen.",
+        "press": "när bilden finns i kamerarullen",
+        "wait": 0
+      },
+      {
+        "id": "s13",
+        "action": "custom",
+        "group": "g2",
+        "block": "Memories på iPhone",
+        "device": "d1",
+        "other": "",
+        "app": "Snapchat",
+        "do": "Öppna Memories och exportera den första bilden du sparade i den här labben (utan text) till kamerarullen.",
+        "done": "Exporterade den första sparade bilden ur Memories till kamerarullen, några minuter efter att den sparades.",
+        "press": "när bilden finns i kamerarullen",
+        "wait": 0
+      },
+      {
+        "id": "s14",
+        "action": "custom",
+        "group": "g2",
+        "block": "Memories på iPhone",
+        "device": "d1",
+        "other": "",
+        "app": "Snapchat",
+        "do": "Öppna Memories och exportera den senaste videon du sparade till kamerarullen.",
+        "done": "Exporterade den senast sparade videon ur Memories till kamerarullen.",
+        "press": "när videon finns i kamerarullen",
+        "wait": 0
+      },
+      {
+        "id": "s15",
+        "action": "custom",
+        "group": "g2",
+        "block": "Memories på iPhone",
+        "device": "d1",
+        "other": "",
+        "app": "Snapchat",
+        "do": "Ändra Spara till i Snapchats inställningar till Memories och kamerarullen. Ta en bild av rutan och spara den i Memories. Exportera den inte. Ändra sedan tillbaka till bara Memories.",
+        "done": "Satte Spara till på Memories och kamerarullen, sparade en bild i Memories och satte tillbaka inställningen.",
+        "press": "när bilden är sparad",
+        "wait": 0
+      },
+      {
+        "id": "s16",
+        "action": "custom",
+        "group": "g2",
+        "block": "Memories på iPhone",
+        "device": "d1",
+        "other": "",
+        "app": "Snapchat",
+        "do": "Ta en bild av rutan, spara den i Memories och flytta den till My Eyes Only. Välj en lösenkod om Snapchat ber om det, och skriv den i labbens anteckningar.",
+        "done": "Tog en bild, sparade den i Memories och flyttade den till My Eyes Only.",
+        "press": "när bilden ligger i My Eyes Only",
+        "wait": 0
+      },
+      {
+        "id": "s17",
+        "action": "photo",
+        "group": "g3",
+        "block": "Klockan i slutet",
+        "device": "d1",
+        "other": "",
+        "app": "Kamera",
+        "do": "Fotografera rutan med koden och klockan. Resten av skärmen behöver inte komma med.",
+        "done": "Tog en bild av skärmen med kameran.",
+        "press": "när bilden är tagen",
+        "wait": 120
+      },
+      {
+        "id": "s18",
+        "action": "flight-on",
+        "group": "g3",
+        "block": "Klockan i slutet",
+        "device": "d1",
+        "other": "",
+        "app": "",
+        "do": "Sätt telefonen i flygplansläge, eller gör som du brukar inför en extraktion.",
+        "done": "Telefonen sattes i flygplansläge.",
+        "press": "när den är klar",
+        "wait": 0
+      }
+    ],
+    "next": 21
+  },
+  "run": null
+}

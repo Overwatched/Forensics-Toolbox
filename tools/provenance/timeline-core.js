@@ -861,22 +861,29 @@
             var mo = mem.origin || {};
             var memSaved = mem.savedMs != null ? mem.savedMs : mem.createdMs;
             var placeText = mem.anchor === 'cache' ? 'lades i Snapchats cache' : mem.anchor === 'memories' ? 'skrevs i Snapchats mapp memories_media' : 'lades till i galleriet';
-            var linkText = mem.by === 'id' ? ' Filen hör till snappen genom snappens id i cachenyckeln (EXTERNAL_KEY snap-media-…).'
+            var linkText = mem.by === 'id' ? ' Filen hör till snappen genom snappens id i cachenyckeln (EXTERNAL_KEY ' + (mem.video && mem.columns ? '<snap-id>~<n>, typ 19' : 'snap-media-…') + ').'
+                : mem.by === 'image' ? ' Filen hör till snappen genom en bildjämförelse: filen och snappens bild' + (mem.compared ? ', jämförd med ' + mem.compared + ' sparade bilder,' : '') +
+                    ' förminskade till 24 × 24 rutor i gråskala med texten på snappen ritad ovanpå, skiljer sig ' + num1(mem.imageDiff) + ' av 255 i medel (gränsen för samma bild är 4' +
+                    (mem.secondDiff != null ? '; den näst närmaste ' + num1(mem.secondDiff) : '') + '). Snapchat kodar om en bild som exporteras ur Memories, så bytena är inte desamma. Kontrollera bilden.'
+                : mem.by === 'time' && mem.columns && mem.anchor === 'gallery' ? ' Filen hör till snappen genom att den lades till i biblioteket inom några sekunder från att snappen sparades.'
                 : mem.by === 'content' ? ' Filen hör till snappen genom att bilddatan är densamma som i snappens fil i Memories.'
                     : mem.by === 'size' ? ' Filen hör till snappen genom att den är lika stor som snappens fil enligt memories_media.size, och ingen annan snap har den storleken.'
                         : mem.by === 'duration' ? ' Filen hör till snappen genom att videon är lika lång (' + Number(mem.duration).toFixed(3).replace('.', ',') + ' s i Memories, ' + mem.durationDiffMs + ' ms skillnad), och ingen annan video i Memories har den längden. Kontrollera videon.' : '';
             items.push({ state: okMem ? 'support' : 'info', text: 'Snapchats Memories: ' + (mem.video ? 'videon spelades in' : 'bilden togs') + ' ' + formatUtc(file.capturedMs) + ' med ' + (mem.front ? 'frontkameran' : 'bakre kameran') +
                 (mo.synced && mem.savedMs == null ? '. Raden är hämtad från Snapchats server (' + memCols(mem).created + ' = ' + memCols(mem).captured + '), så när den sparades i Memories står inte här'
                     : ' och sparades i Memories ' + formatUtc(memSaved) + ', ' + duration(Math.abs(mAnchor - memSaved)) + ' ' + (memSaved <= mAnchor ? 'före' : 'efter') + ' att filen ' + placeText + ' (' + memCols(mem).captured + ', ' +
-                        (mo.synced ? 'memories_entry.create_time: raden är hämtad från Snapchats server, så ' + memCols(mem).created + ' är tagningstiden' : memCols(mem).created) + ')') +
-                '.' + linkText + (mem.video && mem.columns ? ' Tagningstiden för en video: ' + videoTimeText(mem) + ', och inte heller vilket värde ZMEDIATYPE har för video.' : '') + (mem.typeNote ? ' ' + mem.typeNote : '') });
+                        (mo.synced ? 'memories_entry.create_time: raden är hämtad från Snapchats server, så ' + memCols(mem).created + ' är tagningstiden'
+                            : mo.savedFrom === 'entry' && mem.columns ? 'ZGALLERYENTRY.ZDUPLICATETIMEUTC: för en video och en story är ' + memCols(mem).created + ' tagningstiden' : memCols(mem).created) + ')') +
+                '.' + linkText + (mem.video && mem.columns ? ' För en video är tagningstiden ' + videoTimeText(mem) + '.' : '') + (mem.typeNote ? ' ' + mem.typeNote : '') });
             // Kopian som Snapchat lägger i galleriet när snappen sparas, eller en export senare, och inställningen som styr det.
             var setting = input.snapchatSetting || null;
-            if (mem.copy === 'auto') items.push({ state: 'info', text: 'Filen lades till i galleriet samma sekund som snappen sparades: det är kopian Snapchat lägger där när inställningen säger det, inte en export.' +
-                (setting && setting.copies === false ? ' Inställningen är nu ' + setting.label + ', så den har ändrats sedan.' : '') });
-            else if (mem.copy === 'export') items.push({ state: 'info', text: 'Filen lades till i galleriet ' + duration(mAnchor - memSaved) + ' efter att snappen sparades: den exporterades ur Memories senare.' });
+            if (mem.copy === 'auto') items.push({ state: 'info', text: 'Filen lades till i ' + (mem.columns ? 'biblioteket' : 'galleriet') + ' samma sekund som snappen sparades: det är kopian Snapchat lägger där när inställningen säger det, inte en export.' +
+                (setting && setting.copies === false ? ' Inställningen är nu ' + setting.label + ', så den har ändrats sedan.' : '') +
+                (mem.columns ? ' På labbtelefonen (iOS, 2026-11-19) hade Snapchats kopia positionen och Snapchats version (UserComment) i EXIF, och exporterna ingetdera.' : '') });
+            else if (mem.copy === 'export') items.push({ state: 'info', text: 'Filen lades till i ' + (mem.columns ? 'biblioteket' : 'galleriet') + ' ' + duration(mAnchor - memSaved) + ' efter att snappen sparades: den exporterades ur Memories senare.' });
             if (setting) items.push({ state: 'info', text: settingText(setting) });
-            if (mem.meo) items.push({ state: 'info', text: mem.meo.self ? 'Snappen ligger i My Eyes Only (memories_entry.is_private = 1). Kopian i galleriet är inte krypterad.'
+            if (mem.meo && mem.columns) items.push({ state: 'info', text: 'Snappen ligger i My Eyes Only (ZGALLERYENTRY.ZISPRIVATE = 1' + (mem.meo.copyOf ? '; en kopia av snap ' + String(mem.meo.copyOf).slice(0, 8) + '…, ZDUPLICATEDFROMSNAPID, med originalets tider' : '') + ').' });
+            else if (mem.meo) items.push({ state: 'info', text: mem.meo.self ? 'Snappen ligger i My Eyes Only (memories_entry.is_private = 1). Kopian i galleriet är inte krypterad.'
                 : 'Snappen flyttades sedan till My Eyes Only (snap ' + String(mem.meo.id).slice(0, 8) + '…, copy_from_snap_id; memories_entry.is_private = 1). Kopian i galleriet är inte krypterad.' });
             (mem.imports || []).forEach(function (im) { items.push({ state: 'info', text: importText(im) }); });
             if (input.platform === 'Android' && mem.anchor !== 'cache') items.push({ state: 'info', text: 'Memories följer kontot, som kan vara inloggat på flera enheter. Att snappen togs på den här telefonen visar Kamera igång, inte Memories.' });
@@ -1013,14 +1020,18 @@
 
     // ---------- Positioner ----------
 
-    // Vad tagningstiden är för en video: på Android inspelningens slut (kontrollerat), på iOS inte kontrollerat.
+    // Vad tagningstiden är för en video: inspelningens slut på båda plattformarna (Android 2026-11-16; iOS 2026-11-19, 0,1 och
+    // 1,5 s efter att avtryckaren släpptes).
     function videoTimeText(mem) {
-        return mem && mem.columns ? 'om det är inspelningens start eller slut är inte kontrollerat på iOS' : 'inspelningens slut';
+        return mem && mem.columns ? 'inspelningens slut (ZCAPTURETIMEUTC; ZMEDIAFORMAT 0 är video)' : 'inspelningens slut';
     }
+
+    function num1(v) { return v == null ? '?' : Number(v).toFixed(1).replace('.', ','); }
 
     // Snapchats inställning Spara till, i en mening med källan.
     function settingText(st) {
-        return 'Snapchats inställning för var sparade snaps hamnar: ' + st.label + ' (core.db, SnapchatUserProperties _id 24 = ' + st.value +
+        var where = st.source && st.source.db === 'primary.docobjects' ? 'primary.docobjects, userproperties itemId 24' : 'core.db, SnapchatUserProperties _id 24';
+        return 'Snapchats inställning för var sparade snaps hamnar: ' + st.label + ' (' + where + ' = ' + st.value +
             (st.version != null ? ', row_version ' + st.version + (st.changed ? ': ändrad från standard' : ': standardvärdet') : '') + (st.updatedMs ? ', raden skrevs ' + formatUtc(st.updatedMs) : '') + ').' +
             (st.copies ? ' Då får varje sparad snap en kopia i galleriet samma sekund.' : '') + ' Inställningen följer kontot.';
     }

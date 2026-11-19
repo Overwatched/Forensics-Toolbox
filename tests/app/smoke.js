@@ -2321,6 +2321,11 @@ const scenarios = [
         expect(await ev(`document.getElementById('s-preview').classList.contains('display-none')`), 'Esc stängde inte förhandsvisningen');
         await search('');
         await fits('Start');
+        // Öppna fil… på startsidan öppnar ett sparat flöde, här iPhone-labben om Snapchat Memories.
+        expect(await ev(`document.getElementById('s-open').getBoundingClientRect().width > 0 && document.getElementById('s-open').textContent.startsWith('Öppna fil')`), 'Startsidan saknar Öppna fil…');
+        await c.setFiles(LAB, '#p-file', [path.join(__dirname, '..', '..', 'docs', 'labbar', 'snapchat-memories-iphone-del1.json')]);
+        await c.waitFor(LAB, `!document.getElementById('view-plan').classList.contains('display-none') && document.getElementById('p-status').textContent === 'Flödet är öppnat: 16 steg.'`, 10000, 'flödet öppnas från startsidan');
+        await ev(`document.getElementById('p-reset').click(), document.getElementById('nav-start').click(), 1`);
         // Knappen till startsidan står på samma plats i varje vy.
         const home = () => ev(`(function(){ const r = document.getElementById('nav-start').getBoundingClientRect(); return r.width > 0 ? Math.round(r.left) + ',' + Math.round(r.top) : 'dold'; })()`);
         const homeAt = await home();

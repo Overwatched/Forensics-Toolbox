@@ -1334,12 +1334,15 @@
 
     function openFile(file) {
         if (!file) return;
-        if (file.size > 5e6) return status('p-status', 'Filen är för stor för att vara ett flöde eller en logg.');
+        // Från startsidan står svaret där, annars i flödets statusrad.
+        var where = state.view === 'start' ? 's-status' : 'p-status';
+        status('s-status', '');
+        if (file.size > 5e6) return status(where, 'Filen är för stor för att vara ett flöde eller en logg.');
         file.text().then(function (text) {
             // En fil med bara mallar läggs till Mina mallar, och flödet som finns här rörs inte.
             if (isTemplateFile(text)) {
                 var list = Lab.templatesFromFile(text), added = takeTemplates(list, null);
-                status('p-status', added ? added + (added === 1 ? ' mall' : ' mallar') + ' lades till under Mina mallar.' : 'Mallarna i filen fanns redan under Mina mallar.');
+                status(where, added ? added + (added === 1 ? ' mall' : ' mallar') + ' lades till under Mina mallar.' : 'Mallarna i filen fanns redan under Mina mallar.');
                 return render();
             }
             var back = Lab.fromFile(text), parked = '';
@@ -1362,7 +1365,7 @@
                 (added ? ' ' + added + (added === 1 ? ' mall' : ' mallar') + ' följde med och ligger under Mina mallar.' : '') +
                 (parked ? ' ' + parked + ' ligger kvar under Mina laborationer på startsidan.' : ''));
             show(back.run ? 'table' : 'plan');
-        }).catch(function (e) { status('p-status', e && e.message ? e.message : 'Filen gick inte att läsa.'); });
+        }).catch(function (e) { status(where, e && e.message ? e.message : 'Filen gick inte att läsa.'); });
     }
 
     async function copyHtml(html, text) {
@@ -1730,6 +1733,7 @@
             useFlow(Lab.emptyFlow('Laboration ' + today(), 'L', ['Telefon 1', 'Telefon 2']), 'Ett tomt flöde. Klicka på en byggsten till vänster eller dra den till flödet.');
         });
         $('s-wizard').addEventListener('click', openWizard);
+        $('s-open').addEventListener('click', function () { $('p-file').click(); });
         $('s-drop').addEventListener('click', function () {
             if (!confirm(dropQuestion(state.flow, state.run))) return;
             fresh();

@@ -688,9 +688,52 @@ iOS 26.4.1, steg L38; Samsung med Android 16, steg L40), med en sparad snap per 
   och medelskillnaden räknas (`grayDiff`). Under `SAME_IMAGE_DIFF` (4 av 255) räknas de som samma bild, och
   skillnaden står i texten och i faktorn *Snapchat igång*. I labbet: samma bild 0,4–2,0, andra bilder av samma
   skärm 16–31. Bara bilder och bara iOS; på Android finns ingen sparad snap som skickats i labbet.
-- Inte provat mot en riktig telefon: video i Memories på iOS, My Eyes Only på iOS, en Memories-post med flera snaps,
-  äldre Snapchat-versioner på iOS (andra `scdb-NN`). Labben i `docs/labbar/` (Snapchat Memories del 1 och 2) är
-  förberedd för det. Android är provat i 1.71, se nedan.
+- Video, story, export, text på bilden och My Eyes Only på iOS är provade 2026-11-19, se nedan. Inte provat: äldre
+  Snapchat-versioner på iOS (andra `scdb-NN`) och del 2 av labben (ominstallation) på iPhone. Android är provat i 1.71, se nedan.
+
+#### Snapchat Memories på iOS, laborationerna 2026-11-19
+
+Labbtelefonen (iPhone, iOS 26.4.1, Snapchat 14.30.0.59), flödet `docs/labbar/snapchat-memories-iphone-del1.json` två
+gånger i rad, och en hel extraktion med nyckelringen efter båda. I den första var telefonen i
+flygplansläge fram till S09. Facit: `tests/app/facit/lab-snapchat-memories-iphone.json`, körs med
+`npm run test:app -- --memories` när zippen finns (`FT_LAB_MEMORIES_IOS_DIR`, annars `~/Desktop/vm-images/Snapchat Laboration`).
+
+- **Video:** `ZMEDIATYPE` var 0 för både bild och video. `ZMEDIAFORMAT` 0 är video och 1 bild, och en video har
+  `ZSERVLETMEDIAFORMAT` tom och `ZDURATION` som längden (en bild har 10). `ProvenanceSnapchat.isVideoMemory`.
+  `ZCAPTURETIMEUTC` är inspelningens slut: 1,5 och 0,1 s efter trycket när avtryckaren släpptes.
+  Filen i cachen har nyckeln `<snap-id>~1` med typ 19, samma form som en inspelning, och två filer (båda MP4).
+  `memoryVideoKey`, och `role-cache-memory` tar med dem.
+- **När snappen sparades:** för en video och för snaps i en story som sparades efteråt är `ZCREATETIMEUTC` = tagningen,
+  och tiden då posten sparades står i `ZGALLERYENTRY.ZDUPLICATETIMEUTC` (samma sekund som filen lades i cachen). För en
+  bild som sparas direkt är de samma. `iosMemoryOrigin` tar den senare. En story med två snaps blev två poster.
+- **Export ur Memories:** Snapchat kodar om bilden, så bytena är inte desamma som i Memories (som på Android). Exporten
+  har ingen EXIF-position och ingen UserComment, och en video har ett uuid som `ZORIGINALFILENAME`. `linkSnapMemoryIos`
+  jämför filen med varje sparad bild som sparades före den, förminskade till 24 × 24 i gråskala med texten ovanpå
+  (`memoryGrid`, räknas en gång per zip): rätt snap 0,2–0,4, nästa närmaste minst 4,6 med alla bilder tagna av samma
+  skärm. Kopplingen kräver att en enda är under `SAME_IMAGE_DIFF`. En video kopplas på längden: bildbibliotekets
+  `ZDURATION` (ny i `role-file` från iOS 14) mot `ZGALLERYSNAP.ZDURATION`, 31 ms skillnad båda gångerna.
+- **Snapchats egen kopia** (Spara till = Memories och kamerarullen) lades till samma sekund som `ZCREATETIMEUTC` och hade
+  EXIF-position och Snapchats version i UserComment. Den kopplas på tiden som förut.
+- **Inställningen Spara till** står i `primary.docobjects`, `userproperties` `itemId` 24 (samma nummer som på Android),
+  som text i FlatBuffern `p` (`saveSettingFromFlat`, `role-save-setting`, `snapSaveSettingIos`). Ingen tid. Huvudfilen hade
+  en äldre sida med `MEMORIES_AND_CAMERA_ROLL`; WAL:en det nuvarande `MEMORIES`.
+- **Texten på bilden** ligger i en egen fil, `snap-overlay-<id>` (WebP med genomskinlighet, samma nyckel). En snap som
+  skickas ur Memories har texten inbränd: utan texten var skillnaden 5,9–6,1, med den ritad ovanpå 0,14–0,24 (`snapOverlay`,
+  `grayGrid(bytes, type, overlay)`).
+- **Skickad snap i Snapchat 14.30:** cachenyckeln är bara ett uuid (typ 3), och samma uuid står i det egna meddelandets
+  `local_message_references`. `build` gör den till `sent`. I flygplansläge skrevs filen när användaren skickade och
+  meddelandet i `arroyo.db` 1 min 32 s senare. Bildjämförelsen går igenom alla skickade snaps i fönstret (`out.sent`),
+  också de som inte får plats bland de 40 händelserna; en träff läggs till i tidslinjen.
+- **My Eyes Only:** snappen kopieras till en ny rad med `ZDUPLICATEDFROMSNAPID` = originalets id och originalets tider,
+  posten får `ZISPRIVATE` 1, och originalets rad tas bort. Filen i cachen är densamma men krypteras om; nyckeln i
+  `ZENCRYPTION` gäller inte längre. När den flyttades syns i cachen: originalets `snap-media-<id>` får `DELETED_TIMESTAMP_MILLIS`
+  och kopians rad skapas samma sekund. Sökning på originalets id hittar kopian (`role-memory-id`).
+- **Sökning på id:** början av ett id räcker också på iOS (`LIKE … || '%'`). Listan har snappens fil i cachen och kopian
+  eller exporten i kamerarullen med skälet i Varför (`snapGalleryCopiesIos`).
+- **Flygplansläge:** snaps som togs då har `ZHASLOCATION` 0 och ingen rad i `snap_location_table`.
+- Inte kopplat: id:t för en sparad snap som skickas står bara på frigjorda sidor i `arroyo.db` (en sändkö som tömts,
+  `SCSnapCommonLoggingParams`). Programmet läser inte frigjorda sidor, så kopplingen görs på bilden. Video som skickas
+  ur Memories jämförs inte (bara bilder).
 
 #### Snapchat Memories på Android, laborationen 2026-11-16 (1.71)
 

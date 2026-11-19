@@ -359,12 +359,52 @@ test('JPEG utan EXIF och andra APP-segment: den exporterade bilden har samma byt
     assert.ok(!snap.sameBytes(new Uint8Array([1, 2]), new Uint8Array([1, 3])));
 });
 
-test('video i Memories: på Android är tagningstiden inspelningens slut, på iOS är det inte kontrollerat', () => {
+test('video i Memories: tagningstiden är inspelningens slut på båda plattformarna, och iOS känner igen video på ZMEDIAFORMAT', () => {
     const mem = { id: SNAP_ID, mediaType: 1, front: 0, capturedMs: 1000, createdMs: 2000, duration: 5 };
     const android = snap.build({ memories: [mem] }).events.find((e) => e.captured);
     assert.match(android.text, /video tagen med bakre kameran \(snap_capture_time, inspelningens slut\)/);
-    const ios = snap.build({ memories: [mem], memoryColumns: { captured: 'ZCAPTURETIMEUTC', created: 'ZCREATETIMEUTC', front: 'ZCAMERAFRONTFACING', type: 'ZMEDIATYPE' } }).events.find((e) => e.captured);
-    assert.match(ios.text, /video tagen med bakre kameran \(ZCAPTURETIMEUTC, start eller slut är inte kontrollerat på iOS\)/);
+    // iOS (labbet 2026-11-19): ZMEDIATYPE 0 för både bild och video, ZMEDIAFORMAT 0 = video.
+    const iosVideo = Object.assign({}, mem, { ios: true, mediaType: 0, mediaFormat: 0 });
+    const ios = snap.build({ memories: [iosVideo], memoryColumns: { captured: 'ZCAPTURETIMEUTC', created: 'ZCREATETIMEUTC', front: 'ZCAMERAFRONTFACING', type: 'ZMEDIAFORMAT' } }).events.find((e) => e.captured);
+    assert.match(ios.text, /video tagen med bakre kameran \(ZCAPTURETIMEUTC, inspelningens slut\)/);
+    const photo = snap.build({ memories: [Object.assign({}, iosVideo, { mediaFormat: 1 })], memoryColumns: {} }).events.find((e) => e.captured);
+    assert.match(photo.text, /bild tagen/);
+});
+
+// Labbet 2026-11-19 (iOS 26.4.1, Snapchat 14.30): när en snap sparades, video, My Eyes Only och inställningen.
+test('iOS: en story eller video sparas när Memories-posten skrivs (ZDUPLICATETIMEUTC), en bild när snappen skrivs', () => {
+    // Story-snap S09: tagen 07:23:06, ZCREATETIMEUTC = tagningen, posten sparad 07:24:12.
+    const story = { ios: true, id: SNAP_ID, mediaFormat: 1, capturedMs: 1795072986210, createdMs: 1795072986210, entrySavedMs: 1795073052000 };
+    const o = snap.memoryOrigin(story);
+    assert.deepStrictEqual([o.savedMs, o.savedFrom, o.synced], [1795073052000, 'entry', false]);
+    const saved = snap.build({ memories: [story], memoryColumns: { captured: 'ZCAPTURETIMEUTC', created: 'ZCREATETIMEUTC' } }).events.find((e) => !e.captured);
+    assert.strictEqual(saved.ms, 1795073052000);
+    assert.match(saved.text, /sparas i Memories \(ZGALLERYENTRY\.ZDUPLICATETIMEUTC\)/);
+    // En bild som sparas direkt: posten och snappen samma sekund, ZCREATETIMEUTC gäller.
+    const photo = snap.memoryOrigin({ ios: true, createdMs: 5000, entrySavedMs: 5400 });
+    assert.deepStrictEqual([photo.savedMs, photo.savedFrom], [5000, 'snap']);
+    // My Eyes Only: kopian behåller originalets tider.
+    const meo = snap.memoryOrigin({ ios: true, createdMs: 5000, private: 1, copyFrom: 'DE5A0C25-2C7C-47B8-A125-85DC4C62D1D1' });
+    assert.deepStrictEqual([meo.private, meo.copyOf], [true, 'DE5A0C25-2C7C-47B8-A125-85DC4C62D1D1']);
+    const ev = snap.build({ memories: [{ ios: true, id: SNAP_ID, mediaFormat: 1, capturedMs: 4000, createdMs: 5000, private: 1, copyFrom: 'DE5A0C25-2C7C-47B8-A125-85DC4C62D1D1' }], memoryColumns: {} }).events.find((e) => !e.captured);
+    assert.match(ev.text, /i My Eyes Only, kopia av snap DE5A0C25…/);
+    assert.strictEqual(ev.plain, 'Den sparas i Snapchats Memories och flyttas senare till My Eyes Only');
+});
+
+test('iOS: cachenyckeln för en sparad video, texten på bilden och inställningen Spara till', () => {
+    assert.strictEqual(snap.memoryVideoKey('657A4D5D-6948-43A1-98FA-FCFBF32DF4AD~1', 19), '657A4D5D-6948-43A1-98FA-FCFBF32DF4AD');
+    assert.strictEqual(snap.memoryVideoKey('657A4D5D-6948-43A1-98FA-FCFBF32DF4AD~1', 3), null, 'bara typ 19 är Memories');
+    assert.deepStrictEqual(snap.parseExternalKey('snap-overlay-EE2BBC28-816A-41DE-81C4-63863849D305'), { kind: 'memory', snapId: 'EE2BBC28-816A-41DE-81C4-63863849D305', part: 'overlay' });
+    // userproperties itemId 24 på labbtelefonen, nu och i en äldre sida i huvudfilen.
+    const now = Buffer.from('2000000000001A00200010000800000018000700000000000000000000000C001A00000000000007280000001400000018000000000000006500000000000000080000004D454D4F52494553000000000200000066530000', 'hex');
+    const before = Buffer.from('2000000000001a00200010000800000018000700000000000000000000000c001a00000000000007380000001400000018000000000000005f00000000000000180000004d454d4f524945535f414e445f43414d4552415f524f4c4c00000000020000006653', 'hex');
+    assert.strictEqual(snap.saveSettingFromFlat(now), 'MEMORIES');
+    assert.strictEqual(snap.saveSettingFromFlat(before), 'MEMORIES_AND_CAMERA_ROLL');
+    assert.strictEqual(snap.saveSettingFromFlat(Buffer.from('nothing here')), null);
+    // Längden kopplar en exporterad video också på iOS (ZMEDIAFORMAT 0), men aldrig till en snap i My Eyes Only.
+    const v = { ios: true, id: 'V', mediaType: 0, mediaFormat: 0, duration: 6.698, createdMs: 1 };
+    assert.strictEqual(snap.linkVideoByDuration([v], { durationMs: 6667 }).diffMs, 31);
+    assert.strictEqual(snap.linkVideoByDuration([Object.assign({}, v, { private: 1 })], { durationMs: 6667 }), null);
 });
 
 // Labbet 2026-11-16 (Android 13, Snapchat 14.32): inställningen, radernas ursprung, kopian i galleriet och videons längd.
