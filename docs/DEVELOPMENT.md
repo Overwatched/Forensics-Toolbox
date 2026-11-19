@@ -696,7 +696,7 @@ iOS 26.4.1, steg L38; Samsung med Android 16, steg L40), med en sparad snap per 
 Labbtelefonen (iPhone, iOS 26.4.1, Snapchat 14.30.0.59), flödet `docs/labbar/snapchat-memories-iphone-del1.json` två
 gånger i rad, och en hel extraktion med nyckelringen efter båda. I den första var telefonen i
 flygplansläge fram till S09. Facit: `tests/app/facit/lab-snapchat-memories-iphone.json`, körs med
-`npm run test:app -- --memories` när zippen finns (`FT_LAB_MEMORIES_IOS_DIR`, annars `~/Desktop/vm-images/1 Labbar/2026-11-19 iPhone - Snapchat Memories`).
+`npm run test:app -- --memories` när zippen finns (`FT_LAB_MEMORIES_IOS_DIR`, annars `1 Labbar/2026-11-19 iPhone - Snapchat Memories` under en labbrot, se nedan).
 
 - **Video:** `ZMEDIATYPE` var 0 för både bild och video. `ZMEDIAFORMAT` 0 är video och 1 bild, och en video har
   `ZSERVLETMEDIAFORMAT` tom och `ZDURATION` som längden (en bild har 10). `ProvenanceSnapchat.isVideoMemory`.
@@ -1012,7 +1012,7 @@ Det som byggdes ovanpå det:
   (`CRC_BY8`, omkring 1 370 MB/s). MD5 prövas mot Nodes egen i `hashing.test.js` och CRC32 mot en räkning med en
   byte i taget i `zip.test.js`.
 
-Uppmätt på Samsungen ur tvåtelefonslabbet (`Exampleextractions/Android/`, 28,6 GB): 400 namn gick från 89–100 s
+Uppmätt på Samsungen ur tvåtelefonslabbet (`1 Labbar/2026-11-11 Två telefoner (iPhone och Samsung)/Android/`, 28,6 GB): 400 namn gick från 89–100 s
 i 1.64 till 16 s, och alla 1 127 namn tar 38 s (129 s utan läsning i förväg). På iPhonen ur samma labb gick 55 filer
 ur kamerarullen från 13,8 s till 3,5 s. Radernas text är densamma som i 1.64 för 400 rader på Samsungen och 55 på
 iPhonen, och `ProvenanceApp.list()` är lika tecken för tecken med och utan läsning i förväg. Av de 38 sekunderna är
@@ -1644,7 +1644,7 @@ senare.
   - En mediepost utan fil, storlek, adress, kontaktkort eller plats tas inte med. I labbet hade ett textmeddelande
     och typ 59 sådana.
 - **WhatsApp på Android** (beta) är kontrollerat mot Samsungen i tvåtelefonslabbet 2026-11-11
-  (`Exampleextractions/Android/EXTRACTION_FFS.zip`: Android 16, WhatsApp 2.26.43). Katalogen är
+  (`2026-11-11 Två telefoner (iPhone och Samsung)/Android/EXTRACTION_FFS.zip`: Android 16, WhatsApp 2.26.43). Katalogen är
   `queries/android/whatsapp/`, med två databaser i `data/data/com.whatsapp/databases/`, båda okrypterade där.
   - `msgstore.db` är meddelandedatabasen: `message`, `chat`, `jid`, `message_media`, `receipt_user` och
     `message_revoked`. `wa.db` är kontaktlistan: `wa_contacts` har namnet till varje JID, och Chattar läser den som
@@ -1694,7 +1694,7 @@ senare.
   - Inte kontrollerat: `original_file_hash` för en bild ur galleriet, WhatsApp Business, äldre mapplayout
     (`WhatsApp/Media/` direkt under lagringen) och medietyper som inte fanns i labbet.
 - **Telegram på Android** (beta) är kontrollerat mot samma Samsung i tvåtelefonslabbet 2026-11-11
-  (`Exampleextractions/Android/EXTRACTION_FFS.zip`: Android 16, Telegram med versionskod 73031 enligt
+  (`2026-11-11 Två telefoner (iPhone och Samsung)/Android/EXTRACTION_FFS.zip`: Android 16, Telegram med versionskod 73031 enligt
   `data/system/packages.list`). Katalogen är `queries/android/telegram/`, med en databas:
   `data/data/org.telegram.messenger/files/cache4.db`, okrypterad där.
   - `cache4.db` är Telegrams lokala databas: `messages_v2` (en rad per meddelande), `dialogs` (en rad per chatt),
@@ -1879,7 +1879,7 @@ senare.
   `lab-core.js`, byggda ur mallarna), de egna mallarna och de senast genomförda (`localStorage['ft-laboration-senaste']`,
   högst sex, sparade när en laboration startar). Ett kort visar stegen i en förhandsvisning innan det används. Där
   finns också ett tomt flöde, guiden **Bygg från delar** (`#view-wizard`: enheter, appar, delar, och sedan
-  `buildFlow`) och inläsningen av en genomförd laboration. De färdiga flödena är 13 sedan 1.75. Ett flöde med en egen
+  `buildFlow`) och inläsningen av en genomförd laboration. De färdiga flödena är 13 sedan 1.75, och 14 med *Radera bilder och Secure Folder (Samsung)*. Ett flöde med en egen
   grupp (`own`) anger enheterna med plats i listan: `on` gör steget och `with` är motparten.
 - **Mina laborationer** (1.75, `#s-mine`) står först på startsidan: laborationen i verktyget (`#s-current`, märkt
   Öppen, den som flikarna gäller) och de undanlagda (`#s-shelf`), med status Förberedd, Pågår eller Klar. Ett nytt
@@ -2111,6 +2111,27 @@ Samsung (SM-A336B, Android 16). iPhone-rapporten är jämförd fil för fil med 
   bakåt mot filen före den i ordningen (mer än 2 s): då är filens tid inte när den kom in.
 - Labbtelefonen (Samsung A33, Android 16): 92 rader i `files`, F-Droid nedladdad från f-droid.org med Samsungs
   webbläsare, tio raderade poster, och kamerabilden 20261106_145905.jpg nummer 675 efter två Molly-säkerhetskopior.
+
+### Raderade bilder och Secure Folder (`queries/android/samsung/`, `android-users` i `queries/system-logs/`)
+
+Byggt 2026-11-19 utan rader att kontrollera mot: tabellerna finns i alla tre Samsung-zipparna (A33, tvåtelefonslabbet
+och Solflare) men är tomma, och ingen har användare 150. Flödet *Radera bilder och Secure Folder (Samsung)* i Laboration
+är labbet som ska ge facit.
+- **`samsung-trash`** (`com.samsung.android.providers.trash/databases/trash.db`, tabellen `trashes`): Samsungs gemensamma
+  papperskorg med `original_path`, `date_deleted`, `date_expires`, `delete_package_name`, `user_id` och
+  `original_file_hash`. *Hur många som någonsin lagts i papperskorgen* jämför `sqlite_sequence` med raderna nu. Tiderna
+  räknas som sekunder eller millisekunder efter storleken, eftersom enheten inte är känd. I tvåtelefonslabbet är
+  `-wal`-huvudet nollställt, och Queries lägger inte på den.
+- **`samsung-gallery-local`** (`com.sec.android.gallery3d/databases/local.db`): Galleriets `trash`, `recover`,
+  `operation_history` och `log`. Loggens kategorier är tolkade efter triggerna (1 decoding, 2 delete högst 500 rader,
+  3 version, 4 mde, 5 generic, 9 ppp). Labbtelefonen har 29 rader, ingen i kategori 2.
+- **`android-users`** (tolkningen `android-users` i `text-logs.js`, mappen `data/system/users/`): `userlist.xml` och
+  `<id>.xml` (ABX eller text) och Samsungs `persona_cache.xml`. Slaget räknas efter typen, och på Samsung efter id
+  (150–160 Secure Folder, 95 Dual Messenger, inte kontrollerat). `nextSerialNumber` över 10 betyder att användare har
+  skapats, också borttagna. `USER-REMOVED` i `persona_cache.xml` med `fallbackToSingleUserLP` 2022 på A33:an är en
+  återställning till bara ägaren. Undermapparna (`0/` med inställningar) läses men används inte.
+- **Andra användares databaser:** `locate.js` ger redan `/data/user/<id>/` som egna träffar. Queries skriver nu
+  *Secure Folder på Samsung* vid användare 150–160 (`userNote` i `extraction.js`).
 
 ### Samsungs loggar
 
@@ -2542,7 +2563,9 @@ i webbläsaren.
     labbzippen och jämför T, Memories, förgrund, skärm, lås, kameran, Snapchats meddelande, Signals
     meddelanden och appversionerna med det som loggades på labbtelefonen (inom en sekund, Signal två).
     Labbzippen ligger inte i repot: sökvägen tas ur `FT_LAB_ZIP`, annars
-    `~/Documents/Exampleextractions/Lab-Android-Nord-2026-11-02.zip`. Zippens storlek, mtime och ctime
+    `1 Labbar/2026-11-02 OnePlus Nord - Signal/Lab-Android-Nord-2026-11-02.zip` under en labbrot: `FT_LAB_ROOT`,
+    `~/Documents/Exampleextractions` eller `~/Desktop/vm-images`, den första där filen finns (`tests/app/lab-paths.js`;
+    mapparna står i `LÄSMIG.txt` i labbroten). Facit anger sin mapp under roten i `dir`. Zippens storlek, mtime och ctime
     kontrolleras efteråt. Bara tider och versioner står i facit, inga namn eller nycklar.
   - **Nyckeln bredvid zippen** (`lab-ios.js`): labbzippen öppnas ensam, så att alla kontroller av Signal bygger på att
     nyckelringen hittades. I zippar från `FT_LAB_NAMED_ZIPS` öppnas nyckelringen under `extra/` med samma kod: alla poster, inga fel.

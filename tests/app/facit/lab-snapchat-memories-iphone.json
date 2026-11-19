@@ -1,6 +1,6 @@
 {
   "description": "Facit från två laborationer Snapchat Memories på labbtelefonen (iPhone, iOS 26.4.1, Snapchat 14.30.0.59, tidszon Europe/Stockholm), 2026-11-19, med flödet docs/labbar/snapchat-memories-iphone-del1.json. Lab 1 08:18:02–08:27:44 och lab 2 08:29:06–08:36:41 (loggarna från Laboration ligger inte i repot). I lab 1 var telefonen i flygplansläge fram till S09: de snaps som togs då har ingen position, och snapsen som skickades i S07 och S08 skrevs i arroyo.db först 07:23:39 UTC. En hel extraktion (FFS, med nyckelringen under extra/) efter båda; zippen ligger inte i repot. Stegens tider är knapptrycken; en tagning ska ligga mellan föregående stegs tryck och stegets eget, utom videon, som tas när avtryckaren släpps (2 s marginal). Raderna i Memories, cachen och bildbiblioteket lästes ur extraktionen och stämmer med stegen.",
-  "base": "Desktop/vm-images/1 Labbar/2026-11-19 iPhone - Snapchat Memories",
+  "dir": "1 Labbar/2026-11-19 iPhone - Snapchat Memories",
   "zips": {
     "lab": "EXTRACTION_FFS.zip"
   },

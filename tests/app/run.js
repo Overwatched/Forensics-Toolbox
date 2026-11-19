@@ -5,7 +5,7 @@
 // röktestet (smoke.js) mot påhittade data. Finns labbzipparna kör den också facit-testerna
 // (facit.js), som jämför Härkomsts tider med det som loggades på Android-labbtelefonen, och
 // kontrollerna mot iOS-labbtelefonen (lab-ios.js). Labbzipparna ligger inte i repot; sökvägarna
-// tas ur FT_LAB_ZIP, FT_LAB_IOS_DIR och FT_LAB_IOS_LOG_DIR, annars ~/Documents/Exampleextractions/. Zippar med
+// tas ur FT_LAB_ZIP, FT_LAB_IOS_DIR och FT_LAB_IOS_LOG_DIR, annars ur "1 Labbar" (lab-paths.js). Zippar med
 // metadata.msgpack kontrolleras mot det fristående facit om sökvägarna står i FT_LAB_NAMED_ZIPS (åtskilda med kolon).
 // Rapporter ur en sådan zip kontrolleras om de står i FT_LAB_UFED_REPORTS, med zippen efter = om den finns.
 // Samsungs loggar kontrolleras mot rapporten i FT_LAB_SAMSUNG_REPORT och mot den loggade sessionen i zippen i FT_LAB_SAMSUNG_ZIP.
@@ -14,8 +14,8 @@
 //   npm run test:app -- --smoke     bara röktestet
 //   npm run test:app -- --facit     bara labbtesterna (kräver minst en labbzipp)
 //   npm run test:app -- --samsung   bara Samsungs loggar (kräver FT_LAB_SAMSUNG_REPORT eller FT_LAB_SAMSUNG_ZIP)
-//   npm run test:app -- --memories  bara laborationerna Snapchat Memories (OnePlus: FT_LAB_MEMORIES_DIR eller ~/Documents/Exampleextractions;
-//                                   iPhone: FT_LAB_MEMORIES_IOS_DIR eller ~/Desktop/vm-images/1 Labbar/2026-11-19 iPhone - Snapchat Memories)
+//   npm run test:app -- --memories  bara laborationerna Snapchat Memories (OnePlus: FT_LAB_MEMORIES_DIR, iPhone:
+//                                   FT_LAB_MEMORIES_IOS_DIR, annars mapparna i "1 Labbar" enligt lab-paths.js)
 //   FT_SHOTS=<mapp>                 skärmdumpar efter varje del
 //   FT_ONLY=<text>                  bara delarna med den texten i namnet, medan man arbetar med en av dem
 'use strict';
@@ -24,6 +24,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { spawn } = require('node:child_process');
+const { labPath } = require('./lab-paths');
 const { connect, sleep } = require('./cdp');
 const fixtures = require('./fixtures');
 
@@ -36,12 +37,12 @@ const onlyMemories = args.includes('--memories');
 const onlyFacit = args.includes('--facit') || onlySamsung || onlyMemories;
 
 function labZip() {
-    const p = process.env.FT_LAB_ZIP || path.join(os.homedir(), 'Documents', 'Exampleextractions', 'Lab-Android-Nord-2026-11-02.zip');
+    const p = process.env.FT_LAB_ZIP || labPath('1 Labbar/2026-11-02 OnePlus Nord - Signal/Lab-Android-Nord-2026-11-02.zip');
     return fs.existsSync(p) ? p : null;
 }
 
 function labIosDir(facit, envName) {
-    const d = process.env[envName] || path.join(os.homedir(), 'Documents', 'Exampleextractions', facit.dir);
+    const d = process.env[envName] || labPath(facit.dir);
     return require('./lab-ios').labFiles(d) ? d : null;
 }
 

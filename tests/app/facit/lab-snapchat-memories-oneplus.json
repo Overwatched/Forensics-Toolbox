@@ -1,6 +1,6 @@
 {
   "description": "Facit från laborationen Snapchat Memories på labbtelefonen (OnePlus Nord, Android 13, Snapchat 14.32.0.54, tidszon Europe/Stockholm), 2026-11-16. Del 1 (P01–P14, 21:45:57–21:55:25) sparade snaps i Memories med inställningen Memories och kamerarullen; del 2 (Q01–Q07) avinstallerade Snapchat 22:11:31, installerade det igen och loggade in 22:12:53. Hela /data extraherades efter varje del (zipparna ligger inte i repot). Stegens tider är knapptrycken i Laboration; en tagning ska ligga mellan föregående stegs tryck och stegets eget. Filnamnen och raderna i Memories lästes ur extraktionerna och stämmer med stegen: P02 bild bakre kameran, P03 frontkameran, P04 video, P10 bild exporterad direkt, P11 den första bilden exporterad senare, P12 videon exporterad, P13 bild flyttad till My Eyes Only.",
-  "dir": "Exampleextractions",
+  "dir": "1 Labbar/2026-11-16 OnePlus - Snapchat Memories",
   "zips": {
     "del1": "Lab-Android-Nord-2026-11-16-del1/del1.zip",
     "del2": "Lab-Android-Nord-2026-11-16-del2/del2.zip"

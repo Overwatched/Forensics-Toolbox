@@ -1,7 +1,7 @@
 // Facit mot laborationerna Snapchat Memories: Härkomst bedömer Snapchats filer i galleriet och sparade snaps på sitt id,
 // och det som programmet säger jämförs med vad som gjordes. OnePlus (Android, 2026-11-16): två hela extraktioner, före och
-// efter en ominstallation, i FT_LAB_MEMORIES_DIR eller ~/Documents/Exampleextractions. iPhone (iOS, 2026-11-19): en hel
-// extraktion efter två laborationer, i FT_LAB_MEMORIES_IOS_DIR eller ~/Desktop/vm-images/1 Labbar/2026-11-19 iPhone - Snapchat Memories.
+// efter en ominstallation, i FT_LAB_MEMORIES_DIR. iPhone (iOS, 2026-11-19): en hel extraktion efter två laborationer, i
+// FT_LAB_MEMORIES_IOS_DIR. Annars mappen i facit (dir) under "1 Labbar", se lab-paths.js.
 // Körs bara när zipparna finns. Läser bara zipparna.
 'use strict';
 
@@ -11,13 +11,14 @@ const path = require('node:path');
 const { sleep } = require('./cdp');
 const { expect, PROV } = require('./smoke');
 
+const { labPath } = require('./lab-paths');
 const facitAndroid = require('./facit/lab-snapchat-memories-oneplus.json');
 const facitIos = require('./facit/lab-snapchat-memories-iphone.json');
 
 function zipsIn(dir, facit) {
     facit = facit || facitAndroid;
     const d = dir || (facit === facitIos ? process.env.FT_LAB_MEMORIES_IOS_DIR : process.env.FT_LAB_MEMORIES_DIR)
-        || (facit.base ? path.join(os.homedir(), facit.base) : path.join(os.homedir(), 'Documents', facit.dir));
+        || labPath(facit.dir);
     const out = {};
     for (const [k, rel] of Object.entries(facit.zips)) {
         const p = path.join(d, rel);

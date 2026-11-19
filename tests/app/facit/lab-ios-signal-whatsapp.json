@@ -1,6 +1,6 @@
 {
   "description": "Kontroller mot iOS-labbtelefonen (iOS 26.4.1, Signal 8.28, WhatsApp 26.43.75, Telegram 13.1.2, 2026-11-03, tidszon Europe/Stockholm). Inget facit ur anteckningar: förväntningarna är hämtade ur extraktionen och kontrollerade mellan källor som inte beror av varandra (bildbiblioteket, knowledgeC /app/usage, WhatsApps, Signals och Telegrams databaser, Telegrams lagringsdatabas, PowerLog och filernas SHA-256). De ersätts av ett facit när en labbsession med dokumenterad ordning finns. Labbzippen (…_fs.zip) och nyckelringen (…_keychain.plist) ligger inte i repot och hittas i mappen; här står inga namn, nycklar eller enhets-id.",
-  "dir": "iPhone - Signal_Whatsapp",
+  "dir": "1 Labbar/2026-11-03 iPhone - Signal och WhatsApp",
   "toleranceMs": 1000,
   "versions": [
     "Signal 8.28",
