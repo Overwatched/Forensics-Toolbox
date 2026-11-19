@@ -1750,7 +1750,10 @@ const scenarios = [
         await c.waitFor(CHAT, `!ChatsApp.busy() && ChatsApp.state().zip && ChatsApp.state().zip.file.name === ${JSON.stringify(name)} && ChatsApp.state().dbs.length > 0 && ChatsApp.state().dbs.every(d => d.state === 'ready')`, 60000, 'zippen i Chattar');
         const first = await c.ev(CHAT, `ChatsApp.state().dbs.map(d => ({ app: d.src.app, by: d.loaded ? d.loaded.sharedBy : null, cipher: !!(d.loaded && d.loaded.stats.cipher) }))`);
         const signal = first.find((d) => d.app === 'Signal');
-        expect(signal && signal.cipher && signal.by === '', 'Chattar läste inte Signals databas själv: ' + JSON.stringify(first));
+        // Telefonen är samma sida som Chattar och följer också extraktionen. Den av dem som hinner först läser
+        // databasen, och den andra får en kopia: läsningen görs ändå en gång.
+        expect(signal && signal.cipher && (signal.by === '' || signal.by === 'Telefonen'), 'Chattar eller Telefonen läste inte Signals databas själv: ' + JSON.stringify(first));
+        const reader = signal.by || 'Chattar';
 
         // Härkomst: bedömningen får samma svar, och protokollets källa säger vem som läste databasen och när.
         await c.nav('Härkomst');
@@ -1759,10 +1762,10 @@ const scenarios = [
         expect(sig.f.signal && sig.f.signal.state === 'support' && /Mottagen i Signal/.test(sig.f.signal.verdict), 'Signal: ' + JSON.stringify(sig.f.signal));
         const sources = await c.ev(PROV, `ProvenanceApp.meta().sources.map(s => ({ path: s.path, shared: s.shared, cipher: s.cipher, sha256: s.sha256, crcOk: s.crcOk }))`);
         const src = sources.find((s) => /signal\.sqlite$/.test(s.path));
-        expect(src && /^Läst ur zippen av Chattar \d{4}-\d\d-\d\d \d\d:\d\d:\d\d UTC\. Verktygen delar på läsningen: /.test(src.shared), 'Signals källa i Härkomst: ' + JSON.stringify(src));
+        expect(src && new RegExp('^Läst ur zippen av ' + reader + ' \\d{4}-\\d\\d-\\d\\d \\d\\d:\\d\\d:\\d\\d UTC\\. Verktygen delar på läsningen: ').test(src.shared), 'Signals källa i Härkomst: ' + JSON.stringify(src));
         expect(src.cipher && /^[0-9a-f]{64}$/.test(src.sha256) && src.crcOk === true, 'Kontrollerna följer inte med: ' + JSON.stringify(src));
         const shown = await c.ev(PROV, `[...document.querySelectorAll('#sources dt')].filter(dt => dt.textContent === 'Läsning').map(dt => dt.nextElementSibling.textContent)`);
-        expect(shown.some((t) => /^Läst ur zippen av Chattar /.test(t)), 'Raden Läsning syns inte bland källorna: ' + JSON.stringify(shown));
+        expect(shown.some((t) => t.startsWith('Läst ur zippen av ' + reader + ' ')), 'Raden Läsning syns inte bland källorna: ' + JSON.stringify(shown));
 
         // Queries: samma databas en tredje gång, utan ny läsning. Spårbarheten säger det.
         await c.nav('Queries');
@@ -1777,10 +1780,10 @@ const scenarios = [
         await c.waitFor(QUER, `/rad(er)? på/.test(document.getElementById('run-status').textContent) || /run-warn/.test(document.getElementById('run-status').innerHTML)`, 30000, 'körningen i Queries');
         const q = await c.ev(QUER, `({ rows: document.querySelectorAll('#run-result tbody tr').length, status: document.getElementById('run-status').innerText, trace: document.getElementById('run-trace') ? document.getElementById('run-trace').innerText : '' })`);
         expect(q.rows === 1, 'Signals meddelanden: ' + q.rows + ' rader. ' + q.status);
-        expect(/Läst ur zippen av Chattar \d{4}-\d\d-\d\d \d\d:\d\d:\d\d UTC\. Verktygen delar på läsningen/.test(q.trace), 'Spårbarheten i Queries: ' + q.trace.slice(0, 600));
+        expect(new RegExp('Läst ur zippen av ' + reader + ' \\d{4}-\\d\\d-\\d\\d \\d\\d:\\d\\d:\\d\\d UTC\\. Verktygen delar på läsningen').test(q.trace), 'Spårbarheten i Queries: ' + q.trace.slice(0, 600));
         await c.nav('Härkomst');
         await noInjectedScript(c);
-        return 'Signals databas lästes och dekrypterades en gång, av Chattar';
+        return 'Signals databas lästes och dekrypterades en gång, av ' + reader;
     }],
 
     ['Härkomst: en sparad snap i Snapchats Memories på iOS hittas på sitt snap-id, dekrypteras, får sin position och kopplas till chatten den skickades i', async ({ c, fx }) => {
