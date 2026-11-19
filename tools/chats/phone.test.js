@@ -64,3 +64,42 @@ test('cachen för bilderna: högst max, den äldsta bort först, men aldrig en s
     c.clear();
     assert.deepStrictEqual(gone.sort(), ['A', 'B', 'C', 'D']);
 });
+
+test('Androids lagring: allt under data/media/0 med samma nyckel som relative_path i MediaStore', () => {
+    assert.deepStrictEqual(P.entryKey('Dump/data/media/0/Android/media/com.whatsapp/WhatsApp/Media/WhatsApp Images/IMG-1.jpg'), { kind: 'file', key: 'android/media/com.whatsapp/whatsapp/media/whatsapp images/img-1.jpg' });
+    assert.deepStrictEqual(P.entryKey('Dump/data/media/0/DCIM/Snapchat/Snapchat-1.jpg'), { kind: 'file', key: 'dcim/snapchat/snapchat-1.jpg' });
+    assert.deepStrictEqual(P.entryKey('/storage/emulated/0/Pictures/Screenshots/S.png'), { kind: 'file', key: 'pictures/screenshots/s.png' });
+});
+
+test('album och urval som i telefonens Bilder: egna album, mediatyper, appen som sparade, dolda och raderade', () => {
+    const rows = [
+        { pk: 1, directory: 'DCIM/100APPLE', filename: 'IMG_0001.HEIC', createdMs: 5000, kind: 0, favorite: 1, albums: [20] },
+        { pk: 2, directory: 'DCIM/100APPLE', filename: 'IMG_0002.MOV', createdMs: 4000, kind: 1, albums: [20] },
+        { pk: 3, directory: 'DCIM/100APPLE', filename: 'IMG_0003.PNG', createdMs: 3000, kindSubtype: 10, importer: 'com.apple.springboard' },
+        { pk: 4, directory: 'DCIM/100APPLE', filename: 'IMG_0004.JPG', createdMs: 2000, importer: 'com.toyopagroup.picaboo', albums: [21] },
+        { pk: 5, directory: 'DCIM/100APPLE', filename: 'IMG_0005.JPG', createdMs: 1000, hidden: 1 },
+        { pk: 6, directory: 'DCIM/100APPLE', filename: 'IMG_0006.JPG', createdMs: 500, trashed: 1, importer: 'com.toyopagroup.picaboo', albums: [21] },
+    ];
+    const albums = P.albumList([{ pk: 20, title: 'Resan' }, { pk: 21, title: 'Snapchat', importer: 'com.toyopagroup.picaboo' }, { pk: 22, title: 'Tomt' }, { pk: 1, title: '-RootFolder-' }], rows);
+    assert.deepStrictEqual(albums.map((a) => a.title + ':' + a.count), ['Resan:2', 'Snapchat:2']);
+    const items = P.photoItems(rows);
+    // Video, favorit, dold, skärmdump, papperskorgen.
+    assert.deepStrictEqual(items.map((i) => i.pk + ':' + [i.video, i.favorite, i.hidden, i.screenshot, i.trashed].map(Number).join('')), ['1:01000', '2:10000', '3:00010', '4:00000', '5:00100', '6:00001']);
+    const names = { 'com.toyopagroup.picaboo': 'Snapchat', 'com.apple.springboard': 'Hemskärmen' };
+    const groups = P.galleryGroups(items, albums, (id) => names[id] || id, 'iOS');
+    assert.deepStrictEqual(groups.map((g) => g.title + ': ' + g.list.map((x) => x.title + ' ' + x.count + '@' + x.cover).join(', ')), [
+        'Mina album: Resan 2@0, Snapchat 1@3',
+        'Mediatyper: Videor 1@1, Skärmdumpar 1@2, Favoriter 1@0',
+        'Sparat av app: Hemskärmen 1@2, Snapchat 1@3',
+        'Övrigt: Dolda 1@4, Nyligen raderade 1@5',
+    ]);
+    assert.deepStrictEqual(P.filterItems(items, 'app:com.toyopagroup.picaboo').map((i) => i.pk), [4], 'papperskorgen är inte med');
+    assert.deepStrictEqual(P.filterItems(items, 'trashed').map((i) => i.pk), [6]);
+    assert.deepStrictEqual(P.filterItems(items, 'album:20').map((i) => i.pk), [1, 2]);
+    assert.strictEqual(P.filterById(items, albums, 'album:21').title, 'Snapchat');
+    assert.strictEqual(P.filterById(items, albums, 'hidden').title, 'Dolda');
+    // Android: mapparna är albumen.
+    const and = P.photoItems([{ relativePath: 'DCIM/Camera/', filename: 'a.jpg', album: 'Camera', createdMs: 2, mediaType: 1 }, { relativePath: 'DCIM/Snapchat/', filename: 'b.mp4', createdMs: 1, mediaType: 3, importer: 'com.snapchat.android' }]);
+    const ag = P.galleryGroups(and, [], (id) => id, 'Android');
+    assert.deepStrictEqual(ag.map((g) => g.title + ': ' + g.list.map((x) => x.title).join(', ')), ['Mappar: Camera, Snapchat', 'Mediatyper: Videor', 'Sparat av app: com.snapchat.android']);
+});

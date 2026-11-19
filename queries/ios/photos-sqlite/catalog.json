@@ -252,6 +252,24 @@
         "nextStem"
       ],
       "epoch": "cocoa"
+    },
+    {
+      "id": "role-gallery",
+      "hidden": true,
+      "role": "gallery",
+      "label": "Telefonen: alla bilder",
+      "subtitle": "Används av Telefonen. Alla bilder och videor i biblioteket, med favorit, dold, papperskorgen och appen som sparade bilden. Råa Cocoa-tider.",
+      "params": [],
+      "epoch": "cocoa"
+    },
+    {
+      "id": "role-albums",
+      "hidden": true,
+      "role": "albums",
+      "label": "Telefonen: album med namn",
+      "subtitle": "Används av Telefonen. Albumen med namn i ZGENERICALBUM. Vilka bilder som hör till vilket album läses ur kopplingstabellen (Z_<n>ASSETS), vars nummer skiljer mellan iOS-versioner.",
+      "params": [],
+      "epoch": "cocoa"
     }
   ],
   "bands": [
@@ -388,6 +406,33 @@
             "trashed": "ZTRASHEDSTATE"
           },
           "sql": "SELECT\n  a.Z_PK,\n  a.ZDIRECTORY,\n  a.ZFILENAME,\n  a.ZDATECREATED,\n  a.ZADDEDDATE,\n  aa.ZIMPORTEDBY,\n  aa.ZCREATORBUNDLEID,\n  a.ZTRASHEDSTATE\nFROM ZGENERICASSET a\nLEFT JOIN ZADDITIONALASSETATTRIBUTES aa ON aa.Z_PK = a.ZADDITIONALATTRIBUTES\nWHERE a.ZFILENAME LIKE '{{prevStem}}.%'\n   OR a.ZFILENAME LIKE '{{nextStem}}.%'\nORDER BY a.ZFILENAME;"
+        },
+        {
+          "id": "role-gallery",
+          "fields": {
+            "pk": "Z_PK",
+            "directory": "ZDIRECTORY",
+            "filename": "ZFILENAME",
+            "created": "ZDATECREATED",
+            "added": "ZADDEDDATE",
+            "importer": "ZCREATORBUNDLEID",
+            "favorite": "ZFAVORITE",
+            "hidden": "ZHIDDEN",
+            "trashed": "ZTRASHEDSTATE"
+          },
+          "sql": "SELECT\n  a.Z_PK,\n  a.ZDIRECTORY,\n  a.ZFILENAME,\n  a.ZDATECREATED,\n  a.ZADDEDDATE,\n  aa.ZCREATORBUNDLEID,\n  a.ZFAVORITE,\n  a.ZHIDDEN,\n  a.ZTRASHEDSTATE\nFROM ZGENERICASSET a\nLEFT JOIN ZADDITIONALASSETATTRIBUTES aa ON aa.Z_PK = a.ZADDITIONALATTRIBUTES\nORDER BY a.ZDATECREATED;"
+        },
+        {
+          "id": "role-albums",
+          "fields": {
+            "pk": "Z_PK",
+            "title": "ZTITLE",
+            "kind": "ZKIND",
+            "count": "ZCACHEDCOUNT",
+            "created": "ZCREATIONDATE",
+            "trashed": "ZTRASHEDSTATE"
+          },
+          "sql": "SELECT\n  g.Z_PK,\n  g.ZTITLE,\n  g.ZKIND,\n  g.ZCACHEDCOUNT,\n  g.ZCREATIONDATE,\n  g.ZTRASHEDSTATE\nFROM ZGENERICALBUM g\nWHERE g.ZTITLE IS NOT NULL\nORDER BY g.ZCREATIONDATE;"
         }
       ]
     },
@@ -550,6 +595,35 @@
             "trashed": "ZTRASHEDSTATE"
           },
           "sql": "SELECT\n  a.Z_PK,\n  a.ZDIRECTORY,\n  a.ZFILENAME,\n  a.ZDATECREATED,\n  a.ZADDEDDATE,\n  aa.ZIMPORTEDBY,\n  aa.ZCREATORBUNDLEID,\n  a.ZKINDSUBTYPE,\n  a.ZTRASHEDSTATE\nFROM ZASSET a\nLEFT JOIN ZADDITIONALASSETATTRIBUTES aa ON aa.Z_PK = a.ZADDITIONALATTRIBUTES\nWHERE a.ZFILENAME LIKE '{{prevStem}}.%'\n   OR a.ZFILENAME LIKE '{{nextStem}}.%'\nORDER BY a.ZFILENAME;"
+        },
+        {
+          "id": "role-gallery",
+          "fields": {
+            "pk": "Z_PK",
+            "directory": "ZDIRECTORY",
+            "filename": "ZFILENAME",
+            "created": "ZDATECREATED",
+            "added": "ZADDEDDATE",
+            "importer": "ZCREATORBUNDLEID",
+            "kind": "ZKIND",
+            "kindSubtype": "ZKINDSUBTYPE",
+            "favorite": "ZFAVORITE",
+            "hidden": "ZHIDDEN",
+            "trashed": "ZTRASHEDSTATE"
+          },
+          "sql": "SELECT\n  a.Z_PK,\n  a.ZDIRECTORY,\n  a.ZFILENAME,\n  a.ZDATECREATED,\n  a.ZADDEDDATE,\n  aa.ZCREATORBUNDLEID,\n  a.ZKIND,\n  a.ZKINDSUBTYPE,\n  a.ZFAVORITE,\n  a.ZHIDDEN,\n  a.ZTRASHEDSTATE\nFROM ZASSET a\nLEFT JOIN ZADDITIONALASSETATTRIBUTES aa ON aa.Z_PK = a.ZADDITIONALATTRIBUTES\nORDER BY a.ZDATECREATED;"
+        },
+        {
+          "id": "role-albums",
+          "fields": {
+            "pk": "Z_PK",
+            "title": "ZTITLE",
+            "kind": "ZKIND",
+            "count": "ZCACHEDCOUNT",
+            "created": "ZCREATIONDATE",
+            "trashed": "ZTRASHEDSTATE"
+          },
+          "sql": "SELECT\n  g.Z_PK,\n  g.ZTITLE,\n  g.ZKIND,\n  g.ZCACHEDCOUNT,\n  g.ZCREATIONDATE,\n  g.ZTRASHEDSTATE\nFROM ZGENERICALBUM g\nWHERE g.ZTITLE IS NOT NULL\nORDER BY g.ZCREATIONDATE;"
         }
       ]
     },
@@ -717,6 +791,36 @@
             "trashed": "ZTRASHEDSTATE"
           },
           "sql": "SELECT\n  a.Z_PK,\n  a.ZDIRECTORY,\n  a.ZFILENAME,\n  a.ZDATECREATED,\n  a.ZADDEDDATE,\n  aa.ZIMPORTEDBY,\n  aa.ZIMPORTEDBYBUNDLEIDENTIFIER,\n  a.ZKINDSUBTYPE,\n  a.ZTRASHEDSTATE\nFROM ZASSET a\nLEFT JOIN ZADDITIONALASSETATTRIBUTES aa ON aa.Z_PK = a.ZADDITIONALATTRIBUTES\nWHERE a.ZFILENAME LIKE '{{prevStem}}.%'\n   OR a.ZFILENAME LIKE '{{nextStem}}.%'\nORDER BY a.ZFILENAME;"
+        },
+        {
+          "id": "role-gallery",
+          "fields": {
+            "pk": "Z_PK",
+            "directory": "ZDIRECTORY",
+            "filename": "ZFILENAME",
+            "created": "ZDATECREATED",
+            "added": "ZADDEDDATE",
+            "importer": "ZIMPORTEDBYBUNDLEIDENTIFIER",
+            "kind": "ZKIND",
+            "kindSubtype": "ZKINDSUBTYPE",
+            "favorite": "ZFAVORITE",
+            "hidden": "ZHIDDEN",
+            "trashed": "ZTRASHEDSTATE"
+          },
+          "sql": "SELECT\n  a.Z_PK,\n  a.ZDIRECTORY,\n  a.ZFILENAME,\n  a.ZDATECREATED,\n  a.ZADDEDDATE,\n  aa.ZIMPORTEDBYBUNDLEIDENTIFIER,\n  a.ZKIND,\n  a.ZKINDSUBTYPE,\n  a.ZFAVORITE,\n  a.ZHIDDEN,\n  a.ZTRASHEDSTATE\nFROM ZASSET a\nLEFT JOIN ZADDITIONALASSETATTRIBUTES aa ON aa.Z_PK = a.ZADDITIONALATTRIBUTES\nORDER BY a.ZDATECREATED;"
+        },
+        {
+          "id": "role-albums",
+          "fields": {
+            "pk": "Z_PK",
+            "title": "ZTITLE",
+            "kind": "ZKIND",
+            "count": "ZCACHEDCOUNT",
+            "created": "ZCREATIONDATE",
+            "trashed": "ZTRASHEDSTATE",
+            "importer": "ZIMPORTEDBYBUNDLEIDENTIFIER"
+          },
+          "sql": "SELECT\n  g.Z_PK,\n  g.ZTITLE,\n  g.ZKIND,\n  g.ZCACHEDCOUNT,\n  g.ZCREATIONDATE,\n  g.ZTRASHEDSTATE,\n  g.ZIMPORTEDBYBUNDLEIDENTIFIER\nFROM ZGENERICALBUM g\nWHERE g.ZTITLE IS NOT NULL\nORDER BY g.ZCREATIONDATE;"
         }
       ]
     },
@@ -884,6 +988,36 @@
             "trashed": "ZTRASHEDSTATE"
           },
           "sql": "SELECT\n  a.Z_PK,\n  a.ZDIRECTORY,\n  a.ZFILENAME,\n  a.ZDATECREATED,\n  a.ZADDEDDATE,\n  aa.ZIMPORTEDBY,\n  aa.ZIMPORTEDBYBUNDLEIDENTIFIER,\n  a.ZKINDSUBTYPE,\n  a.ZTRASHEDSTATE\nFROM ZASSET a\nLEFT JOIN ZADDITIONALASSETATTRIBUTES aa ON aa.Z_PK = a.ZADDITIONALATTRIBUTES\nWHERE a.ZFILENAME LIKE '{{prevStem}}.%'\n   OR a.ZFILENAME LIKE '{{nextStem}}.%'\nORDER BY a.ZFILENAME;"
+        },
+        {
+          "id": "role-gallery",
+          "fields": {
+            "pk": "Z_PK",
+            "directory": "ZDIRECTORY",
+            "filename": "ZFILENAME",
+            "created": "ZDATECREATED",
+            "added": "ZADDEDDATE",
+            "importer": "ZIMPORTEDBYBUNDLEIDENTIFIER",
+            "kind": "ZKIND",
+            "kindSubtype": "ZKINDSUBTYPE",
+            "favorite": "ZFAVORITE",
+            "hidden": "ZHIDDEN",
+            "trashed": "ZTRASHEDSTATE"
+          },
+          "sql": "SELECT\n  a.Z_PK,\n  a.ZDIRECTORY,\n  a.ZFILENAME,\n  a.ZDATECREATED,\n  a.ZADDEDDATE,\n  aa.ZIMPORTEDBYBUNDLEIDENTIFIER,\n  a.ZKIND,\n  a.ZKINDSUBTYPE,\n  a.ZFAVORITE,\n  a.ZHIDDEN,\n  a.ZTRASHEDSTATE\nFROM ZASSET a\nLEFT JOIN ZADDITIONALASSETATTRIBUTES aa ON aa.Z_PK = a.ZADDITIONALATTRIBUTES\nORDER BY a.ZDATECREATED;"
+        },
+        {
+          "id": "role-albums",
+          "fields": {
+            "pk": "Z_PK",
+            "title": "ZTITLE",
+            "kind": "ZKIND",
+            "count": "ZCACHEDCOUNT",
+            "created": "ZCREATIONDATE",
+            "trashed": "ZTRASHEDSTATE",
+            "importer": "ZIMPORTEDBYBUNDLEIDENTIFIER"
+          },
+          "sql": "SELECT\n  g.Z_PK,\n  g.ZTITLE,\n  g.ZKIND,\n  g.ZCACHEDCOUNT,\n  g.ZCREATIONDATE,\n  g.ZTRASHEDSTATE,\n  g.ZIMPORTEDBYBUNDLEIDENTIFIER\nFROM ZGENERICALBUM g\nWHERE g.ZTITLE IS NOT NULL\nORDER BY g.ZCREATIONDATE;"
         }
       ]
     }

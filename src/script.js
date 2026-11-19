@@ -116,8 +116,9 @@ function initToolNav() {
         'tools/db-queries/queries.html': 'queries',
         'tools/exif-viewer/index.html': 'exif',
         'tools/chats/index.html': 'chats',
+        'tools/phone': 'phone',
     };
-    const TOOL_PATH = { provenance: 'tools/provenance/index.html', queries: 'tools/db-queries/queries.html', exif: 'tools/exif-viewer/index.html', chats: 'tools/chats/index.html' };
+    const TOOL_PATH = { provenance: 'tools/provenance/index.html', queries: 'tools/db-queries/queries.html', exif: 'tools/exif-viewer/index.html', chats: 'tools/chats/index.html', phone: 'tools/phone' };
     let activePath = '';
     // Filen man senast tittade på i Härkomst eller EXIF & karta: { name, path, place, owner, from }.
     // owner är verktygets sökväg; verktyget lämnar ut filen när någon vill visa den någon annanstans.
@@ -142,7 +143,7 @@ function initToolNav() {
         el.hidden = !f;
         el.textContent = f ? 'Extraktion: ' + f.name : '';
         el.title = f ? f.name + ', ' + sizeText(f.size) + (extraction.from ? '. Öppnad i ' + extraction.from : '') +
-            '. Härkomst, Queries och Chattar använder samma extraktion.' : '';
+            '. Härkomst, Queries, Chattar och Telefonen använder samma extraktion.' : '';
     }
 
     // force: verktyget som visas följer alltid, när undersökaren själv bytt eller stängt i raden högst upp.
@@ -308,7 +309,7 @@ function initToolNav() {
         frames.delete(path);
         kept.delete(path);
         if (current && current.owner === path) current = null;
-        const fresh = createFrame(path, path, frame.title);
+        const fresh = createFrame(path, frame.dataset.src || path, frame.title);
         if (path === activePath) showFrame(fresh);
     }
 
@@ -436,11 +437,15 @@ function initToolNav() {
         });
     }
 
+    // path är ramens nyckel: verktygets sökväg, eller data-key när samma sida visas som ett eget verktyg (Telefonen är
+    // Chattar med ?view=phone). src är sidan som laddas.
     function createFrame(path, src, title) {
         const frame = document.createElement('iframe');
         frame.className = 'tool-frame';
         frame.title = title || 'Verktyg';
         frame.setAttribute('data-tool', path);
+        frame.dataset.src = src;
+        const file = String(src).split('?')[0];
         const theme = currentTheme();
         const separator = src.indexOf('?') === -1 ? '?' : '&';
         // Versionen står i Toolbox.html. Under file:// kan verktyget inte läsa den själv.
@@ -450,7 +455,7 @@ function initToolNav() {
             // Namnet är verktygets sökväg: srcdoc-ramar har ingen egen adress att känna igen dem på.
             frame.name = path;
             const extra = src.indexOf('?') === -1 ? '' : src.slice(src.indexOf('?') + 1) + '&';
-            frame.srcdoc = standaloneDoc(path, '?' + extra + query) || '<p>Verktyget finns inte i den här filen.</p>';
+            frame.srcdoc = standaloneDoc(file, '?' + extra + query) || '<p>Verktyget finns inte i den här filen.</p>';
         } else {
             frame.src = src + separator + query;
         }
@@ -472,10 +477,13 @@ function initToolNav() {
         if (toolAliases[pathOnly] && String(src).indexOf('db=') === -1 && String(src).indexOf('format=') === -1) {
             src = toolAliases[pathOnly];
         }
-        const path = String(src).split('?')[0];
-        const item = document.querySelector(`.nav-item[data-type="frame"][data-src="${src}"]`)
+        let path = String(src).split('?')[0];
+        const item = document.querySelector(`.nav-item[data-type="frame"][data-key="${src}"]`)
+            || document.querySelector(`.nav-item[data-type="frame"][data-src="${src}"]`)
             || document.querySelector(`.nav-item[data-type="frame"][data-src="${path}"]`);
         if (!item) return false;
+        // Ett verktyg med egen nyckel har en egen ram, fast sidan är densamma som ett annat verktygs.
+        if (item.dataset.key) { src = item.dataset.src; path = item.dataset.key; }
 
         document.querySelectorAll('.nav-item.active').forEach((el) => el.classList.remove('active'));
         item.classList.add('active');
@@ -484,7 +492,8 @@ function initToolNav() {
         const extra = new URLSearchParams(String(src).split('?')[1] || '');
         extra.delete('theme');
         const extraQs = extra.toString();
-        const loadSrc = extraQs ? path + '?' + extraQs : path;
+        const file = String(src).split('?')[0];
+        const loadSrc = extraQs ? file + '?' + extraQs : file;
 
         let frame = frames.get(path);
         if (!frame) {

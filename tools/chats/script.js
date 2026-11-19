@@ -9,6 +9,8 @@
     var $ = function (id) { return document.getElementById(id); };
     var inHub = window.parent !== window;
     var VERSION = new URLSearchParams(location.search).get('version') || '';
+    // Telefonen i sidopanelen öppnar samma sida med ?view=phone: bara telefonen, utan listan med konversationer.
+    var PHONE_TOOL = new URLSearchParams(location.search).get('view') === 'phone';
     var CATALOGS = [window.WHATSAPP_IOS_CATALOG, window.WHATSAPP_ANDROID_CATALOG, window.SIGNAL_IOS_CATALOG, window.SIGNAL_ANDROID_CATALOG, window.TELEGRAM_IOS_CATALOG, window.TELEGRAM_ANDROID_CATALOG, window.SNAPCHAT_CATALOG, window.SNAPCHAT_ANDROID_CATALOG].filter(Boolean);
     var SOURCES = ChatCore.sources(CATALOGS);
     var TARGETS = ExtractionCore.targets(ChatCore.databases(SOURCES));
@@ -208,9 +210,17 @@
         if (window.DbShare && window.DbShare.client) window.DbShare.client.gone();
         closeThread();
         // Bildbiblioteket hör till extraktionen som stängs.
+        // Bildbiblioteket, hemskärmen och inställningarna hör till extraktionen som stängs.
         if (state.device) {
-            if (state.device.gallery) { state.device.gallery.destroy(); state.device.gallery = null; }
-            state.device.photos = null;
+            var P = state.device;
+            if (P.gallery) { P.gallery.destroy(); P.gallery = null; }
+            if (P.photos) Object.keys(P.photos.covers || {}).forEach(function (k) { if (P.photos.covers[k]) URL.revokeObjectURL(P.photos.covers[k]); });
+            if (P.info) [P.info.wall || {}, P.info.icons || {}].forEach(function (m) { Object.keys(m).forEach(function (k) { if (m[k]) URL.revokeObjectURL(m[k]); }); });
+            P.photos = null;
+            P.info = null;
+            P.page = 0;
+            P.filter = 'all';
+            if (PHONE_TOOL) openDevice('home');
         }
         $('bar-zip').textContent = 'Ingen öppen';
         // En annan extraktion har andra appar och namn, så sökningen och valet av app och slag börjar om.
@@ -704,7 +714,7 @@
         findCount();
         $('c-view').classList.add('display-none');
         // Medan telefonen visas står den kvar i stället för startrutan.
-        if (!state.device || !deviceShown()) $('c-empty').classList.remove('display-none');
+        if (!state.device || !deviceShown()) $('c-empty').classList.toggle('display-none', PHONE_TOOL);
         closePop();
     }
 
@@ -1761,10 +1771,11 @@
 
     // ---------- Telefonen ----------
 
-    // Hemskärmen med apparna som har data i extraktionen, appens chattar och bilderna, i telefonvyns ram. En chatt
-    // öppnas i telefonvyn med en knapp tillbaka till appens lista. on: telefonen är vald; screen: 'home', 'app' eller
-    // 'photos'; app: appen i 'app'; photos: bildbiblioteket för extraktionen, läst första gången telefonen visas.
-    state.device = { on: false, screen: 'home', app: '', photos: null, gallery: null, limit: LIST_STEP };
+    // Hemskärmen, apparna, bilderna och inställningarna, i telefonvyns ram. En chatt öppnas i telefonvyn med en knapp
+    // tillbaka till appens lista. on: telefonen är vald; screen: 'home', 'app', 'photos', 'albums', 'settings' eller
+    // 'setting'; app: appen i 'app'; page: sidan på hemskärmen; filter: urvalet i Bilder; section: delen i Inställningar.
+    // photos: bildbiblioteket och info: hemskärmen och inställningarna, båda lästa första gången telefonen visas.
+    state.device = { on: false, screen: 'home', app: '', page: 0, filter: 'all', section: '', photos: null, info: null, gallery: null, limit: LIST_STEP };
     var DEVICE_LABEL = 'Rekonstruktion ur databaserna – inte en skärmbild';
     var GLYPH = {
         chat: '<path d="M4 5h16v11H9l-5 4z"/>',
@@ -1772,24 +1783,35 @@
         plane: '<path d="M3 11l18-7-6 17-3-7z"/>',
         ghost: '<path d="M6 20c1-1 2 0 3 0s2-1 3-1 2 1 3 1 2-1 3 0V10a6 6 0 0 0-12 0z"/>',
         photo: '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 16l5-5 4 4 3-3 6 6"/>',
+        gear: '<circle cx="12" cy="12" r="3.2"/><path d="M12 2.8v3M12 18.2v3M2.8 12h3M18.2 12h3M5.5 5.5l2.1 2.1M16.4 16.4l2.1 2.1M5.5 18.5l2.1-2.1M16.4 7.6l2.1-2.1"/>',
     };
-    // Ikonerna är verktygets egna: appens färg och en enkel symbol, inte appens logga.
-    var APP_ICON = { WhatsApp: ['#1fa855', '#fff', 'chat'], Signal: ['#2257d6', '#fff', 'shield'], Telegram: ['#2a9fd8', '#fff', 'plane'], Snapchat: ['#f5d90a', '#16191c', 'ghost'], Bilder: ['#ffffff', '#d6336c', 'photo'] };
+    // Ikonerna är verktygets egna: appens färg och en enkel symbol, inte appens logga. Andra appar får en färg ur
+    // namnet och sin första bokstav.
+    var APP_ICON = { WhatsApp: ['#1fa855', '#fff', 'chat'], Signal: ['#2257d6', '#fff', 'shield'], Telegram: ['#2a9fd8', '#fff', 'plane'], Snapchat: ['#f5d90a', '#16191c', 'ghost'], Bilder: ['#ffffff', '#d6336c', 'photo'], 'Inställningar': ['#8e8e93', '#fff', 'gear'] };
+    var ICON_HUES = ['#5b6b8c', '#7a5c99', '#2f7f7a', '#9a5b3c', '#3d6fa8', '#8a4f6b', '#55803f', '#a0673a'];
     var MONTHS = ['januari', 'februari', 'mars', 'april', 'maj', 'juni', 'juli', 'augusti', 'september', 'oktober', 'november', 'december'];
     var PHOTO_SOURCES = window.ProvenanceRoles.collect({ photos: window.PHOTOS_SQLITE_CATALOG || {}, android: window.ANDROID_QUERIES_CATALOG || {} })
         .filter(function (s) { return s.key === 'photos' || s.key === 'android-mediastore'; });
     var PHOTO_TARGETS = ExtractionCore.targets(window.ProvenanceRoles.databases(PHOTO_SOURCES));
+    var APP_CATALOG = window.AppIds ? window.AppIds.APPS : [];
 
-    function iconHtml(app, badge) {
-        var c = APP_ICON[app] || ['#8e8e93', '#fff', 'chat'];
-        return '<span class="d-icon" style="background:' + c[0] + ';color:' + c[1] + '"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true">' + GLYPH[c[2]] + '</svg>' + (badge || '') + '</span>';
+    function hueOf(s) { var h = 0; s = String(s || ''); for (var i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0; return ICON_HUES[h % ICON_HUES.length]; }
+    // role: Telefonens namn på appen (WhatsApp, Bilder, Inställningar) eller tomt; name: namnet under ikonen.
+    function iconHtml(role, badge, name, url) {
+        if (url) return '<span class="d-icon has-img" aria-hidden="true"><img src="' + esc(url) + '" alt="" draggable="false">' + (badge || '') + '</span>';
+        var c = APP_ICON[role];
+        if (!c) {
+            var letter = String(name || role || '?').trim().charAt(0).toUpperCase() || '?';
+            return '<span class="d-icon" style="background:' + hueOf(name || role) + ';color:#fff" aria-hidden="true"><b class="d-letter">' + esc(letter) + '</b>' + (badge || '') + '</span>';
+        }
+        return '<span class="d-icon" style="background:' + c[0] + ';color:' + c[1] + '" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" stroke-linecap="round">' + GLYPH[c[2]] + '</svg>' + (badge || '') + '</span>';
     }
     function badgeHtml(busy, error, n) {
         return busy ? '<span class="d-badge wait">…</span>' : error ? '<span class="d-badge">!</span>' : '<span class="d-badge">' + esc(num(n)) + '</span>';
     }
     function devicePlatform() {
-        var ph = state.device.photos;
-        return state.dbs.map(function (d) { return d.src.platform; }).concat(ph && ph.platform ? [ph.platform] : [])[0] || '';
+        var ph = state.device.photos, info = state.device.info;
+        return state.dbs.map(function (d) { return d.src.platform; }).concat(ph && ph.platform ? [ph.platform] : [], info && info.platform ? [info.platform] : [])[0] || '';
     }
     function deviceFrame() { var p = devicePlatform(); return p === 'iOS' ? 'ios' : p === 'Android' ? 'android' : 'plain'; }
     function monthOf(ms) {
@@ -1797,9 +1819,21 @@
         var d = fmt()(ms);
         return MONTHS[Number(d.slice(5, 7)) - 1] + ' ' + d.slice(0, 4);
     }
+    function nameOfApp(id) { var info = state.device.info; return DeviceInfo.appName(id, info ? info.names : null, APP_CATALOG); }
+    // Telefonens egen ikon för appen (Android), efter id eller efter Telefonens namn på appen. null när den saknas.
+    function phoneIcon(id, role) {
+        var icons = state.device.info && state.device.info.icons;
+        if (!icons) return null;
+        if (id && icons[id]) return icons[id];
+        if (!role) return null;
+        var k = Object.keys(icons).filter(function (x) { return DeviceInfo.roleOf(x) === role; })[0];
+        return k ? icons[k] : null;
+    }
 
-    // Bildbiblioteket: Photos.sqlite på iOS eller MediaStore på Android, med Härkomsts roll för bilderna i ett
-    // tidsfönster (neighbours) över all tid. Tumnaglarna och filerna i zippen slås upp efter mappen och namnet.
+    // ---------- Bildbiblioteket ----------
+
+    // Photos.sqlite på iOS eller MediaStore på Android, med rollen gallery (alla bilder med favorit, dold, papperskorgen
+    // och appen) och på iOS albums. Tumnaglarna och filerna i zippen slås upp efter mappen och namnet.
     function photosBand(sqlDb) {
         var r = sqlDb.exec("SELECT name FROM sqlite_master WHERE type = 'table'");
         var tables = r.length ? r[0].values.map(function (v) { return String(v[0]); }) : [];
@@ -1808,11 +1842,27 @@
         var b = Roles().photosBandFromSchema(tables, cols);
         return b ? b.id : null;
     }
+    // Vilka album en bild hör till: kopplingstabellen heter Z_<n>ASSETS med kolumnerna Z_<n>ALBUMS och Z_<m>ASSETS,
+    // och numren skiljer mellan iOS-versioner (iOS 17 har två). Alla sådana tabeller läses. { bildens Z_PK: [albumets Z_PK] }.
+    function albumLinks(sqlDb) {
+        var out = {}, tables = [];
+        var r = sqlDb.exec("SELECT name FROM sqlite_master WHERE type = 'table' AND name GLOB 'Z_[0-9]*ASSETS'");
+        (r.length ? r[0].values : []).forEach(function (v) {
+            var t = String(v[0]), info = sqlDb.exec('PRAGMA table_info(' + t + ')');
+            var cols = info.length ? info[0].values.map(function (c) { return String(c[1]); }) : [];
+            var album = cols.filter(function (c) { return /^Z_\d+ALBUMS$/.test(c); })[0], asset = cols.filter(function (c) { return /^Z_\d+ASSETS$/.test(c); })[0];
+            if (!album || !asset) return;
+            tables.push(t);
+            var rows = sqlDb.exec('SELECT ' + album + ', ' + asset + ' FROM ' + t);
+            (rows.length ? rows[0].values : []).forEach(function (x) { (out[x[1]] = out[x[1]] || []).push(x[0]); });
+        });
+        return { links: out, tables: tables };
+    }
     function loadPhotos() {
         var z = state.zip, P = state.device;
         if (!z) return Promise.resolve(null);
         if (P.photos && P.photos.zip === z) return P.photos.loading || Promise.resolve(P.photos);
-        var ph = P.photos = { zip: z, state: 'busy', items: [], thumbs: {}, files: {}, how: {}, note: '', loading: null };
+        var ph = P.photos = { zip: z, state: 'busy', items: [], albums: [], thumbs: {}, files: {}, how: {}, covers: {}, note: '', loading: null };
         ph.loading = (async function () {
             try {
                 var found = await ExtractionCore.open(z.read, z.file.size, PHOTO_TARGETS, null);
@@ -1827,8 +1877,26 @@
                 var src = PHOTO_SOURCES.filter(function (x) { return x.databases.some(function (d) { return (d.family || d.id) === hit.key; }); })[0];
                 if (!src) throw new Error('Bildbiblioteket ' + hit.db.name + ' hör inte till någon känd källa.');
                 var loaded = await loadDb({ hit: hit, src: { app: 'Bilder', platform: src.platform }, zip: z, loaded: null });
-                var q = (src.bands ? Roles().rolesFor(src, { dbId: photosBand(loaded.sqlDb) }) : src.roles).neighbours;
-                var rows = Roles().mapRows(q, query(loaded, q, { window: { startMs: Date.UTC(1970, 0, 2), endMs: Date.UTC(2200, 0, 1) } }), ['created', 'added'], { raw: false });
+                var roles = src.bands ? Roles().rolesFor(src, { dbId: photosBand(loaded.sqlDb) }) : src.roles;
+                var q = roles.gallery || roles.neighbours, rows;
+                try {
+                    rows = Roles().mapRows(q, query(loaded, q, { window: { startMs: Date.UTC(1970, 0, 2), endMs: Date.UTC(2200, 0, 1) } }), ['created', 'added'], { raw: false });
+                } catch (err) {
+                    // En äldre MediaStore utan is_favorite eller is_trashed: bilderna i tidsfönstret som förut.
+                    if (!roles.gallery || !roles.neighbours) throw err;
+                    ph.note = 'Frågan för galleriet gick inte att köra (' + errText(err) + '). Bilderna är lästa med Härkomsts fråga, utan favoriter och papperskorg.';
+                    q = roles.neighbours;
+                    rows = Roles().mapRows(q, query(loaded, q, { window: { startMs: Date.UTC(1970, 0, 2), endMs: Date.UTC(2200, 0, 1) } }), ['created', 'added'], { raw: false });
+                }
+                if (roles.albums) {
+                    try {
+                        var links = albumLinks(loaded.sqlDb);
+                        var albumRows = Roles().mapRows(roles.albums, query(loaded, roles.albums, {}), ['created'], { raw: false });
+                        rows.forEach(function (r) { r.albums = links.links[r.pk] || []; });
+                        ph.albums = ChatPhone.albumList(albumRows, rows);
+                        ph.albumTables = links.tables;
+                    } catch (err) { ph.note = 'Albumen kunde inte läsas: ' + errText(err); }
+                }
                 loaded.sqlDb.close();
                 if (z !== state.zip) return;
                 ph.items = ChatPhone.photoItems(rows);
@@ -1863,7 +1931,11 @@
             return URL.createObjectURL(r.blob);
         }
         if (!it.drawable) return null;
-        var bmp = await createImageBitmap(new Blob([(await ExtractionCore.readEntry(z.read, f)).bytes]), { resizeWidth: 320, resizeQuality: 'medium' });
+        return smallUrl((await ExtractionCore.readEntry(z.read, f)).bytes, 320);
+    }
+    // En bild förminskad till högst side bildpunkter i bredd, som JPEG.
+    async function smallUrl(bytes, side) {
+        var bmp = await createImageBitmap(new Blob([bytes]), { resizeWidth: side, resizeQuality: 'medium' });
         var c = document.createElement('canvas');
         c.width = bmp.width;
         c.height = bmp.height;
@@ -1873,14 +1945,208 @@
         return blob ? URL.createObjectURL(blob) : null;
     }
 
+    // ---------- Hemskärmen och inställningarna ----------
+
+    // Filerna i DeviceInfo.FILES, lästa ur zippen en gång per extraktion. read: filerna som lästes (till Källor),
+    // missing: de som inte finns. home: hemskärmen eller null; names: appens namn efter id; sections: inställningarna.
+    function loadDeviceInfo() {
+        var z = state.zip, P = state.device;
+        if (!z) return Promise.resolve(null);
+        if (P.info && P.info.zip === z) return P.info.loading || Promise.resolve(P.info);
+        var info = P.info = { zip: z, state: 'busy', platform: '', home: null, homePath: '', names: {}, icons: {}, sections: [], wall: {}, read: [], missing: [], notes: [], notifications: null, notifNote: '', loading: null };
+        info.loading = (async function () {
+            try {
+                await loadSql();
+                var entries = await ExtractionCore.find(z.read, z.file.size, function (name) { return !!DeviceInfo.fileOf(name); });
+                var got = DeviceInfo.pick(entries);
+                var has = function (id) { return !!(got[id] && got[id].length); };
+                info.platform = has('iconState') || has('systemVersion') ? 'iOS' : DeviceInfo.FILES.some(function (f) { return f.platform === 'Android' && has(f.id); }) ? 'Android' : '';
+                var label = function (id) { return DeviceInfo.FILES.filter(function (f) { return f.id === id; })[0].label; };
+                var bytesOf = async function (id, x) {
+                    var r = await ExtractionCore.readEntry(z.read, x.entry);
+                    info.read.push({ id: id, label: label(id), name: x.entry.name, size: x.entry.size, crcOk: r.crcOk });
+                    return r.bytes;
+                };
+                var one = async function (id, as) {
+                    if (!has(id)) { info.missing.push(label(id)); return null; }
+                    try {
+                        var b = await bytesOf(id, got[id][0]);
+                        return as === 'plist' ? DeviceInfo.plist(b, KC.bplist.parse) : as === 'text' ? new TextDecoder('utf-8').decode(b) : b;
+                    } catch (err) { info.notes.push(label(id) + ' kunde inte läsas: ' + errText(err)); return null; }
+                };
+                // En databas med sin -wal, som Chattar läser sina: rows(sqlDb) ger raderna.
+                var dbRows = async function (x, id, rows) {
+                    var loaded = await ExtractionCore.loadDatabase(z.read, { db: x.entry, wal: x.wal }, [z.line], { share: { file: z.file } });
+                    var db = new SQL.Database(ExtractionCore.noCopy(loaded.bytes));
+                    try { info.read.push({ id: id, label: label(id), name: x.entry.name, size: x.entry.size, crcOk: loaded.dbCrcOk, wal: !!x.wal }); return rows(db); }
+                    finally { db.close(); }
+                };
+                var select = function (db, sql) {
+                    var r = db.exec(sql)[0];
+                    return r ? r.values.map(function (v) { var o = {}; r.columns.forEach(function (c, i) { o[c] = v[i]; }); return o; }) : [];
+                };
+                var tables = function (db) { var r = db.exec("SELECT name FROM sqlite_master WHERE type = 'table'")[0]; return r ? r.values.map(function (v) { return String(v[0]); }) : []; };
+                var sections = [];
+                if (info.platform === 'iOS') {
+                    // Appens namn ur Info.plist i varje paket.
+                    for (var a of got.appInfo || []) {
+                        try { var n = DeviceInfo.infoName(DeviceInfo.plist((await ExtractionCore.readEntry(z.read, a.entry)).bytes, KC.bplist.parse)); if (n) info.names[n.id] = n.name; } catch (e) { /* ett trasigt paket får sitt id som namn */ }
+                    }
+                    if (got.appInfo && got.appInfo.length) info.read.push({ id: 'appInfo', label: 'Info.plist', name: 'Bundle/Application/<GUID>/<App>.app/Info.plist', size: null, count: got.appInfo.length });
+                    var icon = await one('iconState', 'plist');
+                    if (icon) info.home = DeviceInfo.iosHome(icon, nameOfApp);
+                    sections.push(DeviceInfo.iosAbout(await one('systemVersion', 'plist'), await one('netPrefs', 'plist'), await one('commcenter', 'plist')));
+                    var known = await one('knownNetworks', 'plist');
+                    sections.push({ id: 'wifi', title: 'Wi-Fi', networks: known ? DeviceInfo.iosWifi(known) : null, source: 'com.apple.wifi.known-networks.plist' });
+                    var acc = null;
+                    if (has('accountsIos')) {
+                        try {
+                            acc = await dbRows(got.accountsIos[0], 'accountsIos', function (db) {
+                                return select(db, 'SELECT a.ZUSERNAME AS user, t.ZACCOUNTTYPEDESCRIPTION AS kind, a.ZDATE AS date FROM ZACCOUNT a LEFT JOIN ZACCOUNTTYPE t ON t.Z_PK = a.ZACCOUNTTYPE ORDER BY a.ZDATE')
+                                    .map(function (r) { return { user: r.user, kind: r.kind, ms: typeof r.date === 'number' ? Math.round((r.date + 978307200) * 1000) : null }; });
+                            });
+                        } catch (err) { info.notes.push('Accounts3.sqlite kunde inte läsas: ' + errText(err)); }
+                    } else info.missing.push('Accounts3.sqlite');
+                    sections.push({ id: 'accounts', title: 'Konton', accounts: acc ? DeviceInfo.accounts(acc) : null, source: 'Accounts3.sqlite · ZACCOUNT, ZACCOUNTTYPE' });
+                    sections.push({ id: 'wallpaper', title: 'Bakgrund', rows: [DeviceInfo.row('Hemskärm och låsskärm', 'Visas inte', 'PosterBoard', 'Från iOS 16 ligger bakgrunden i PosterBoard som Apples egna texturer (.atx), som verktyget inte kan rita.')] });
+                } else if (info.platform === 'Android') {
+                    var abx = window.ProvenanceAndroidLogs.abxParse;
+                    var settings = async function (id) { var b = await one(id, 'bytes'); try { return b ? DeviceInfo.settingsMap(b, abx) : {}; } catch (err) { info.notes.push(label(id) + ' kunde inte tolkas: ' + errText(err)); return {}; } };
+                    var global = await settings('settingsGlobal'), secure = await settings('settingsSecure'), system = await settings('settingsSystem');
+                    var props = [];
+                    for (var bp of got.buildProp || []) { try { props.push(new TextDecoder('utf-8').decode(await bytesOf('buildProp', bp))); } catch (e) { /* nästa fil */ } }
+                    if (!props.length) info.missing.push('build.prop');
+                    // Hemskärmen: One UI först, annars den Launcher3-databas som ändrades senast och har favorites.
+                    if (has('oneUi')) {
+                        try {
+                            info.home = await dbRows(got.oneUi[0], 'oneUi', function (db) { return DeviceInfo.oneUiHome(select(db, 'SELECT * FROM item'), select(db, 'SELECT * FROM item_group')); });
+                            info.homePath = got.oneUi[0].entry.name;
+                            Object.keys(info.home.names || {}).forEach(function (k) { if (!info.names[k]) info.names[k] = info.home.names[k]; });
+                        } catch (err) { info.notes.push('OneUI.db kunde inte läsas: ' + errText(err)); }
+                    }
+                    if (!info.home && has('launcher3')) {
+                        var list = got.launcher3.slice().sort(function (a, b) { return (b.entry.mtime || 0) - (a.entry.mtime || 0); });
+                        for (var l of list) {
+                            try {
+                                // En launcher med ett annat schema (Huawei, äldre Samsung) sägs i Inställningar → Källor, med sina
+                                // tabeller, så att den går att läsa i Queries.
+                                var h = await dbRows(l, 'launcher3', function (db) {
+                                    var t = tables(db);
+                                    if (t.indexOf('favorites') < 0) { info.notes.push(baseName(l.entry.name) + ' (' + l.entry.name.split('/databases/')[0].split('/').pop() + ') har ingen tabell favorites, så hemskärmen kan inte läsas ur den. Tabellerna: ' + t.join(', ') + '.'); return null; }
+                                    var rows = select(db, 'SELECT * FROM favorites');
+                                    if (!rows.length) info.notes.push(baseName(l.entry.name) + ': tabellen favorites är tom.');
+                                    return DeviceInfo.launcher3Home(rows, l.entry.name);
+                                });
+                                if (h && h.pages.length) { info.home = h; info.homePath = l.entry.name; break; }
+                            } catch (err) { info.notes.push(baseName(l.entry.name) + ' kunde inte läsas: ' + errText(err)); }
+                        }
+                    }
+                    if (info.home) DeviceInfo.homeAppIds(info.home).forEach(function (x) { if (x.name && x.name !== x.id && !info.names[x.id]) info.names[x.id] = x.name; });
+                    // Ikonerna som telefonen ritar: launcherns ikoncache (app_icons.db i samma app som hemskärmen), och ikonen
+                    // som launchern sparade på hemskärmens rad.
+                    if (has('iconCache')) {
+                        var dir = info.homePath ? info.homePath.slice(0, info.homePath.lastIndexOf('/')) : '';
+                        var cacheX = got.iconCache.filter(function (x) { return dir && x.entry.name.slice(0, x.entry.name.lastIndexOf('/')) === dir; })[0] || got.iconCache[0];
+                        try {
+                            var cache = await dbRows(cacheX, 'iconCache', function (db) { return tables(db).indexOf('icons') >= 0 ? DeviceInfo.iconCache(select(db, 'SELECT * FROM icons')) : {}; });
+                            Object.keys(cache).forEach(function (k) {
+                                info.icons[k] = URL.createObjectURL(new Blob([cache[k].icon], { type: 'image/png' }));
+                                if (cache[k].label && !info.names[k]) info.names[k] = cache[k].label;
+                            });
+                        } catch (err) { info.notes.push('app_icons.db kunde inte läsas: ' + errText(err)); }
+                    }
+                    if (info.home) {
+                        var own = function (it) { if (it && it.kind === 'app' && it.icon && it.id && !info.icons[it.id]) info.icons[it.id] = URL.createObjectURL(new Blob([it.icon], { type: 'image/png' })); };
+                        info.home.pages.forEach(function (pg) { pg.forEach(function (c) { own(c.item); if (c.item.kind === 'folder') c.item.items.forEach(own); }); });
+                        info.home.dock.forEach(own);
+                    }
+                    sections.push(DeviceInfo.androidAbout(DeviceInfo.buildProps(props), global, secure));
+                    sections.push(DeviceInfo.androidToggles(global, secure, system));
+                    var wifiTexts = [];
+                    for (var w of got.wifiStore || []) { try { wifiTexts.push(new TextDecoder('utf-8').decode(await bytesOf('wifiStore', w))); } catch (e) { /* nästa fil */ } }
+                    if (!wifiTexts.length) info.missing.push('WifiConfigStore.xml');
+                    sections.push({ id: 'wifi', title: 'Wi-Fi', networks: wifiTexts.length ? DeviceInfo.androidWifi(wifiTexts.filter(function (t) { return /^\s*</.test(t); })) : null, source: 'WifiConfigStore.xml', abx: wifiTexts.some(function (t) { return /^ABX/.test(t); }) });
+                    var bt = await one('btConfig', 'text');
+                    sections.push({ id: 'bluetooth', title: 'Bluetooth', bluetooth: bt ? DeviceInfo.androidBluetooth(bt) : null, source: 'bt_config.conf' });
+                    var accA = null;
+                    if (has('accountsAndroid')) {
+                        try {
+                            accA = await dbRows(got.accountsAndroid[0], 'accountsAndroid', function (db) {
+                                return select(db, 'SELECT * FROM accounts').map(function (r) { var t = r.last_password_entry_time_millis_epoch; return { user: r.name, kind: r.type, ms: typeof t === 'number' && t > 0 ? t : null }; });
+                            });
+                        } catch (err) { info.notes.push('accounts_ce.db kunde inte läsas: ' + errText(err)); }
+                    } else info.missing.push('accounts_ce.db');
+                    sections.push({ id: 'accounts', title: 'Konton', accounts: accA ? DeviceInfo.accounts(accA) : null, source: 'accounts_ce.db · accounts' });
+                    // Bakgrunden: en bildfil utan ändelse. Saknas den visar telefonen sin egen standardbild.
+                    var wpInfo = {};
+                    try { var wb = await one('wallpaperInfo', 'bytes'); if (wb) wpInfo = DeviceInfo.wallpaperInfo(wb, abx); } catch (err) { info.notes.push('wallpaper_info.xml kunde inte tolkas: ' + errText(err)); }
+                    var wrows = [];
+                    for (var which of [['wallpaper', 'home', 'Hemskärm'], ['wallpaperLock', 'lock', 'Låsskärm']]) {
+                        var x = (got[which[0]] || [])[0];
+                        if (x) {
+                            var wbytes = await bytesOf(which[0], x), type = DeviceInfo.imageType(wbytes);
+                            if (type && type !== 'image/heif') info.wall[which[1]] = await smallUrl(wbytes, 720).catch(function () { return null; });
+                            wrows.push(DeviceInfo.row(which[2], type ? 'Bild (' + type.replace('image/', '').toUpperCase() + ', ' + ChatCore.sizeText(x.entry.size) + ')' : 'Filen är ingen bild som går att visa', x.entry.name));
+                        } else if (which[1] === 'lock' && wpInfo.home && !wpInfo.lock) {
+                            wrows.push(DeviceInfo.row(which[2], 'Samma som hemskärmen', 'wallpaper_info.xml', 'Filen har ingen egen låsskärm (kwp), och då visar Android hemskärmens bakgrund där också.'));
+                        } else wrows.push(DeviceInfo.row(which[2], wpInfo[which[1]] ? 'Ingen egen bild i ' + Z() : 'Inte läst', label(which[0]), wpInfo[which[1]] ? 'Filen ' + label(which[0]) + ' finns inte. Telefonen visar då oftast sin standardbakgrund.' : ''));
+                        if (wpInfo[which[1]]) wrows.push(DeviceInfo.row(which[2] + ', komponent', wpInfo[which[1]], 'wallpaper_info.xml · ' + (which[1] === 'home' ? 'wp' : 'kwp')));
+                    }
+                    sections.push({ id: 'wallpaper', title: 'Bakgrund', rows: wrows, wall: info.wall });
+                }
+                if (!info.home && !has('oneUi') && !has('launcher3')) info.missing.push(info.platform === 'iOS' ? 'IconState.plist' : info.platform === 'Android' ? 'OneUI.db eller launcher.db' : 'hemskärmens fil');
+                // Notiserna till låsskärmen: Androids notishistorik, eller Biomes Notification.Usage på iOS.
+                if (info.platform === 'Android') {
+                    if (has('notifHistory')) {
+                        var list = [];
+                        for (var nh of got.notifHistory) {
+                            try { DeviceInfo.notificationHistory(await bytesOf('notifHistory', nh)).forEach(function (n) { n.file = nh.entry.name; list.push(n); }); }
+                            catch (err) { info.notes.push(baseName(nh.entry.name) + ' i notification_history kunde inte tolkas: ' + errText(err)); }
+                        }
+                        info.notifications = list;
+                        info.notifNote = 'Ur Androids notishistorik (system_ce/0/notification_history/history/, ' + many(got.notifHistory.length, 'fil', 'filer') + '). Android sparar notiserna ungefär ett dygn, och bara när Notishistorik är påslagen.';
+                    } else { info.missing.push('notification_history'); info.notifNote = 'Androids notishistorik finns inte i ' + Z() + '. Den sparas bara när Notishistorik är påslagen i telefonen.'; }
+                } else if (info.platform === 'iOS') {
+                    if (has('biomeNotif') && window.ProvenanceBiome) {
+                        var rowsB = [];
+                        for (var bf of got.biomeNotif) {
+                            try { ProvenanceBiome.notificationUsage(await bytesOf('biomeNotif', bf)).rows.forEach(function (r) { r.file = bf.entry.name; rowsB.push(r); }); }
+                            catch (err) { info.notes.push(baseName(bf.entry.name) + ' i Biome kunde inte tolkas: ' + errText(err)); }
+                        }
+                        var files = {};
+                        rowsB.forEach(function (r) { files[r.id || r.eventId] = { file: r.file, offset: r.offset }; });
+                        info.notifications = ProvenanceBiome.notifications(rowsB).map(function (n) {
+                            var at = files[n.id] || {};
+                            return { app: n.app, ms: n.ms, title: DeviceInfo.clean(n.title || ''), text: '', events: n.events, copies: n.copies || 1, id: n.id, file: at.file || '', offset: at.offset };
+                        });
+                        info.notifNote = 'Ur Biome (Notification.Usage/local): appen, titeln och tiden för varje notis. Texten sparas inte där. För Snapchat är titeln avsändarens namn.';
+                    } else { info.missing.push('Biome Notification.Usage'); info.notifNote = 'Biomes Notification.Usage finns inte i ' + Z() + '.'; }
+                }
+                if (info.notifications) info.notifications.sort(function (a, b) { return (b.ms || 0) - (a.ms || 0); });
+                info.sections = sections;
+                info.state = z === state.zip ? 'ready' : 'gone';
+            } catch (err) {
+                info.state = 'error';
+                info.notes.push(errText(err));
+            } finally {
+                info.loading = null;
+                if (state.device.info === info && deviceShown()) renderDevice();
+            }
+        })();
+        return info.loading;
+    }
+
     function deviceShown() { return !$('c-device').classList.contains('display-none'); }
-    function openDevice(screen, app) {
+    function openDevice(screen, app, opts) {
         var P = state.device;
         screen = screen || 'home';
         if (P.screen !== screen || P.app !== (app || '')) P.limit = LIST_STEP;
         P.on = true;
         P.screen = screen;
         P.app = app || '';
+        if (opts && opts.filter !== undefined) P.filter = opts.filter;
+        if (opts && opts.section !== undefined) P.section = opts.section;
+        if (P.gallery) { P.gallery.destroy(); P.gallery = null; }
         closeSheet();
         closePop();
         $('c-view').classList.add('display-none');
@@ -1897,47 +2163,120 @@
         $('c-device-open').setAttribute('aria-pressed', 'false');
     }
 
+    // Vart knappen tillbaka går, och vad den heter.
+    function backOf(P) {
+        if (P.screen === 'photos' && P.filter !== 'all') return { screen: 'albums', text: 'Album' };
+        if (P.screen === 'setting') return { screen: 'settings', text: 'Inställningar' };
+        return { screen: 'home', text: 'Hem' };
+    }
+
     function renderDevice() {
         var P = state.device, body = $('c-device-body');
         if (P.gallery && P.screen !== 'photos') { P.gallery.destroy(); P.gallery = null; }
         $('c-device-phone').dataset.frame = deviceFrame();
         $('c-device-foot').textContent = DEVICE_LABEL;
+        var back = backOf(P);
         $('c-device-back').classList.toggle('display-none', P.screen === 'home');
+        $('c-device-back-text').textContent = back.text;
+        $('c-device-tabs').classList.toggle('display-none', !(P.screen === 'photos' && P.filter === 'all') && P.screen !== 'albums');
+        $('c-device-tabs').querySelectorAll('[data-device-tab]').forEach(function (b) { b.setAttribute('aria-pressed', String(b.dataset.deviceTab === (P.screen === 'albums' ? 'albums' : 'library'))); });
         if (!P.gallery) body.className = 'c-device-body ' + P.screen;
         if (!state.zip) {
             $('c-device-title').textContent = 'Ingen extraktion';
             $('c-device-sub').textContent = '';
-            body.innerHTML = '<p class="d-empty">Öppna en extraktion i raden högst upp, så visas apparna i den här.</p>';
+            body.innerHTML = '<p class="d-empty">Öppna en extraktion i raden högst upp, så visas telefonen i den här.</p>';
             return;
         }
         if (P.screen === 'home') renderHome(body);
         else if (P.screen === 'app') renderAppList(body);
+        else if (P.screen === 'albums') renderAlbums(body);
+        else if (P.screen === 'settings') renderSettings(body);
+        else if (P.screen === 'setting') renderSetting(body);
+        else if (P.screen === 'lock') renderLock(body);
         else renderPhotos(body);
+    }
+
+    // Ikonen för en app på hemskärmen. Apparna med data i Chattar, Bilder och Inställningar går att öppna; de andra
+    // visar ett ark med vad som är känt om dem.
+    function homeAppHtml(it, apps, ph, where) {
+        var role = DeviceInfo.roleOf(it.id), name = it.name || nameOfApp(it.id), badge = '', label = name;
+        var chat = apps.filter(function (a) { return a.app === role; })[0];
+        if (chat) { badge = badgeHtml(chat.busy, chat.error, chat.count); label += ', ' + (chat.busy ? 'läses' : many(chat.count, 'chatt', 'chattar')); }
+        else if (role === 'Bilder' && ph && ph.state !== 'none') { badge = badgeHtml(ph.state === 'busy', ph.state === 'error', ph.items.length); label += ', ' + (ph.state === 'ready' ? many(ph.items.length, 'bild', 'bilder') : ph.state === 'busy' ? 'läses' : 'kunde inte läsas'); }
+        var data = chat ? ' data-device-app="' + esc(role) + '"' : role === 'Bilder' ? ' data-device-photos="1"' : role === 'Inställningar' ? ' data-device-settings="1"' : ' data-home-app="' + esc(it.id) + '" data-where="' + esc(where) + '"';
+        return '<button type="button" class="d-app' + (chat || role ? ' has-data' : '') + '"' + data + ' aria-label="' + esc(label) + '" title="' + esc(name + (it.id ? ' · ' + it.id : '')) + '">' +
+            iconHtml(chat || role === 'Bilder' || role === 'Inställningar' ? role : '', badge, name, phoneIcon(it.id)) + '<span class="d-name">' + esc(name) + '</span></button>';
+    }
+    function cellHtml(c, apps, ph, where, key) {
+        var style = 'grid-column:' + (c.x + 1) + ' / span ' + c.w + ';grid-row:' + (c.y + 1) + ' / span ' + c.h;
+        var it = c.item;
+        if (it.kind === 'widget') {
+            var info = state.device.info, owner = DeviceInfo.widgetName(it, info ? info.names : null, APP_CATALOG);
+            return '<div class="d-widget" style="' + style + '" title="' + esc((it.provider || it.app) + (it.count > 1 ? ' · ' + it.count + ' widgetar i en stapel' : '')) + '"><span class="d-widget-name">' + esc(owner || 'Widget') + '</span><span class="d-widget-kind">' + (it.count > 1 ? 'Widgetstapel (' + it.count + ')' : 'Widget') + '</span></div>';
+        }
+        if (it.kind === 'folder') {
+            var mini = it.items.slice(0, 9).map(function (x) { var u = phoneIcon(x.id); return u ? '<i style="background:center / cover url(&quot;' + esc(u) + '&quot;)"></i>' : '<i style="background:' + (APP_ICON[DeviceInfo.roleOf(x.id)] || [hueOf(x.name || x.id)])[0] + '"></i>'; }).join('');
+            return '<button type="button" class="d-app d-folder" style="' + style + '" data-folder="' + esc(key) + '" aria-label="' + esc('Mappen ' + it.name + ', ' + many(it.items.length, 'app', 'appar')) + '"><span class="d-icon d-folder-icon" aria-hidden="true">' + mini + '</span><span class="d-name">' + esc(it.name) + '</span></button>';
+        }
+        return '<div class="d-cell" style="' + style + '">' + homeAppHtml(it, apps, ph, where) + '</div>';
     }
 
     function renderHome(body) {
         var P = state.device, apps = ChatPhone.homeApps(state.dbs);
         if (!P.photos || P.photos.zip !== state.zip) loadPhotos();
-        var ph = P.photos;
-        var cells = apps.map(function (a) {
-            return '<button type="button" class="d-app" data-device-app="' + esc(a.app) + '" aria-label="' + esc(a.app + ', ' + (a.busy ? 'läses' : many(a.count, 'chatt', 'chattar'))) + '">' +
-                iconHtml(a.app, badgeHtml(a.busy, a.error, a.count)) + '<span class="d-name">' + esc(a.app) + '</span></button>';
+        if (!P.info || P.info.zip !== state.zip) loadDeviceInfo();
+        var ph = P.photos, info = P.info, home = info && info.state === 'ready' ? info.home : null;
+        var about = info && info.sections ? info.sections.filter(function (s) { return s.id === 'about'; })[0] : null;
+        var devName = about && about.rows.filter(function (r) { return r.label === 'Namn'; })[0];
+        $('c-device-title').textContent = devName ? devName.value : state.zip.file.name.replace(/\.(zip|ufdr)$/i, '');
+        // Apparna med data som inte ligger på hemskärmen (i applådan eller appbiblioteket) får en egen sida sist.
+        var onHome = {};
+        if (home) DeviceInfo.homeAppIds(home).forEach(function (x) { var r = DeviceInfo.roleOf(x.id); if (r) onHome[r] = true; });
+        var extra = [];
+        apps.forEach(function (a) { if (!onHome[a.app]) extra.push({ kind: 'app', id: '', name: a.app, role: a.app }); });
+        if (ph && ph.state !== 'none' && !onHome.Bilder) extra.push({ kind: 'app', id: '', name: 'Bilder', role: 'Bilder' });
+        if (info && info.state === 'ready' && info.platform && !onHome['Inställningar']) extra.push({ kind: 'app', id: '', name: 'Inställningar', role: 'Inställningar' });
+        var extraCells = extra.map(function (e) {
+            var chat = apps.filter(function (a) { return a.app === e.role; })[0];
+            if (e.role === 'Bilder') return '<button type="button" class="d-app has-data" data-device-photos="1" aria-label="' + esc('Bilder, ' + (ph.state === 'ready' ? many(ph.items.length, 'bild', 'bilder') : ph.state === 'busy' ? 'läses' : 'kunde inte läsas')) + '">' +
+                iconHtml('Bilder', badgeHtml(ph.state === 'busy', ph.state === 'error', ph.items.length), 'Bilder', phoneIcon('', 'Bilder')) + '<span class="d-name">Bilder</span></button>';
+            if (e.role === 'Inställningar') return '<button type="button" class="d-app has-data" data-device-settings="1" aria-label="Inställningar">' + iconHtml('Inställningar', '', 'Inställningar', phoneIcon('', 'Inställningar')) + '<span class="d-name">Inställningar</span></button>';
+            return '<button type="button" class="d-app has-data" data-device-app="' + esc(e.role) + '" aria-label="' + esc(e.role + ', ' + (chat.busy ? 'läses' : many(chat.count, 'chatt', 'chattar'))) + '">' +
+                iconHtml(e.role, badgeHtml(chat.busy, chat.error, chat.count), e.role, phoneIcon('', e.role)) + '<span class="d-name">' + esc(e.role) + '</span></button>';
         });
-        if (ph && ph.state !== 'none') {
-            cells.push('<button type="button" class="d-app" data-device-photos="1" aria-label="' + esc('Bilder, ' + (ph.state === 'ready' ? many(ph.items.length, 'bild', 'bilder') : ph.state === 'busy' ? 'läses' : 'kunde inte läsas')) + '">' +
-                iconHtml('Bilder', badgeHtml(ph.state === 'busy', ph.state === 'error', ph.items.length)) + '<span class="d-name">Bilder</span></button>');
+        var pages = home ? home.pages.slice() : [];
+        var pageCount = pages.length + (extraCells.length ? 1 : 0);
+        if (P.page >= pageCount) P.page = Math.max(0, pageCount - 1);
+        var html = '', wall = info && info.wall && info.wall.home;
+        if (P.page < pages.length) {
+            var page = pages[P.page];
+            html = '<div class="d-page" style="grid-template-columns:repeat(' + home.cols + ',1fr)">' + page.map(function (c, i) { return cellHtml(c, apps, ph, 'sida ' + (P.page + 1), 'p' + P.page + ':' + i); }).join('') + '</div>';
+        } else if (extraCells.length) {
+            html = (home ? '<p class="d-page-title">Med data, inte på hemskärmen</p>' : '') + '<div class="d-grid">' + extraCells.join('') + '</div>';
+        } else {
+            html = '<p class="d-empty">' + (info && info.state === 'busy' ? '<span class="c-spin" aria-hidden="true"></span> Läser hemskärmen…' : 'Extraktionen har ingen databas för chattapparna eller bildbiblioteket.') + '</p>';
         }
-        $('c-device-title').textContent = state.zip.file.name.replace(/\.(zip|ufdr)$/i, '');
-        $('c-device-sub').textContent = [devicePlatform(), many(cells.length, 'app med data', 'appar med data')].filter(Boolean).join(' · ');
-        body.innerHTML = (cells.length ? '<div class="d-grid">' + cells.join('') + '</div>' : '<p class="d-empty">Extraktionen har ingen databas för chattapparna eller bildbiblioteket.</p>') +
-            '<p class="d-note">Siffran är antalet chattar eller bilder som lästes ur appens databas. Appar utan databas i ' + esc(Z()) + ' visas inte. Ikonerna är verktygets egna.</p>';
+        var dots = pageCount > 1 ? '<div class="d-dots" role="group" aria-label="Sidor">' + (pageCount > 1 ? '<button type="button" class="d-nav" data-page-step="-1" aria-label="Föregående sida"' + (P.page ? '' : ' disabled') + '>‹</button>' : '') +
+            Array.from({ length: pageCount }, function (_, i) { return '<button type="button" class="d-dot" data-page="' + i + '" aria-label="Sida ' + (i + 1) + (i === pages.length ? ', appar med data' : '') + '" aria-pressed="' + (i === P.page) + '"></button>'; }).join('') +
+            '<button type="button" class="d-nav" data-page-step="1" aria-label="Nästa sida"' + (P.page < pageCount - 1 ? '' : ' disabled') + '>›</button></div>' : '';
+        var dock = home && home.dock.length ? '<div class="d-dock" style="grid-template-columns:repeat(' + Math.max(4, home.dock.length) + ',1fr)">' + home.dock.map(function (it, i) {
+            return it.kind === 'folder' ? cellHtml({ x: i, y: 0, w: 1, h: 1, item: it }, apps, ph, 'dockan', 'd:' + i) : '<div class="d-cell">' + homeAppHtml(it, apps, ph, 'dockan') + '</div>';
+        }).join('') + '</div>' : '';
+        var sources = home ? 'Hemskärmen ur ' + home.source + (home.computed ? ': ordningen är telefonens, platsen på sidan är uträknad' : ', med platserna som telefonen sparade dem') + '. ' : info && info.state === 'ready' ? 'Hemskärmens ordning finns inte i ' + Z() + ', så bara apparna med data visas. ' : '';
+        $('c-device-sub').textContent = [devicePlatform(), home ? many(home.pages.length, 'sida', 'sidor') + ' · ' + home.source : many(extraCells.length, 'app med data', 'appar med data')].filter(Boolean).join(' · ');
+        body.classList.toggle('has-wall', !!wall);
+        body.style.backgroundImage = wall ? 'url("' + wall + '")' : '';
+        var notifs = info && info.notifications;
+        var pill = notifs ? '<button type="button" class="d-pill" data-device-lock="1" title="Låsskärmen med notiserna. Dra nedåt från överkanten, som i telefonen.">' + esc(many(notifs.length, 'notis', 'notiser')) + ' ›</button>' : '';
+        body.innerHTML = pill + '<div class="d-screen">' + html + '</div>' + dots + dock +
+            '<p class="d-note">' + esc(sources) + 'Siffran är antalet chattar eller bilder som lästes ur appens databas. Appar utan data i ' + esc(Z()) + ' går att trycka på men öppnas inte. ' + (info && Object.keys(info.icons || {}).length ? 'Ikonerna är telefonens egna ur launcherns app_icons.db, och verktygets där telefonen inte hade någon' : 'Ikonerna är verktygets egna') + (wall ? '; bakgrunden är telefonens egen bild' : '') + '.</p>';
     }
 
     function renderAppList(body) {
         var P = state.device, f = fmt();
         var a = ChatPhone.homeApps(state.dbs).filter(function (x) { return x.app === P.app; })[0];
-        $('c-device-back-text').textContent = 'Hem';
         $('c-device-title').textContent = P.app;
+        body.style.backgroundImage = '';
         if (!a) { $('c-device-sub').textContent = ''; body.innerHTML = '<p class="d-empty">Appen finns inte i extraktionen.</p>'; return; }
         var list = ChatPhone.appThreads(state.dbs, a.dbs), shown = list.slice(0, P.limit);
         $('c-device-sub').textContent = many(list.length, 'chatt', 'chattar') + ' · ' + a.dbs.map(function (di) { return baseName(state.dbs[di].hit.db.name); }).join(', ');
@@ -1952,23 +2291,162 @@
         body.innerHTML = rows + note + (list.length > shown.length ? '<button type="button" class="c-btn d-more" data-device-more="1">Visa fler (' + num(list.length - shown.length) + ' kvar)</button>' : '');
     }
 
+    function photosWaiting(body, ph) {
+        $('c-device-sub').textContent = ph.state === 'busy' ? 'Läser bildbiblioteket…' : '';
+        body.innerHTML = ph.state === 'busy' ? '<p class="d-empty"><span class="c-spin" aria-hidden="true"></span> Läser bildbiblioteket…</p>' :
+            ph.state === 'none' ? '<p class="d-empty">Extraktionen har inget bildbibliotek (Photos.sqlite eller MediaStore).</p>' : '<p class="d-empty warn">Bildbiblioteket kunde inte läsas: ' + esc(ph.note) + '</p>';
+    }
+
     function renderPhotos(body) {
         var P = state.device;
-        $('c-device-back-text').textContent = 'Hem';
-        $('c-device-title').textContent = 'Bilder';
+        body.style.backgroundImage = '';
         if (!P.photos || P.photos.zip !== state.zip) loadPhotos();
         var ph = P.photos;
-        if (ph.state !== 'ready') {
-            $('c-device-sub').textContent = ph.state === 'busy' ? 'Läser bildbiblioteket…' : '';
-            body.innerHTML = ph.state === 'busy' ? '<p class="d-empty"><span class="c-spin" aria-hidden="true"></span> Läser bildbiblioteket…</p>' :
-                ph.state === 'none' ? '<p class="d-empty">Extraktionen har inget bildbibliotek (Photos.sqlite eller MediaStore).</p>' : '<p class="d-empty warn">Bildbiblioteket kunde inte läsas: ' + esc(ph.note) + '</p>';
-            return;
-        }
-        var thumbs = ph.items.filter(function (it) { return ph.thumbs[it.key]; }).length;
-        $('c-device-sub').textContent = many(ph.items.length, 'bild', 'bilder') + ' · ' + baseName(ph.db) + (thumbs ? ' · ' + num(thumbs) + ' med telefonens tumnagel' : '');
-        if (!ph.items.length) { body.innerHTML = '<p class="d-empty">Bildbiblioteket har inga bilder.</p>'; return; }
+        var group = ChatPhone.filterById(ph.items, ph.albums, P.filter, nameOfApp);
+        $('c-device-title').textContent = P.filter === 'all' ? 'Bilder' : group ? group.title : 'Bilder';
+        if (ph.state !== 'ready') { photosWaiting(body, ph); return; }
+        var items = P.filter === 'all' ? ph.items : ChatPhone.filterItems(ph.items, P.filter);
+        var thumbs = items.filter(function (it) { return ph.thumbs[it.key]; }).length;
+        $('c-device-sub').textContent = many(items.length, 'bild', 'bilder') + ' · ' + baseName(ph.db) + (thumbs ? ' · ' + num(thumbs) + ' med telefonens tumnagel' : '');
+        if (!items.length) { body.innerHTML = '<p class="d-empty">' + (P.filter === 'all' ? 'Bildbiblioteket har inga bilder.' : 'Inga bilder i urvalet.') + '</p>'; return; }
         if (P.gallery) return;
-        P.gallery = new ChatPhone.Gallery({ box: body, items: ph.items, url: photoUrl, open: openPhoto, monthOf: monthOf, cols: 4 });
+        P.gallery = new ChatPhone.Gallery({ box: body, items: items, url: photoUrl, open: openPhoto, monthOf: monthOf, cols: 4 });
+    }
+
+    // Album och urval, som i telefonens Bilder: egna album, mediatyper, appen som sparade bilden och det dolda och
+    // raderade. Omslaget är den senaste bilden i urvalet.
+    function renderAlbums(body) {
+        var P = state.device;
+        body.style.backgroundImage = '';
+        if (!P.photos || P.photos.zip !== state.zip) loadPhotos();
+        var ph = P.photos;
+        $('c-device-title').textContent = 'Album';
+        if (ph.state !== 'ready') { photosWaiting(body, ph); return; }
+        var groups = ChatPhone.galleryGroups(ph.items, ph.albums, nameOfApp, ph.platform);
+        $('c-device-sub').textContent = many(groups.reduce(function (n, g) { return n + g.list.length; }, 0), 'urval', 'urval') + ' · ' + baseName(ph.db);
+        var covers = [];
+        body.innerHTML = groups.map(function (g) {
+            return '<h3 class="d-group">' + esc(g.title) + '</h3><div class="d-albums">' + g.list.map(function (a) {
+                if (a.cover !== null) covers.push(a.cover);
+                return '<button type="button" class="d-album' + (a.warn ? ' warn' : '') + '" data-filter="' + esc(a.id) + '" aria-label="' + esc(a.title + ', ' + many(a.count, 'bild', 'bilder')) + '" title="' + esc(a.note || a.title) + '">' +
+                    '<span class="d-cover"' + (a.cover !== null ? ' data-cover="' + a.cover + '"' : '') + ' aria-hidden="true"></span><span class="d-album-name">' + esc(a.title) + '</span><span class="d-album-count">' + esc(num(a.count)) + '</span></button>';
+            }).join('') + '</div>';
+        }).join('') + '<p class="d-note">' + esc(ph.platform === 'iOS' ? 'Albumen ur ZGENERICALBUM med bilderna ur ' + ((ph.albumTables || []).join(' och ') || 'kopplingstabellen') + '; mediatyperna ur ZKIND och ZKINDSUBTYPE, favorit, dold och papperskorgen ur ZFAVORITE, ZHIDDEN och ZTRASHEDSTATE, appen ur ZIMPORTEDBYBUNDLEIDENTIFIER.' :
+            'Albumen är mapparna (bucket_display_name), appen är owner_package_name, favorit och papperskorgen is_favorite och is_trashed i MediaStore.') + (ph.note ? ' ' + esc(ph.note) : '') + '</p>';
+        // Omslagen läses efter varandra, med telefonens tumnagel när den finns.
+        var mine = ph;
+        (async function () {
+            for (var i of covers) {
+                if (state.device.photos !== mine || state.device.screen !== 'albums') return;
+                var it = ph.items[i];
+                var url = ph.covers[it.key];
+                if (url === undefined) { try { url = await photoUrl(it); } catch (e) { url = null; } ph.covers[it.key] = url; }
+                if (url) body.querySelectorAll('[data-cover="' + i + '"]').forEach(function (el) { el.style.backgroundImage = 'url("' + url + '")'; el.classList.add('has'); });
+            }
+        })();
+    }
+
+    // Inställningar: en lista som i telefonen, och en del i taget.
+    function settingCount(s) {
+        if (s.networks) return s.networks.length;
+        if (s.accounts) return s.accounts.length;
+        if (s.bluetooth) return s.bluetooth.devices.length;
+        return null;
+    }
+    function renderSettings(body) {
+        var P = state.device;
+        body.style.backgroundImage = '';
+        if (!P.info || P.info.zip !== state.zip) loadDeviceInfo();
+        var info = P.info;
+        $('c-device-title').textContent = 'Inställningar';
+        if (info.state === 'busy') { $('c-device-sub').textContent = 'Läser inställningarna…'; body.innerHTML = '<p class="d-empty"><span class="c-spin" aria-hidden="true"></span> Läser inställningarna…</p>'; return; }
+        $('c-device-sub').textContent = many(info.read.length, 'fil', 'filer') + ' lästa ur ' + Z();
+        var rows = info.sections.map(function (s) {
+            var n = settingCount(s), empty = !(s.rows && s.rows.length) && n === null;
+            return '<button type="button" class="d-set" data-section="' + esc(s.id) + '"><span class="d-set-name">' + esc(s.title) + '</span><span class="d-set-val">' + esc(empty ? 'Inte läst' : n !== null ? num(n) : '') + '</span><span class="d-chev" aria-hidden="true">›</span></button>';
+        });
+        rows.push('<button type="button" class="d-set" data-section="sources"><span class="d-set-name">Källor</span><span class="d-set-val">' + esc(num(info.read.length)) + '</span><span class="d-chev" aria-hidden="true">›</span></button>');
+        body.innerHTML = '<div class="d-sets">' + rows.join('') + '</div>' + (info.notes.length ? '<p class="d-empty warn">' + esc(info.notes.join(' ')) + '</p>' : '') +
+            '<p class="d-note">Bara det som står i telefonens egna filer. Varje rad säger vilken fil och vilket fält den kommer ur.</p>';
+    }
+    function kv(label, value, source, note) {
+        return '<div class="d-kv"><span class="d-kv-label">' + esc(label) + '</span><span class="d-kv-value">' + esc(value) + '</span>' + (source ? '<small class="d-kv-src">' + esc(source) + '</small>' : '') + (note ? '<small class="d-kv-note">' + esc(note) + '</small>' : '') + '</div>';
+    }
+    function renderSetting(body) {
+        var P = state.device, info = P.info, f = fmt();
+        body.style.backgroundImage = '';
+        if (!info || info.state !== 'ready') { openDevice('settings'); return; }
+        var s = info.sections.filter(function (x) { return x.id === P.section; })[0];
+        var t = function (ms) { return ms ? f(ms) : ''; };
+        var html = '';
+        if (P.section === 'sources') {
+            $('c-device-title').textContent = 'Källor';
+            html = info.read.map(function (r) { return kv(r.label, r.count ? many(r.count, 'fil', 'filer') : ChatCore.sizeText(r.size) + (r.wal ? ' med -wal' : '') + (r.crcOk === false ? ' · CRC32 stämmer inte' : ''), r.name); }).join('') +
+                (info.missing.length ? kv('Finns inte i ' + Z(), info.missing.join(', ')) : '');
+        } else if (!s) { openDevice('settings'); return; }
+        else {
+            $('c-device-title').textContent = s.title;
+            if (s.rows) html = s.rows.map(function (r) { return kv(r.label, r.value, r.source, r.note); }).join('');
+            if (s.wall && (s.wall.home || s.wall.lock)) html = '<div class="d-walls">' + ['home', 'lock'].filter(function (k) { return s.wall[k]; }).map(function (k) { return '<figure><img src="' + esc(s.wall[k]) + '" alt=""><figcaption>' + (k === 'home' ? 'Hemskärm' : 'Låsskärm') + '</figcaption></figure>'; }).join('') + '</div>' + html;
+            if (s.networks !== undefined) {
+                html = s.networks === null ? kv('Wi-Fi', 'Inte läst', s.source + (s.abx ? ' (binär XML, som verktyget inte läser för Wi-Fi)' : ' finns inte i ' + Z())) : !s.networks.length ? kv('Wi-Fi', 'Inga sparade nät', s.source) :
+                    s.networks.map(function (n) {
+                        var bits = [n.security, n.addedMs ? 'tillagt ' + t(n.addedMs) : '', n.lastMs ? 'senast ' + t(n.lastMs) : '', n.reason ? 'genom ' + n.reason + (n.bundle ? ' (' + n.bundle + ')' : '') : '',
+                            n.hasKey ? 'lösenordet är sparat (visas inte)' : '', n.recent ? 'senast anslutet' : '', n.connected === false ? 'aldrig anslutet' : ''].filter(Boolean);
+                        return kv(n.ssid, '', bits.join(' · '));
+                    }).join('') + '<small class="d-kv-src d-kv-foot">' + esc(s.source + (devicePlatform() === 'iOS' ? ' · AddedAt, LastAssociatedAt, JoinedByUserAt, JoinedBySystemAt' : ' · SSID, ConfigKey, HasEverConnected')) + '</small>';
+            }
+            if (s.accounts !== undefined) {
+                html = s.accounts === null ? kv('Konton', 'Inte läst', s.source.split(' · ')[0] + ' finns inte i ' + Z()) : !s.accounts.length ? kv('Konton', 'Inga konton', s.source) :
+                    s.accounts.map(function (a) { return kv(a.user || 'Utan namn', '', [a.kinds.join(', '), a.firstMs ? 'först ' + t(a.firstMs) : ''].filter(Boolean).join(' · ')); }).join('') + '<small class="d-kv-src d-kv-foot">' + esc(s.source) + '</small>';
+            }
+            if (s.bluetooth !== undefined) {
+                var b = s.bluetooth;
+                html = b === null ? kv('Bluetooth', 'Inte läst', s.source + ' finns inte i ' + Z()) : (b.adapter ? kv('Telefonens namn', b.adapter.name, s.source + ' · Adapter/Name') + kv('Adress', b.adapter.address, s.source + ' · Adapter/Address') : '') +
+                    (b.devices.length ? b.devices.map(function (d) { return kv(d.name || d.address, '', [d.address, d.type, d.paired ? 'parkopplad' : 'inte parkopplad', d.ms ? 'senast ' + t(d.ms) : ''].filter(Boolean).join(' · ')); }).join('') : kv('Enheter', 'Inga sparade enheter', s.source)) +
+                    '<small class="d-kv-src d-kv-foot">' + esc(s.source + ' · en del per adress: Name, DevType, LinkKey, Timestamp') + '</small>';
+            }
+            if (!html) html = '<p class="d-empty">Inget lästes för ' + esc(s.title.toLowerCase()) + '.</p>';
+        }
+        $('c-device-sub').textContent = 'Tider i ' + ($('c-zone').selectedOptions[0] ? $('c-zone').selectedOptions[0].textContent : 'vald tidszon');
+        body.innerHTML = '<div class="d-kvs">' + html + '</div>';
+    }
+
+    // Låsskärmen: notiserna, den senaste först, med en rubrik per dag och telefonens bakgrund för låsskärmen bakom.
+    function renderLock(body) {
+        var P = state.device, info = P.info, f = fmt();
+        $('c-device-title').textContent = 'Låsskärm';
+        if (!info || info.state !== 'ready') { body.innerHTML = '<p class="d-empty"><span class="c-spin" aria-hidden="true"></span> Läser telefonens filer…</p>'; return; }
+        var list = info.notifications || [], shown = list.slice(0, P.limit), day = null;
+        var wall = info.wall && (info.wall.lock || info.wall.home);
+        body.classList.toggle('has-wall', !!wall);
+        body.style.backgroundImage = wall ? 'url("' + wall + '")' : '';
+        $('c-device-sub').textContent = many(list.length, 'notis', 'notiser') + (list.length ? ' · ' + f(list[list.length - 1].ms).slice(0, 10) + ' – ' + f(list[0].ms).slice(0, 10) : '');
+        var html = shown.map(function (n, i) {
+            var d = n.ms ? f(n.ms).slice(0, 10) : 'Utan tid', head = '';
+            if (d !== day) { day = d; head = '<h3 class="d-day">' + esc(d) + '</h3>'; }
+            var name = nameOfApp(n.app);
+            return head + '<button type="button" class="d-notif" data-notif="' + i + '">' + iconHtml(DeviceInfo.roleOf(n.app), '', name, phoneIcon(n.app)) +
+                '<span class="d-notif-text"><span class="d-notif-top"><b>' + esc(name) + '</b><time>' + esc(n.ms ? f(n.ms).slice(11, 16) : '') + '</time></span>' +
+                (n.title ? '<span class="d-notif-title">' + esc(n.title) + '</span>' : '') + (n.text ? '<span class="d-notif-body">' + esc(n.text) + '</span>' : '') + '</span></button>';
+        }).join('');
+        body.innerHTML = '<div class="d-lock">' + (html || '<p class="d-empty">Inga notiser.</p>') + (list.length > shown.length ? '<button type="button" class="c-btn d-more" data-device-more="1">Visa fler (' + num(list.length - shown.length) + ' kvar)</button>' : '') + '</div>' +
+            '<p class="d-note">' + esc(info.notifNote) + ' Tiderna i vald zon.</p>';
+    }
+    function openNotification(i) {
+        var info = state.device.info, n = info && info.notifications ? info.notifications[i] : null, f = fmt();
+        if (!n) return;
+        var android = devicePlatform() === 'Android';
+        var rows = [['App', esc(nameOfApp(n.app)) + ' <small>(' + esc(n.app) + ')</small>'], ['Tid', n.ms ? esc(f(n.ms)) + ' <small>(' + (android ? 'posted_time_ms' : 'Biome, fält 2') + ')</small>' : 'Saknas']];
+        if (n.title) rows.push(['Titel', esc(n.title)]);
+        if (n.text) rows.push(['Text', esc(n.text)]);
+        if (n.channel) rows.push(['Kanal', esc(n.channel) + (n.channelId ? ' <small>(' + esc(n.channelId) + ')</small>' : '')]);
+        if (n.conversation) rows.push(['Konversation', esc(n.conversation)]);
+        if (n.events) rows.push(['Händelser', esc(n.events.map(function (e) { return f(e.ms).slice(11, 19) + ' typ ' + e.type; }).join(', ')) + ' <small>(vad typerna betyder är inte kontrollerat, utom 17 när notisen kom)</small>']);
+        if (n.copies > 1) rows.push(['Kopior', esc(String(n.copies)) + ' poster med samma app, tid och titel']);
+        if (n.key) rows.push(['Nyckel', esc(n.key)]);
+        rows.push(['Källa', esc(n.file || '') + (n.offset !== undefined && n.offset !== null ? ' <small>(byte ' + esc(String(n.offset)) + ')</small>' : '')]);
+        showSheet(esc(n.title || nameOfApp(n.app)), '<table>' + rows.map(function (r) { return '<tr><th>' + r[0] + '</th><td>' + r[1] + '</td></tr>'; }).join('') + '</table>', '', '');
     }
 
     // Uppgifterna om en bild, i ett ark i telefonen.
@@ -1982,17 +2460,26 @@
             ['I ' + esc(Z()), file ? esc(file.name) + ' <small>(' + esc(ChatCore.sizeText(file.size)) + ')</small>' : 'Filen finns inte i ' + esc(Z()) + '.'],
             ['I galleriet', thumb ? 'Telefonens tumnagel (5005.JPG)' : url ? ph.how[it.key] || 'Förminskad ur originalet' : it.drawable || it.heif ? 'Ingen bild' : 'Formatet kan inte visas här'],
         ];
+        var marks = [it.favorite ? 'Favorit' : '', it.hidden ? 'Dold' : '', it.screenshot ? 'Skärmdump' : '', it.recording ? 'Skärminspelning' : ''].filter(Boolean);
+        if (marks.length) rows.push(['Märkt', esc(marks.join(', '))]);
         if (it.trashed) rows.push(['Papperskorgen', 'Ja, bilden ligger i Nyligen raderade.']);
-        if (it.importer) rows.push(['App enligt databasen', esc(it.importer) + ' <small>(' + esc(Roles().fieldSpec(q, 'importer').col) + ')</small>']);
+        if (it.albums && it.albums.length) {
+            var names = it.albums.map(function (pk) { var a = ph.albums.filter(function (x) { return x.pk === pk; })[0]; return a ? a.title : null; }).filter(Boolean);
+            if (names.length) rows.push(['Album', esc(names.join(', '))]);
+        }
+        if (it.folder && ph.platform === 'Android') rows.push(['Mapp', esc(it.folder)]);
+        if (it.importer) rows.push(['App enligt databasen', esc(nameOfApp(it.importer)) + ' <small>(' + esc(it.importer) + ', ' + esc(Roles().fieldSpec(q, 'importer').col) + ')</small>']);
         var table = /\bFROM\s+(\w+)/i.exec(q.sql || '');
         rows.push(['Källa', esc(baseName(ph.db)) + (table ? ' · ' + esc(table[1]) : '')]);
+        showSheet(esc(it.name), (url ? '<img src="' + esc(url) + '" alt="">' : '') + '<table>' + rows.map(function (r) { return '<tr><th>' + r[0] + '</th><td>' + r[1] + '</td></tr>'; }).join('') + '</table>',
+            inHub ? '<button type="button" class="c-btn c-primary" data-sheet-assess="1">Bedöm i Härkomst</button>' : '', it.name);
+    }
+    // Ett ark i telefonen: rubriken (HTML), innehållet och knapparna före Stäng.
+    function showSheet(titleHtml, inner, actions, name) {
         var sheet = $('c-device-sheet');
-        sheet.innerHTML = '<div class="c-sheet-box"><span class="c-sheet-grip" aria-hidden="true"></span><h2 id="c-sheet-title">' + esc(it.name) + '</h2>' +
-            (url ? '<img src="' + esc(url) + '" alt="">' : '') +
-            '<table>' + rows.map(function (r) { return '<tr><th>' + r[0] + '</th><td>' + r[1] + '</td></tr>'; }).join('') + '</table>' +
-            '<div class="c-sheet-actions">' + (inHub ? '<button type="button" class="c-btn c-primary" data-sheet-assess="1">Bedöm i Härkomst</button>' : '') +
-            '<button type="button" class="c-btn" data-sheet-close="1">Stäng</button></div></div>';
-        sheet.dataset.name = it.name;
+        sheet.innerHTML = '<div class="c-sheet-box"><span class="c-sheet-grip" aria-hidden="true"></span><h2 id="c-sheet-title">' + titleHtml + '</h2>' + inner +
+            '<div class="c-sheet-actions">' + (actions || '') + '<button type="button" class="c-btn" data-sheet-close="1">Stäng</button></div></div>';
+        sheet.dataset.name = name || '';
         sheet.classList.remove('display-none');
         sheet.querySelector('[data-sheet-close]').focus();
     }
@@ -2002,33 +2489,136 @@
         sheet.classList.add('display-none');
         sheet.innerHTML = '';
     }
+    // En mapp på hemskärmen, i ett ark.
+    function openFolder(key) {
+        var home = state.device.info && state.device.info.home;
+        if (!home) return;
+        var m = /^(p(\d+)|d):(\d+)$/.exec(key);
+        if (!m) return;
+        var it = m[1] === 'd' ? home.dock[Number(m[3])] : (home.pages[Number(m[2])][Number(m[3])] || {}).item;
+        if (!it || it.kind !== 'folder') return;
+        var apps = ChatPhone.homeApps(state.dbs), ph = state.device.photos;
+        showSheet(esc(it.name), '<div class="d-grid d-folder-grid">' + it.items.map(function (x) { return homeAppHtml(x, apps, ph, (m[1] === 'd' ? 'dockan' : 'sida ' + (Number(m[2]) + 1)) + ', mappen ' + it.name); }).join('') + '</div>' +
+            '<p class="d-note">' + esc('Mappen ur ' + home.source + '.') + '</p>', '', '');
+    }
+    // En app utan data i Telefonen: vad som är känt om den.
+    function openAppSheet(id, where) {
+        var info = state.device.info, home = info && info.home;
+        var name = nameOfApp(id), fromInfo = info && info.names[id];
+        var rows = [['Id', esc(id)], ['Plats', esc(where || '')], ['Namnet', fromInfo ? (devicePlatform() === 'iOS' ? 'Appens Info.plist' : 'Titeln i ' + esc(home ? home.source : 'launcherns databas')) : 'Verktygets lista över appar, eller id:t']];
+        showSheet(esc(name), '<table>' + rows.map(function (r) { return '<tr><th>' + r[0] + '</th><td>' + r[1] + '</td></tr>'; }).join('') + '</table><p class="d-note">Appen ligger på hemskärmen. Telefonen läser inte dess data, så den öppnas inte här. App-ID och Queries kan visa mer om den.</p>', '', '');
+    }
 
     $('c-device-open').addEventListener('click', function () { openDevice('home'); });
-    $('c-device-back').addEventListener('click', function () { openDevice('home'); });
+    $('c-device-back').addEventListener('click', function () { var b = backOf(state.device); openDevice(b.screen, '', b.screen === 'albums' ? { filter: 'all' } : null); });
     $('c-phone-back').addEventListener('click', function () { if (state.current) openDevice('app', state.current.db.src.app); });
-    $('c-device-body').addEventListener('click', function (e) {
+    $('c-device-tabs').addEventListener('click', function (e) {
+        var b = e.target.closest('[data-device-tab]');
+        if (b) openDevice(b.dataset.deviceTab === 'albums' ? 'albums' : 'photos', '', { filter: 'all' });
+    });
+    function onDeviceClick(e) {
         var b = e.target.closest('button');
         if (!b || b.classList.contains('g-tile')) return;
         if (b.dataset.deviceApp) return openDevice('app', b.dataset.deviceApp);
-        if (b.dataset.devicePhotos) return openDevice('photos');
-        if (b.dataset.deviceMore) { state.device.limit += LIST_STEP; var top = this.scrollTop; renderDevice(); this.scrollTop = top; return; }
+        if (b.dataset.devicePhotos) return openDevice('photos', '', { filter: 'all' });
+        if (b.dataset.deviceSettings) return openDevice('settings');
+        if (b.dataset.deviceLock) return openDevice('lock');
+        if (b.dataset.notif !== undefined) return openNotification(Number(b.dataset.notif));
+        if (b.dataset.homeApp !== undefined) return openAppSheet(b.dataset.homeApp, b.dataset.where);
+        if (b.dataset.folder) return openFolder(b.dataset.folder);
+        if (b.dataset.page !== undefined) { state.device.page = Number(b.dataset.page); return renderDevice(); }
+        if (b.dataset.pageStep) { state.device.page = Math.max(0, state.device.page + Number(b.dataset.pageStep)); return renderDevice(); }
+        if (b.dataset.filter) return openDevice('photos', '', { filter: b.dataset.filter });
+        if (b.dataset.section) return openDevice('setting', '', { section: b.dataset.section });
+        if (b.dataset.deviceMore) { state.device.limit += LIST_STEP; var box = $('c-device-body'), top = box.scrollTop; renderDevice(); box.scrollTop = top; return; }
         if (b.classList.contains('d-row')) {
             var d = state.dbs[Number(b.dataset.db)];
             if (d) openThread(d, b.dataset.thread).catch(showError);
         }
+    }
+    $('c-device-body').addEventListener('click', onDeviceClick);
+
+    // Dra med musen som med ett finger: i sidled byter hemskärmen sida, på de andra skärmarna går ett drag åt höger
+    // tillbaka, och i höjdled rullar listan eller galleriet. Ett drag är inget klick. Fingrar och pennor har webbläsarens
+    // egen rullning, så bara musen hanteras här.
+    var drag = null, SWIPE = 60;
+    var deviceBody = $('c-device-body');
+    deviceBody.addEventListener('pointerdown', function (e) {
+        if (e.pointerType !== 'mouse' || e.button !== 0) return;
+        drag = { id: e.pointerId, x: e.clientX, y: e.clientY, top: deviceBody.scrollTop, axis: '', moved: false };
     });
+    deviceBody.addEventListener('pointermove', function (e) {
+        if (!drag || e.pointerId !== drag.id) return;
+        var dx = e.clientX - drag.x, dy = e.clientY - drag.y;
+        if (!drag.axis) {
+            if (Math.abs(dx) < 6 && Math.abs(dy) < 6) return;
+            drag.axis = Math.abs(dx) > Math.abs(dy) ? 'x' : 'y';
+            drag.moved = true;
+            try { deviceBody.setPointerCapture(e.pointerId); } catch (err) { /* en påhittad pekare i testerna */ }
+            deviceBody.classList.add('dragging');
+        }
+        if (drag.axis === 'y') deviceBody.scrollTop = drag.top - dy;
+        else {
+            var screen = deviceBody.querySelector('.d-screen');
+            if (state.device.screen === 'home' && screen) screen.style.transform = 'translateX(' + dx + 'px)';
+        }
+    });
+    function endDrag(e) {
+        if (!drag || e.pointerId !== drag.id) return;
+        var d = drag, dx = e.clientX - d.x;
+        drag = null;
+        deviceBody.classList.remove('dragging');
+        if (!d.moved) return;
+        // Klicket som följer på ett drag släpps inte igenom.
+        deviceBody.dataset.dragged = '1';
+        setTimeout(function () { delete deviceBody.dataset.dragged; }, 0);
+        // Ett drag nedåt från hemskärmens överkant visar notiserna, som i telefonen.
+        if (d.axis === 'y' && state.device.screen === 'home' && d.top === 0 && e.clientY - d.y > 90 && state.device.info && state.device.info.notifications) { openDevice('lock'); return; }
+        if (d.axis !== 'x') return;
+        var P = state.device, screen = deviceBody.querySelector('.d-screen');
+        if (P.screen === 'home') {
+            var pages = deviceBody.querySelectorAll('.d-dot').length;
+            var next = Math.abs(dx) < SWIPE ? P.page : Math.min(Math.max(pages - 1, 0), Math.max(0, P.page + (dx < 0 ? 1 : -1)));
+            if (next === P.page) { if (screen) { screen.classList.add('d-snap'); screen.style.transform = ''; } return; }
+            P.page = next;
+            renderDevice();
+            var fresh = deviceBody.querySelector('.d-screen');
+            if (fresh) fresh.classList.add(dx < 0 ? 'd-from-right' : 'd-from-left');
+        } else if (dx > SWIPE * 1.5 && P.screen !== 'home') $('c-device-back').click();
+    }
+    deviceBody.addEventListener('pointerup', endDrag);
+    deviceBody.addEventListener('pointercancel', endDrag);
+    deviceBody.addEventListener('click', function (e) { if (deviceBody.dataset.dragged) { e.stopPropagation(); e.preventDefault(); } }, true);
     $('c-device-sheet').addEventListener('click', function (e) {
         if (e.target === this || e.target.closest('[data-sheet-close]')) return closeSheet();
         if (e.target.closest('[data-sheet-assess]')) {
             toHub({ type: 'names-for', to: 'provenance', names: [this.dataset.name], zipName: state.zip ? state.zip.file.name : '' });
             closeSheet();
+            return;
         }
+        // En app i en mapp: arket stängs och appen öppnas.
+        var b = e.target.closest('button.d-app');
+        if (b) { closeSheet(); onDeviceClick({ target: b }); }
     });
     document.addEventListener('keydown', function (e) {
-        if (e.key === 'Escape' && !$('c-device-sheet').classList.contains('display-none')) { e.preventDefault(); closeSheet(); }
+        if (e.key === 'Escape' && !$('c-device-sheet').classList.contains('display-none')) { e.preventDefault(); closeSheet(); return; }
+        // Pilarna bläddrar mellan hemskärmens sidor.
+        if ((e.key === 'ArrowLeft' || e.key === 'ArrowRight') && deviceShown() && state.device.screen === 'home' && !/^(INPUT|SELECT|TEXTAREA)$/.test((document.activeElement || {}).tagName || '')) {
+            var step = e.key === 'ArrowLeft' ? -1 : 1;
+            var dots = $('c-device-body').querySelectorAll('.d-dot').length;
+            if (!dots) return;
+            var next = Math.min(dots - 1, Math.max(0, state.device.page + step));
+            if (next !== state.device.page) { e.preventDefault(); state.device.page = next; renderDevice(); }
+        }
     });
     // Telefonens bredd ändras med fönstret: galleriet räknar om sina rader.
     window.addEventListener('resize', function () { if (state.device.gallery) state.device.gallery.paint(true); });
+
+    // Telefonen som eget verktyg (?view=phone): bara telefonen, utan Chattars lista.
+    if (PHONE_TOOL) {
+        document.body.classList.add('phone-tool');
+        openDevice('home');
+    }
 
     findCount();
     renderList();

@@ -156,6 +156,31 @@ window.ANDROID_QUERIES_CATALOG = {
             "size": "_size"
           },
           "sql": "SELECT\n  _id,\n  duration,\n  _size\nFROM files\nWHERE relative_path LIKE 'DCIM/%'\n   OR relative_path LIKE 'Pictures/%';"
+        },
+        {
+          "id": "role-gallery",
+          "hidden": true,
+          "role": "gallery",
+          "title": "Telefonen: alla bilder och videor",
+          "description": "Används av Telefonen. Alla bilder och videor (media_type 1 och 3) med mappen (albumet i galleriet), appen som äger filen, favorit och papperskorgen. is_favorite och is_trashed finns från Android 11; med en äldre databas säger Telefonen att frågan inte gick att köra.",
+          "params": [],
+          "epoch": "unixS",
+          "fields": {
+            "pk": "_id",
+            "filename": "_display_name",
+            "relativePath": "relative_path",
+            "album": "bucket_display_name",
+            "importer": "owner_package_name",
+            "mediaType": "media_type",
+            "created": {
+              "col": "datetaken",
+              "epoch": "unixAuto"
+            },
+            "added": "date_added",
+            "favorite": "is_favorite",
+            "trashed": "is_trashed"
+          },
+          "sql": "SELECT\n  _id,\n  _display_name,\n  relative_path,\n  bucket_display_name,\n  owner_package_name,\n  media_type,\n  datetaken,\n  date_added,\n  is_favorite,\n  is_trashed\nFROM files\nWHERE media_type IN (1, 3)\nORDER BY COALESCE(datetaken, date_added * 1000);"
         }
       ]
     },

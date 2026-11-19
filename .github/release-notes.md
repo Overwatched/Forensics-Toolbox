@@ -1,5 +1,16 @@
 Automatiskt byggd från commit `{{SHA}}`.
 
+## Nytt i 1.78
+
+**Telefonen är ett eget verktyg: extraktionen som en telefon, med hemskärmen, låsskärmen, Bilder och Inställningar.**
+
+- **Telefonen** står i sidopanelen under Chattar. Hemskärmen är telefonens egen: sidorna, mapparna, widgetarna och dockan ur IconState.plist på iPhone, OneUI.db på Samsung och launcher.db på Pixel och andra. På Android är ikonerna telefonens egna. Apparna med data öppnas; de andra visar vad som är känt om dem.
+- **Dra med musen** som med ett finger: i sidled byts sida, åt höger går det tillbaka, och listor och galleriet rullar.
+- **Låsskärmen** visar notiserna: Androids notishistorik med titel och text, och på iPhone appen, titeln och tiden ur Biome.
+- **Bilder** har album och urval som i telefonen: egna album (på Android mapparna), videor, skärmdumpar, favoriter, bilderna som en app sparade (till exempel Snapchat), dolda och Nyligen raderade.
+- **Inställningar** visar telefonens namn, version och modell, telefonnummer och SIM, kända Wi-Fi-nät med tider, Bluetooth, konton och lägen som flygplansläge och USB-felsökning. Varje rad säger vilken fil och vilket fält den kommer ur. Wi-Fi-lösenord visas inte.
+- **Provat:** enhetstesterna och röktestet i appen, och tre riktiga extraktioner (iPhone med iOS 26, Samsung A33 och Pixel 9a med Android 16). Andra märkens hemskärm är inte provad; utan en känd fil visas apparna med data.
+
 ## Nytt i 1.77
 
 **Härkomst tolkar Snapchats Memories på iPhone mycket bättre, och Laboration öppnar en sparad fil från startsidan.**

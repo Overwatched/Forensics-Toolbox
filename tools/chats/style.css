@@ -332,6 +332,8 @@ body {
 .d-app span.d-name { font-size: .72em; font-weight: 600; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .d-icon { position: relative; width: 3.6em; height: 3.6em; border-radius: 1em; display: flex; align-items: center; justify-content: center; box-shadow: 0 2px 6px rgba(0, 0, 0, .2); }
 .d-icon svg { width: 1.8em; height: 1.8em; }
+.d-icon.has-img { background: none; box-shadow: none; }
+.d-icon.has-img img { width: 100%; height: 100%; object-fit: contain; border-radius: inherit; pointer-events: none; }
 .d-badge { position: absolute; top: -.35em; right: -.45em; min-width: 1.35em; height: 1.35em; padding: 0 .35em; border-radius: .7em; background: #d70015; color: #fff; font-size: .68em; font-weight: 700; display: flex; align-items: center; justify-content: center; font-variant-numeric: tabular-nums; }
 .d-badge.wait { background: var(--text-muted); }
 .d-app:focus-visible .d-icon, .d-row:focus-visible, .g-tile:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
@@ -353,6 +355,99 @@ body {
 .g-tile img { display: block; width: 100%; height: 100%; object-fit: cover; }
 .g-tile.video::after { content: "▶"; position: absolute; right: .35em; bottom: .25em; color: #fff; font-size: 1.1em; text-shadow: 0 1px 3px rgba(0, 0, 0, .7); }
 .g-tile.trashed { outline: 2px solid var(--error); outline-offset: -2px; }
+/* Hemskärmen: sidorna i telefonens rutnät, mappar, widgetar, sidprickarna och dockan. Med telefonens egen bakgrund
+   (Android) står namnen i vitt med skugga. */
+.d-screen { flex: 1; display: flex; flex-direction: column; gap: 1.2em; }
+.d-page { display: grid; gap: 1.1em .4em; grid-auto-rows: minmax(4.9em, auto); align-content: start; }
+.d-cell { display: flex; justify-content: center; min-width: 0; }
+.d-cell .d-app { width: 100%; }
+.d-page-title { font-size: .78em; font-weight: 700; color: var(--text-muted); }
+.d-letter { font-size: 1.45em; font-weight: 700; }
+.d-app.d-folder { justify-content: flex-start; }
+.d-folder-icon { background: color-mix(in srgb, var(--surface) 55%, transparent) !important; display: grid; grid-template-columns: repeat(3, .8em); grid-auto-rows: .8em; gap: .17em; align-content: center; justify-content: center; backdrop-filter: blur(6px); }
+.d-folder-icon i { display: block; width: .8em; height: .8em; border-radius: .22em; }
+.d-widget { min-width: 0; border-radius: 1.3em; padding: .8em .9em; background: color-mix(in srgb, var(--surface) 72%, transparent); border: 1px solid var(--border); display: flex; flex-direction: column; justify-content: flex-end; gap: .15em; backdrop-filter: blur(6px); overflow: hidden; }
+.d-widget-name { font-size: .78em; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.d-widget-kind { font-size: .68em; color: var(--text-muted); }
+/* Dra med musen: sidan följer musen, går tillbaka om draget var kort, och nästa sida glider in. */
+.c-device-body.dragging { cursor: grabbing; user-select: none; }
+.d-snap { transition: transform .18s ease-out; }
+.d-from-right { animation: d-in-right .22s ease-out; }
+.d-from-left { animation: d-in-left .22s ease-out; }
+@keyframes d-in-right { from { transform: translateX(40%); opacity: .3; } to { transform: none; opacity: 1; } }
+@keyframes d-in-left { from { transform: translateX(-40%); opacity: .3; } to { transform: none; opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .d-snap { transition: none; } .d-from-right, .d-from-left { animation: none; } }
+.d-dots { display: flex; align-items: center; justify-content: center; gap: .45em; }
+.d-dot { width: .55em; height: .55em; padding: 0; border-radius: 50%; border: none; background: color-mix(in srgb, var(--text) 30%, transparent); cursor: pointer; }
+.d-dot[aria-pressed="true"] { background: var(--text); }
+.d-nav { font: inherit; font-size: 1.1em; line-height: 1; color: var(--text); background: none; border: none; padding: 0 .4em; cursor: pointer; }
+.d-nav:disabled { opacity: .3; cursor: default; }
+.d-dock { display: grid; gap: .4em; padding: .7em .6em; border-radius: 1.6em; background: color-mix(in srgb, var(--surface) 60%, transparent); backdrop-filter: blur(8px); }
+.d-dock .d-name { display: none; }
+.c-device-body.home.has-wall { background-size: cover; background-position: center; }
+.c-device-body.has-wall .d-screen .d-name, .c-device-body.has-wall .d-page-title { color: #fff; text-shadow: 0 1px 3px rgba(0, 0, 0, .8); }
+.c-device-body.has-wall .d-dot { background: rgba(255, 255, 255, .45); }
+.c-device-body.has-wall .d-dot[aria-pressed="true"], .c-device-body.has-wall .d-nav { background-color: transparent; color: #fff; }
+.c-device-body.has-wall .d-dot[aria-pressed="true"] { background: #fff; }
+.d-folder-grid { gap: 1em .4em; }
+/* Notiserna: knappen överst på hemskärmen och låsskärmen med en rubrik per dag. */
+.d-pill { align-self: center; font: inherit; font-size: .72em; font-weight: 600; color: var(--text); background: color-mix(in srgb, var(--surface) 70%, transparent); border: 1px solid var(--border); border-radius: 999px; padding: .3em .9em; cursor: pointer; backdrop-filter: blur(6px); }
+.c-device-body.lock { padding: .6em .7em 1em; background: linear-gradient(165deg, color-mix(in srgb, var(--accent) 12%, var(--surface)), var(--bg)); }
+.c-device-body.lock.has-wall { background-size: cover; background-position: center; }
+.d-lock { display: flex; flex-direction: column; gap: .45em; }
+.d-day { font-size: .78em; margin: .6em .2em .1em; color: var(--text-muted); }
+.c-device-body.has-wall .d-day { color: #fff; text-shadow: 0 1px 3px rgba(0, 0, 0, .8); }
+.d-notif { display: flex; gap: .65em; align-items: flex-start; width: 100%; text-align: left; font: inherit; color: var(--text); background: color-mix(in srgb, var(--surface) 82%, transparent); border: 1px solid var(--border); border-radius: 1.1em; padding: .6em .7em; cursor: pointer; backdrop-filter: blur(8px); }
+.d-notif .d-icon { width: 2.1em; height: 2.1em; border-radius: .55em; flex: none; font-size: .9em; }
+.d-notif .d-icon svg { width: 1.1em; height: 1.1em; }
+.d-notif .d-letter { font-size: 1em; }
+.d-notif-text { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: .1em; }
+.d-notif-top { display: flex; gap: .5em; align-items: baseline; font-size: .75em; }
+.d-notif-top b { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.d-notif-top time { color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.d-notif-title { font-size: .85em; font-weight: 600; overflow-wrap: anywhere; }
+.d-notif-body { font-size: .8em; color: var(--text-muted); overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.d-notif:focus-visible, .d-pill:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+/* Bilder: biblioteket eller albumen, och omslagen. */
+.c-device-tabs { display: flex; justify-content: center; gap: 4px; padding: .5em .8em; background: var(--surface); border-bottom: 1px solid var(--border); }
+.c-device-tabs.display-none { display: none; }
+.c-device-tabs .c-btn { flex: 1; max-width: 9em; font-size: 13px; }
+.c-device-tabs .c-btn[aria-pressed="true"] { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
+.c-device-body.albums, .c-device-body.settings, .c-device-body.setting { padding: .4em .9em 1em; }
+.d-group { font-size: .9em; margin: .9em 0 .5em; }
+.d-albums { display: grid; grid-template-columns: repeat(2, 1fr); gap: .8em .7em; }
+.d-album { display: flex; flex-direction: column; align-items: stretch; gap: .2em; text-align: left; font: inherit; color: var(--text); background: none; border: none; padding: 0; cursor: pointer; min-width: 0; }
+.d-cover { display: block; aspect-ratio: 1; border-radius: .7em; background: var(--surface-hover) center / cover no-repeat; }
+.d-album.warn .d-cover { outline: 2px solid var(--error); outline-offset: -2px; }
+.d-album-name { font-size: .82em; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.d-album-count { font-size: .75em; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.d-album:focus-visible .d-cover, .d-set:focus-visible, .d-dot:focus-visible, .d-nav:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.g-tile.hidden::before { content: "Dold"; position: absolute; left: .3em; top: .3em; z-index: 1; font-size: .85em; color: #fff; background: rgba(0, 0, 0, .62); border-radius: .3em; padding: 0 .3em; }
+.g-tile.favorite::after { content: "♥"; position: absolute; left: .35em; bottom: .2em; color: #fff; font-size: 1.1em; text-shadow: 0 1px 3px rgba(0, 0, 0, .7); }
+.g-tile.video.favorite::after { content: "♥  ▶"; left: auto; right: .35em; }
+/* Inställningar: en lista som i telefonen och en del i taget, varje rad med sin källa. */
+.d-sets { display: flex; flex-direction: column; border-radius: .9em; overflow: hidden; border: 1px solid var(--border); margin-top: .5em; }
+.d-set { display: flex; align-items: center; gap: .6em; width: 100%; font: inherit; text-align: left; color: var(--text); background: var(--surface); border: none; border-bottom: 1px solid var(--border); padding: .75em .9em; cursor: pointer; }
+.d-set:last-child { border-bottom: none; }
+.d-set:hover { background: var(--surface-hover); }
+.d-set-name { flex: 1; font-size: .92em; }
+.d-set-val { font-size: .82em; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.d-chev { color: var(--text-muted); }
+.d-kvs { display: flex; flex-direction: column; gap: 0; margin-top: .5em; border-radius: .9em; border: 1px solid var(--border); overflow: hidden; }
+.d-kv { display: grid; grid-template-columns: 1fr auto; gap: .1em .6em; padding: .6em .9em; border-bottom: 1px solid var(--border); background: var(--surface); }
+.d-kv:last-of-type { border-bottom: none; }
+.d-kv-label { font-size: .88em; font-weight: 600; overflow-wrap: anywhere; }
+.d-kv-value { font-size: .85em; text-align: right; overflow-wrap: anywhere; }
+.d-kv-src, .d-kv-note { grid-column: 1 / -1; font-size: .7em; color: var(--text-muted); overflow-wrap: anywhere; }
+.d-kv-foot { display: block; padding: .5em .9em .7em; background: var(--surface); }
+.d-walls { display: flex; gap: .6em; padding: .6em .9em; background: var(--surface); border-bottom: 1px solid var(--border); }
+.d-walls figure { flex: 1; margin: 0; display: flex; flex-direction: column; gap: .3em; align-items: center; }
+.d-walls img { max-width: 100%; max-height: 14em; border-radius: .6em; }
+.d-walls figcaption { font-size: .72em; color: var(--text-muted); }
+/* Telefonen som eget verktyg: ingen lista bredvid, och ramen får plats på höjden. */
+.phone-tool .c-main { grid-template-columns: 1fr; }
+.phone-tool .c-side { display: none; }
+.phone-tool #c-empty { display: none; }
 .c-sheet { position: absolute; inset: 0; z-index: 5; background: rgba(0, 0, 0, .38); display: flex; align-items: flex-end; }
 .c-sheet-box { width: 100%; max-height: 80%; overflow-y: auto; background: var(--surface); color: var(--text); border-radius: 1.2em 1.2em 0 0; padding: .6em 1em 1.1em; display: flex; flex-direction: column; gap: .7em; box-shadow: 0 -8px 24px rgba(0, 0, 0, .3); }
 .c-sheet-grip { width: 2.5em; height: .3em; border-radius: .2em; background: var(--border-hover); align-self: center; }
@@ -401,4 +496,5 @@ body {
 
 @media (max-width: 760px) {
     .c-main { grid-template-columns: 1fr; grid-template-rows: minmax(260px, 45vh) 1fr; }
+    .phone-tool .c-main { grid-template-rows: 1fr; }
 }

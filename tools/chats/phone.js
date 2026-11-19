@@ -1,5 +1,5 @@
-// Telefonen i Chattar: hemskärmen med apparna som har data i extraktionen, appens lista med chattar och galleriet
-// med bilderna ur bildbiblioteket (Photos.sqlite på iOS, MediaStore på Android). Det som går att pröva utan sida
+// Telefonen: apparna med data i extraktionen, appens lista med chattar och galleriet med bilderna ur bildbiblioteket
+// (Photos.sqlite på iOS, MediaStore på Android), med album och urval som i telefonens Bilder. Det som går att pröva utan sida
 // (apparna, bildernas nycklar i zippen, galleriets rader och cachen för bilderna) testas i Node; Gallery ritar.
 (function (root) {
     'use strict';
@@ -52,6 +52,8 @@
         if ((m = /\/PhotoData\/Thumbnails\/V2\/(.+)\/5005\.jpg$/i.exec(n))) return { kind: 'thumb', key: m[1].toLowerCase() };
         if (/\/PhotoData\/(Thumbnails|Caches|Metadata|Mutations)\//i.test(n) || !MEDIA.test(n)) return null;
         if ((m = /\/Media\/((?:DCIM|PhotoData\/CPLAssets)\/.+)$/i.exec(n))) return { kind: 'file', key: m[1].toLowerCase() };
+        // Androids lagring: allt under data/media/<användare>/ (eller storage/emulated/<användare>/), som relative_path.
+        if ((m = /\/(?:data\/media|storage\/emulated)\/\d+\/(.+)$/i.exec(n))) return { kind: 'file', key: m[1].toLowerCase() };
         if ((m = /\/((?:DCIM|Pictures)\/.+)$/i.exec(n))) return { kind: 'file', key: m[1].toLowerCase() };
         return null;
     }
@@ -63,12 +65,82 @@
             var dir = r.directory !== undefined && r.directory !== null ? String(r.directory).replace(/\/+$/, '') + '/' : String(r.relativePath || '');
             var name = String(r.filename || '');
             var ms = typeof r.createdMs === 'number' && isFinite(r.createdMs) ? r.createdMs : typeof r.addedMs === 'number' && isFinite(r.addedMs) ? r.addedMs : null;
+            // Video: ZKIND 1 på iOS, media_type 3 i MediaStore, annars ändelsen. Skärmdump och skärminspelning: ZKINDSUBTYPE
+            // 10 och 103. På Android är mappen albumet (bucket_display_name, annars sista delen av relative_path).
+            var folder = r.album ? String(r.album) : r.relativePath ? String(r.relativePath).replace(/\/+$/, '').split('/').pop() : '';
             return {
                 i: i, key: (dir + name).toLowerCase(), dir: dir, name: name, ms: ms, timeField: typeof r.createdMs === 'number' && isFinite(r.createdMs) ? 'created' : ms !== null ? 'added' : '',
-                video: VIDEO.test(name), drawable: DRAWABLE.test(name), heif: HEIF.test(name), trashed: Number(r.trashed) === 1, importer: r.importer || '', pk: r.pk, raw: r._raw || null,
+                video: VIDEO.test(name) || Number(r.kind) === 1 || Number(r.mediaType) === 3, drawable: DRAWABLE.test(name), heif: HEIF.test(name), trashed: Number(r.trashed) === 1, importer: r.importer || '', pk: r.pk, raw: r._raw || null,
+                favorite: Number(r.favorite) === 1, hidden: Number(r.hidden) === 1, screenshot: Number(r.kindSubtype) === 10, recording: Number(r.kindSubtype) === 103,
+                albums: Array.isArray(r.albums) ? r.albums : [], folder: folder, relativePath: r.relativePath ? String(r.relativePath) : '',
             };
         });
         return out.sort(function (a, b) { return (b.ms === null ? -Infinity : b.ms) - (a.ms === null ? -Infinity : a.ms) || a.i - b.i; });
+    }
+
+    // ---------- Album och urval ----------
+
+    // Albumen med namn (rollen albums på iOS) med antalet bilder som hör till dem enligt kopplingstabellen. Mappar som
+    // iOS använder för att ordna album (-RootFolder-, -TopLevelAlbums-) och album utan bilder tas bort.
+    function albumList(albumRows, photoRows) {
+        var count = {};
+        photoRows.forEach(function (r) { (r.albums || []).forEach(function (pk) { count[pk] = (count[pk] || 0) + 1; }); });
+        return albumRows.filter(function (a) { return a.title && !/^-.*-$/.test(String(a.title)) && count[a.pk]; }).map(function (a) {
+            return { pk: a.pk, title: String(a.title), kind: a.kind, count: count[a.pk], trashed: Number(a.trashed) === 1, importer: a.importer || '' };
+        });
+    }
+
+    // Urvalen. id: 'videos', 'screenshots', 'recordings', 'favorites', 'hidden', 'trashed', 'app:<id>', 'album:<Z_PK>' eller
+    // 'folder:<mapp>'. Alla utom Nyligen raderade lämnar papperskorgen utanför, som telefonen.
+    function test(id) {
+        var m = /^(app|album|folder):(.*)$/.exec(id);
+        if (m && m[1] === 'app') return function (it) { return !it.trashed && it.importer === m[2]; };
+        if (m && m[1] === 'album') return function (it) { return !it.trashed && it.albums.some(function (pk) { return String(pk) === m[2]; }); };
+        if (m && m[1] === 'folder') return function (it) { return !it.trashed && it.folder === m[2]; };
+        return {
+            videos: function (it) { return !it.trashed && !it.hidden && it.video; },
+            screenshots: function (it) { return !it.trashed && it.screenshot; },
+            recordings: function (it) { return !it.trashed && it.recording; },
+            favorites: function (it) { return !it.trashed && it.favorite; },
+            hidden: function (it) { return !it.trashed && it.hidden; },
+            trashed: function (it) { return it.trashed; },
+        }[id] || function () { return true; };
+    }
+    function filterItems(items, id) { var t = test(id); return items.filter(t); }
+
+    // Grupperna i vyn Album: [{ title, list: [{ id, title, count, cover (index i items, den senaste), note }] }]. Ett urval
+    // utan bilder visas inte. nameOf(id) ger appens namn.
+    function galleryGroups(items, albums, nameOf, platform) {
+        nameOf = nameOf || function (x) { return x; };
+        function entry(id, title, note, warn) {
+            var t = test(id), n = 0, cover = null;
+            for (var i = 0; i < items.length; i++) if (t(items[i])) { n++; if (cover === null) cover = i; }
+            return n ? { id: id, title: title, count: n, cover: cover, note: note || '', warn: !!warn } : null;
+        }
+        var groups = [];
+        var own = platform === 'Android' ? folders(items).map(function (f) { return entry('folder:' + f, f, 'Mappen ' + f + ' (bucket_display_name)'); })
+            : (albums || []).map(function (a) { return entry('album:' + a.pk, a.title + (a.trashed ? ' (raderat album)' : ''), 'Albumet ' + a.title + ' (ZGENERICALBUM Z_PK ' + a.pk + ')' + (a.importer ? ', skapat av ' + a.importer : '')); });
+        groups.push({ title: platform === 'Android' ? 'Mappar' : 'Mina album', list: own.filter(Boolean) });
+        groups.push({ title: 'Mediatyper', list: [entry('videos', 'Videor'), entry('screenshots', 'Skärmdumpar', 'ZKINDSUBTYPE 10'), entry('recordings', 'Skärminspelningar', 'ZKINDSUBTYPE 103'), entry('favorites', 'Favoriter')].filter(Boolean) });
+        var apps = {};
+        items.forEach(function (it) { if (it.importer && !it.trashed) apps[it.importer] = (apps[it.importer] || 0) + 1; });
+        groups.push({ title: 'Sparat av app', list: Object.keys(apps).sort(function (a, b) { return apps[b] - apps[a] || (a < b ? -1 : 1); }).map(function (id) { return entry('app:' + id, nameOf(id), 'Appen ' + id + ' enligt databasen'); }).filter(Boolean) });
+        groups.push({ title: 'Övrigt', list: [entry('hidden', 'Dolda', 'ZHIDDEN = 1', true), entry('trashed', 'Nyligen raderade', 'I papperskorgen', true)].filter(Boolean) });
+        return groups.filter(function (g) { return g.list.length; });
+    }
+    function folders(items) {
+        var n = {};
+        items.forEach(function (it) { if (it.folder && !it.trashed) n[it.folder] = (n[it.folder] || 0) + 1; });
+        return Object.keys(n).sort(function (a, b) { return n[b] - n[a] || (a < b ? -1 : 1); });
+    }
+    // Urvalets rubrik, eller null.
+    function filterById(items, albums, id, nameOf) {
+        if (id === 'all') return { title: 'Bilder' };
+        var m = /^(app|album|folder):(.*)$/.exec(id);
+        if (m && m[1] === 'app') return { title: (nameOf || String)(m[2]) };
+        if (m && m[1] === 'album') { var a = (albums || []).filter(function (x) { return String(x.pk) === m[2]; })[0]; return { title: a ? a.title : 'Album' }; }
+        if (m && m[1] === 'folder') return { title: m[2] };
+        return { title: { videos: 'Videor', screenshots: 'Skärmdumpar', recordings: 'Skärminspelningar', favorites: 'Favoriter', hidden: 'Dolda', trashed: 'Nyligen raderade' }[id] || 'Bilder' };
     }
 
     // Rader i galleriet: en rubrik per månad och sedan rader med cols bilder. y i bildpunkter från början.
@@ -188,10 +260,10 @@
             row.items.forEach(function (i, k) {
                 var it = self.o.items[i], t = document.createElement('button');
                 t.type = 'button';
-                t.className = 'g-tile' + (it.video ? ' video' : '') + (it.trashed ? ' trashed' : '');
+                t.className = 'g-tile' + (it.video ? ' video' : '') + (it.trashed ? ' trashed' : '') + (it.hidden ? ' hidden' : '') + (it.favorite ? ' favorite' : '');
                 t.dataset.i = String(i);
                 t.style.cssText = 'left:' + k * (lay.tile + lay.gap) + 'px;width:' + lay.tile + 'px;height:' + lay.tile + 'px';
-                t.setAttribute('aria-label', it.name + (it.trashed ? ', i papperskorgen' : ''));
+                t.setAttribute('aria-label', it.name + (it.trashed ? ', i papperskorgen' : '') + (it.hidden ? ', dold' : '') + (it.favorite ? ', favorit' : ''));
                 var u = self.urls.get(it.key);
                 if (u) { t.appendChild(self.img(u)); t.classList.add('has'); }
                 else if (u === null) { t.classList.add('none'); t.textContent = extOf(it.name); }
@@ -268,6 +340,7 @@
 
     var api = {
         homeApps: homeApps, appThreads: appThreads, entryKey: entryKey, photoItems: photoItems, layout: layout, rowsBetween: rowsBetween,
+        albumList: albumList, filterItems: filterItems, galleryGroups: galleryGroups, filterById: filterById,
         UrlCache: UrlCache, Gallery: Gallery, VIDEO: VIDEO, DRAWABLE: DRAWABLE, MAX_URLS: MAX_URLS,
     };
     if (node) module.exports = api;

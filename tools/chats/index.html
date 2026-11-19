@@ -109,8 +109,8 @@
                     </div>
                 </div>
 
-                <!-- Telefonen: hemskärmen, en apps chattar och galleriet, i samma ram som telefonvyn. En chatt öppnas i
-                     telefonvyn ovan, med en knapp tillbaka hit. -->
+                <!-- Telefonen: hemskärmen, en apps chattar, Bilder och Inställningar, i samma ram som telefonvyn. En chatt öppnas
+                     i telefonvyn ovan, med en knapp tillbaka hit. Som eget verktyg (?view=phone) visas bara den. -->
                 <div id="c-device" class="c-device display-none">
                     <div class="c-stage phone">
                         <div class="c-phone" id="c-device-phone" data-frame="ios">
@@ -118,7 +118,12 @@
                                 <button type="button" class="c-back display-none" id="c-device-back">‹ <span id="c-device-back-text">Hem</span></button>
                                 <span class="c-phone-names"><b id="c-device-title"></b><small id="c-device-sub"></small></span>
                             </div>
-                            <div id="c-device-body" class="c-device-body"></div>
+                            <!-- I Bilder: biblioteket eller albumen, som i telefonen. -->
+                            <div id="c-device-tabs" class="c-device-tabs display-none" role="group" aria-label="Bilder">
+                                <button type="button" class="c-btn" data-device-tab="library" aria-pressed="true">Bibliotek</button>
+                                <button type="button" class="c-btn" data-device-tab="albums" aria-pressed="false">Album</button>
+                            </div>
+                            <div id="c-device-body" class="c-device-body" tabindex="-1"></div>
                             <div id="c-device-sheet" class="c-sheet display-none" role="dialog" aria-modal="true" aria-labelledby="c-sheet-title"></div>
                             <div class="c-phone-foot" id="c-device-foot"></div>
                         </div>
@@ -189,6 +194,7 @@
     <script src="../../queries/android/snapchat/catalog.js"></script>
     <script src="../../queries/ios/photos-sqlite/catalog.js"></script>
     <script src="../../queries/android/catalog.js"></script>
+    <script src="../app-ids/catalog.js"></script>
     <script src="../hash-calculator/hashing.js"></script>
     <script src="../ios-keychain/lib/bplist.js"></script>
     <script src="../ios-keychain/lib/asn1.js"></script>
@@ -206,11 +212,14 @@
     <script src="../db-queries/extraction-core.js"></script>
     <script src="../provenance/roles.js"></script>
     <script src="../provenance/snapchat.js"></script>
+    <script src="../provenance/android-logs.js"></script>
+    <script src="../provenance/biome.js"></script>
     <script src="chat-core.js"></script>
     <script src="chat-media.js"></script>
     <script src="chat-export.js"></script>
     <script src="../_shared/heic.js"></script>
     <script src="phone.js"></script>
+    <script src="device-info.js"></script>
     <script src="script.js"></script>
 </body>
 

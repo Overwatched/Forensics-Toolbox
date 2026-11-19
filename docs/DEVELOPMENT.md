@@ -1504,22 +1504,114 @@ senare.
     tätt (`.cont`, `.more`), med mindre hörn mot avsändaren och namnet och ringen en gång per följd. En systemrad,
     ett samtal eller en saknad tid bryter följden. Exporten har kvar namnet på varje meddelande.
   - **Till senaste** (`#c-latest`) syns när det senaste meddelandet inte är nära, och ritar slutet av chatten.
-- **Telefonen** (`phone.js`, `ChatPhone`; knappen Telefonen överst i listan): extraktionen som en telefon, i telefonvyns ram.
-  - **Hemskärmen** har en ikon per app med en databas i extraktionen (`homeApps`) och Bilder när ett bildbibliotek
-    finns. Siffran är antalet chattar eller bilder som lästes. Ikonerna är verktygets egna, inte apparnas loggor.
-    Ingen klocka, batterinivå eller mottagning ritas, och foten säger att det är en rekonstruktion.
+- **Telefonen** (`phone.js`, `ChatPhone`, och `device-info.js`, `DeviceInfo`): extraktionen som en telefon, i
+  telefonvyns ram. Ett eget verktyg i sidopanelen: samma sida som Chattar med `?view=phone` (`PHONE_TOOL`, klassen
+  `phone-tool` döljer listan), i en egen ram med nyckeln `tools/phone` (`data-key` på menyraden i `Toolbox.html`;
+  `openTool` och `createFrame` i `src/script.js` skiljer på ramens nyckel och sidan som laddas). Knappen Telefonen
+  överst i Chattars lista öppnar samma vy i Chattar. Ingen klocka, batterinivå eller mottagning ritas, och foten
+  säger att det är en rekonstruktion.
+  - **Filerna** (`DeviceInfo.FILES`, `fileOf`, `pick`) hittas på sökvägen i en genomgång av zippen och läses en gång
+    per extraktion (`loadDeviceInfo`). Av en fil som ska läsas en gång tas den med kortast sökväg; kopior i
+    programuppdateringar och säkerhetskopian av kontona hoppas över, och `/data/user/0` räknas som `/data/data`.
+    Databaserna läses med sin `-wal` som Chattars egna (`ExtractionCore.loadDatabase`, delas mellan verktygen).
+    Inställningar → Källor listar varje fil som lästes, med storlek och CRC32, och de som inte finns.
+  - **Hemskärmen** följer telefonens egen när filen finns:
+    - iOS: `SpringBoard/IconState.plist` (`iosHome`). `iconLists` är sidorna, `buttonBar` dockan; en sida har
+      bundle-id, mappar (en ordbok med `displayName` och egna `iconLists`) och widgetar (`elements` med `gridSize`:
+      small 2×2, medium 4×2, large 4×4). Filen har bara ordningen, så platsen räknas ut: första lediga plats rad för
+      rad i ett rutnät med fyra kolumner (`packPage`), som iOS gör när inget har flyttats. Det står under sidan.
+    - Samsung One UI 6 och senare: `com.sec.android.app.launcher/databases/OneUI.db` (`oneUiHome`). `item_group` har
+      hemskärmen (`homescreen`), dess sidor (`page` under `workspace`, i `rank`-ordning) och dockan (`hotseat`).
+      `item` har appar, mappar och widgetar med `position_x`, `position_y`, `spanX` och `spanY` (−1 är en ruta);
+      `container_type` 1 betyder att posten ligger i mappen `container_id`. Applådans poster ger namnen på alla appar.
+      Samsungs äldre `launcher.db` har på One UI 8 bara tomma tabeller.
+    - Launcher3 (Pixel och de flesta andra): `databases/launcher*.db`, tabellen `favorites` (`launcher3Home`).
+      `container` −100 är skrivbordet (sida `screen`), −101 dockan, annars mappen med det `_id`:t. `itemType` 0 app,
+      1 och 6 genväg, 2 mapp, 4 och 5 widget. Rutnätet står i filnamnet (`launcher_4_by_5.db`). Finns flera filer
+      används den som ändrades senast och har `favorites`.
+    - Utan fil visas apparna med data som förut. Apparna med data som inte ligger på hemskärmen (i applådan eller
+      appbiblioteket), och Inställningar, får en sista sida "Med data, inte på hemskärmen".
+    - Apparna med data öppnas (`roleOf`: bundle-id och paket för WhatsApp, Signal, Telegram och Snapchat, Bilder och
+      Inställningar). WhatsApp Business har en egen databas och räknas inte som WhatsApp. En annan app visar ett ark
+      med id:t, platsen och var namnet kommer ifrån. En mapp öppnas i ett ark, och en app i den öppnas därifrån.
+      Sidorna byts med prickarna, pilarna i vyn eller piltangenterna.
+    - Namnen (`appName`): Apples egna appar på svenska ur en tabell (Info.plist har det engelska namnet), annars
+      `CFBundleDisplayName` eller `CFBundleName` i appens `Info.plist` (iOS, osynliga riktningstecken borttagna) eller
+      launcherns titel (Android), sedan App-ID:s katalog och sist id:t. En widget utan känt appnamn heter som klassen i
+      komponenten (`widgetName`). Ikonerna är verktygets egna: appens färg och symbol för apparna med data, annars en
+      färg ur namnet och första bokstaven.
+  - **Ikonerna** på Android är telefonens egna: launcherns ikoncache `databases/app_icons.db` (tabellen `icons` i
+    Launcher3, också hos Samsung: `componentName`, PNG i `icon`, `label`, för `profileId` 0) i samma app som hemskärmen,
+    och ikonen som Launcher3 sparade på raden i `favorites.icon`. Saknas båda ritas verktygets egen. iOS-ikonerna ligger
+    i appens paket i Apples egna PNG-variant (CgBI) eller i `Assets.car` och ritas inte.
+  - **Andra märken**: allt utom hemskärmen kommer ur Androids egna filer och är samma hos alla tillverkare. Hemskärmen
+    läses ur One UI och ur varje `launcher*.db` med tabellen `favorites` (Launcher3 och det som bygger på den). En
+    launcher med ett annat schema (Huawei, Honor) ger en rad i Inställningar med filen och dess tabeller, och Telefonen
+    visar apparna med data. Provat på Samsung och Pixel; OnePlus, Xiaomi, Motorola och andra är inte provade.
+  - **Låsskärmen** (knappen överst på hemskärmen, eller ett drag nedåt från överkanten) visar notiserna, den senaste
+    först, med en rubrik per dag och telefonens bakgrund för låsskärmen bakom. En notis öppnar ett ark med alla fält och
+    källan.
+    - Android: notishistoriken `system_ce/0/notification_history/history/<ms>` (`notificationHistory`): protobuf
+      NotificationHistoryProto med en strängpool (1) och en post per notis (3): 1 paket, 3 kanalens namn, 5 kanalens id,
+      7 uid, 9 tiden i ms, 10 titeln, 11 texten, 13 konversationen; 2, 4, 6 och 14 är samma strängar som plats i poolen
+      (inte provat). Samsung skriver också 15, notisens nyckel. Finns bara när Notishistorik är påslagen, och Android
+      sparar ungefär ett dygn: Samsung A33 hade 17 notiser från extraktionsdagen, Pixel 9a ingen fil.
+    - iOS: Biomes `Notification.Usage/local` (`ProvenanceBiome.notificationUsage` och `notifications`, samma som
+      Härkomst): appen, titeln (för Snapchat avsändarens namn) och tiden, med händelsernas typer. Texten sparas inte där.
+      `ProactiveHarvesting.Notifications` var tom i labbtelefonen. iPhonen i `Snapchat Laboration` hade 90 notiser från
+      2026-09-30 till 2026-11-19.
+  - **Att dra med musen** (`pointerdown` och `pointermove` på `#c-device-body`, bara `pointerType` mouse): i sidled byter
+    hemskärmen sida (60 px räcker, ett kortare drag glider tillbaka), åt höger på de andra skärmarna går det tillbaka,
+    och i höjdled rullar listor och galleriet. Ett drag är inget klick (en lyssnare i fångstfasen stoppar klicket efter).
+    Finger och penna har webbläsarens egen rullning.
+  - **Bakgrunden**: på Android `system/users/0/wallpaper` och `wallpaper_lock` (en bildfil utan ändelse, känd på de
+    första byten, `imageType`), med komponenten ur `wallpaper_info.xml` (ABX). Hemskärmens bild läggs bakom sidorna,
+    förminskad till 720 bildpunkter; namnen står då i vitt med skugga. Saknas filen (som i de tre labbtelefonerna)
+    säger Inställningar → Bakgrund det, och utan `kwp` är låsskärmen samma som hemskärmen. På iOS 16 och senare ligger
+    bakgrunden i PosterBoard (`com.apple.springboard.plist` → `SBLockPoster` pekar på en konfiguration med
+    `RuntimeSnapshot-home.atx`, Apples egna texturer) och ritas inte.
+  - **Inställningar** är en lista som i telefonen, en del i taget, och varje rad säger fil och fält:
+    - iOS: Om telefonen (`ComputerName` i `SystemConfiguration/preferences.plist`, `SystemVersion.plist`, nummer, ICCID
+      och senaste nät i `com.apple.commcenter.plist`), Wi-Fi (`com.apple.wifi.known-networks.plist`: tillagt, senast
+      ansluten ur `BSSList[].LastAssociatedAt` eller `JoinedBy…At`, hur och av vilken app), Konton (`Accounts3.sqlite`,
+      ett per namn med sina slag) och Bakgrund.
+    - Android: Om telefonen (`device_name`, `default_device_name`, `android_id`, modell, version, säkerhetsuppdatering
+      och bygge ur `build.prop` i system, vendor, product och system_ext), Lägen (flygplansläge, Wi-Fi, Bluetooth,
+      mobildata, plats, automatisk tid, utvecklaralternativ, USB-felsökning, okända källor, skärmtid, textstorlek,
+      antal starter och tangentbord ur `settings_*.xml`, ABX från Android 12), Wi-Fi (`WifiConfigStore.xml` i text,
+      både `misc` och `misc_ce`; lösenordet visas inte, bara att det är sparat), Bluetooth (`bt_config.conf`:
+      telefonens namn och adress, och en del per parkopplad enhet), Konton (`accounts_ce.db`) och Bakgrund.
+    - Bara det som står i filen visas. En del vars fil saknas står som Inte läst.
   - **En app** visar sina chattar, den senaste först (`appThreads`), 200 i taget. En chatt öppnas i telefonvyn med
     knappen tillbaka (`#c-phone-back`) till appens lista. Lista över chatten lämnar telefonen.
-  - **Bilder** läser bildbiblioteket med Härkomsts roll `neighbours` över all tid: Photos.sqlite på iOS (bandet efter
-    schemat, `photosBandFromSchema`) och MediaStore på Android. `entryKey` kopplar raden till telefonens tumnagel
-    (`PhotoData/Thumbnails/V2/<mapp>/<fil>/5005.JPG`) och till filen i zippen. Saknas tumnageln förminskas
-    originalet (JPEG, PNG, GIF, WebP, BMP), och en HEIC utan tumnagel visas med förhandsbilden i filen (`Heic`).
+  - **Bilder** läser bildbiblioteket med rollen `gallery` (alla rader, med favorit, dold, papperskorgen, slag och
+    appen): Photos.sqlite på iOS (bandet efter schemat, `photosBandFromSchema`; iOS 10–13 saknar `ZKIND` och
+    `ZKINDSUBTYPE` i schemat från iLEAPP) och MediaStore på Android (`media_type` 1 och 3, med
+    `bucket_display_name`). Går rollen inte att köra (en MediaStore före Android 11 utan `is_favorite`) används
+    Härkomsts `neighbours`, och det står under Album. `entryKey` kopplar raden till telefonens tumnagel
+    (`PhotoData/Thumbnails/V2/<mapp>/<fil>/5005.JPG`) och till filen i zippen; på Android allt under
+    `data/media/<användare>/`. Saknas tumnageln förminskas originalet (JPEG, PNG, GIF, WebP, BMP), och en HEIC utan
+    tumnagel visas med förhandsbilden i filen (`Heic`).
+  - **Album** (flikarna Bibliotek och Album): egna album (iOS: rollen `albums` ur `ZGENERICALBUM`, med bilderna ur
+    kopplingstabellen `Z_<n>ASSETS` vars nummer skiljer mellan versioner och som läses ur schemat, `albumLinks`; iOS
+    17 har två; Android: mapparna), Mediatyper (videor, skärmdumpar `ZKINDSUBTYPE` 10, skärminspelningar 103,
+    favoriter), Sparat av app (`ZIMPORTEDBYBUNDLEIDENTIFIER` eller `owner_package_name`, med appens namn) och Övrigt
+    (dolda och Nyligen raderade, rödmarkerade). `galleryGroups`, `filterItems`. Alla urval utom Nyligen raderade
+    lämnar papperskorgen utanför, som telefonen; Bibliotek visar allt, med papperskorgen rödmarkerad och de dolda
+    märkta Dold. Omslaget är den senaste bilden i urvalet. Ett urval öppnas som galleri med knappen tillbaka till Album.
   - **Galleriet** (`ChatPhone.Gallery`) ritar bara raderna som syns och en skärm åt varje håll, med en rubrik per
     månad (`layout`, `rowsBetween`). Bilderna läses när rullningen har stannat i 120 ms, högst sex åt gången, och
     högst 400 hålls som blob-adresser (`UrlCache`, aldrig en som syns). Med 20 300 bilder: biblioteket läst på
     0,23 s, första skärmen på 0,5 s och 152 bilder lästa efter en snabb rullning genom 1 200 rader.
-  - **En bild** öppnar ett ark med tiden och kolumnen, filen i zippen, var bilden i galleriet kommer från,
-    papperskorgen, appen enligt databasen och källan. Bedöm i Härkomst skickar filnamnet dit (`names-for`).
+  - **En bild** öppnar ett ark med tiden och kolumnen, filen i zippen, var bilden i galleriet kommer från, märkena
+    (favorit, dold, skärmdump), papperskorgen, albumen, mappen, appen enligt databasen och källan. Bedöm i Härkomst
+    skickar filnamnet dit (`names-for`).
+  - Provat 2026-11-19 mot labbtelefonerna: iPhone med iOS 26.4.1 (`Snapchat Laboration`: fyra sidor, mappen Utilities,
+    83 Info.plist, två Wi-Fi-nät, tre konton, 56 bilder med albumen Snapchat och WhatsApp ur `Z_33ASSETS`), Samsung A33
+    med One UI på Android 16 (två sidor och dockan ur `OneUI.db`, mappen Google, Snapchat och Inställningar på sista
+    sidan, ett Wi-Fi-nät, fem konton, 11 bilder i mapparna Camera, Snapchat och Screenshots) och Pixel 9a
+    (`launcher_4_by_5.db`, två sidor, modellen ur `vendor/build.prop`). Ingen av dem hade en egen bakgrundsbild, så
+    bakgrunden på Android är bara provad i enhetstesterna.
   - I utskriften delas remsan i två spalter per A4-sida. Ramen är en `border-image` (en SVG ur `frameImage`) med
     `box-decoration-break: clone`: en kant ritas om i varje spalt och på varje sida, vilket en bakgrundsbild inte
     gör, och `position: sticky` fungerar inte i utskrift. Märkningen står därför i ramens fot i varje del.
@@ -2362,6 +2454,9 @@ i webbläsaren.
 1. Skapa `tools/<namn>/` med HTML (+ ev. JS/CSS)
 2. Ladda det delade skalet i `<head>` före verktygets `style.css`: `<script src="../_shared/toolkit.js"></script>`. Det sätter temat (från förälderns `?theme=`/`postMessage`) innan sidan målas — duplicera inte tema-koden per verktyg. Lyssnar verktyget på andra meddelanden (t.ex. `select-db`) behåller det sin egen lyssnare för just dem.
 3. Lägg till knapp i `Toolbox.html`: `data-type="frame"` och `data-src="tools/<namn>/..."`
+4. Är verktyget en annan vy av en befintlig sida (som Telefonen, `tools/chats/index.html?view=phone`): ge knappen
+   `data-key` med en egen nyckel, så får den en egen ram. Nyckeln är ramens namn i den fristående filen och står i
+   `CONTEXT_TOOLS` och `TOOL_PATH` om verktyget ska ha raden med extraktionen.
 
 ## Tester
 

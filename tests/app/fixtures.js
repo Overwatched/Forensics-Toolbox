@@ -298,6 +298,34 @@ function bplistDict(obj) {
 // En -wal med giltigt magiskt tal och sidstorlek men fel checksumma i huvudet: SQLite hoppar över den.
 // Byte utan mönster, men samma varje gång. Slumpade byte tolkar ExifTool ungefär en gång av hundra som en
 // MP3-fil, och då faller testet som väntar sig en fil som inte går att tolka.
+// En fil i Biome (SEGB version 2, som iOS 17 och senare skriver) med notiser i Notification.Usage: 1 händelsens id,
+// 2 notisens tid, 3 typen, 4 appen, 5 notisens id, 8 titeln. Samma form som i tools/provenance/biome.test.js.
+function biomeNotifications(list) {
+    const MAC = 978307200;
+    const varint = (n) => { const out = []; do { let b = n % 128; n = Math.floor(n / 128); if (n) b |= 0x80; out.push(b); } while (n); return out; };
+    const str = (f, t) => { const b = [...Buffer.from(t, 'utf8')]; return [...varint(f * 8 + 2), ...varint(b.length), ...b]; };
+    const dbl = (f, x) => { const b = Buffer.alloc(8); b.writeDoubleLE(x); return [...varint(f * 8 + 1), ...b]; };
+    const crcTable = Array.from({ length: 256 }, (_, n) => { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1; return c >>> 0; });
+    const crc = (b) => { let c = 0xffffffff; for (const x of b) c = crcTable[(c ^ x) & 0xff] ^ (c >>> 8); return (c ^ 0xffffffff) >>> 0; };
+    const buf = Buffer.alloc(4096);
+    buf.write('SEGB', 0, 'latin1');
+    buf.writeInt32LE(list.length, 4);
+    buf.writeDoubleLE(list[0].sec - MAC, 8);
+    let prev = 0;
+    list.forEach((n, k) => {
+        const data = Buffer.from([...str(1, 'E' + k), ...dbl(2, n.sec - MAC), ...varint(3 * 8), ...varint(17), ...str(4, n.app), ...str(5, 'N' + k), ...str(8, n.title)]);
+        const start = 32 + prev;
+        buf.writeUInt32LE(crc(data), start); buf.writeInt32LE(1, start + 4); data.copy(buf, start + 8);
+        const end = start + 8 + data.length - 32, at = buf.length - 16 * (k + 1);
+        buf.writeInt32LE(end, at); buf.writeInt32LE(1, at + 4); buf.writeDoubleLE(n.sec - MAC, at + 8);
+        prev = (end + 3) & ~3;
+    });
+    return buf;
+}
+
+// En plist i XML runt det som ges.
+function plistXml(inner) { return '<?xml version="1.0" encoding="UTF-8"?>\n<plist version="1.0">' + inner + '</plist>\n'; }
+
 function noise(length) {
     const parts = [];
     for (let i = 0; i * 32 < length; i++) parts.push(crypto.createHash('sha256').update('brus ' + i).digest());
@@ -686,6 +714,19 @@ async function build() {
         { name: P + 'Containers/Data/' + APP_TG + 'tmp/camphoto_123456.jpg', data: tgCamera, mtime: T3 + 300 },
         { name: 'filesystem1/private/var/containers/Shared/SystemGroup/' + GUID_PL + 'Library/BatteryLife/CurrentPowerlog.PLSQL', data: powerlog(SQL), deflate: true },
         { name: 'filesystem1/private/var/containers/Shared/SystemGroup/' + GUID_PL + 'Library/BatteryLife/CurrentPowerlog.PLSQL-wal', data: '' },
+        // Telefonen: hemskärmen (en widget, Bilder, WhatsApp och en mapp med Telegram på första sidan, Inställningar
+        // och Signal på den andra), telefonens namn, ett känt Wi-Fi-nät och WhatsApps Info.plist.
+        { name: P + 'Library/SpringBoard/IconState.plist', data: plistXml('<dict><key>iconLists</key><array><array>' +
+            '<dict><key>elements</key><array><dict><key>containerBundleIdentifier</key><string>com.apple.weather</string><key>widgetIdentifier</key><string>com.apple.weather</string></dict></array><key>gridSize</key><string>small</string><key>iconType</key><string>custom</string></dict>' +
+            '<string>com.apple.mobileslideshow</string><string>net.whatsapp.WhatsApp</string>' +
+            '<dict><key>displayName</key><string>Verktyg</string><key>listType</key><string>folder</string><key>iconLists</key><array><array><string>com.apple.calculator</string><string>ph.telegra.Telegraph</string></array></array></dict>' +
+            '</array><array><string>com.apple.Preferences</string><string>org.whispersystems.signal</string><string>com.example.okand</string></array></array>' +
+            '<key>buttonBar</key><array><string>com.apple.mobilephone</string><string>com.apple.MobileSMS</string></array></dict>') },
+        { name: 'filesystem1/private/var/preferences/SystemConfiguration/preferences.plist', data: plistXml('<dict><key>System</key><dict><key>System</key><dict><key>ComputerName</key><string>Testtelefon</string></dict></dict></dict>') },
+        { name: 'filesystem1/private/var/preferences/com.apple.wifi.known-networks.plist', data: plistXml('<dict><key>wifi.network.ssid.Labbnätet</key><dict><key>SSID</key><data>' + Buffer.from('Labbnätet').toString('base64') + '</data>' +
+            '<key>AddedAt</key><date>2024-05-01T10:00:00Z</date><key>JoinedByUserAt</key><date>2024-06-01T08:00:00Z</date><key>SupportedSecurityTypes</key><string>WPA2 Personal</string></dict></dict>') },
+        { name: P + 'Library/Biome/streams/restricted/Notification.Usage/local/739000000000000', data: biomeNotifications([{ sec: T2 + 60, app: 'net.whatsapp.WhatsApp', title: 'Kim' }, { sec: T2 + 120, app: 'org.whispersystems.signal', title: 'Lo' }]) },
+        { name: 'filesystem1/private/var/containers/Bundle/Application/11111111-2222-3333-4444-555555555555/WhatsApp.app/Info.plist', data: plistXml('<dict><key>CFBundleIdentifier</key><string>net.whatsapp.WhatsApp</string><key>CFBundleDisplayName</key><string>WhatsApp</string><key>CFBundleShortVersionString</key><string>25.1.0</string></dict>') },
     ];
     const zip = buildZip(entries);
     // Mappar för var nyckeln kan ligga. Zippen överst har ingen nyckelfil bredvid sig, så att det som väljs prövas.

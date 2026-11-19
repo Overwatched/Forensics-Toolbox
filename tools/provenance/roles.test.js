@@ -40,7 +40,7 @@ test('alla källor och roller finns', () => {
     assert.deepStrictEqual(Object.keys(byKey['snapchat-cache'].roles).sort(), ['cache-key', 'cache-memory', 'cache-window', 'coverage']);
     assert.strictEqual(byKey.photos.bands.length, 4);
     for (const band of byKey.photos.bands) {
-        assert.deepStrictEqual(Object.keys(band.roles).sort(), ['file', 'neighbours', 'sequence'], band.id);
+        assert.deepStrictEqual(Object.keys(band.roles).sort(), ['albums', 'file', 'gallery', 'neighbours', 'sequence'], band.id);
         assert.ok(band.roles.file.fields.created === 'ZDATECREATED');
         assert.strictEqual(band.roles.file.epoch, 'cocoa');
     }

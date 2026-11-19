@@ -678,7 +678,7 @@ const scenarios = [
         await c.nav('Härkomst');
         const ev = (e) => c.ev(PROV, e);
         const work = () => ev(`ProvenanceApp.work()`);
-        const queries = () => ev(`JSON.stringify(ProvenanceApp.meta().queries.map(q => [q.id, q.db, q.sql, [...q.times].sort()]))`);
+        const queries = () => ev(`JSON.stringify(ProvenanceApp.meta().queries.map(q => [q.id, q.db, q.sql, [...(q.times || [])].sort()]))`);
         const underlay = () => ev(`JSON.stringify([ProvenanceApp.model().factors, ProvenanceApp.model().explanation, ProvenanceApp.meta().exifRows, ProvenanceApp.meta().fileEntry])`);
         const single = async () => {
             await ev(`document.getElementById('filename').value = 'IMG_0006.JPG', document.getElementById('run').click(), 1`);
@@ -1338,7 +1338,7 @@ const scenarios = [
             sub: document.getElementById('c-device-sub').textContent, foot: document.getElementById('c-device-foot').textContent, frame: document.getElementById('c-device-phone').dataset.frame,
             back: !document.getElementById('c-device-back').classList.contains('display-none'), view: !document.getElementById('c-view').classList.contains('display-none'), empty: !document.getElementById('c-empty').classList.contains('display-none') })`);
         expect(home.d.shown && home.d.screen === 'home' && !home.view && !home.empty && !home.back && home.frame === 'ios' && home.foot === 'Rekonstruktion ur databaserna – inte en skärmbild', 'Hemskärmen: ' + JSON.stringify(home));
-        expect(home.apps.some((a) => /^WhatsApp, \d+ chattar?$/.test(a)) && home.apps.includes('Bilder, 10 bilder') && /appar med data$/.test(home.sub), 'Apparna på hemskärmen: ' + JSON.stringify(home.apps) + ' | ' + home.sub);
+        expect(home.apps.some((a) => /^WhatsApp, \d+ chattar?$/.test(a)) && home.apps.includes('Bilder, 10 bilder') && /^iOS · 2 sidor · IconState\.plist$/.test(home.sub), 'Apparna på hemskärmen: ' + JSON.stringify(home.apps) + ' | ' + home.sub);
         // WhatsApp: chattarna med HTML i namnet som text, och en chatt öppnas i telefonvyn med knappen tillbaka.
         await ev(`document.querySelector('[data-device-app="WhatsApp"]').click(), 1`);
         const rows = await ev(`[...document.querySelectorAll('#c-device-body .d-row b')].map(b => b.textContent)`);
@@ -1379,6 +1379,90 @@ const scenarios = [
         expect(await ev(`ChatsApp.look() === 'list' && !ChatsApp.device().on && document.getElementById('c-phone-back').classList.contains('display-none')`), 'Listvyn lämnade inte telefonen');
         await noInjectedScript(c);
         return home.apps.join(', ') + '; ' + g.drawn + ' av 10 bilder ritade, ' + g.months.length + ' månader';
+    }],
+
+    ['Telefonen: eget verktyg med hemskärmen ur IconState.plist, en mapp, Inställningar och album i Bilder', async ({ c }) => {
+        // Ramen känns igen på view=phone i adressen, och på sitt namn tools/phone i den fristående filen.
+        const PH = 'phone';
+        const ev = (e) => c.ev(PH, e);
+        await c.nav('Telefonen');
+        await c.waitFor(PH, `window.ChatsApp && ChatsApp.state().device.info && ChatsApp.state().device.info.state === 'ready' && ChatsApp.state().device.photos && ChatsApp.state().device.photos.state === 'ready'`, 60000, 'telefonens filer');
+        const home = await ev(`({ tool: document.body.classList.contains('phone-tool'), side: getComputedStyle(document.querySelector('.c-side')).display, title: document.getElementById('c-device-title').textContent,
+            sub: document.getElementById('c-device-sub').textContent, widget: [...document.querySelectorAll('#c-device-body .d-widget')].map(w => w.innerText.replace(/\\n/g, ' ')),
+            apps: [...document.querySelectorAll('#c-device-body .d-screen .d-app')].map(a => a.getAttribute('aria-label')), dock: [...document.querySelectorAll('#c-device-body .d-dock .d-app')].map(a => a.getAttribute('aria-label')),
+            dots: document.querySelectorAll('#c-device-body .d-dot').length })`);
+        expect(home.tool && home.side === 'none' && home.title === 'Testtelefon' && home.sub === 'iOS · 2 sidor · IconState.plist', 'Telefonen: ' + JSON.stringify(home));
+        expect(home.widget[0] === 'Väder Widget' && home.apps.includes('Bilder, 10 bilder') && home.apps.some((a) => /^WhatsApp, \d+ chattar?$/.test(a)) && home.apps.includes('Mappen Verktyg, 2 appar') && home.dock.join() === 'Telefon,Meddelanden' && home.dots === 2,
+            'Första sidan: ' + JSON.stringify(home));
+        // Notiserna: knappen överst öppnar låsskärmen med Biomes notiser, den senaste först.
+        await ev(`document.querySelector('[data-device-lock]').click(), 1`);
+        const lock = await ev(`({ screen: ChatsApp.device().screen, rows: [...document.querySelectorAll('#c-device-body .d-notif')].map(n => n.innerText.replace(/\\n/g, ' ')), note: document.querySelector('#c-device-body .d-note').textContent })`);
+        expect(lock.screen === 'lock' && lock.rows.length === 2 && /^Signal \d\d:\d\d Lo$/.test(lock.rows[0]) && /^WhatsApp \d\d:\d\d Kim$/.test(lock.rows[1]) && /Notification\.Usage/.test(lock.note), 'Låsskärmen: ' + JSON.stringify(lock));
+        await ev(`document.querySelector('[data-notif="0"]').click(), 1`);
+        const notif = await ev(`document.getElementById('c-device-sheet').innerText`);
+        expect(/org\.whispersystems\.signal/.test(notif) && /Notification\.Usage\/local\/739000000000000/.test(notif), 'Notisens ark: ' + notif);
+        await ev(`document.querySelector('[data-sheet-close]').click(), 1`);
+        await ev(`document.getElementById('c-device-back').click(), 1`);
+        // Mappen: Telegram i den har data och öppnar appens lista.
+        await ev(`document.querySelector('[data-folder]').click(), 1`);
+        const folder = await ev(`[...document.querySelectorAll('#c-device-sheet .d-app')].map(a => a.getAttribute('aria-label'))`);
+        expect(folder[0] === 'Kalkylator' && /^Telegram, \d+ chatt/.test(folder[1]), 'Mappen: ' + JSON.stringify(folder));
+        await ev(`document.querySelectorAll('#c-device-sheet .d-app')[1].click(), 1`);
+        expect(await ev(`ChatsApp.device().screen === 'app' && ChatsApp.device().app === 'Telegram' && document.getElementById('c-device-sheet').classList.contains('display-none')`), 'Telegram ur mappen öppnades inte');
+        await ev(`document.getElementById('c-device-back').click(), 1`);
+        // Dra med musen: åt vänster över hemskärmen ger sida två utan att något klickas, åt höger tillbaka.
+        const swipe = async (from, dx) => {
+            const f = await c.ev(null, `(function(){ const f = [...document.querySelectorAll('iframe')].find(f => (f.src.includes('view=phone') || f.name.includes('tools/phone')) && f.getBoundingClientRect().width > 0); const r = f.getBoundingClientRect(); return { x: r.left, y: r.top }; })()`);
+            const r = await ev(`(function(){ const r = document.querySelector(${JSON.stringify(from)}).getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; })()`);
+            const x = f.x + r.x, y = f.y + r.y;
+            await c.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x, y });
+            await c.send('Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button: 'left', buttons: 1, clickCount: 1 });
+            for (let n = 1; n <= 8; n++) { await c.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: x + dx * n / 8, y, button: 'left', buttons: 1 }); await sleep(15); }
+            await c.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: x + dx, y, button: 'left', buttons: 0, clickCount: 1 });
+            await sleep(300);
+        };
+        await swipe('[data-device-app="WhatsApp"]', -220);
+        expect(await ev(`ChatsApp.state().device.page === 1 && ChatsApp.device().screen === 'home' && document.getElementById('c-device-sheet').classList.contains('display-none')`), 'Draget åt vänster gav inte sida två, eller öppnade appen');
+        await swipe('[data-device-settings]', 220);
+        expect(await ev(`ChatsApp.state().device.page === 0 && ChatsApp.device().screen === 'home'`), 'Draget åt höger gick inte tillbaka till sida ett');
+        // Sida två: en app utan data visar ett ark, Inställningar öppnas.
+        await ev(`document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true })), 1`);
+        expect(await ev(`ChatsApp.state().device.page === 1 && !!document.querySelector('[data-device-settings]')`), 'Pil höger gick inte till sida två');
+        await ev(`document.querySelector('[data-home-app="com.example.okand"]').click(), 1`);
+        const sheet = await ev(`document.getElementById('c-device-sheet').innerText`);
+        expect(/okand/.test(sheet) && /com\.example\.okand/.test(sheet) && /sida 2/.test(sheet), 'Arket för en app utan data: ' + sheet);
+        await ev(`document.querySelector('[data-sheet-close]').click(), 1`);
+        await ev(`document.querySelector('[data-device-settings]').click(), 1`);
+        const sets = await ev(`[...document.querySelectorAll('#c-device-body .d-set')].map(b => b.innerText.replace(/\\n/g, ' '))`);
+        expect(sets[0].startsWith('Om telefonen') && sets.some((x) => /^Wi-Fi 1/.test(x)) && sets.some((x) => /^Konton Inte läst/.test(x)) && sets.some((x) => x.startsWith('Källor')), 'Inställningar: ' + JSON.stringify(sets));
+        await ev(`document.querySelector('[data-section="about"]').click(), 1`);
+        const about = await ev(`document.getElementById('c-device-body').innerText`);
+        // Ett drag åt höger går tillbaka, som knappen.
+        await swipe('.d-kv', 200);
+        expect(await ev(`ChatsApp.device().screen === 'settings'`), 'Draget åt höger gick inte tillbaka till Inställningar');
+        await ev(`document.querySelector('[data-section="about"]').click(), 1`);
+        expect(/Namn\s+Testtelefon\s+preferences\.plist · System\/System\/ComputerName/.test(about) && /Systemversion\s+17\.5\.1/.test(about), 'Om telefonen: ' + about);
+        await ev(`document.getElementById('c-device-back').click(), 1`);
+        await ev(`document.querySelector('[data-section="wifi"]').click(), 1`);
+        const wifi = await ev(`document.getElementById('c-device-body').innerText`);
+        expect(/Labbnätet/.test(wifi) && /WPA2 Personal · tillagt 2024-05-01/.test(wifi), 'Wi-Fi: ' + wifi);
+        await ev(`document.getElementById('c-device-back').click(), 1`);
+        await ev(`document.getElementById('c-device-back').click(), 1`);
+        // Bilder: Album visar urvalen, och ett urval ger ett galleri med färre bilder och vägen tillbaka till Album.
+        await ev(`ChatsApp.state().device.page = 0, document.querySelector('[data-page="0"]').click(), 1`);
+        await ev(`document.querySelector('[data-device-photos]').click(), 1`);
+        expect(await ev(`!document.getElementById('c-device-tabs').classList.contains('display-none')`), 'Flikarna i Bilder syns inte');
+        await ev(`document.querySelector('[data-device-tab="albums"]').click(), 1`);
+        const albums = await ev(`({ groups: [...document.querySelectorAll('#c-device-body .d-group')].map(h => h.textContent), first: (document.querySelector('[data-filter]') || {}).getAttribute && document.querySelector('[data-filter]').getAttribute('aria-label') })`);
+        expect(albums.groups.length >= 1 && albums.first, 'Album: ' + JSON.stringify(albums));
+        await ev(`document.querySelector('[data-filter]').click(), 1`);
+        await c.waitFor(PH, `ChatsApp.device().gallery && ChatsApp.device().gallery.tiles > 0`, 30000, 'urvalets bilder');
+        const pick = await ev(`({ tiles: ChatsApp.device().gallery.tiles, back: document.getElementById('c-device-back-text').textContent, tabs: document.getElementById('c-device-tabs').classList.contains('display-none') })`);
+        expect(pick.tiles === Number(/(\d+) bild/.exec(albums.first)[1]) && pick.back === 'Album' && pick.tabs, 'Urvalet: ' + JSON.stringify(pick) + ' ' + albums.first);
+        await ev(`document.getElementById('c-device-back').click(), 1`);
+        expect(await ev(`ChatsApp.device().screen === 'albums'`), 'Tillbaka gick inte till Album');
+        await noInjectedScript(c);
+        return home.apps.join(', ') + '; inställningar: ' + sets.join(', ') + '; album: ' + albums.groups.join(', ');
     }],
 
     ['HEIC: avkodaren laddas först när den behövs och ritar testfilen i Chattar, Härkomst och EXIF & karta, med förhandsbilden för listor', async ({ c }) => {

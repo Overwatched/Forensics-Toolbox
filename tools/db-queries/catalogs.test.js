@@ -219,7 +219,7 @@ test('rollqueryer för Härkomst: dolda, med epoch och fältkarta som stämmer m
     const roles = (list) => list.filter((q) => q.hidden && !/^chat-/.test(q.role)).map((q) => q.role).sort();
     for (const band of photos.bands) {
         const ids = new Set(band.queries.map((q) => q.id));
-        assert.deepStrictEqual(photos.questions.filter((q) => q.hidden && ids.has(q.id)).map((q) => q.role).sort(), ['file', 'neighbours', 'sequence'], 'photos-' + band.id);
+        assert.deepStrictEqual(photos.questions.filter((q) => q.hidden && ids.has(q.id)).map((q) => q.role).sort(), ['albums', 'file', 'gallery', 'neighbours', 'sequence'], 'photos-' + band.id);
     }
     assert.deepStrictEqual(roles(appUsage.databases.find((d) => d.id === 'knowledgec').queries), ['app-infocus', 'app-usage', 'coverage', 'lock', 'screen']);
     assert.deepStrictEqual(roles(appUsage.databases.find((d) => d.id === 'wellbeing').queries), ['app-events', 'coverage']);
@@ -228,7 +228,7 @@ test('rollqueryer för Härkomst: dolda, med epoch och fältkarta som stämmer m
     assert.deepStrictEqual(roles(snapchat.databases.find((d) => d.id === 'snapchat-arroyo').queries), ['conversation-members', 'coverage', 'messages']);
     assert.deepStrictEqual(roles(snapchat.databases.find((d) => d.id === 'snapchat-friends').queries), ['friends', 'save-setting']);
     assert.deepStrictEqual(roles(snapchat.databases.find((d) => d.id === 'snapchat-notifications').queries), ['coverage', 'notifications']);
-    assert.deepStrictEqual(roles(android.categories.find((c) => c.id === 'mediastore').queries), ['file', 'media-extra', 'neighbours']);
+    assert.deepStrictEqual(roles(android.categories.find((c) => c.id === 'mediastore').queries), ['file', 'gallery', 'media-extra', 'neighbours']);
 });
 
 // Extraktion: databaserna hittas i en zip på sökvägarna i "paths". De skrivs utan inledande /
