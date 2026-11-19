@@ -1,7 +1,7 @@
 // Facit mot laborationerna Snapchat Memories: Härkomst bedömer Snapchats filer i galleriet och sparade snaps på sitt id,
 // och det som programmet säger jämförs med vad som gjordes. OnePlus (Android, 2026-11-16): två hela extraktioner, före och
 // efter en ominstallation, i FT_LAB_MEMORIES_DIR eller ~/Documents/Exampleextractions. iPhone (iOS, 2026-11-19): en hel
-// extraktion efter två laborationer, i FT_LAB_MEMORIES_IOS_DIR eller ~/Desktop/vm-images/Snapchat Laboration.
+// extraktion efter två laborationer, i FT_LAB_MEMORIES_IOS_DIR eller ~/Desktop/vm-images/1 Labbar/2026-11-19 iPhone - Snapchat Memories.
 // Körs bara när zipparna finns. Läser bara zipparna.
 'use strict';
 

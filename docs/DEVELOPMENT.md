@@ -696,7 +696,7 @@ iOS 26.4.1, steg L38; Samsung med Android 16, steg L40), med en sparad snap per 
 Labbtelefonen (iPhone, iOS 26.4.1, Snapchat 14.30.0.59), flödet `docs/labbar/snapchat-memories-iphone-del1.json` två
 gånger i rad, och en hel extraktion med nyckelringen efter båda. I den första var telefonen i
 flygplansläge fram till S09. Facit: `tests/app/facit/lab-snapchat-memories-iphone.json`, körs med
-`npm run test:app -- --memories` när zippen finns (`FT_LAB_MEMORIES_IOS_DIR`, annars `~/Desktop/vm-images/Snapchat Laboration`).
+`npm run test:app -- --memories` när zippen finns (`FT_LAB_MEMORIES_IOS_DIR`, annars `~/Desktop/vm-images/1 Labbar/2026-11-19 iPhone - Snapchat Memories`).
 
 - **Video:** `ZMEDIATYPE` var 0 för både bild och video. `ZMEDIAFORMAT` 0 är video och 1 bild, och en video har
   `ZSERVLETMEDIAFORMAT` tom och `ZDURATION` som längden (en bild har 10). `ProvenanceSnapchat.isVideoMemory`.

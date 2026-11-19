@@ -15,7 +15,7 @@
 //   npm run test:app -- --facit     bara labbtesterna (kräver minst en labbzipp)
 //   npm run test:app -- --samsung   bara Samsungs loggar (kräver FT_LAB_SAMSUNG_REPORT eller FT_LAB_SAMSUNG_ZIP)
 //   npm run test:app -- --memories  bara laborationerna Snapchat Memories (OnePlus: FT_LAB_MEMORIES_DIR eller ~/Documents/Exampleextractions;
-//                                   iPhone: FT_LAB_MEMORIES_IOS_DIR eller ~/Desktop/vm-images/Snapchat Laboration)
+//                                   iPhone: FT_LAB_MEMORIES_IOS_DIR eller ~/Desktop/vm-images/1 Labbar/2026-11-19 iPhone - Snapchat Memories)
 //   FT_SHOTS=<mapp>                 skärmdumpar efter varje del
 //   FT_ONLY=<text>                  bara delarna med den texten i namnet, medan man arbetar med en av dem
 'use strict';
