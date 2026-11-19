@@ -230,19 +230,36 @@
         });
         this.relayout();
     }
+    // En rullningslist som tar plats (Windows, 15 px) kan komma och gå när höjden ändras, och då ändras bredden igen.
+    // Omräkningen görs därför en gång åt gången: en ändring under den ritas med den bredd som gäller efteråt.
     Gallery.prototype.relayout = function () {
+        if (this.laying) return;
         var w = this.box.clientWidth;
         if (!w) return;
+        this.laying = true;
         this.width = w;
-        this.lay = layout(this.o.items, w, { cols: this.o.cols || 4, gap: 2, headH: 34, monthOf: this.o.monthOf });
+        var opts = { cols: this.o.cols || 4, gap: 2, headH: 34, monthOf: this.o.monthOf };
+        this.lay = layout(this.o.items, w, opts);
         this.space.style.height = this.lay.height + 'px';
+        // Kom eller gick rullningslisten med den nya höjden räknas raderna om en gång med den bredd som blev kvar.
+        var w2 = this.box.clientWidth;
+        if (w2 && w2 !== w) { this.lay = layout(this.o.items, w2, opts); this.space.style.height = this.lay.height + 'px'; }
         this.drawn.forEach(function (el) { el.remove(); });
         this.drawn.clear();
+        this.width = this.box.clientWidth || w;
+        this.laying = false;
         this.paint(true);
     };
     Gallery.prototype.paint = function (now) {
         if (this.gone) return;
-        if (this.box.clientWidth !== this.width) return this.relayout();
+        // Högst en omräkning per bildruta: en bredd som växlar fram och tillbaka ritas med den senaste i stället för
+        // att räknas om utan slut.
+        if (this.box.clientWidth !== this.width && !this.justLaid) {
+            var self0 = this;
+            this.justLaid = true;
+            requestAnimationFrame(function () { self0.justLaid = false; });
+            return this.relayout();
+        }
         var top = this.box.scrollTop, h = this.box.clientHeight, lay = this.lay, self = this;
         var span = rowsBetween(lay.rows, Math.max(0, top - h), top + 2 * h);
         this.drawn.forEach(function (el, r) { if (r < span[0] || r >= span[1]) { el.remove(); self.drawn.delete(r); } });

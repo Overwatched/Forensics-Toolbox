@@ -325,7 +325,7 @@ body {
 .c-device .c-stage.phone { flex: 1; }
 .c-back { flex: none; font: inherit; font-size: .9em; font-weight: 600; color: var(--accent); background: none; border: none; border-radius: 8px; padding: .25em .35em; cursor: pointer; white-space: nowrap; }
 .c-back:hover { background: var(--surface-hover); }
-.c-device-body { flex: 1; min-height: 0; overflow-y: auto; position: relative; background: var(--surface); scrollbar-width: thin; }
+.c-device-body { flex: 1; min-height: 0; overflow-y: auto; position: relative; background: var(--surface); scrollbar-width: thin; scrollbar-gutter: stable; }
 .c-device-body.home { background: linear-gradient(165deg, color-mix(in srgb, var(--accent) 16%, var(--surface)), color-mix(in srgb, var(--accent) 5%, var(--bg))); padding: 1.1em 1em 1em; display: flex; flex-direction: column; gap: 1.2em; }
 .d-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1.1em .4em; }
 .d-app { display: flex; flex-direction: column; align-items: center; gap: .35em; font: inherit; color: var(--text); background: none; border: none; padding: 0; cursor: pointer; min-width: 0; }

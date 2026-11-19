@@ -1333,7 +1333,7 @@ const scenarios = [
         await c.waitFor(CHAT, `!ChatsApp.busy() && document.querySelectorAll('.c-item').length > 0`, 60000, 'konversationerna');
         expect(await ev(`!document.getElementById('c-device-open').classList.contains('display-none')`), 'Knappen Telefonen syns inte med en extraktion öppen');
         await ev(`document.getElementById('c-device-open').click(), 1`);
-        await c.waitFor(CHAT, `ChatsApp.device().photos && ChatsApp.device().photos.state === 'ready'`, 60000, 'bildbiblioteket');
+        await c.waitFor(CHAT, `ChatsApp.device().photos && ChatsApp.device().photos.state === 'ready' && ChatsApp.state().device.info && ChatsApp.state().device.info.state === 'ready'`, 60000, 'bildbiblioteket och hemskärmen');
         const home = await ev(`({ d: ChatsApp.device(), apps: [...document.querySelectorAll('#c-device-body .d-app')].map(a => a.getAttribute('aria-label')), title: document.getElementById('c-device-title').textContent,
             sub: document.getElementById('c-device-sub').textContent, foot: document.getElementById('c-device-foot').textContent, frame: document.getElementById('c-device-phone').dataset.frame,
             back: !document.getElementById('c-device-back').classList.contains('display-none'), view: !document.getElementById('c-view').classList.contains('display-none'), empty: !document.getElementById('c-empty').classList.contains('display-none') })`);
@@ -1450,7 +1450,12 @@ const scenarios = [
         await ev(`document.getElementById('c-device-back').click(), 1`);
         // Bilder: Album visar urvalen, och ett urval ger ett galleri med färre bilder och vägen tillbaka till Album.
         await ev(`ChatsApp.state().device.page = 0, document.querySelector('[data-page="0"]').click(), 1`);
+        // En rullningslist som tar plats, som i Windows: galleriet får inte räkna om sig i en slinga när den kommer och går.
+        // Bredden växlar varje gång den läses, värre än en lista som kommer och går (CI:s Windows 2026-11-19).
+        await ev(`(function(){ let n = 0; Object.defineProperty(document.getElementById('c-device-body'), 'clientWidth', { configurable: true, get() { return n++ % 2 ? 380 : 395; } }); return 1; })()`);
         await ev(`document.querySelector('[data-device-photos]').click(), 1`);
+        await c.waitFor(PH, `ChatsApp.device().gallery && ChatsApp.device().gallery.tiles > 0`, 30000, 'galleriet med en bred rullningslist');
+        await ev(`delete document.getElementById('c-device-body').clientWidth, 1`);
         expect(await ev(`!document.getElementById('c-device-tabs').classList.contains('display-none')`), 'Flikarna i Bilder syns inte');
         await ev(`document.querySelector('[data-device-tab="albums"]').click(), 1`);
         const albums = await ev(`({ groups: [...document.querySelectorAll('#c-device-body .d-group')].map(h => h.textContent), first: (document.querySelector('[data-filter]') || {}).getAttribute && document.querySelector('[data-filter]').getAttribute('aria-label') })`);
