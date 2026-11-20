@@ -1,5 +1,10 @@
 Automatiskt byggd från commit `{{SHA}}`.
 
+## Nytt i 1.83
+
+- **Kontrollerat på en labbtelefon (Android):** flygplansläge, Wi-Fi, Bluetooth, plats, mörkt läge och Stör ej, och i Signal läskvitton, skrivindikator, länkförhandsvisning, skärmskydd, inkognitotangentbord, stories, försvinnande meddelanden som standard och vem som ser och hittar numret. Raderna är märkta ✓ Labb. Bluetooth som sparats på under flygplansläge visas som det, och försvinnande meddelanden i veckor visas i ord.
+- **Snapchats spöksläge (Snap Map) på Android:** om det är på, när det slutar (eller att det gäller tills det stängs av), när det ändrades och vem som ser platsen. Kontrollerat i labb.
+
 ## Nytt i 1.82
 
 - **Appinställningar i Telefonen:** WhatsApp, Signal och Snapchat visar vad appen sparat om kontot, sekretessen (läskvitton, senast sedd, vem som ser numret), försvinnande meddelanden, säkerhetskopiering och länkade enheter. Varje rad säger vilken fil och vilket fält den kommer ur och är märkt ✓ Labb (kontrollerad i en labb) eller Ej verifierad. Kontrollerat hittills: Snapchats Spara till, Signals länkade enheter på iPhone och Signals registrering på Android. Nås från appens lista, Inställningar → Appar och sökningen.
