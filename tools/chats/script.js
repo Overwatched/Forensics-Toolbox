@@ -2377,8 +2377,21 @@
         body.style.backgroundImage = wall ? 'url("' + wall + '")' : '';
         var notifs = info && info.notifications;
         var pill = notifs ? '<button type="button" class="d-pill" data-device-lock="1" title="Låsskärmen med notiserna. Dra nedåt från överkanten, som i telefonen.">' + esc(many(notifs.length, 'notis', 'notiser')) + ' ›</button>' : '';
-        body.innerHTML = pill + '<div class="d-screen">' + html + '</div>' + dots + dock +
+        body.innerHTML = '<div class="d-home">' + pill + '<div class="d-screen">' + html + '</div>' + dots + dock + '</div>' +
             '<p class="d-note">' + esc(sources) + 'Siffran är antalet chattar eller bilder som lästes ur appens databas. Appar utan data i ' + esc(Z()) + ' går att trycka på men öppnas inte. ' + (info && Object.keys(info.icons || {}).length ? 'Ikonerna är telefonens egna ur launcherns app_icons.db, och verktygets där telefonen inte hade någon' : 'Ikonerna är verktygets egna') + (wall ? '; bakgrunden är telefonens egen bild' : '') + '.</p>';
+        fitHome(body);
+    }
+
+    // Hemskärmen fyller telefonens skärm: sidan, prickarna och dockan syns utan att rulla. Ett större rutnät
+    // (till exempel 5 × 6 på en stor Samsung) ritas mindre så att det får plats; noten står under.
+    function fitHome(body) {
+        var scr = body.querySelector('.d-home .d-screen');
+        if (!scr) return;
+        scr.style.fontSize = '';
+        var h = scr.clientHeight, w = scr.clientWidth, nh = scr.scrollHeight, nw = scr.scrollWidth;
+        if (!h || !w) return;
+        var k = Math.min(1, h / nh, w / nw);
+        if (k < 1) scr.style.fontSize = Math.max(0.6, Math.floor(k * 100) / 100) + 'em';
     }
 
     function renderAppList(body) {
@@ -2898,6 +2911,7 @@
     // egen rullning, så bara musen hanteras här.
     var drag = null, SWIPE = 60;
     var deviceBody = $('c-device-body');
+    if (window.ResizeObserver) new ResizeObserver(function () { if (state.device.on && state.device.screen === 'home') fitHome(deviceBody); }).observe(deviceBody);
     deviceBody.addEventListener('pointerdown', function (e) {
         if (e.pointerType !== 'mouse' || e.button !== 0) return;
         drag = { id: e.pointerId, x: e.clientX, y: e.clientY, top: deviceBody.scrollTop, axis: '', moved: false };

@@ -1,5 +1,10 @@
 Automatiskt byggd från commit `{{SHA}}`.
 
+## Nytt i 1.79
+
+- **Telefonen är större** och ryms alltid hel: storleken följer fönstrets höjd. Ett större rutnät på hemskärmen, som på en stor Samsung, ritas så att hela sidan och dockan syns utan att rulla.
+- **Laboration** har ett nytt färdigt flöde, SMS, samtal och kontakter: SMS och MMS åt båda håll, samtal som besvaras, missas och avvisas, och kontakter som läggs till, ändras och raderas.
+
 ## Nytt i 1.78
 
 **Telefonen är ett eget verktyg: extraktionen som en telefon, med hemskärmen, låsskärmen, Bilder och Inställningar.**

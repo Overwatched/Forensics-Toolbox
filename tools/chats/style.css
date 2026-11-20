@@ -294,9 +294,11 @@ body {
 .c-latest:hover { background: var(--surface-hover); }
 .c-stage.phone .c-latest { bottom: 2.8em; right: 1em; font-size: .8em; }
 .c-phone-head, .c-phone-foot { display: none; }
-.c-stage.phone { align-items: center; justify-content: center; padding: 14px; background: var(--bg); }
+/* Telefonen så stor som fönstrets höjd tillåter (10–24 px per em), lika stor i Telefonen och i en chatt. Där ytan är
+   lägre (chatten har en rad överst) blir ramen kortare, och där den är smalare blir telefonen mindre. */
+.c-stage.phone { align-items: center; justify-content: center; padding: 8px; background: var(--bg); container-type: size; overflow: hidden; }
 .c-stage.phone .c-phone {
-    flex: 0 1 54em; width: 25.9em; max-width: 100%; font-size: 16px; overflow: hidden; background: var(--surface);
+    flex: none; height: min(52em, calc(100cqh - 16px)); width: 25.9em; max-width: 100%; font-size: clamp(10px, min(calc((100vh - 96px) / 52), calc((100cqw - 16px) / 25.9)), 24px); overflow: hidden; background: var(--surface);
     border: .65em solid #111114; border-radius: 3em; box-shadow: 0 0 0 1px var(--border-hover), 0 12px 30px rgba(0, 0, 0, .35);
 }
 .c-stage.phone .c-phone-head { display: flex; align-items: center; gap: .6em; position: relative; padding: 2.9em .9em .55em; background: var(--surface); border-bottom: 1px solid var(--border); }
@@ -311,7 +313,7 @@ body {
 .c-phone-names b, .c-phone-names small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .c-phone-names small { font-size: .75em; color: var(--text-muted); }
 .c-stage.phone .c-phone-foot { display: block; text-align: center; font-size: .75em; color: var(--text-muted); background: var(--surface); border-top: 1px solid var(--border); padding: .55em .8em .8em; }
-.c-stage.phone .c-msgs { font-size: 16px; padding: 4px .6em .7em; scrollbar-width: thin; }
+.c-stage.phone .c-msgs { font-size: 1em; padding: 4px .6em .7em; scrollbar-width: thin; }
 .c-stage.phone .c-day span { font-size: .75em; }
 .c-stage.phone .b { max-width: 78%; border-radius: 1.1em; padding: .4em .7em .3em; }
 .c-stage.phone .m.sys .b { max-width: 88%; font-size: .78em; }
@@ -358,7 +360,9 @@ body {
 .g-tile.trashed { outline: 2px solid var(--error); outline-offset: -2px; }
 /* Hemskärmen: sidorna i telefonens rutnät, mappar, widgetar, sidprickarna och dockan. Med telefonens egen bakgrund
    (Android) står namnen i vitt med skugga. */
-.d-screen { flex: 1; display: flex; flex-direction: column; gap: 1.2em; }
+.d-home { flex: 0 0 100%; min-height: 0; display: flex; flex-direction: column; gap: 1.2em; }
+.d-screen { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 1.2em; }
+.d-home .d-screen { overflow: hidden; }
 .d-page { display: grid; gap: 1.1em .4em; grid-auto-rows: minmax(4.9em, auto); align-content: start; }
 .d-cell { display: flex; justify-content: center; min-width: 0; }
 .d-cell .d-app { width: 100%; }

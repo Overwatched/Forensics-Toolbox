@@ -1531,6 +1531,10 @@ senare.
       används den som ändrades senast och har `favorites`.
     - Utan fil visas apparna med data som förut. Apparna med data som inte ligger på hemskärmen (i applådan eller
       appbiblioteket), och Inställningar, får en sista sida "Med data, inte på hemskärmen".
+    - Storleken: telefonen är 25,9 × 52 em och em följer fönstrets höjd (10–24 px, `.c-stage.phone` är en container
+      och bredden `cqw` begränsar). Chattens yta är lägre, så där blir ramen kortare men lika bred. Sidan, prickarna
+      och dockan ligger i `.d-home`, som fyller skärmen; noten står under. `fitHome` ritar sidan mindre (ned till
+      0,6) när rutnätet inte ryms, till exempel 5 × 6 eller 6 × 7 på en stor Samsung, och körs igen när ytan ändras.
     - Apparna med data öppnas (`roleOf`: bundle-id och paket för WhatsApp, Signal, Telegram och Snapchat, Bilder och
       Inställningar). WhatsApp Business har en egen databas och räknas inte som WhatsApp. En annan app visar ett ark
       med id:t, platsen och var namnet kommer ifrån. En mapp öppnas i ett ark, och en app i den öppnas därifrån.

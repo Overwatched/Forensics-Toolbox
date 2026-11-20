@@ -1239,12 +1239,12 @@ const scenarios = [
         expect(before.look === 'list' && !before.stage && !before.head && before.foot === '' && before.pressed === 'true,false', 'Listan från början: ' + JSON.stringify(before));
         expect(before.atEnd && before.lastShown, 'Chatten står inte vid sitt slut: ' + JSON.stringify(before));
 
-        // Telefon: ramen har en telefons bredd, huvudet säger vem chatten är med och foten vad vyn är.
+        // Telefon: ramen har en telefons bredd (efter fönstrets höjd), huvudet säger vem chatten är med och foten vad vyn är.
         // Chatten står kvar vid sitt slut.
         await click('c-look-phone');
         const phone = await read();
         expect(phone.look === 'phone' && phone.stage && phone.pressed === 'false,true', 'Efter Telefon: ' + JSON.stringify(phone));
-        expect(phone.frame === 'ios' && Math.abs(phone.width - 414.4) < 1, 'Ramen: ' + phone.frame + ', ' + phone.width + ' px');
+        expect(phone.frame === 'ios' && phone.width >= 400 && phone.width <= 560, 'Ramen: ' + phone.frame + ', ' + phone.width + ' px');
         expect(phone.head && phone.avatar === 'L' && phone.name === 'Långa chatten' && phone.sub === '2@lid', 'Huvudet: ' + JSON.stringify(phone));
         expect(phone.foot === LABEL, 'Foten: ' + phone.foot);
         expect(phone.atEnd && phone.lastShown, 'Chatten står inte kvar vid slutet: ' + JSON.stringify(phone));

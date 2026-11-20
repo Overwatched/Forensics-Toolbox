@@ -2,6 +2,18 @@
 
 Flöden till verktyget Laboration. Öppna verktyget och välj **Öppna fil…** på startsidan, under Ny laboration. Flödet går att ändra innan labben börjar. Spara loggen när labben är klar och lägg den bredvid extraktionerna.
 
+## SMS, samtal och kontakter (förberedd 2026-11-20)
+
+Ligger bland de färdiga flödena på startsidan i Laboration: **SMS, samtal och kontakter**. Två telefoner, och telefon 1 extraheras. Labben ger rader till det som bara är prövat mot scheman: `mmssms.db`, `calllog.db` och `contacts2.db` var tomma i alla Android-extraktioner vi har (Google Meddelanden, `bugle_db`, är prövad).
+
+| Steg | Vad det prövar |
+|---|---|
+| Två kontakter läggs till, den ena ändras och den andra raderas | `contacts2.db`: `raw_contacts`, `data`, `deleted_contacts`; namnet på numret i samtal och chattar |
+| SMS ut och in, läst, MMS med bild, ett SMS som raderas | `mmssms.db` (`sms`, `pdu`, `part`) och `bugle_db`; RCS ska vara av |
+| Samtal besvarat, missat, avvisat och utan svar, ett samtal raderas | `calllog.db`: `type` 1, 2, 3 och 5, längden och att en raderad rad är borta |
+
+På iPhone fungerar samma flöde (Meddelanden, Telefon och Kontakter); steget om RCS hoppas över.
+
 ## Snapchat Memories (förberedd 2026-11-16)
 
 Två telefoner, en iPhone och en Samsung, som är vänner i Snapchat. Labben ger data till det programmet ännu inte har prövat för Memories. Den sparade snap som programmet är byggt mot är en enda bild per telefon (labben 2026-11-11, steg L38 och L40).
