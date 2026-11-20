@@ -2,6 +2,21 @@
 
 Flöden till verktyget Laboration. Öppna verktyget och välj **Öppna fil…** på startsidan, under Ny laboration. Flödet går att ändra innan labben börjar. Spara loggen när labben är klar och lägg den bredvid extraktionerna.
 
+## Egna appar och webben, iPhone och Samsung (förberedd 2026-11-20)
+
+`egna-appar-och-webben.json` (48 steg, koder W01–W48, ungefär en timme). Finns också bland de färdiga flödena. Båda telefonerna extraheras efteråt. Labben täcker flödet SMS, samtal och kontakter nedan på båda telefonerna och dessutom webben:
+
+| Steg | Vad det prövar |
+|---|---|
+| Kontakter läggs till, ändras och raderas på båda | `AddressBook.sqlitedb` och `contacts2.db` med raderade |
+| SMS och MMS åt båda håll, ett raderat på varje telefon | `sms.db` (Nyligen raderade), `mmssms.db` och `bugle_db` |
+| Samtal besvarat, missat och avvisat åt båda håll, ett raderat på varje | `CallHistory.storedata` och `calllog.db` |
+| Chrome: skriven adress, sökning med koden, länk, nedladdad bild, inkognito, ett besök borttaget | `History`: övergångar, `keyword_search_terms`, `downloads` med hänvisning, att inkognito inte sparas |
+| Samsung Internet: sökning och sparad bild | Samma format, och bildens koppling till nedladdningen i Härkomst |
+| Safari: sökning, bild till Bilder, hämtad fil, flikgrupp, privat flik, ett besök borttaget | `History.db` (`history_tombstones`), `SafariTabs.db`, `Downloads.plist` och bilden i Photos.sqlite |
+
+Skriv artiklarnas namn i anteckningarna, så att bilderna går att känna igen.
+
 ## SMS, samtal och kontakter (förberedd 2026-11-20)
 
 Ligger bland de färdiga flödena på startsidan i Laboration: **SMS, samtal och kontakter**. Två telefoner, och telefon 1 extraheras. Labben ger rader till det som bara är prövat mot scheman: `mmssms.db`, `calllog.db` och `contacts2.db` var tomma i alla Android-extraktioner vi har (Google Meddelanden, `bugle_db`, är prövad).

@@ -578,6 +578,69 @@
                 { action: 'custom', on: 0, app: 'Kontakter', do: 'Radera kontakten som slutar på Radera.', done: 'Raderade kontakten Radera.', press: 'när kontakten är raderad', wait: 60 },
                 { action: 'home-lock', on: 0 },
             ] } },
+        { id: 'egna-appar-webben', label: 'Telefonens egna appar och webben (iPhone och Samsung)', desc: 'En labb för båda telefonerna, som extraheras efteråt: kontakter, SMS och MMS åt båda håll med raderade, samtal som besvaras, missas och avvisas, och webben i Safari, Chrome och Samsung Internet med sökningar, nedladdade bilder, privata flikar och raderad historik.',
+            devices: ['iPhone', 'Samsung'], apps: [], blocks: ['clock-start', 'clock-end'],
+            groups: [
+                { title: 'Kontakter', app: 'Kontakter', steps: [
+                    { action: 'custom', on: 0, with: 1, do: 'Lägg till en kontakt med namnet {kod} Labb, numret till {andra} som mobil och e-postadressen labb@example.com.', done: 'Lade till kontakten {kod} Labb med numret till {andra}.', press: 'när kontakten är sparad', wait: 30 },
+                    { action: 'custom', on: 1, with: 0, do: 'Lägg till en kontakt med namnet {kod} Labb, numret till {andra} som mobil och e-postadressen labb@example.com.', done: 'Lade till kontakten {kod} Labb med numret till {andra}.', press: 'när kontakten är sparad', wait: 30 },
+                    { action: 'custom', on: 0, do: 'Lägg till en kontakt med namnet {kod} Radera och numret 070-000 00 01.', done: 'Lade till kontakten {kod} Radera.', press: 'när kontakten är sparad', wait: 30 },
+                    { action: 'custom', on: 1, do: 'Lägg till en kontakt med namnet {kod} Radera och numret 070-000 00 02.', done: 'Lade till kontakten {kod} Radera.', press: 'när kontakten är sparad', wait: 60 },
+                ] },
+                { title: 'SMS och MMS', app: 'Meddelanden', steps: [
+                    { action: 'custom', on: 1, do: 'Öppna Meddelanden och se i inställningarna att chattfunktionerna (RCS) är av, så att meddelandena går som SMS och MMS.', done: 'Chattfunktionerna i Meddelanden var av.', press: 'när det är kontrollerat' },
+                    { action: 'text', on: 1, with: 0, wait: 60 },
+                    { action: 'reply', on: 0, with: 1, wait: 60 },
+                    { action: 'read', on: 1, with: 0, wait: 60 },
+                    { action: 'photo', on: 0 },
+                    { action: 'photo-library', on: 0, with: 1, wait: 60 },
+                    { action: 'photo', on: 1 },
+                    { action: 'photo-library', on: 1, with: 0, wait: 60 },
+                    { action: 'text-delete', on: 1, with: 0, wait: 60 },
+                    { action: 'custom', on: 0, do: 'Radera meddelandet {förra} raderas i tråden. Det hamnar i Nyligen raderade och ska ligga kvar där.', done: 'Raderade meddelandet {förra} raderas i Meddelanden.', press: 'när det är raderat', wait: 60 },
+                    { action: 'text-delete', on: 0, with: 1, wait: 60 },
+                    { action: 'custom', on: 1, do: 'Radera meddelandet {förra} raderas i tråden.', done: 'Raderade meddelandet {förra} raderas i Meddelanden.', press: 'när det är raderat', wait: 60 },
+                ] },
+                { title: 'Samtal', app: 'Telefon', steps: [
+                    { action: 'call-answer', on: 0, with: 1, wait: 60 },
+                    { action: 'call', on: 1, with: 0, wait: 60 },
+                    { action: 'call', on: 0, with: 1, wait: 60 },
+                    { action: 'custom', on: 1, with: 0, do: 'Ring {andra}. Avvisa samtalet på {andra} med den röda knappen.', done: 'Ringde {andra}. Samtalet avvisades på {andra}.', press: 'när samtalet är avvisat', wait: 60 },
+                    { action: 'custom', on: 0, with: 1, do: 'Ring {andra}. Avvisa samtalet på {andra} med den röda knappen.', done: 'Ringde {andra}. Samtalet avvisades på {andra}.', press: 'när samtalet är avvisat', wait: 60 },
+                    { action: 'custom', on: 0, do: 'Radera det senaste samtalet i samtalslistan.', done: 'Raderade det senaste samtalet i samtalslistan.', press: 'när samtalet är raderat', wait: 30 },
+                    { action: 'custom', on: 1, do: 'Radera det senaste samtalet i samtalslistan.', done: 'Raderade det senaste samtalet i samtalslistan.', press: 'när samtalet är raderat', wait: 60 },
+                ] },
+                { title: 'Kontakter ändras och raderas', app: 'Kontakter', steps: [
+                    { action: 'custom', on: 0, do: 'Öppna kontakten som slutar på Labb och skriv {kod} som företag.', done: 'Skrev {kod} som företag på kontakten Labb.', press: 'när kontakten är sparad', wait: 30 },
+                    { action: 'custom', on: 1, do: 'Öppna kontakten som slutar på Labb och skriv {kod} som företag.', done: 'Skrev {kod} som företag på kontakten Labb.', press: 'när kontakten är sparad', wait: 30 },
+                    { action: 'custom', on: 0, do: 'Radera kontakten som slutar på Radera.', done: 'Raderade kontakten Radera.', press: 'när kontakten är raderad', wait: 30 },
+                    { action: 'custom', on: 1, do: 'Radera kontakten som slutar på Radera.', done: 'Raderade kontakten Radera.', press: 'när kontakten är raderad', wait: 60 },
+                ] },
+                { title: 'Webben i Chrome', app: 'Chrome', steps: [
+                    { action: 'custom', on: 1, do: 'Öppna Chrome, skriv wikipedia.org i adressfältet och öppna sidan.', done: 'Skrev wikipedia.org i adressfältet i Chrome.', press: 'när sidan är öppen', wait: 30 },
+                    { action: 'custom', on: 1, do: 'Sök på {kod} labb i adressfältet.', done: 'Sökte på {kod} labb i adressfältet i Chrome.', press: 'när sökresultatet visas', wait: 30 },
+                    { action: 'custom', on: 1, do: 'Gå till en artikel på Wikipedia med en bild och tryck på en länk i texten.', done: 'Tryckte på en länk i en artikel på Wikipedia i Chrome.', press: 'när sidan är öppen', wait: 30 },
+                    { action: 'custom', on: 1, do: 'Håll fingret på en bild i artikeln och välj Ladda ned bild. Skriv artikelns namn i anteckningarna.', done: 'Laddade ned en bild ur en artikel i Chrome.', press: 'när nedladdningen är klar', wait: 60 },
+                    { action: 'custom', on: 1, do: 'Öppna en inkognitoflik, sök på {kod} inkognito och öppna ett av resultaten. Stäng inte fliken.', done: 'Sökte på {kod} inkognito i en inkognitoflik i Chrome.', press: 'när sidan är öppen', wait: 30 },
+                    { action: 'custom', on: 1, do: 'Öppna historiken i Chrome och ta bort besöket på wikipedia.org (bara det).', done: 'Tog bort besöket på wikipedia.org ur historiken i Chrome.', press: 'när besöket är borttaget', wait: 60 },
+                ] },
+                { title: 'Webben i Samsung Internet', app: 'Samsung Internet', steps: [
+                    { action: 'custom', on: 1, do: 'Öppna Samsung Internet och sök på {kod} internet i adressfältet.', done: 'Sökte på {kod} internet i Samsung Internet.', press: 'när sökresultatet visas', wait: 30 },
+                    { action: 'custom', on: 1, do: 'Öppna en annan artikel på Wikipedia, håll fingret på en bild och välj Spara bild. Skriv artikelns namn i anteckningarna.', done: 'Sparade en bild ur en artikel i Samsung Internet.', press: 'när bilden är sparad', wait: 60 },
+                ] },
+                { title: 'Webben i Safari', app: 'Safari', steps: [
+                    { action: 'custom', on: 0, do: 'Öppna Safari och sök på {kod} safari i adressfältet.', done: 'Sökte på {kod} safari i Safari.', press: 'när sökresultatet visas', wait: 30 },
+                    { action: 'custom', on: 0, do: 'Öppna en artikel på Wikipedia med en bild, håll fingret på bilden och välj Lägg till i Bilder. Skriv artikelns namn i anteckningarna.', done: 'Sparade en bild ur en artikel i Safari till Bilder.', press: 'när bilden är sparad', wait: 60 },
+                    { action: 'custom', on: 0, do: 'Tryck på bilden i artikeln, öppna originalfilen och välj Hämta, så att den hamnar under Hämtningar i Safari.', done: 'Hämtade originalbilden i Safari (Hämtningar).', press: 'när hämtningen är klar', wait: 60 },
+                    { action: 'custom', on: 0, do: 'Skapa en flikgrupp med namnet {kod} grupp och öppna example.com i den.', done: 'Skapade flikgruppen {kod} grupp i Safari med example.com.', press: 'när sidan är öppen', wait: 30 },
+                    { action: 'custom', on: 0, do: 'Öppna en privat flik, sök på {kod} privat och öppna ett av resultaten. Stäng inte fliken.', done: 'Sökte på {kod} privat i en privat flik i Safari.', press: 'när sidan är öppen', wait: 30 },
+                    { action: 'custom', on: 0, do: 'Gå tillbaka till vanliga flikar. Öppna historiken (bokmärkesknappen, klockan) och ta bort besöket på example.com genom att svepa åt vänster på raden.', done: 'Tog bort besöket på example.com ur historiken i Safari.', press: 'när besöket är borttaget', wait: 60 },
+                ] },
+                { title: 'Till sist', app: '', steps: [
+                    { action: 'home-lock', on: 0 },
+                    { action: 'home-lock', on: 1 },
+                ] },
+            ] },
         { id: 'standard', label: 'Det mesta på en gång', desc: 'Chattar i WhatsApp och Signal, kamera, lås och avstängning: standardflödet med två telefoner.',
             devices: ['Telefon 1', 'Telefon 2'], apps: ['WhatsApp', 'Signal'], blocks: ['clock-start', 'chat-text', 'chat-media', 'chat-group', 'chat-delete', 'camera', 'lock-power', 'clock-end'] },
     ];
@@ -586,20 +649,22 @@
         var r = READY.filter(function (x) { return x.id === id; })[0];
         if (!r) return null;
         var flow = buildFlow({ name: name || r.label, prefix: 'L', devices: r.devices, pair: [0, 1], apps: r.apps, blocks: r.blocks });
-        if (r.own) {
+        // Egna grupper (own, eller flera i groups) läggs efter den första gruppen, i ordning.
+        var own = r.own ? [r.own] : r.groups || [];
+        var ids = flow.devices.map(function (d) { return d.id; });
+        own.forEach(function (grp, gi) {
             // on och with är enheternas plats i listan: den som gör steget och motparten.
-            var ids = flow.devices.map(function (d) { return d.id; });
-            var g = addGroup(flow, { title: r.own.title, app: r.own.app, a: ids[0], b: ids[1] }, Math.min(1, flow.groups.length));
-            r.own.steps.forEach(function (x) {
+            var g = addGroup(flow, { title: grp.title, app: grp.app, a: ids[0], b: ids[1] }, Math.min(1 + gi, flow.groups.length));
+            grp.steps.forEach(function (x) {
                 var a = ACTION[x.action] || ACTION.custom, o = Object.assign({}, x);
                 if (o.on != null) o.device = ids[o.on];
                 if (o.with != null) o.other = ids[o.with];
                 delete o.on;
                 delete o.with;
                 delete o.action;
-                addStep(flow, a.id, Object.assign({ group: g.id }, a.chat || a.needsApp || a.id === 'custom' ? { app: r.own.app } : {}, o));
+                addStep(flow, a.id, Object.assign({ group: g.id }, a.chat || a.needsApp || a.id === 'custom' ? { app: grp.app } : {}, o));
             });
-        }
+        });
         return flow;
     }
 
