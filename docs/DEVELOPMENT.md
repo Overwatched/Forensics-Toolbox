@@ -2667,6 +2667,10 @@ inklistrade koordinater. EXIF kan skicka synliga positioner dit via hubben.
   en omgång (`marks`): fönstren slås ihop där de går omlott, och varje position säger närmaste bild och hur långt före
   eller efter. Knappen finns bara för filer (en bild ur EXIF eller en rad med filnamn), inte för telefonens egna
   positioner.
+- **Videor på kartan** (2026-11-20): EXIF gör miniatyren ur en bildruta en halv sekund in i filmen (`videoFrame`;
+  provat med en iPhone-MOV ur labbet). Queries tar telefonens egen miniatyr av en video på iPhone
+  (`PhotoData/Thumbnails/V2/<mapp>/<fil>/5005.JPG`, den största), annars en bildruta ur videon (högst 300 MB). Memories
+  på kartan får en bildruta ur den dekrypterade videon. Cachens poster med firstframe gäller reklam, inte Memories.
 - **Täta positioner** (Punkter → Täta positioner): en per källa och intervall (1, 5, 10, 30 eller 60 min), den med bäst
   noggrannhet. Bilder och punkter utan tid visas alltid, och antalet dolda står i raden överst. Sparas i vyn (`thin`).
 - **Återkopplingen** står som en ruta mitt överst på kartan (`notify(text, 'busy' | 'ok' | 'error')`): busy med snurra,

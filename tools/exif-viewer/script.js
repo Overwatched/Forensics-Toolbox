@@ -337,7 +337,41 @@
 
     // En liten bild åt listan och kartan för en fil ur extraktionen, så att innehållet inte ligger kvar i minnet.
     var THUMB_SIDE = 240;
+    // En video får en miniatyr ur en bildruta en bit in i filmen (Chromium spelar H.264 och VP9; HEVC går ofta inte,
+    // och då blir det ingen miniatyr).
+    function videoFrame(file) {
+        return new Promise(function (resolve) {
+            var url = URL.createObjectURL(file), v = document.createElement('video'), done = false;
+            var finish = function (blob) {
+                if (done) return;
+                done = true;
+                URL.revokeObjectURL(url);
+                v.removeAttribute('src');
+                try { v.load(); } catch (e) { /* redan stängd */ }
+                resolve(blob || null);
+            };
+            v.muted = true;
+            v.preload = 'auto';
+            v.playsInline = true;
+            v.onloadeddata = function () { try { v.currentTime = Math.min(0.5, (v.duration || 1) / 4); } catch (e) { finish(null); } };
+            v.onseeked = function () {
+                try {
+                    var k = Math.min(1, THUMB_SIDE / Math.max(v.videoWidth, v.videoHeight, 1));
+                    var c = document.createElement('canvas');
+                    c.width = Math.max(1, Math.round(v.videoWidth * k));
+                    c.height = Math.max(1, Math.round(v.videoHeight * k));
+                    c.getContext('2d').drawImage(v, 0, 0, c.width, c.height);
+                    c.toBlob(finish, 'image/jpeg', 0.8);
+                } catch (e) { finish(null); }
+            };
+            v.onerror = function () { finish(null); };
+            setTimeout(function () { finish(null); }, 8000);
+            v.src = url;
+        });
+    }
+
     function smallImage(file) {
+        if (/^video\//i.test(file.type || '') || /\.(mp4|mov|m4v|webm|mkv|avi)$/i.test(file.name || '')) return videoFrame(file);
         // HEIC ritas inte av webbläsaren: filens egen förhandsbild avkodas (tools/_shared/heic.js).
         if (window.Heic && Heic.isName(file.name)) {
             return file.arrayBuffer().then(function (b) {
@@ -491,7 +525,7 @@
             publish(row);
             if (held && showMedia && !row.thumb && mediaKind(row) === 'image') keepThumb(row, held);
             // En lokal HEIC-fil får en liten JPEG-bild åt kartan, som inte kan rita HEIC.
-            else if (row.file && !row.thumb && row.summary && row.summary.position && !DRAWABLE.test(row.file.type || '') && mediaKind(row) === 'image') keepThumb(row, row.file);
+            else if (row.file && !row.thumb && row.summary && row.summary.position && !DRAWABLE.test(row.file.type || '') && (mediaKind(row) === 'image' || mediaKind(row) === 'video')) keepThumb(row, row.file);
             noteParse(row, from);
             updateProgress();
             scheduleRender();
@@ -1461,7 +1495,7 @@
             source: 'forensics-toolbox', type: 'positions', layerKey: 'exif', layerName: 'EXIF-bilder',
             points: pts, focusExifId: focusExifId,
         }, '*');
-        var missing = pts.filter(function (p) { return !p.file && mediaKind(byId[p.id]) === 'image'; }).map(function (p) { return byId[p.id]; });
+        var missing = pts.filter(function (p) { var k = mediaKind(byId[p.id]); return !p.file && (k === 'image' || k === 'video'); }).map(function (p) { return byId[p.id]; });
         var text = pts.length + (pts.length === 1 ? ' bild öppnades' : ' bilder öppnades') + ' i Positioner';
         if (missing.length) text += '. Miniatyrerna kommer efter hand.';
         showToast(text);

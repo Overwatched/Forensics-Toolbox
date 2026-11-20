@@ -649,19 +649,25 @@
     var THUMB_SIDE = 360;
     var THUMB_MAX = 500;
     var IMAGE_NAME = /\.(jpe?g|png|gif|webp|heic|heif|hif|avif|bmp)$/i;
+    var VIDEO_NAME = /\.(mov|mp4|m4v|3gp|webm|mkv)$/i;
+    // Telefonens egen miniatyr av en video på iPhone: PhotoData/Thumbnails/V2/<mapp>/<filnamn>/5005.JPG.
+    var PHOTOS_THUMB = /\/thumbnails\/v2\/(.+)\/([^/]+)\/\d+\.jpg$/i;
     var thumbSeq = 0;
     // Filerna med de namnen i zippen: förteckningen gås igenom en gång till, eftersom Queries bara sparar databaserna.
     async function entriesNamed(from, paths) {
         var want = new Set(paths.map(function (p) { p = String(p).toLowerCase(); return p.slice(p.lastIndexOf('/') + 1); }));
         var list = await ExtractionCore.find(from.read, from.file.size, function (name) {
-            var n = String(name).toLowerCase();
-            return IMAGE_NAME.test(n) && want.has(n.slice(n.lastIndexOf('/') + 1));
+            var n = String(name).toLowerCase(), t = PHOTOS_THUMB.exec(n);
+            if (t) return want.has(t[2]);
+            return (IMAGE_NAME.test(n) || VIDEO_NAME.test(n)) && want.has(n.slice(n.lastIndexOf('/') + 1));
         });
+        // En videos miniaturer läggs under videons namn med prefixet thumb:, den största först.
         var map = new Map();
         list.forEach(function (e) {
-            var n = String(e.name).toLowerCase(), key = n.slice(n.lastIndexOf('/') + 1);
+            var n = String(e.name).toLowerCase(), t = PHOTOS_THUMB.exec(n), key = t ? 'thumb:' + t[2] : n.slice(n.lastIndexOf('/') + 1);
             if (map.has(key)) map.get(key).push(e); else map.set(key, [e]);
         });
+        map.forEach(function (v, k) { if (/^thumb:/.test(k)) v.sort(function (a, b) { return (b.size || 0) - (a.size || 0); }); });
         return map;
     }
     function entryFor(index, path) {
@@ -672,9 +678,32 @@
         return list.find(function (e) { return String(e.name).toLowerCase().endsWith(tail); })
             || list.find(function (e) { return /\/dcim\//i.test(e.name); }) || list[0];
     }
+    // En bildruta en bit in i en video (H.264 och VP9; HEVC spelas ofta inte, och då blir det ingen).
+    function videoFrame(bytes) {
+        return new Promise(function (resolve) {
+            var url = URL.createObjectURL(new Blob([bytes], { type: 'video/mp4' })), v = document.createElement('video'), done = false;
+            var finish = function (blob) { if (done) return; done = true; URL.revokeObjectURL(url); v.removeAttribute('src'); resolve(blob || null); };
+            v.muted = true;
+            v.preload = 'auto';
+            v.onloadeddata = function () { try { v.currentTime = Math.min(0.5, (v.duration || 1) / 4); } catch (e) { finish(null); } };
+            v.onseeked = function () {
+                try {
+                    var k = Math.min(1, THUMB_SIDE / Math.max(v.videoWidth, v.videoHeight, 1)), c = document.createElement('canvas');
+                    c.width = Math.max(1, Math.round(v.videoWidth * k));
+                    c.height = Math.max(1, Math.round(v.videoHeight * k));
+                    c.getContext('2d').drawImage(v, 0, 0, c.width, c.height);
+                    c.toBlob(finish, 'image/jpeg', 0.85);
+                } catch (e) { finish(null); }
+            };
+            v.onerror = function () { finish(null); };
+            setTimeout(function () { finish(null); }, 8000);
+            v.src = url;
+        });
+    }
     async function smallJpeg(bytes, name) {
         var blob;
-        if (window.Heic && Heic.is(bytes)) blob = (await Heic.toJpeg(bytes, { preview: true, maxSide: THUMB_SIDE })).blob;
+        if (VIDEO_NAME.test(name || '')) blob = await videoFrame(bytes);
+        else if (window.Heic && Heic.is(bytes)) blob = (await Heic.toJpeg(bytes, { preview: true, maxSide: THUMB_SIDE })).blob;
         else {
             var bmp = await createImageBitmap(new Blob([bytes]));
             var k = Math.min(1, THUMB_SIDE / Math.max(bmp.width, bmp.height, 1));
@@ -690,7 +719,7 @@
     async function mapThumbs(layerKey, items) {
         if (!current || window.parent === window) return;
         var seq = ++thumbSeq, from = current, batch = {}, count = 0, last = Date.now();
-        items = items.filter(function (it) { return IMAGE_NAME.test(it.path); }).slice(0, THUMB_MAX);
+        items = items.filter(function (it) { return IMAGE_NAME.test(it.path) || VIDEO_NAME.test(it.path); }).slice(0, THUMB_MAX);
         if (!items.length) return;
         var index = await entriesNamed(from, items.map(function (it) { return it.path; }));
         var flush = function () {
@@ -700,10 +729,13 @@
         };
         for (var i = 0; i < items.length; i++) {
             if (seq !== thumbSeq || current !== from) return;
-            var entry = entryFor(index, items[i].path);
-            if (!entry) continue;
+            var base = items[i].path.slice(items[i].path.lastIndexOf('/') + 1);
+            // En video: telefonens egen miniatyr om den finns, annars en bildruta ur videon (högst 300 MB).
+            var thumbs = VIDEO_NAME.test(base) ? index.get('thumb:' + base.toLowerCase()) : null;
+            var entry = thumbs && thumbs.length ? thumbs[0] : entryFor(index, items[i].path);
+            if (!entry || (!thumbs && VIDEO_NAME.test(base) && entry.size > 300 * 1048576)) continue;
             try {
-                var file = await smallJpeg((await ExtractionCore.readEntry(from.read, entry)).bytes, items[i].path.slice(items[i].path.lastIndexOf('/') + 1));
+                var file = await smallJpeg((await ExtractionCore.readEntry(from.read, entry)).bytes, thumbs && thumbs.length ? base + '.jpg' : base);
                 if (file) { batch[items[i].key] = file; count++; }
             } catch (err) { /* en fil som inte går att rita får ingen miniatyr */ }
             if (count >= 25 || Date.now() - last > 1200) flush();

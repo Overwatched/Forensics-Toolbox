@@ -3063,7 +3063,21 @@
         var ext = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'video/mp4': 'mp4' }[type] || 'bin';
         return new File([bytes], 'snapchat-memory-' + m.id + '.' + ext, { type: type || 'application/octet-stream', lastModified: m.captureMs || 0 });
     }
-    // Minnena med position till Positioner, med en liten bild för varje bild.
+    // En bildruta en bit in i en video, som bild att rita (H.264; HEVC spelas ofta inte, och då kastas ett fel).
+    function videoFrameBitmap(bytes) {
+        return new Promise(function (resolve, reject) {
+            var url = URL.createObjectURL(new Blob([bytes], { type: 'video/mp4' })), v = document.createElement('video'), done = false;
+            var finish = function (val, err) { if (done) return; done = true; URL.revokeObjectURL(url); v.removeAttribute('src'); if (err) reject(err); else resolve(val); };
+            v.muted = true;
+            v.preload = 'auto';
+            v.onloadeddata = function () { try { v.currentTime = Math.min(0.5, (v.duration || 1) / 4); } catch (e) { finish(null, e); } };
+            v.onseeked = function () { createImageBitmap(v).then(function (b) { finish(b); }, function (e) { finish(null, e); }); };
+            v.onerror = function () { finish(null, new Error('Videon går inte att spela här.')); };
+            setTimeout(function () { finish(null, new Error('Videon laddades inte.')); }, 8000);
+            v.src = url;
+        });
+    }
+    // Minnena med position till Positioner, med en liten bild för varje bild och video.
     async function memoriesToMap() {
         var S = state.device.memories;
         var list = S.list.filter(function (m) { return m.lat !== null; });
@@ -3071,10 +3085,10 @@
         var points = [];
         for (var i = 0; i < list.length; i++) {
             var m = list[i], file = null;
-            if (m.kind === 'bild' && m.key && m.media && S.files[m.media]) {
+            if (m.key && m.media && S.files[m.media]) {
                 try {
                     var bytes = await memoryBytes(m, 'media');
-                    var bmp = await createImageBitmap(new Blob([bytes]));
+                    var bmp = /^video\//.test(Memories.mime(bytes)) ? await videoFrameBitmap(bytes) : await createImageBitmap(new Blob([bytes]));
                     var k = Math.min(1, 360 / Math.max(bmp.width, bmp.height));
                     var cv = document.createElement('canvas');
                     cv.width = Math.round(bmp.width * k); cv.height = Math.round(bmp.height * k);
