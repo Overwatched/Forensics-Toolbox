@@ -739,10 +739,10 @@
         return { items: layers.length ? [n + (n === 1 ? ' punkt' : ' punkter') + ' i ' + layers.length + (layers.length === 1 ? ' källa' : ' källor')] : [] };
     });
 
-    ensureMap().show();
-
     // För provkörningen (tests/app): punkterna med vilken fil som kan visas som miniatyr, också utan WebGL.
     window.PositionsApp = {
         points: function () { return visiblePoints().map(function (p) { return { exifId: p.exifId, name: p.name, file: p.file ? p.file.type || '' : '' }; }); },
     };
+
+    ensureMap().show();
 })();
