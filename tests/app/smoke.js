@@ -1780,8 +1780,8 @@ const scenarios = [
         await c.ev('exif-viewer/index.html', `document.getElementById('to-positions').click(), 1`);
         await c.waitFor('positions/index.html', `/lades till som källan EXIF-bilder/.test(document.body.innerText)`, 15000, 'bilderna i Positioner');
         await c.ev('positions/index.html', `(function(){ [...document.querySelectorAll('button')].find(x => /Anpassa standard/.test(x.textContent)).click(); const r = document.querySelector('.map-editor-row[data-key=thumb] input'); if (!r.checked) r.click(); [...document.querySelectorAll('.map-editor button')].find(x => x.textContent.trim() === 'Klar').click(); return 1; })()`);
-        // Varje punkt har en fil som kan visas (JPEG). Bubblorna ritas bara där kartan kan ritas (WebGL2, inte i CI).
-        const pts = await c.waitFor('positions/index.html', `(function(){ const p = PositionsApp.points(); return p.length >= 20 && p.every(x => /^image\\/(jpeg|png)$/.test(x.file)) && p; })()`, 20000, 'miniatyrerna på punkterna').catch(async (err) => {
+        // Varje bild från EXIF har en fil som kan visas (JPEG); andra källor i Positioner räknas inte. Bubblorna ritas bara där kartan kan ritas (WebGL2, inte i CI).
+        const pts = await c.waitFor('positions/index.html', `(function(){ const p = PositionsApp.points().filter(x => x.exifId !== undefined && x.exifId !== null); return p.length >= 20 && p.every(x => /^image\\/(jpeg|png)$/.test(x.file)) && p; })()`, 20000, 'miniatyrerna på punkterna').catch(async (err) => {
             throw new Error(err.message + ': ' + await c.ev('positions/index.html', `JSON.stringify(window.PositionsApp ? PositionsApp.points().map(x => x.name + ' ' + x.file) : 'ingen PositionsApp')`));
         });
         // Kartan ritar bubblor för punkterna i fönstret (inte alla i ett litet fönster): varje ritad bubbla har sin miniatyr.
