@@ -1780,8 +1780,13 @@ const scenarios = [
         await c.ev('exif-viewer/index.html', `document.getElementById('to-positions').click(), 1`);
         await c.waitFor('positions/index.html', `/lades till som källan EXIF-bilder/.test(document.body.innerText)`, 15000, 'bilderna i Positioner');
         await c.ev('positions/index.html', `(function(){ [...document.querySelectorAll('button')].find(x => /Anpassa standard/.test(x.textContent)).click(); const r = document.querySelector('.map-editor-row[data-key=thumb] input'); if (!r.checked) r.click(); [...document.querySelectorAll('.map-editor button')].find(x => x.textContent.trim() === 'Klar').click(); return 1; })()`);
-        const thumbs = await c.waitFor('positions/index.html', `(function(){ const n = Number((/(\\d+) bilder lades till/.exec(document.body.innerText) || [])[1]); const im = [...document.querySelectorAll('.ft-bubble-thumb')].filter(i => i.complete && i.naturalWidth > 0); return n && im.length === n && { n, drawn: im.length }; })()`, 20000, 'miniatyrerna i bubblorna');
-        expect(thumbs.n >= 20, 'Miniatyrer: ' + JSON.stringify(thumbs));
+        // Varje punkt har en fil som kan visas (JPEG). Bubblorna ritas bara där kartan kan ritas (WebGL2, inte i CI).
+        const pts = await c.waitFor('positions/index.html', `(function(){ const p = PositionsApp.points(); return p.length >= 20 && p.every(x => /^image\\/(jpeg|png)$/.test(x.file)) && p; })()`, 20000, 'miniatyrerna på punkterna');
+        // Kartan ritar bubblor för punkterna i fönstret (inte alla i ett litet fönster): varje ritad bubbla har sin miniatyr.
+        const thumbs = await c.waitFor('positions/index.html', `(function(){ if (/saknar WebGL2/.test(document.body.innerText)) return { bubbles: 0, drawn: 'ingen karta' };
+            const b = document.querySelectorAll('.ft-bubble').length, im = [...document.querySelectorAll('.ft-bubble-thumb')].filter(i => i.complete && i.naturalWidth > 0).length;
+            return b > 0 && im === b && { bubbles: b, drawn: im }; })()`, 20000, 'miniatyrerna i bubblorna');
+        expect(thumbs.bubbles <= pts.length, 'Miniatyrer: ' + JSON.stringify(thumbs) + ' för ' + pts.length + ' punkter');
         await c.nav('Positioner');
         await c.ev('positions/index.html', `document.getElementById('fill-sample').click(), 1`);
         await sleep(1500);

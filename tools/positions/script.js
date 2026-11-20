@@ -740,4 +740,9 @@
     });
 
     ensureMap().show();
+
+    // För provkörningen (tests/app): punkterna med vilken fil som kan visas som miniatyr, också utan WebGL.
+    window.PositionsApp = {
+        points: function () { return visiblePoints().map(function (p) { return { exifId: p.exifId, name: p.name, file: p.file ? p.file.type || '' : '' }; }); },
+    };
 })();
