@@ -1,5 +1,10 @@
 Automatiskt byggd från commit `{{SHA}}`.
 
+## Nytt i 1.82
+
+- **Appinställningar i Telefonen:** WhatsApp, Signal och Snapchat visar vad appen sparat om kontot, sekretessen (läskvitton, senast sedd, vem som ser numret), försvinnande meddelanden, säkerhetskopiering och länkade enheter. Varje rad säger vilken fil och vilket fält den kommer ur och är märkt ✓ Labb (kontrollerad i en labb) eller Ej verifierad. Kontrollerat hittills: Snapchats Spara till, Signals länkade enheter på iPhone och Signals registrering på Android. Nås från appens lista, Inställningar → Appar och sökningen.
+- **Kontrollcenter:** statusraden överst på hemskärmen, eller ett drag nedåt från överkanten, visar telefonens lägen som rutor (flygplansläge, Wi-Fi, Bluetooth, mobildata, plats, Fokus eller Stör ej, mörkt läge). Varje ruta leder till sin rad i Inställningar med fil och fält. Android visar också Mörkt läge och Stör ej under Lägen.
+
 ## Nytt i 1.81
 
 - **Kartans miniatyrer kommer fram igen:** bilder från EXIF & karta får sin miniatyr i Positioner, också HEIC-bilder, filer ur en extraktion och listor med fler än 50 bilder. Miniatyrerna som saknas görs efteråt och fylls på medan kartan visas.
