@@ -213,7 +213,7 @@ const BUBBLE_POINT = {
 
 test('standardbubblan följer panelens kryssrutor och har miniatyren först', () => {
     const cfg = map.defaultBubble({ thumb: true, time: true, name: true });
-    assert.deepStrictEqual(cfg.items.map((i) => i.key), ['thumb', 'time', 'name', 'device', 'app', 'pos', 'accuracy', 'note']);
+    assert.deepStrictEqual(cfg.items.map((i) => i.key), ['thumb', 'time', 'name', 'device', 'app', 'type', 'pos', 'accuracy', 'note']);
     assert.deepStrictEqual(map.bubbleParts(BUBBLE_POINT, cfg, ''), [
         { thumb: true }, { text: '2024-06-01 14:30' }, { text: 'IMG_4101.JPG' },
     ]);
@@ -408,4 +408,15 @@ test('summarizeTrack: en position som ska synas visas också inne i en vistelse;
     assert.deepStrictEqual(short.map((x) => x.kind), ['point']);
     assert.deepStrictEqual(map.summarizeTrack([]), []);
     assert.strictEqual(map.SUMMARY.radius, 100);
+});
+
+test('rutt per enhet: en punkt utan enhet räknas till sin källa', () => {
+    const at = (h) => ({ sort: '2024-06-01 ' + h + ':00', zone: 'UTC', text: h });
+    const list = [
+        { id: 1, lat: 59.3, lon: 18.0, taken: at('10:00'), device: 'iPhone', layer: 'EXIF' },
+        { id: 2, lat: 59.31, lon: 18.01, taken: at('10:05'), device: '', layer: 'Photos.sqlite' },
+        { id: 3, lat: 59.32, lon: 18.02, taken: at('10:10'), device: '', layer: 'Photos.sqlite' },
+    ];
+    assert.deepStrictEqual(map.routesBy(list, 'device').map((g) => g.name), ['iPhone', 'Photos.sqlite']);
+    assert.strictEqual(map.bubbleParts({ type: 'gps', lat: 1, lon: 2 }, map.defaultBubble({ type: true }), '')[0].text, 'gps');
 });

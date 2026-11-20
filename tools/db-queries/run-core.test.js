@@ -122,3 +122,22 @@ test('positioner: radens övriga kolumner följer med till punktens ruta', () =>
     const out = run.toPoints(cols, [['2024-06-01 14:00:00', '2024-06-01 15:00:00', 59.33, 18.06, 8, 1, new Uint8Array(3), '', null]], { importer: imp });
     assert.deepStrictEqual(out.points[0].extra, [['konfidens', '1'], ['blob', '(blob, 3 byte)']]);
 });
+
+test('positioner: en rad om en bild heter som filen och får tiden ur datumkolumnen', () => {
+    const cols = ['ZFILENAME', 'ZDATECREATED', 'ZTIMEZONENAME', 'ZLATITUDE', 'ZLONGITUDE', 'ZDIRECTORY'];
+    const out = run.toPoints(cols, [['IMG_0071.HEIC', '2026-11-19 08:34:03', 'GMT+0100', 59.33, 18.04, 'DCIM/100APPLE']], { importer: imp, source: 'Photos.sqlite' });
+    const p = out.points[0];
+    assert.strictEqual(p.name, 'IMG_0071.HEIC');
+    assert.strictEqual(p.path, 'DCIM/100APPLE/IMG_0071.HEIC');
+    assert.strictEqual(p.taken.text, '2026-11-19 08:34:03');
+    assert.strictEqual(p.taken.kind, 'Tid (ZDATECREATED)');
+    assert.strictEqual(p.device, '');
+    assert.strictEqual(p.row, 1);
+    assert.deepStrictEqual(p.extra, [['ZTIMEZONENAME', 'GMT+0100']]);
+    // Utan filnamn: Rad och radens nummer, inte queryns titel. Rubins källa (gps, wifi) är punktens typ.
+    const r = run.toPoints(['lat', 'lon', 'tid', 'kalla'], [[59.3, 18.0, '2026-01-01 10:00:00', 'gps'], [59.3, 18.0, null, null]], { importer: imp, title: 'Var togs bilden?' });
+    assert.strictEqual(r.points[0].name, 'gps 1');
+    assert.strictEqual(r.points[0].type, 'gps');
+    assert.strictEqual(r.points[1].name, 'Rad 2');
+    assert.strictEqual(run.toPoints(['date_added', 'last_update', 'lat', 'lon'], [[null, 1, 59, 18]], { importer: imp }).columns.time, 0);
+});

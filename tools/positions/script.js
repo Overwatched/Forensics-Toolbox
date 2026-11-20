@@ -88,7 +88,8 @@
 
     function redraw() {
         var points = visiblePoints();
-        var note = points.length + ' punkter i ' + layers.filter(function (l) { return l.visible; }).length + ' källor.';
+        var shownLayers = layers.filter(function (l) { return l.visible; }).length;
+        var note = points.length + (points.length === 1 ? ' punkt' : ' punkter') + ' i ' + shownLayers + (shownLayers === 1 ? ' källa.' : ' källor.');
         if (mapView) mapView.setPoints(points, note);
         fillRouteSpan();
     }
@@ -157,7 +158,6 @@
             p.color = layer.color;
             p.layer = layer.name;
             p.layerId = layer.id;
-            if (!p.device) p.device = layer.name;
             // Varje fil numrerar sina punkter från 1. Kartan behöver id som är unika
             // över alla källor, annars döljs och tas fel punkter bort.
             p.id = nextId++;
@@ -509,7 +509,7 @@
         var point = {
             id: nextId++, name: name, path: name, lat: clickAt.lat, lon: clickAt.lon, source: 'manuell',
             taken: time ? MapImport.takenFrom(time.replace('T', ' ') + ':00') : null,
-            device: 'Manuella', layer: 'Manuella', layerId: layer.id, color: layer.color,
+            layer: 'Manuella', layerId: layer.id, color: layer.color,
         };
         layer.points.push(point);
         $('manual-name').value = '';
@@ -553,7 +553,6 @@
         p.color = layer.color;
         p.layer = layer.name;
         p.layerId = layer.id;
-        if (!p.device) p.device = layer.name;
         if (p.exifId != null && Object.prototype.hasOwnProperty.call(kept, p.exifId)) {
             p.id = kept[p.exifId];
             delete kept[p.exifId];
@@ -584,6 +583,7 @@
         var kept = {};
         layer.points.forEach(function (p) { if (p.exifId != null) kept[p.exifId] = p.id; });
         layer.points = data.points.map(function (src) { return placeOnLayer(layer, src, kept); });
+        if (pendingFiles[data.layerKey]) { receiveFiles({ layerKey: data.layerKey, files: pendingFiles[data.layerKey] }, true); delete pendingFiles[data.layerKey]; }
         refresh();
         var n = layer.points.length;
         var noun = Array.isArray(data.noun) && data.noun.length === 2 ? data.noun : ['bild', 'bilder'];
@@ -597,17 +597,20 @@
         }
     }
 
-    // Miniatyrerna som EXIF & karta gör efter att bilderna skickats, per bild i EXIF (exifId).
-    function receiveFiles(data) {
+    // Miniatyrerna som görs efter att punkterna skickats: från EXIF & karta per bild (exifId), från Queries per rad
+    // (fileKey). Kommer de före punkterna sparas de tills källan finns.
+    var pendingFiles = {};
+    function receiveFiles(data, quiet) {
         var layer = layers.filter(function (l) { return l.key === data.layerKey; })[0];
         var files = data.files || {};
-        if (!layer) return;
+        if (!layer) { pendingFiles[data.layerKey] = Object.assign(pendingFiles[data.layerKey] || {}, files); return; }
         var changed = false;
         layer.points.forEach(function (p) {
-            var f = p.exifId != null ? files[p.exifId] : null;
+            var key = p.fileKey != null ? p.fileKey : p.exifId;
+            var f = key != null ? files[key] : null;
             if (f && f !== p.file) { p.file = f; changed = true; }
         });
-        if (changed) redraw();
+        if (changed && !quiet) redraw();
     }
 
     var namedRoutes = [];
@@ -741,7 +744,8 @@
 
     // För provkörningen (tests/app): punkterna med vilken fil som kan visas som miniatyr, också utan WebGL.
     window.PositionsApp = {
-        points: function () { return visiblePoints().map(function (p) { return { exifId: p.exifId, name: p.name, file: p.file ? p.file.type || '' : '' }; }); },
+        points: function () { return visiblePoints().map(function (p) { return { id: p.id, exifId: p.exifId, name: p.name, file: p.file ? p.file.type || '' : '', device: p.device || '', time: p.taken ? p.taken.text : '', type: p.type || '' }; }); },
+        open: function (id) { return ensureMap().focus(id); },
     };
 
     ensureMap().show();

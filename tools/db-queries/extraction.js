@@ -643,6 +643,75 @@
         if (window.QueriesApp.currentDb()) say(text);
     }
 
+    // Miniatyrer till kartan för rader med filnamn (Photos.sqlite, MediaStore): filen hittas i extraktionen på namnet,
+    // och mappen i raden väljer bland filer med samma namn. Bilderna görs en i taget och skickas i omgångar till
+    // Positioner, som visar dem i bubblorna och i punktens ruta. items: [{ key, path }].
+    var THUMB_SIDE = 360;
+    var THUMB_MAX = 500;
+    var IMAGE_NAME = /\.(jpe?g|png|gif|webp|heic|heif|hif|avif|bmp)$/i;
+    var thumbSeq = 0;
+    // Filerna med de namnen i zippen: förteckningen gås igenom en gång till, eftersom Queries bara sparar databaserna.
+    async function entriesNamed(from, paths) {
+        var want = new Set(paths.map(function (p) { p = String(p).toLowerCase(); return p.slice(p.lastIndexOf('/') + 1); }));
+        var list = await ExtractionCore.find(from.read, from.file.size, function (name) {
+            var n = String(name).toLowerCase();
+            return IMAGE_NAME.test(n) && want.has(n.slice(n.lastIndexOf('/') + 1));
+        });
+        var map = new Map();
+        list.forEach(function (e) {
+            var n = String(e.name).toLowerCase(), key = n.slice(n.lastIndexOf('/') + 1);
+            if (map.has(key)) map.get(key).push(e); else map.set(key, [e]);
+        });
+        return map;
+    }
+    function entryFor(index, path) {
+        var p = String(path || '').replace(/\\/g, '/').toLowerCase();
+        var list = index.get(p.slice(p.lastIndexOf('/') + 1));
+        if (!list || !list.length) return null;
+        var tail = '/' + p.replace(/^\/+/, '');
+        return list.find(function (e) { return String(e.name).toLowerCase().endsWith(tail); })
+            || list.find(function (e) { return /\/dcim\//i.test(e.name); }) || list[0];
+    }
+    async function smallJpeg(bytes, name) {
+        var blob;
+        if (window.Heic && Heic.is(bytes)) blob = (await Heic.toJpeg(bytes, { preview: true, maxSide: THUMB_SIDE })).blob;
+        else {
+            var bmp = await createImageBitmap(new Blob([bytes]));
+            var k = Math.min(1, THUMB_SIDE / Math.max(bmp.width, bmp.height, 1));
+            var canvas = document.createElement('canvas');
+            canvas.width = Math.max(1, Math.round(bmp.width * k));
+            canvas.height = Math.max(1, Math.round(bmp.height * k));
+            canvas.getContext('2d').drawImage(bmp, 0, 0, canvas.width, canvas.height);
+            if (bmp.close) bmp.close();
+            blob = await new Promise(function (resolve) { canvas.toBlob(resolve, 'image/jpeg', 0.85); });
+        }
+        return blob ? new File([blob], name.replace(/\.[^.]+$/, '') + '.jpg', { type: 'image/jpeg' }) : null;
+    }
+    async function mapThumbs(layerKey, items) {
+        if (!current || window.parent === window) return;
+        var seq = ++thumbSeq, from = current, batch = {}, count = 0, last = Date.now();
+        items = items.filter(function (it) { return IMAGE_NAME.test(it.path); }).slice(0, THUMB_MAX);
+        if (!items.length) return;
+        var index = await entriesNamed(from, items.map(function (it) { return it.path; }));
+        var flush = function () {
+            if (!count) return;
+            window.parent.postMessage({ source: 'forensics-toolbox', type: 'positions', update: 'files', layerKey: layerKey, points: [], files: batch }, '*');
+            batch = {}; count = 0; last = Date.now();
+        };
+        for (var i = 0; i < items.length; i++) {
+            if (seq !== thumbSeq || current !== from) return;
+            var entry = entryFor(index, items[i].path);
+            if (!entry) continue;
+            try {
+                var file = await smallJpeg((await ExtractionCore.readEntry(from.read, entry)).bytes, items[i].path.slice(items[i].path.lastIndexOf('/') + 1));
+                if (file) { batch[items[i].key] = file; count++; }
+            } catch (err) { /* en fil som inte går att rita får ingen miniatyr */ }
+            if (count >= 25 || Date.now() - last > 1200) flush();
+        }
+        flush();
+    }
+    window.QueriesExtraction.mapThumbs = mapThumbs;
+
     window.QueriesApp.ready.then(layout);
     document.addEventListener('queries:db-change', function () {
         if (current && !window.QueriesApp.fromExtraction()) current.chosen = -1;

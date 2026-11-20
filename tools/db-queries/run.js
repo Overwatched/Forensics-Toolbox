@@ -609,11 +609,16 @@
             status.textContent = 'Inga rader med giltig latitud och longitud.';
             return;
         }
+        var layerKey = 'query-' + (db ? db.id : '') + '-' + (q ? q.id : '');
+        // En rad med filnamn får en miniatyr när filen finns i extraktionen. Den görs efteråt (extraction.js).
+        var named = out.points.filter(function (p) { return p.path; });
+        named.forEach(function (p) { p.fileKey = 'r' + p.row; });
         window.parent.postMessage({
             source: 'forensics-toolbox', type: 'positions',
-            layerKey: 'query-' + (db ? db.id : '') + '-' + (q ? q.id : ''), layerName: label,
+            layerKey: layerKey, layerName: label,
             points: out.points, noun: ['position', 'positioner'],
         }, '*');
+        if (named.length && window.QueriesExtraction) window.QueriesExtraction.mapThumbs(layerKey, named.map(function (p) { return { key: p.fileKey, path: p.path }; }));
         var text = out.points.length + (out.points.length === 1 ? ' position' : ' positioner') + ' skickades till Positioner.';
         if (out.skipped) text += ' ' + out.skipped + ' rader utan giltig position hoppades över.';
         if (window.parent === window) text = 'Öppna Queries inifrån Forensics Toolbox för att visa resultatet i Positioner.';

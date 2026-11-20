@@ -475,16 +475,12 @@
         host.textContent = '';
         var mapEl = make('div', 'map');
         var status = make('p', 'map-status');
-        var hide = make('button', 'map-hide', 'Dölj');
-        hide.type = 'button';
-        hide.title = 'Dölj menyn, till exempel inför en bild';
-        var show = make('button', 'map-show secondary-btn display-none', 'Meny');
-        show.type = 'button';
-        var head = make('div', 'map-head');
-        head.append(status, hide);
         var route = labeledToggle('Rutt i tidsordning');
         if (opts.routeOn) route.input.checked = true;
         var perDevice = labeledToggle('Per enhet');
+        var cluster = labeledToggle('Gruppera närliggande punkter');
+        cluster.input.checked = true;
+        cluster.label.title = 'Punkter nära varandra visas som en ring med antalet tills du zoomar in. Utan gruppering ritas varje punkt för sig.';
         var online = labeledToggle('Onlinekarta');
         var fit = make('button', 'link-btn', 'Visa alla');
         fit.type = 'button';
@@ -505,7 +501,6 @@
         var saveBtn = make('button', 'link-btn', 'Spara bild');
         saveBtn.type = 'button';
         var markerSection = make('div', 'map-section');
-        markerSection.append(make('h3', '', 'Punkter'));
         var markerRow = make('div', 'map-segment');
         markerRow.setAttribute('role', 'radiogroup');
         markerRow.setAttribute('aria-label', 'Punkter som');
@@ -518,18 +513,17 @@
             markerButtons[o[0]] = btn;
         });
         var markerNote = make('p', 'map-note');
-        markerSection.append(markerRow, markerNote);
+        var note = make('p', 'map-note');
+        var markerStack = make('div', 'map-stack');
+        markerStack.append(cluster.label, numbersRow);
+        markerSection.append(markerRow, markerNote, markerStack, note);
         var routeSection = make('div', 'map-section');
-        routeSection.append(make('h3', '', 'Rutt'));
         var routeStack = make('div', 'map-stack');
-        routeStack.append(route.label, perDevice.label, numbersRow);
-        var routeActions = make('div', 'map-row');
-        routeActions.append(fit, measureBtn, saveBtn);
-        routeSection.append(routeStack, routeActions);
-        var measureNote = make('p', 'map-note');
-        routeSection.append(measureNote);
+        routeStack.append(route.label, perDevice.label);
+        var routeNote = make('p', 'map-note');
+        routeSection.append(routeStack, routeNote);
+        var measureNote = make('p', 'map-chip');
         var bubbles = make('div', 'map-section map-bubbles');
-        bubbles.append(make('h3', '', 'Bubblor'));
         bubbles.append(make('p', 'map-note', 'Standard gäller punkter utan egen inställning. Markera punkter med skift+klick, eller i listan, och tryck Anpassa.'));
         var bubbleStandard = make('button', 'secondary-btn', 'Anpassa standard…');
         bubbleStandard.type = 'button';
@@ -546,8 +540,6 @@
         bubbleReset.type = 'button';
         bubbleReset.title = 'Ta bort egna inställningar så att alla följer standarden';
         bubbles.append(bubbleStandard, bubbleSize, bubbleCustom, bubbleReset);
-        var routeNote = make('p', 'map-note');
-        var note = make('p', 'map-note');
         var fallback = make('div', 'map-fallback display-none');
         fallback.append(make('p', '', 'Offlinekartan ligger i mappen maps bredvid Toolbox.html. Välj den mappen. Ingen server behövs.'));
         var pickDir = make('button', 'secondary-btn', 'Välj mappen maps…');
@@ -585,7 +577,6 @@
         });
         timeBar.append(play, speed, timeInput, timeLabel);
         var baseSection = make('div', 'map-section');
-        baseSection.append(make('h3', '', 'Bakgrund'));
         var basemapRow = make('div', 'map-segment');
         basemapRow.setAttribute('role', 'radiogroup');
         basemapRow.setAttribute('aria-label', 'Bakgrund');
@@ -609,15 +600,47 @@
         imageryInput.hidden = true;
         var imageryRow = make('div', 'map-row');
         imageryRow.append(addImagery, imageryInput);
-        baseSection.append(basemapRow, basemapNote, imageryRow, online.label);
-        var panel = make('div', 'map-panel');
-        panel.append(head, baseSection, markerSection, routeSection, bubbles, routeNote, note, fallback);
-        function setMenu(open) {
-            panel.classList.toggle('display-none', !open);
-            show.classList.toggle('display-none', !!open);
+        baseSection.append(status, basemapRow, basemapNote, imageryRow, online.label, fallback);
+        // Menyn är en rad knappar överst på kartan. Varje knapp fäller ut sin ruta, en i taget, och kartan
+        // syns annars hel. Visa alla, Mät och Spara bild gör sin sak direkt.
+        var bar = make('div', 'map-bar');
+        bar.setAttribute('role', 'toolbar');
+        bar.setAttribute('aria-label', 'Kartan');
+        var pops = {};
+        var popButtons = {};
+        [['base', 'Bakgrund', baseSection], ['points', 'Punkter', markerSection], ['route', 'Rutt', routeSection], ['bubbles', 'Bubblor', bubbles]].forEach(function (o) {
+            var btn = make('button', 'map-bar-btn map-bar-menu', o[1]);
+            btn.type = 'button';
+            btn.setAttribute('aria-expanded', 'false');
+            var pop = make('div', 'map-pop display-none');
+            pop.setAttribute('role', 'dialog');
+            pop.setAttribute('aria-label', o[1]);
+            pop.append(o[2]);
+            btn.addEventListener('click', function (e) {
+                e.stopPropagation();
+                openPop(pop.classList.contains('display-none') ? o[0] : null);
+            });
+            bar.append(btn);
+            pops[o[0]] = pop;
+            popButtons[o[0]] = btn;
+        });
+        [fit, measureBtn, saveBtn].forEach(function (b) { b.className = 'map-bar-btn'; bar.append(b); });
+        var count = make('span', 'map-bar-count');
+        bar.append(count);
+        function openPop(key) {
+            Object.keys(pops).forEach(function (k) {
+                pops[k].classList.toggle('display-none', k !== key);
+                popButtons[k].setAttribute('aria-expanded', String(k === key));
+                popButtons[k].classList.toggle('active', k === key);
+            });
         }
-        hide.addEventListener('click', function () { setMenu(false); });
-        show.addEventListener('click', function () { setMenu(true); });
+        // Kartans meny som förut: false stänger rutorna.
+        function setMenu(open) { if (!open) openPop(null); }
+        document.addEventListener('keydown', function (e) { if (e.key === 'Escape') openPop(null); });
+        document.addEventListener('pointerdown', function (e) {
+            if (!host.contains(e.target) || bar.contains(e.target)) { if (!host.contains(e.target)) openPop(null); return; }
+            if (!Object.keys(pops).some(function (k) { return pops[k].contains(e.target); })) openPop(null);
+        });
         var list = make('aside', 'map-list display-none');
         list.setAttribute('aria-label', 'Positioner');
 
@@ -639,10 +662,12 @@
         var pickBar = make('div', 'map-pickbar display-none');
         pickBar.setAttribute('role', 'toolbar');
         pickBar.setAttribute('aria-label', 'Markerade punkter');
-        host.append(mapEl, list, panel, show, timeBar, consent, editor, pickBar);
+        host.append(mapEl, list, bar, measureNote);
+        Object.keys(pops).forEach(function (k) { host.append(pops[k]); });
+        host.append(timeBar, consent, editor, pickBar);
         return {
             editor: editor, pickBar: pickBar, bubbleCustom: bubbleCustom, bubbleReset: bubbleReset,
-            wrap: host, map: mapEl, status: status, route: route.input, perDevice: perDevice.input,
+            wrap: host, map: mapEl, status: status, route: route.input, perDevice: perDevice.input, cluster: cluster.input, count: count, bar: bar, openPop: openPop,
             online: online.input, fit: fit, measureBtn: measureBtn, saveBtn: saveBtn, measureNote: measureNote,
             listBtn: listBtn, list: list, numbers: numbers,
             bubbleStandard: bubbleStandard,
@@ -691,8 +716,13 @@
             else if (archives.length) setStatus(offlineLabel(), 'offline');
             else setStatus('Ingen offlinekarta. Välj mappen maps, eller slå på onlinekartan.', 'missing');
             el.fallback.classList.toggle('display-none', online || archives.length > 0);
+            // Knappen Bakgrund säger om kartan är offline, online eller saknas. Saknas den fälls rutan ut en gång.
+            var baseBtn = el.bar.querySelector('.map-bar-menu');
+            baseBtn.dataset.state = online ? 'online' : archives.length ? 'offline' : 'missing';
+            if (!online && !archives.length && !missingShown) { missingShown = true; el.openPop('base'); }
             updateBasemap();
         }
+        var missingShown = false;
 
         function updateBasemap() {
             var modes = root.MapCore.basemapModes(archives);
@@ -1530,9 +1560,11 @@
                     if (minutes != null) row('Varaktighet', minutes + ' min');
                 }
             } else {
-                row(p.taken ? p.taken.kind : 'Tid', p.taken ? p.taken.text : 'Ingen tid i filen');
+                row(p.taken ? p.taken.kind : 'Tid', p.taken ? p.taken.text : (p.exifId != null || p.mime ? 'Ingen tid i filen' : 'Ingen tid'));
             }
             row('Enhet', p.device);
+            row('Typ', p.type);
+            row('Källa', p.layer);
             row('Position', p.lat + ', ' + p.lon);
             if (p.accuracy > 0) row(p.visit ? 'Osäkerhet' : 'Horisontell noggrannhet', Math.round(p.accuracy) + ' m');
             row('Händelse', notes[p.id] || p.note);
@@ -1587,7 +1619,7 @@
         // när kartan har flyttat sig.
         function clearPanel(current, tries) {
             if (!current || current !== popup || !map) return;
-            var panel = el.wrap.querySelector('.map-panel');
+            var panel = el.wrap.querySelector('.map-bar');
             var box = current.getElement && current.getElement();
             if (!panel || !box || panel.classList.contains('display-none')) return;
             var a = panel.getBoundingClientRect();
@@ -1603,7 +1635,7 @@
         function showPopup(lngLat, content, id) {
             var url = thumbUrl;
             thumbUrl = null;
-            popup = new root.maplibregl.Popup({ maxWidth: '300px', offset: popupOffset(id), focusAfterOpen: false })
+            popup = new root.maplibregl.Popup({ maxWidth: '340px', offset: popupOffset(id), focusAfterOpen: false })
                 .setLngLat(lngLat).setDOMContent(content).addTo(map);
             var opened = popup;
             setTimeout(function () { clearPanel(opened, 1); }, 30);
@@ -1913,6 +1945,7 @@
 
         function setClustering(on) {
             clustering = on !== false;
+            el.cluster.checked = clustering;
             var src = map && map.getSource('files');
             if (src && src.setClusterOptions) src.setClusterOptions({ cluster: clustering, clusterRadius: 42, clusterMaxZoom: 16 });
         }
@@ -1929,6 +1962,7 @@
             updatePickBar();
             setupTime();
             el.note.textContent = noteText || '';
+            el.count.textContent = noteText || '';
             if (popup && selectedId !== null && !byId[selectedId]) closePopup();
             refreshData();
         }
@@ -1945,8 +1979,16 @@
                 ring: !!cfg.ring,
                 // Utan eget val följer punkten standarden (nål eller prick).
                 pin: cfg.pin === undefined ? undefined : !!cfg.pin,
-                items: (cfg.items || []).map(function (i) { return Object.assign({}, i); }),
+                items: withAllFields((cfg.items || []).map(function (i) { return Object.assign({}, i); })),
             };
+        }
+
+        // En sparad vy från en äldre version saknar nyare fält: de läggs sist, avslagna.
+        function withAllFields(items) {
+            root.MapCore.BUBBLE_FIELDS.forEach(function (f) {
+                if (!items.some(function (i) { return i.key === f.key; })) items.push({ key: f.key, on: false, label: '' });
+            });
+            return items;
         }
 
         function fieldLabel(key) {
@@ -2597,6 +2639,7 @@
             syncBubbles();
         });
         el.perDevice.addEventListener('change', refreshData);
+        el.cluster.addEventListener('change', function () { setClustering(el.cluster.checked); });
         el.timeInput.addEventListener('input', function () { showTime(Number(el.timeInput.value)); });
         el.play.addEventListener('click', function () {
             if (playTimer) { stopPlay(); return; }
@@ -2872,7 +2915,7 @@
             useChosenFiles(snapshot);
         });
 
-        var TOGGLES = ['route', 'perDevice'];
+        var TOGGLES = ['route', 'perDevice', 'cluster'];
 
         function standardFromLegacy(toggles) {
             toggles = toggles || {};
@@ -2917,6 +2960,7 @@
             TOGGLES.forEach(function (key) {
                 if (typeof toggles[key] === 'boolean') el[key].checked = toggles[key];
             });
+            if (typeof toggles.cluster === 'boolean') setClustering(toggles.cluster);
             if (['all', 'route', 'none'].indexOf(state.numbers) >= 0) el.numbers.value = state.numbers;
             if (Array.isArray(state.routes)) useNamedRoutes(state.routes);
             // Valet sparas även om bildkartan inte är öppnad än. Stilen faller då tillbaka till kartan.

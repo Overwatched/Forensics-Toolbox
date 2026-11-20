@@ -459,6 +459,16 @@ const scenarios = [
         const text = await c.ev('positions/index.html', `document.body.innerText`);
         expect(new RegExp(after.rows + ' position').test(text), 'Positioner säger inte ' + after.rows + ' positioner');
         expect(/Cache\.sqlite/.test(text), 'Lagret saknar källan');
+        // Punkterna heter efter typen (GNSS, Wi-Fi) och radens nummer, har tiden ur raden och ingen påhittad enhet.
+        const qp = await c.ev('positions/index.html', `PositionsApp.points().filter(p => p.exifId == null)`);
+        expect(qp.length === after.rows && qp.every((p) => /^\S+ \d+$/.test(p.name) && !/Platser|Cache/.test(p.name) && p.time && p.type && !p.device), 'Punkterna från Queries: ' + JSON.stringify(qp.slice(0, 3)));
+        // Kartans meny är en rad knappar; Punkter fäller ut sin ruta med valet att gruppera.
+        const bar = await c.ev('positions/index.html', `(function(){ const b = [...document.querySelectorAll('.map-bar-menu')]; const p = b.find(x => x.textContent === 'Punkter'); p.click();
+            const pop = [...document.querySelectorAll('.map-pop')].find(x => !x.classList.contains('display-none')); const box = pop && pop.querySelector('input[type=checkbox]');
+            const r = { menus: b.map(x => x.textContent), open: !!pop, cluster: box && box.checked, label: box && box.parentNode.textContent };
+            if (box) { box.click(); r.after = box.checked; box.click(); }
+            document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })); r.closed = ![...document.querySelectorAll('.map-pop')].some(x => !x.classList.contains('display-none')); return r; })()`);
+        expect(bar.menus.join(',') === 'Bakgrund,Punkter,Rutt,Bubblor' && bar.open && bar.cluster === true && bar.after === false && /Gruppera/.test(bar.label) && bar.closed, 'Kartans meny: ' + JSON.stringify(bar));
         void active;
         await c.nav('Queries');
         return after.rows + ' positioner i Positioner';
@@ -1336,9 +1346,9 @@ const scenarios = [
         await ev(`document.getElementById('c-device-open').click(), 1`);
         await c.waitFor(CHAT, `ChatsApp.device().photos && ChatsApp.device().photos.state === 'ready' && ChatsApp.state().device.info && ChatsApp.state().device.info.state === 'ready'`, 60000, 'bildbiblioteket och hemskärmen');
         const home = await ev(`({ d: ChatsApp.device(), apps: [...document.querySelectorAll('#c-device-body .d-app')].map(a => a.getAttribute('aria-label')), title: document.getElementById('c-device-title').textContent,
-            sub: document.getElementById('c-device-sub').textContent, foot: document.getElementById('c-device-foot').textContent, frame: document.getElementById('c-device-phone').dataset.frame,
+            sub: document.getElementById('c-device-sub').textContent, frame: document.getElementById('c-device-phone').dataset.frame,
             back: !document.getElementById('c-device-back').classList.contains('display-none'), view: !document.getElementById('c-view').classList.contains('display-none'), empty: !document.getElementById('c-empty').classList.contains('display-none') })`);
-        expect(home.d.shown && home.d.screen === 'home' && !home.view && !home.empty && !home.back && home.frame === 'ios' && home.foot === 'Rekonstruktion ur databaserna – inte en skärmbild', 'Hemskärmen: ' + JSON.stringify(home));
+        expect(home.d.shown && home.d.screen === 'home' && !home.view && !home.empty && !home.back && home.frame === 'ios', 'Hemskärmen: ' + JSON.stringify(home));
         expect(home.apps.some((a) => /^WhatsApp, \d+ chattar?$/.test(a)) && home.apps.includes('Bilder, 10 bilder') && /^iOS · 2 sidor · IconState\.plist$/.test(home.sub), 'Apparna på hemskärmen: ' + JSON.stringify(home.apps) + ' | ' + home.sub);
         // WhatsApp: chattarna med HTML i namnet som text, och en chatt öppnas i telefonvyn med knappen tillbaka.
         await ev(`document.querySelector('[data-device-app="WhatsApp"]').click(), 1`);
@@ -1459,6 +1469,11 @@ const scenarios = [
         await ev(`document.querySelector('[data-device-settings]').click(), 1`);
         const sets = await ev(`[...document.querySelectorAll('#c-device-body .d-set')].map(b => b.innerText.replace(/\\n/g, ' '))`);
         expect(sets[0].startsWith('Om telefonen') && sets.some((x) => /^Wi-Fi 1/.test(x)) && sets.some((x) => /^Konton Inte läst/.test(x)) && sets.some((x) => x.startsWith('Källor')), 'Inställningar: ' + JSON.stringify(sets));
+        // Källor: ett långt filnamn bryts, och storleken bredvid står kvar på en rad.
+        await ev(`document.querySelector('[data-section="sources"]').click(), 1`);
+        const src = await ev(`[...document.querySelectorAll('#c-device-body .d-kv')].map(k => { const v = k.querySelector('.d-kv-value'); const lh = parseFloat(getComputedStyle(v).lineHeight) || 16; return { label: k.querySelector('.d-kv-label').textContent, lines: Math.round(v.getBoundingClientRect().height / lh) }; })`);
+        expect(src.length > 2 && src.filter((x) => x.label !== 'Finns inte i zippen').every((x) => x.lines <= 2), 'Källor: storleken bryts: ' + JSON.stringify(src.filter((x) => x.lines > 2).slice(0, 3)));
+        await ev(`document.getElementById('c-device-back').click(), 1`);
         await ev(`document.querySelector('[data-section="about"]').click(), 1`);
         const about = await ev(`document.getElementById('c-device-body').innerText`);
         // Ett drag åt höger går tillbaka, som knappen.

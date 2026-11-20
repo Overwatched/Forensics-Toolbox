@@ -2620,6 +2620,21 @@ inklistrade koordinater. EXIF & karta kan skicka synliga positioner dit via hubb
   `{ type: 'positions', update: 'files', files: { exifId: blob } }` (`mapThumbs`, högst 2 000). Huvudfönstret byter
   inte vy för en sådan omgång, och Positioner lägger filerna på punkterna med samma `exifId` (`receiveFiles`).
   Före 2026-11-20 föll HEIC-bilder bort (typen var image/heic), och fler än 50 bilder fick inga miniatyrer.
+- **Från Queries** (`QueryRunCore.toPoints`): en rad med filnamn (`ZFILENAME`, `_display_name`) heter som filen,
+  med mappen (`ZDIRECTORY`, `relative_path`) i sökvägen. Tiden tas ur en tidskolumn, annars ur en kolumn med date i
+  namnet (`ZDATECREATED`, inte `ZTIMEZONENAME` eller update), och punkten säger vilken (`Tid (ZDATECREATED)`). En
+  kolumn typ, type, kalla eller provider är punktens typ (GNSS, Wi-Fi, gps). Utan filnamn heter punkten typen eller
+  Rad och radens nummer. Miniatyrerna görs efteråt i Queries (`QueriesExtraction.mapThumbs`): förteckningen gås
+  igenom en gång till efter filnamnen (Queries sparar bara databaserna), mappen väljer bland filer med samma namn,
+  och bilden (HEIC via förhandsbilden) skickas som `update: 'files'` med `fileKey` (`r` + radens nummer), högst 500.
+  Före 2026-11-20 hette punkterna queryns titel, tiden saknades och enheten var källans namn.
+- **Enhet** är bara filens eller radens egen. Positioner satte förr källans namn som enhet; Per enhet räknar nu en
+  punkt utan enhet till sin källa (`MapCore.routesBy`).
+- **Menyn** är en rad knappar överst på kartan (`.map-bar`): Bakgrund, Punkter, Rutt och Bubblor fäller ut sin ruta
+  (`.map-pop`, en i taget, Escape eller ett klick på kartan stänger), och Visa alla, Mät och Spara bild gör sin sak
+  direkt. Under Punkter går grupperingen att slå av (`setClustering`, sparas i vyn som `toggles.cluster`). Saknas
+  offlinekartan fälls Bakgrund ut en gång. `setMenu(false)` stänger rutorna. Popupen och miniatyren beskär inte
+  bilden (`object-fit: contain`), och långa värden bryts inom rutan.
 
 ### HEIC (`tools/_shared/heic.js`, `tools/_shared/vendor/libheif/`)
 

@@ -29,16 +29,34 @@
 
     // Kolumnerna gissas på samma sätt som CSV-importen i Positioner, så att resultatet
     // hamnar likadant på kartan som en exporterad CSV.
+    // Filnamnet och mappen i en rad om en bild (Photos.sqlite, MediaStore): punkten heter som filen, och
+    // kartan kan visa filen som miniatyr om den finns i extraktionen.
+    var FILE_NAME_COLUMN = /^(ZFILENAME|_display_name|filename|file_name|filnamn)$/i;
+    var FILE_DIR_COLUMN = /^(ZDIRECTORY|relative_path|directory|mapp)$/i;
+    var TYPE_COLUMN = /^(typ|type|kalla|källa|provider)$/i;
+    // En tidskolumn som inte heter något med time: ZDATECREATED, date_added, datetaken.
+    var DATE_COLUMN = /date/i;
+    var NOT_DATE = /update|zone|offset/i;
+
     function toPoints(columns, rows, opts) {
         opts = opts || {};
         var imp = opts.importer;
         var headers = columns.map(String);
         var col = imp.guessColumns(headers);
         if (col.lat < 0 || col.lon < 0) return { points: [], skipped: rows.length, columns: col };
+        if (col.time < 0) col.time = headers.findIndex(function (h) { return DATE_COLUMN.test(h) && !NOT_DATE.test(h); });
         var zone = function (i) { return i >= 0 && /utc/i.test(headers[i]) ? 'UTC' : ''; };
-        var typeCol = headers.findIndex(function (h) { return /^(typ|type)$/i.test(h); });
+        var typeCol = headers.findIndex(function (h) { return TYPE_COLUMN.test(h); });
+        var nameCol = headers.findIndex(function (h) { return FILE_NAME_COLUMN.test(h); });
+        var dirCol = nameCol >= 0 ? headers.findIndex(function (h) { return FILE_DIR_COLUMN.test(h); }) : -1;
+        // Tiden säger vilken kolumn den kom ur, eftersom en databas har flera.
+        var timed = function (value, i) {
+            var t = i >= 0 ? imp.takenFrom(value, zone(i)) : null;
+            if (t) t.kind = 'Tid (' + headers[i] + ')';
+            return t;
+        };
         // Radens övriga kolumner står i punktens ruta på kartan.
-        var shownOnMap = [col.lat, col.lon, col.time, col.end, col.accuracy, typeCol];
+        var shownOnMap = [col.lat, col.lon, col.time, col.end, col.accuracy, typeCol, nameCol, dirCol];
         var points = [];
         var skipped = 0;
         rows.forEach(function (row, n) {
@@ -46,15 +64,20 @@
             var lon = Number(row[col.lon]);
             if (row[col.lat] === null || row[col.lon] === null || !isFinite(lat) || !isFinite(lon)
                 || Math.abs(lat) > 90 || Math.abs(lon) > 180 || (lat === 0 && lon === 0)) { skipped++; return; }
-            var until = col.end >= 0 ? imp.takenFrom(row[col.end], zone(col.end)) : null;
+            var until = col.end >= 0 ? timed(row[col.end], col.end) : null;
             var accuracy = col.accuracy >= 0 ? Number(row[col.accuracy]) : NaN;
             var kind = typeCol >= 0 && row[typeCol] != null ? String(row[typeCol]) : '';
+            var file = nameCol >= 0 && row[nameCol] != null && row[nameCol] !== '' ? String(row[nameCol]) : '';
+            var base = file.replace(/^.*\//, '');
+            var dir = dirCol >= 0 && row[dirCol] != null ? String(row[dirCol]).replace(/\/+$/, '') : file.indexOf('/') >= 0 ? file.slice(0, file.lastIndexOf('/')) : '';
             points.push({
                 id: points.length + 1,
-                name: (until || col.end >= 0 ? 'Besök' : (kind || opts.title || 'Position')) + ' ' + (n + 1),
-                path: '', lat: lat, lon: lon,
+                // Raden i resultatet, så att punkten går att hitta i Queries.
+                row: n + 1,
+                name: base || (until || col.end >= 0 ? 'Besök' : (kind || 'Rad')) + ' ' + (n + 1),
+                path: base ? (dir ? dir + '/' : '') + base : '', lat: lat, lon: lon,
                 source: opts.source || 'Queries',
-                taken: col.time >= 0 ? imp.takenFrom(row[col.time], zone(col.time)) : null,
+                taken: col.time >= 0 ? timed(row[col.time], col.time) : null,
                 until: until,
                 visit: col.end >= 0,
                 accuracy: isFinite(accuracy) && accuracy > 0 ? accuracy : null,

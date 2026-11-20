@@ -46,7 +46,7 @@ body {
 .workspace { flex: 1; min-height: 0; display: flex; gap: 12px; }
 
 .side {
-    width: 300px;
+    width: 270px;
     flex: none;
     min-height: 0;
     overflow: auto;
@@ -157,8 +157,14 @@ textarea::placeholder, input::placeholder { color: var(--text-muted); }
 .manual { display: flex; flex-direction: column; gap: 6px; }
 .columns { display: flex; flex-direction: column; gap: 6px; font-size: 12px; }
 
-.exports .secondary-btn { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
-.exports .secondary-btn span { color: var(--text-muted); font-weight: 450; font-size: 12px; }
+.btn-row { display: flex; flex-wrap: wrap; gap: 6px; }
+.btn-row .secondary-btn { flex: 1 1 auto; text-align: center; padding: 6px 10px; font-size: 12px; }
+.side-more { font-size: 12px; }
+.side-more summary { cursor: pointer; color: var(--accent); font-weight: 650; }
+.side-more[open] { display: flex; flex-direction: column; gap: 6px; }
+.side-more[open] summary { margin-bottom: 2px; }
+.link-btn.side-link { align-self: flex-start; padding: 0; font-size: 12px; }
+.sources #layer-list:empty { display: none; }
 
 #map-host { flex: 1; min-width: 0; min-height: 0; }
 #map-host.map-wrap { height: 100%; }

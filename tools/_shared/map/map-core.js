@@ -260,7 +260,8 @@
         var groups = {};
         var order = [];
         list.forEach(function (p) {
-            var key = str(p[field]).trim() || 'Okänd';
+            // En punkt utan enhet räknas till sin källa (lagret i Positioner).
+            var key = str(p[field]).trim() || (field === 'device' ? str(p.layer).trim() : '') || 'Okänd';
             if (!groups[key]) { groups[key] = []; order.push(key); }
             groups[key].push(p);
         });
@@ -517,6 +518,7 @@
         { key: 'name', label: 'Filnamn' },
         { key: 'device', label: 'Enhet' },
         { key: 'app', label: 'App' },
+        { key: 'type', label: 'Typ' },
         { key: 'pos', label: 'Longitud/latitud' },
         { key: 'accuracy', label: 'Noggrannhet' },
         { key: 'note', label: 'Händelse' },
@@ -532,6 +534,7 @@
         if (key === 'name') return str(p.name);
         if (key === 'device') return str(p.device);
         if (key === 'app') return str(p.app);
+        if (key === 'type') return str(p.type);
         if (key === 'pos') return p.lon.toFixed(5) + ', ' + p.lat.toFixed(5);
         if (key === 'accuracy') return p.accuracy > 0 ? Math.round(p.accuracy) + ' m' : '';
         if (key === 'note') return str(note);

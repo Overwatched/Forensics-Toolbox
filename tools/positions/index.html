@@ -17,21 +17,32 @@
         </header>
         <div class="workspace">
             <aside class="side">
-                <section class="side-block">
-                    <h2>Lägg till</h2>
+                <section class="side-block sources">
+                    <h2>Källor</h2>
                     <button type="button" id="pick" class="primary-btn">Lägg till källa…</button>
-                    <button type="button" id="fill-sample" class="secondary-btn">Fyll med testdata</button>
                     <input type="file" id="file" multiple hidden>
-                    <label class="field" for="paste">Klistra in koordinater</label>
-                    <textarea id="paste" rows="3" placeholder="59.3293, 18.0686 2024-06-01 14:00"></textarea>
-                    <button type="button" id="paste-add" class="secondary-btn">Lägg till inklistrad text</button>
                     <section id="columns" class="columns display-none"></section>
                     <p id="status" class="status"></p>
+                    <div id="layer-list"></div>
+                    <div id="manual" class="manual display-none">
+                        <p id="manual-where"></p>
+                        <input id="manual-name" type="text" placeholder="Etikett">
+                        <label class="field" for="manual-date">Tid, om den finns</label>
+                        <input id="manual-date" type="text" placeholder="ÅÅÅÅ-MM-DD" maxlength="10" inputmode="numeric" autocomplete="off">
+                        <input id="manual-time" type="text" placeholder="TT:MM" maxlength="5" inputmode="numeric" aria-label="Tidpunkt" autocomplete="off">
+                        <button type="button" id="manual-add" class="secondary-btn">Lägg till punkt här</button>
+                    </div>
+                    <details class="side-more">
+                        <summary>Klistra in koordinater</summary>
+                        <textarea id="paste" rows="3" placeholder="59.3293, 18.0686 2024-06-01 14:00" aria-label="Koordinater"></textarea>
+                        <button type="button" id="paste-add" class="secondary-btn">Lägg till inklistrad text</button>
+                    </details>
+                    <button type="button" id="fill-sample" class="link-btn side-link">Fyll med testdata</button>
                 </section>
 
                 <section class="side-block">
                     <h2>Tidsspann</h2>
-                    <p class="zone-note">Tidszon: klockslaget som det står i källan, ingen omräkning</p>
+                    <p class="zone-note">Klockslaget som det står i källan, ingen omräkning.</p>
                     <div class="time-row">
                         <label class="field" for="time-from-date">Från</label>
                         <input type="text" id="time-from-date" class="date-field" placeholder="ÅÅÅÅ-MM-DD" maxlength="10" inputmode="numeric" autocomplete="off">
@@ -41,19 +52,6 @@
                         <label class="field" for="time-to-date">Till</label>
                         <input type="text" id="time-to-date" class="date-field" placeholder="ÅÅÅÅ-MM-DD" maxlength="10" inputmode="numeric" autocomplete="off">
                         <input type="text" id="time-to-time" class="time-field" placeholder="TT:MM" maxlength="5" inputmode="numeric" aria-label="Till tid" autocomplete="off">
-                    </div>
-                </section>
-
-                <section class="side-block sources">
-                    <h2>Källor</h2>
-                    <div id="layer-list"></div>
-                    <div id="manual" class="manual display-none">
-                        <p id="manual-where"></p>
-                        <input id="manual-name" type="text" placeholder="Etikett">
-                        <label class="field" for="manual-date">Tid, om den finns</label>
-                        <input id="manual-date" type="text" placeholder="ÅÅÅÅ-MM-DD" maxlength="10" inputmode="numeric" autocomplete="off">
-                        <input id="manual-time" type="text" placeholder="TT:MM" maxlength="5" inputmode="numeric" aria-label="Tidpunkt" autocomplete="off">
-                        <button type="button" id="manual-add" class="secondary-btn">Lägg till punkt här</button>
                     </div>
                 </section>
 
@@ -72,20 +70,20 @@
                     <div id="route-list"></div>
                 </section>
 
-                <section class="side-block">
-                    <h2>Spara arbetet</h2>
-                    <button type="button" id="view-save" class="secondary-btn">Spara vy…</button>
-                    <button type="button" id="view-open" class="secondary-btn">Öppna vy…</button>
-                    <input type="file" id="view-file" accept=".json,application/json" hidden>
-                    <p class="field">Källor, färger, namngivna rutter, bubblor och kartläge sparas i en fil. Bilder följer med som små miniatyrer.</p>
-                </section>
-
                 <section class="side-block exports">
-                    <h2>Exportera det som visas</h2>
-                    <button type="button" data-export="kml" class="secondary-btn">KML<span>Google Earth</span></button>
-                    <button type="button" data-export="gpx" class="secondary-btn">GPX<span>GPS-spår</span></button>
-                    <button type="button" data-export="geojson" class="secondary-btn">GeoJSON<span>QGIS och kartprogram</span></button>
-                    <button type="button" data-export="csv" class="secondary-btn">CSV<span>Tabell</span></button>
+                    <h2>Spara och exportera</h2>
+                    <div class="btn-row">
+                        <button type="button" id="view-save" class="secondary-btn" title="Källor, färger, namngivna rutter, bubblor och kartläge sparas i en fil. Bilder följer med som små miniatyrer.">Spara vy…</button>
+                        <button type="button" id="view-open" class="secondary-btn">Öppna vy…</button>
+                    </div>
+                    <input type="file" id="view-file" accept=".json,application/json" hidden>
+                    <p class="field">Exportera det som visas:</p>
+                    <div class="btn-row">
+                        <button type="button" data-export="kml" class="secondary-btn" title="Google Earth">KML</button>
+                        <button type="button" data-export="gpx" class="secondary-btn" title="GPS-spår">GPX</button>
+                        <button type="button" data-export="geojson" class="secondary-btn" title="QGIS och kartprogram">GeoJSON</button>
+                        <button type="button" data-export="csv" class="secondary-btn" title="Tabell">CSV</button>
+                    </div>
                 </section>
             </aside>
             <div id="map-host"></div>

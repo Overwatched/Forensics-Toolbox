@@ -1891,7 +1891,6 @@
     // 'setting'; app: appen i 'app'; page: sidan på hemskärmen; filter: urvalet i Bilder; section: delen i Inställningar.
     // photos: bildbiblioteket och info: hemskärmen och inställningarna, båda lästa första gången telefonen visas.
     state.device = { on: false, screen: 'home', app: '', page: 0, filter: 'all', section: '', photos: null, info: null, gallery: null, limit: LIST_STEP, note: null, noteFilter: 'all', call: null, callFilter: 'all', contact: null, web: '', webTab: 'visits', webItem: null };
-    var DEVICE_LABEL = 'Rekonstruktion ur databaserna – inte en skärmbild';
     var GLYPH = {
         globe: '<circle cx="12" cy="12" r="8.5"/><path d="M3.5 12h17M12 3.5c2.6 2.4 3.6 5.2 3.6 8.5s-1 6.1-3.6 8.5c-2.6-2.4-3.6-5.2-3.6-8.5s1-6.1 3.6-8.5z"/>',
         chat: '<path d="M4 5h16v11H9l-5 4z"/>',
@@ -2388,7 +2387,6 @@
         var P = state.device, body = $('c-device-body');
         if (P.gallery && P.screen !== 'photos') { P.gallery.destroy(); P.gallery = null; }
         $('c-device-phone').dataset.frame = deviceFrame();
-        $('c-device-foot').textContent = DEVICE_LABEL;
         var back = backOf(P);
         $('c-device-back').classList.toggle('display-none', P.screen === 'home');
         $('c-device-back-text').textContent = back.text;
@@ -2933,8 +2931,7 @@
         var notifs = info.notifications;
         body.innerHTML = '<div class="d-control">' + (html ? '<div class="d-tiles">' + html + '</div>' : '<p class="d-empty">Telefonens lägen finns inte i ' + esc(Z()) + '.</p>') +
             (notifs ? '<button type="button" class="d-pill" data-device-lock="1">' + esc(many(notifs.length, 'notis', 'notiser')) + ' ›</button>' : '') +
-            '<button type="button" class="d-pill" data-section="toggles">Alla lägen i Inställningar ›</button></div>' +
-            '<p class="d-note">Lägena som de var sparade i telefonens filer när extraktionen gjordes, inte vad telefonen visade då. En ruta öppnar raden i Inställningar → Lägen, med fil och fält.</p>';
+            '<button type="button" class="d-pill" data-section="toggles">Alla lägen i Inställningar ›</button></div>';
     }
 
     function photosWaiting(body, ph) {
@@ -3050,7 +3047,8 @@
         var html = '';
         if (P.section === 'sources') {
             $('c-device-title').textContent = 'Källor';
-            html = info.read.map(function (r) { return kv(r.label, r.count ? many(r.count, 'fil', 'filer') : ChatCore.sizeText(r.size) + (r.wal ? ' med -wal' : '') + (r.crcOk === false ? ' · CRC32 stämmer inte' : ''), r.name); }).join('') +
+            // Filernas namn är långa: namnet står på en egen rad och storleken under det.
+            html = info.read.map(function (r) { return kv(r.label, r.count ? many(r.count, 'fil', 'filer') : ChatCore.sizeText(r.size) + (r.wal ? ' med -wal' : '') + (r.crcOk === false ? ' · CRC32 stämmer inte' : ''), r.name).replace('class="d-kv"', 'class="d-kv d-kv-stack"'); }).join('') +
                 (info.missing.length ? kv('Finns inte i ' + Z(), info.missing.join(', ')) : '');
         } else if (!s) { openDevice('settings'); return; }
         else {
