@@ -41,7 +41,22 @@ test('filerna känns igen på sökvägen, kopior och -wal sorteras rätt', () =>
     assert.deepStrictEqual(D.fileOf('/data/data/com.google.android.apps.nexuslauncher/databases/launcher_4_by_5.db'), { id: 'launcher3', wal: false });
     assert.deepStrictEqual(D.fileOf('Dump/data/system/users/0/wallpaper'), { id: 'wallpaper', wal: false });
     assert.deepStrictEqual(D.fileOf('Dump/data/system/users/0/wallpaper_lock'), { id: 'wallpaperLock', wal: false });
-    assert.strictEqual(D.fileOf('Dump/data/system/users/0/wallpaper_lock_images/wallpaper_first'), null);
+    // Samsungs bakgrund utan fil wallpaper: miniatyren och låsskärmens bild.
+    assert.deepStrictEqual(D.fileOf('Dump/data/system/users/0/wallpaper_lock_images/wallpaper_first'), { id: 'wallpaperLockImg', wal: false });
+    assert.deepStrictEqual(D.fileOf('Dump/data/system/users/0/wallpaper_thumbs/6/thumbnail_0'), { id: 'wallpaperThumb', wal: false });
+    // iOS: PosterBoard, lägena och Bluetooth.
+    const pb = 'filesystem1/private/var/mobile/Containers/Data/Application/0F1E2D3C-4B5A-6978-8796-A5B4C3D2E1F0/Library/Application Support/PRBPosterExtensionDataStore/61/';
+    assert.deepStrictEqual(D.fileOf(pb + 'PBFPosterExtensionDataStoreSQLiteDatabase.sqlite3'), { id: 'posterDb', wal: false });
+    assert.deepStrictEqual(D.fileOf(pb + 'PBFPosterExtensionDataStoreSQLiteDatabase.sqlite3-wal'), { id: 'posterDb', wal: true });
+    assert.deepStrictEqual(D.fileOf(pb + 'Extensions/com.apple.MercuryPoster/configurations/F5E70DB0-17A0-404B-ABE3-675E95AE8CC8/versions/1/RuntimeSnapshot-home.atx'), { id: 'posterSnap', wal: false });
+    assert.strictEqual(D.fileOf(pb + 'Extensions/com.apple.MercuryPoster/descriptors/F5E70DB0-17A0-404B-ABE3-675E95AE8CC8/versions/1/RuntimeSnapshot-home.atx'), null);
+    assert.strictEqual(D.fileOf(pb + 'Extensions/com.apple.MercuryPoster/configurations/F5E70DB0-17A0-404B-ABE3-675E95AE8CC8/versions/1/scratch/SnapshotCache.cachedb/PosterSnapshotCache.bundle/SnapshotBundles/X/Snapshot.pks/Resources/Composite.atx'), null);
+    assert.deepStrictEqual(D.fileOf('filesystem1/private/var/preferences/SystemConfiguration/com.apple.radios.plist'), { id: 'radios', wal: false });
+    assert.deepStrictEqual(D.fileOf('filesystem1/private/var/root/Library/Preferences/com.apple.locationd.plist'), { id: 'locationd', wal: false });
+    assert.deepStrictEqual(D.fileOf('filesystem1/private/var/mobile/Library/Preferences/.GlobalPreferences.plist'), { id: 'globalPrefs', wal: false });
+    assert.strictEqual(D.fileOf('filesystem1/private/var/Managed Preferences/mobile/.GlobalPreferences.plist'), null);
+    assert.deepStrictEqual(D.fileOf('filesystem1/private/var/mobile/Library/DoNotDisturb/DB/ModeConfigurations.json'), { id: 'focusModes', wal: false });
+    assert.deepStrictEqual(D.fileOf('filesystem1/private/var/containers/Shared/SystemGroup/0F1E2D3C-4B5A-6978-8796-A5B4C3D2E1F0/Library/Database/com.apple.MobileBluetooth.ledevices.paired.db'), { id: 'btPaired', wal: false });
     assert.deepStrictEqual(D.fileOf('Dump/system/build.prop'), { id: 'buildProp', wal: false });
     assert.deepStrictEqual(D.fileOf('/product/etc/build.prop'), { id: 'buildProp', wal: false });
     assert.strictEqual(D.fileOf('Dump/data/data/x/files/system/build.prop'), null);
@@ -228,4 +243,64 @@ test('Androids notishistorik: strängarna i posten eller i poolen, tid, titel oc
     assert.deepStrictEqual(D.fileOf('Dump/data/system_ce/0/notification_history/history/1793974652242'), { id: 'notifHistory', wal: false });
     assert.deepStrictEqual(D.fileOf('filesystem1/private/var/mobile/Library/Biome/streams/restricted/Notification.Usage/local/770626098768390'), { id: 'biomeNotif', wal: false });
     assert.strictEqual(D.fileOf('filesystem1/private/var/mobile/Library/Biome/streams/restricted/Notification.Usage/local/tombstone/773568286508021'), null);
+});
+
+test('iOS-bakgrunden: den valda postern i PosterBoard, annars den senast ändrade, och dess högsta version', () => {
+    const posters = [{ UUID: 'A', providerId: 'com.apple.MercuryPoster' }, { UUID: 'B', providerId: 'com.apple.PhotosUIPrivate.PhotosPosterProvider' }, { UUID: 'C', providerId: 'com.apple.ClockPoster.ClockPosterExtension' }];
+    const members = [{ posterUUID: 'A', roleId: 'PRPosterRoleLockScreen' }, { posterUUID: 'B', roleId: 'PRPosterRoleLockScreen' }, { posterUUID: 'C', roleId: 'PRPosterRoleAmbient' }];
+    const usage = (id, s) => ({ posterUUID: id, roleId: 'PRPosterRoleLockScreen', attributeIdentifier: 'PRPosterRoleAttributeTypeUsageMetadata', attributePayload: enc(JSON.stringify({ creationDate: s - 10, lastModifiedDate: s })) });
+    const sel = { posterUUID: 'A', roleId: 'PRPosterRoleLockScreen', attributeIdentifier: 'SELECTED', attributePayload: '1' };
+    const ambient = { posterUUID: 'C', roleId: 'PRPosterRoleAmbient', attributeIdentifier: 'SELECTED', attributePayload: '1' };
+    assert.deepStrictEqual(D.posterChoice(posters, members, [usage('A', 1700000000), usage('B', 1760000000), sel, ambient]),
+        { uuid: 'A', provider: 'com.apple.MercuryPoster', name: 'Apples standardbakgrund', how: 'selected', count: 2, modifiedMs: 1700000000000 });
+    const latest = D.posterChoice(posters, members, [usage('A', 1700000000), usage('B', 1760000000), ambient]);
+    assert.strictEqual(latest.uuid, 'B');
+    assert.strictEqual(latest.how, 'latest');
+    assert.strictEqual(latest.name, 'En bild ur Bilder');
+    assert.strictEqual(D.posterChoice(posters, [members[2]], []), null);
+    const base = '/Library/Application Support/PRBPosterExtensionDataStore/61/Extensions/com.apple.MercuryPoster/configurations/';
+    const id = 'F5E70DB0-17A0-404B-ABE3-675E95AE8CC8', other = '58C9BB1E-0000-4000-8000-000000000000';
+    const snaps = D.posterSnapshots([base + id + '/versions/1/RuntimeSnapshot-home.atx', base + id + '/versions/3/RuntimeSnapshot-home.atx', base + id + '/versions/1/RuntimeSnapshot-lock.atx', base + other + '/versions/9/RuntimeSnapshot-home.atx'], id.toLowerCase());
+    assert.deepStrictEqual(snaps, { home: { name: base + id + '/versions/3/RuntimeSnapshot-home.atx', version: 3 }, lock: { name: base + id + '/versions/1/RuntimeSnapshot-lock.atx', version: 1 } });
+});
+
+test('iOS-lägena: flygplansläge, Wi-Fi, Bluetooth, plats, utseende, språk, Fokus, säkerhetskopian och tiderna', () => {
+    const ns = (iso) => ({ __nsdate: Date.parse(iso) / 1000 - 978307200 });
+    const focus = { data: [{ modeConfigurations: { 'com.apple.donotdisturb.mode.default': { mode: { name: 'Do Not Disturb', modeIdentifier: 'com.apple.donotdisturb.mode.default' } }, 'com.apple.focus.custom': { mode: { name: 'Gym', modeIdentifier: 'com.apple.focus.custom' } } } }] };
+    const on = { data: [{ storeAssertionRecords: [{ assertionDetails: { assertionDetailsModeIdentifier: 'com.apple.donotdisturb.mode.default' } }] }] };
+    const t = D.iosToggles({
+        radios: { AirplaneMode: true }, wifi: { AllowEnable: 0, KeepWiFiPoweredAirplaneMode: false }, bt: { defaultPoweredState: 'on', defaultAirplaneModePowerState: 'off' },
+        locs: [{ CKStartupTime: 1 }, { 'LocationServicesEnabledIn8.0': true }], style: { UserInterfaceStyleMode: 2 }, springboard: { SBShowBatteryPercentage: true, SBLastKnownShutdownDate: ns('2026-11-12T07:13:03Z') },
+        global: { AppleLanguages: ['en-SE', 'sv-SE'], AppleLocale: 'en_SE' }, datetime: { timezone: 'Kabul, Afghanistan' }, focus, focusOn: on,
+        backup: { BackupStateInfo: { date: ns('2025-06-03T07:10:14Z'), isCloud: true }, AccountEnabledDate: ns('2025-06-03T06:50:21Z') }, buddy: { SetupLastExit: ns('2026-04-21T11:22:10Z') },
+    });
+    const v = Object.fromEntries(t.rows.map((r) => [r.label, r.value]));
+    assert.strictEqual(t.id, 'toggles');
+    assert.strictEqual(v['Flygplansläge'], 'På');
+    assert.strictEqual(v['Wi-Fi'], 'Av');
+    assert.strictEqual(v['Bluetooth'], 'På');
+    assert.match(t.rows.find((r) => r.label === 'Bluetooth').note, /I flygplansläge: av/);
+    assert.strictEqual(v['Platstjänster'], 'På');
+    assert.strictEqual(t.rows.find((r) => r.label === 'Platstjänster').source, 'com.apple.locationd.plist · LocationServicesEnabledIn8.0');
+    assert.strictEqual(v['Utseende'], 'Mörkt');
+    assert.strictEqual(v['Språk'], 'en-SE, sv-SE');
+    assert.strictEqual(v['Tidszon (vald ort)'], 'Kabul, Afghanistan');
+    assert.strictEqual(v['Fokuslägen'], 'Stör ej, Gym');
+    assert.strictEqual(v['Fokus på'], 'Stör ej');
+    const backup = t.rows.find((r) => r.label === 'Senaste säkerhetskopiering');
+    assert.strictEqual(backup.ms, Date.parse('2025-06-03T07:10:14Z'));
+    assert.strictEqual(backup.suffix, ' (iCloud)');
+    assert.strictEqual(t.rows.find((r) => r.label === 'Senast avstängd').ms, Date.parse('2026-11-12T07:13:03Z'));
+    // Utan filerna: inga rader, och Fokus på sägs bara när Assertions.json finns.
+    assert.deepStrictEqual(D.iosToggles({}).rows, []);
+    assert.strictEqual(D.iosToggles({ focusOn: { data: [] } }).rows[0].value, 'Inget');
+});
+
+test('Bluetooth på iOS: Bluetooth LE ur databasen och klassiska enheter ur plisten, den senaste först', () => {
+    const b = D.iosBluetooth([{ Uuid: 'u1', Name: 'AirPods', Address: 'AA:BB', LastSeenTime: 1760000000, LastConnectionTime: 1760000100 }],
+        { '11:22:33:44:55:66': { Name: 'Bilen', LastSeenTime: 1750000000 }, junk: 5 });
+    assert.deepStrictEqual(b, { adapter: null, devices: [
+        { address: 'AA:BB', name: 'AirPods', paired: true, ms: 1760000100000, type: 'Bluetooth LE' },
+        { address: '11:22:33:44:55:66', name: 'Bilen', paired: true, ms: 1750000000000, type: 'Klassisk' },
+    ] });
 });

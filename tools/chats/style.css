@@ -521,3 +521,21 @@ body {
 /* Samtal och kontakter i Telefonen. */
 .k-row.missed b { color: #d93025; }
 .k-open { margin: .6em .9em 0; }
+/* Sök i telefonen: sökknappen ovanför dockan, sökfältet överst (i sökningen, en chattapp och Inställningar) och träffarna. */
+.d-search-pill { align-self: center; display: inline-flex; align-items: center; gap: .4em; font: inherit; font-size: .74em; font-weight: 600; color: var(--text); background: color-mix(in srgb, var(--surface) 62%, transparent); border: 1px solid color-mix(in srgb, var(--border) 70%, transparent); border-radius: 999px; padding: .35em 1.1em; cursor: pointer; backdrop-filter: blur(8px); }
+.d-search-pill:hover { background: color-mix(in srgb, var(--surface) 85%, transparent); }
+.d-search-pill:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.c-device-body.has-wall .d-search-pill { color: #fff; background: rgba(0, 0, 0, .28); border-color: rgba(255, 255, 255, .25); }
+.c-device-body.has-wall .d-dot { box-shadow: 0 0 0 1px rgba(0, 0, 0, .25); }
+.d-searchbar { position: sticky; top: 0; z-index: 2; padding: .55em .8em; background: var(--surface); border-bottom: 1px solid var(--border); }
+.d-q-icon { position: absolute; left: 1.45em; top: 50%; transform: translateY(-50%); color: var(--text-muted); display: flex; pointer-events: none; }
+.d-q { width: 100%; box-sizing: border-box; font: inherit; font-size: .88em; color: var(--text); background: color-mix(in srgb, var(--text) 8%, var(--surface)); border: 1px solid transparent; border-radius: .75em; padding: .5em .8em .5em 2.1em; }
+.d-q:focus { outline: none; border-color: var(--accent); }
+.c-device-body.search, .c-device-body.app, .c-device-body.settings { padding: 0; }
+.c-device-body.settings .d-sets, .c-device-body.settings .d-note, .c-device-body.settings > div > .d-empty { margin: .4em .9em; }
+.d-results { padding-bottom: 1em; }
+.d-hits .n-sec, .d-msg-hits .n-sec, #d-app-list > .n-sec { margin: .9em .9em .2em; }
+.d-hit-apps { padding: .5em .9em .2em; }
+.d-hits-more { font-size: .72em; color: var(--text-muted); margin: .3em .9em .6em; }
+.d-row mark, .d-hits mark { background: color-mix(in srgb, var(--accent) 32%, transparent); color: inherit; border-radius: .2em; padding: 0 .05em; }
+.m-snip { white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }

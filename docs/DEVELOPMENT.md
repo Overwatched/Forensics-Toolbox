@@ -1568,17 +1568,40 @@ senare.
     hemskärmen sida (60 px räcker, ett kortare drag glider tillbaka), åt höger på de andra skärmarna går det tillbaka,
     och i höjdled rullar listor och galleriet. Ett drag är inget klick (en lyssnare i fångstfasen stoppar klicket efter).
     Finger och penna har webbläsarens egen rullning.
-  - **Bakgrunden**: på Android `system/users/0/wallpaper` och `wallpaper_lock` (en bildfil utan ändelse, känd på de
-    första byten, `imageType`), med komponenten ur `wallpaper_info.xml` (ABX). Hemskärmens bild läggs bakom sidorna,
-    förminskad till 720 bildpunkter; namnen står då i vitt med skugga. Saknas filen (som i de tre labbtelefonerna)
-    säger Inställningar → Bakgrund det, och utan `kwp` är låsskärmen samma som hemskärmen. På iOS 16 och senare ligger
-    bakgrunden i PosterBoard (`com.apple.springboard.plist` → `SBLockPoster` pekar på en konfiguration med
-    `RuntimeSnapshot-home.atx`, Apples egna texturer) och ritas inte.
+  - **Bakgrunden** läggs bakom hemskärmen och låsskärmen, förminskad till 720 bildpunkter; namnen står då i vitt med
+    skugga. Bara de två skärmarna har den (`renderDevice` tömmer `backgroundImage` innan en skärm ritas).
+    - Android: `system/users/0/wallpaper` och `wallpaper_lock` (en bildfil utan ändelse, känd på de första byten,
+      `imageType`), med komponenten ur `wallpaper_info.xml` (ABX). Samsung (One UI) sparar ingen fil `wallpaper` för
+      standardbilden, men en miniatyr av bakgrunden i `wallpaper_thumbs/<n>/thumbnail_0` (JPEG; en mapp med udda nummer
+      först) och låsskärmens bild i `wallpaper_lock_images/wallpaper_first` (PNG). Båda fanns i A33-labbarna 2026-11-06
+      och 2026-11-11. Utan `kwp` är låsskärmen samma som hemskärmen.
+    - iOS 16 och senare: PosterBoards `PBFPosterExtensionDataStoreSQLiteDatabase.sqlite3` har postrarna (`poster`:
+      UUID, providerId), rollerna (`posterRoleMembership`) och attributen (`posterAttributes`). Den valda postern för
+      `PRPosterRoleLockScreen` har attributet `SELECTED` = 1; saknas det tas den med senast `lastModifiedDate` i
+      `PRPosterRoleAttributeTypeUsageMetadata` (`DeviceInfo.posterChoice`). Postern har en bild av hemskärmen och
+      låsskärmen i `Extensions/<provider>/configurations/<UUID>/versions/<n>/RuntimeSnapshot-home.atx` och `-lock.atx`,
+      den högsta versionen (`posterSnapshots`). Det är Apples texturfil: `AAPL\r\n\x1a\n`, delar med längd och namn
+      (`HEAD` med formatet 0x93B0, ASTC 4 × 4, och bredd och höjd; `astc` med datan; `END `). Blocken ligger i
+      grafikminnets ordning: rutor om 32 × 32 block rad för rad, Morton-ordning inom rutan med y på de jämna bitarna,
+      och bredden utfylld till hela rutor med tomma block. `tools/_shared/astc.js` (`Astc`) avkodar ASTC (LDR, 2D) i
+      JavaScript utan WebAssembly och väljer den ordning där inga tomma block hamnar i bilden. Kontrollerat 2026-11-20
+      mot tre iPhone-labbar (iOS 26.4.1, 828 × 1792, ungefär 40–85 ms): Apples standardbakgrund (`MercuryPoster`) och en
+      fotoposter ritades rätt. Före iOS 16: `SpringBoard/HomeBackgroundThumbnail.jpg` och `LockBackgroundThumbnail.jpg`.
   - **Inställningar** är en lista som i telefonen, en del i taget, och varje rad säger fil och fält:
     - iOS: Om telefonen (`ComputerName` i `SystemConfiguration/preferences.plist`, `SystemVersion.plist`, nummer, ICCID
       och senaste nät i `com.apple.commcenter.plist`), Wi-Fi (`com.apple.wifi.known-networks.plist`: tillagt, senast
       ansluten ur `BSSList[].LastAssociatedAt` eller `JoinedBy…At`, hur och av vilken app), Konton (`Accounts3.sqlite`,
-      ett per namn med sina slag) och Bakgrund.
+      ett per namn med sina slag), Lägen (`DeviceInfo.iosToggles`: flygplansläge ur `SystemConfiguration/com.apple.radios.plist`
+      `AirplaneMode`, Wi-Fi ur `SystemConfiguration/com.apple.wifi.plist` `AllowEnable`, Bluetooth ur
+      `com.apple.BTServer.plist` `defaultPoweredState` och läget i flygplansläge, platstjänster ur
+      `com.apple.locationd.plist` `LocationServicesEnabledIn…` (mobile eller root), utseende ur
+      `com.apple.uikitservices.userInterfaceStyleMode.plist` (1 ljust, 2 mörkt), batteriprocent, senast avstängd ur
+      `com.apple.springboard.plist`, språk och region ur `.GlobalPreferences.plist`, den valda orten i
+      `com.apple.preferences.datetime.plist`, Fokuslägena ur `DoNotDisturb/DB/ModeConfigurations.json` och de som är på
+      ur `Assertions.json`, säkerhetskopian ur `com.apple.MobileBackup.plist` `BackupStateInfo` och
+      `AccountEnabledDate`, och inställningsassistentens `SetupLastExit`; tiderna i vald zon), Bluetooth (parkopplade
+      Bluetooth LE-enheter i `com.apple.MobileBluetooth.ledevices.paired.db` `PairedDevices`, klassiska i
+      `com.apple.MobileBluetooth.devices.plist`) och Bakgrund.
     - Android: Om telefonen (`device_name`, `default_device_name`, `android_id`, modell, version, säkerhetsuppdatering
       och bygge ur `build.prop` i system, vendor, product och system_ext), Lägen (flygplansläge, Wi-Fi, Bluetooth,
       mobildata, plats, automatisk tid, utvecklaralternativ, USB-felsökning, okända källor, skärmtid, textstorlek,
@@ -1586,6 +1609,16 @@ senare.
       både `misc` och `misc_ce`; lösenordet visas inte, bara att det är sparat), Bluetooth (`bt_config.conf`:
       telefonens namn och adress, och en del per parkopplad enhet), Konton (`accounts_ce.db`) och Bakgrund.
     - Bara det som står i filen visas. En del vars fil saknas står som Inte läst.
+  - **Sök**: knappen Sök ovanför dockan, eller att börja skriva på hemskärmen, öppnar sökningen (`renderSearch`,
+    `fillSearch`): apparna (hemskärmens, också i mappar, och de med data utanför den, `phoneApps`), kontakterna,
+    konversationerna i alla appar (namn, nummer och deltagare, samma som listans sökning, `ChatCore.listView`),
+    anteckningarna (inte de låsta), webbhistoriken (titel och adress) och inställningarnas rader (`settingHits`). Det
+    som öppnas ur sökningen går tillbaka dit (`fromSearch`). Inställningar har ett eget sökfält för sina rader.
+    En chattapps lista har sökfältet överst: namnen och numren filtreras direkt, och med två tecken söks meddelandenas
+    text i appens alla chattar (`searchMessages`). Texten läses en gång per konversation med rollen `messages` och
+    `ChatCore.conversation` och sparas på databasen (`d.textIndex`, `threadText`); träffarna fylls på medan chattarna
+    läses, den senaste först. En träff öppnar chatten vid meddelandet med ordet i chattens sökfält. Escape tömmer ett
+    sökfält och går annars tillbaka ett steg.
   - **En app** visar sina chattar, den senaste först (`appThreads`), 200 i taget. En chatt öppnas i telefonvyn med
     knappen tillbaka (`#c-phone-back`) till appens lista. Att byta till Lista lämnar inte telefonen: där står knappen
     i chattens huvud (`#c-list-back`, `backButtons`). En chatt som öppnas ur listan till vänster medan en chatt visas
@@ -2539,6 +2572,13 @@ Kartan delas av EXIF & karta och Positioner. Koden ligger i `tools/_shared/map/`
 (`map-core.js`, `map-view.js`, `import-core.js`, `vendor/maps/`). `ToolboxMap.create({ host })`
 bygger panelen själv. Positioner läser GPX, KML, CSV, GeoJSON, Google-tidslinje och
 inklistrade koordinater. EXIF & karta kan skicka synliga positioner dit via hubben.
+- **Miniatyrerna** i bubblorna och popupen: kartan avgör på filens egen typ (`drawableFile`, JPEG, PNG, GIF, WebP,
+  BMP, AVIF), inte på bildens. EXIF & karta skickar den lilla JPEG-bilden (`row.thumb`, 240 bildpunkter, för HEIC
+  förhandsbilden i filen) eller filen själv för högst 50 bilder (`mapImage`). Det som saknas (filer ur extraktionen
+  som inte visats, HEIC, fler än 50 bilder) görs efteråt, en i taget, och skickas i omgångar som
+  `{ type: 'positions', update: 'files', files: { exifId: blob } }` (`mapThumbs`, högst 2 000). Huvudfönstret byter
+  inte vy för en sådan omgång, och Positioner lägger filerna på punkterna med samma `exifId` (`receiveFiles`).
+  Före 2026-11-20 föll HEIC-bilder bort (typen var image/heic), och fler än 50 bilder fick inga miniatyrer.
 
 ### HEIC (`tools/_shared/heic.js`, `tools/_shared/vendor/libheif/`)
 

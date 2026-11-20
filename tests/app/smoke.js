@@ -1470,7 +1470,46 @@ const scenarios = [
         await ev(`document.querySelector('[data-section="wifi"]').click(), 1`);
         const wifi = await ev(`document.getElementById('c-device-body').innerText`);
         expect(/Labbnätet/.test(wifi) && /WPA2 Personal · tillagt 2024-05-01/.test(wifi), 'Wi-Fi: ' + wifi);
+        // Lägen och bakgrunden på iOS: com.apple.radios.plist, BTServer.plist och den valda postern i PosterBoard, i sin
+        // högsta version (en Apple-textur i ASTC).
         await ev(`document.getElementById('c-device-back').click(), 1`);
+        await ev(`document.querySelector('[data-section="toggles"]').click(), 1`);
+        const modes = await ev(`document.getElementById('c-device-body').innerText`);
+        expect(/Flygplansläge\s+På\s+com\.apple\.radios\.plist · AirplaneMode/.test(modes) && /Bluetooth\s+På/.test(modes) && /I flygplansläge: av/.test(modes) && /Utseende\s+Mörkt/.test(modes), 'Lägen: ' + modes);
+        await ev(`document.getElementById('c-device-back').click(), 1`);
+        await ev(`document.querySelector('[data-section="wallpaper"]').click(), 1`);
+        await c.waitFor(PH, `[...document.querySelectorAll('#c-device-body .d-walls img')].some(i => i.naturalWidth > 0)`, 10000, 'bakgrunden i Inställningar');
+        const wall = await ev(`({ text: document.getElementById('c-device-body').innerText, img: [...document.querySelectorAll('#c-device-body .d-walls img')].map(i => i.naturalWidth) })`);
+        expect(/Vald bakgrund\s+Apples standardbakgrund/.test(wall.text) && /versions\/2\/RuntimeSnapshot-home\.atx/.test(wall.text) && /Sparade bakgrunder\s+2 posters/.test(wall.text) && wall.img[0] === 64, 'Bakgrunden: ' + JSON.stringify(wall));
+        // Sök i inställningarna: raderna i alla delar.
+        await ev(`document.getElementById('c-device-back').click(), 1`);
+        const typeIn = async (id, v) => { await ev(`(function(){ const i = document.getElementById(${JSON.stringify(id)}); i.value = ${JSON.stringify(v)}; i.dispatchEvent(new Event('input', { bubbles: true })); return 1; })()`); await sleep(400); };
+        await typeIn('d-set-q', 'flyg');
+        const setHits = await ev(`[...document.querySelectorAll('#d-set-list .d-row')].map(r => r.innerText.replace(/\\n/g, ' | '))`);
+        expect(setHits.length === 1 && setHits[0] === 'Flygplansläge | Lägen · På', 'Sök i inställningarna: ' + JSON.stringify(setHits));
+        await typeIn('d-set-q', '');
+        await ev(`document.getElementById('c-device-back').click(), 1`);
+        // Hemskärmen har iPhonens bakgrund och sökknappen. Att skriva där öppnar sökningen: apparna och konversationerna.
+        expect(await ev(`ChatsApp.device().screen === 'home' && document.getElementById('c-device-body').classList.contains('has-wall') && !!document.querySelector('#c-device-body .d-search-pill')`), 'Hemskärmen med bakgrund och sökknapp');
+        await ev(`document.dispatchEvent(new KeyboardEvent('keydown', { key: 'w', bubbles: true })), 1`);
+        expect(await ev(`ChatsApp.device().screen === 'search' && document.getElementById('d-q').value === 'w'`), 'Att skriva på hemskärmen öppnade inte sökningen');
+        await typeIn('d-q', 'klubb');
+        const conv = await ev(`[...document.querySelectorAll('#d-results .d-hits')].map(h => h.querySelector('.n-sec').textContent + ': ' + [...h.querySelectorAll('.d-row b')].map(b => b.textContent).join(', '))`);
+        expect(conv.length === 1 && conv[0] === 'Konversationer · 1: Klubben', 'Sökningen: ' + JSON.stringify(conv));
+        await typeIn('d-q', 'whatsapp');
+        await ev(`document.querySelector('#d-results .d-hit-apps [data-device-app="WhatsApp"]').click(), 1`);
+        // Sök i WhatsApp: meddelandenas text i appens alla chattar, och en träff öppnar chatten vid meddelandet.
+        expect(await ev(`ChatsApp.device().screen === 'app' && !!document.getElementById('d-app-q')`), 'WhatsApp ur sökningen');
+        await typeIn('d-app-q', 'nålen');
+        await c.waitFor(PH, `document.getElementById('d-msg-hits') && !/Söker i meddelandena/.test(document.getElementById('d-msg-hits').textContent) && document.querySelectorAll('#d-msg-hits .m-hit').length > 0`, 60000, 'träffarna i meddelandena');
+        const msgHits = await ev(`({ n: document.querySelectorAll('#d-msg-hits .m-hit').length, head: document.querySelector('#d-msg-hits .n-sec').textContent, chats: document.querySelectorAll('#d-app-list > .d-row').length, mark: document.querySelector('#d-msg-hits mark').textContent })`);
+        expect(msgHits.n === 3 && msgHits.head === 'Meddelanden · 3' && msgHits.chats === 0 && msgHits.mark === 'nålen', 'Sök i WhatsApp: ' + JSON.stringify(msgHits));
+        await ev(`document.querySelector('#d-msg-hits .m-hit').click(), 1`);
+        await c.waitFor(PH, `!ChatsApp.busy() && ChatsApp.view() && ChatsApp.view().n > 100 && document.getElementById('c-find-count').textContent !== ''`, 30000, 'chatten vid träffen');
+        const atHit = await ev(`({ find: document.getElementById('c-find').value, count: document.getElementById('c-find-count').textContent })`);
+        expect(atHit.find === 'nålen' && /^\d av 3$/.test(atHit.count), 'Chatten vid träffen: ' + JSON.stringify(atHit));
+        await ev(`document.getElementById('c-phone-back').click(), 1`);
+        expect(await ev(`ChatsApp.device().screen === 'app' && document.getElementById('d-app-q').value === 'nålen'`), 'Tillbaka från chatten tappade sökningen');
         await ev(`document.getElementById('c-device-back').click(), 1`);
         // Bilder: Album visar urvalen, och ett urval ger ett galleri med färre bilder och vägen tillbaka till Album.
         await ev(`ChatsApp.state().device.page = 0, document.querySelector('[data-page="0"]').click(), 1`);

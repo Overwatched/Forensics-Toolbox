@@ -580,6 +580,42 @@ function callHistoryDb(SQL) {
     ins.free();
     return exported(db);
 }
+// PosterBoards databas: två posters för låsskärmen, Apples standardbakgrund vald, och en klocka för vänteläget.
+const POSTER = 'F5E70DB0-17A0-404B-ABE3-675E95AE8CC8';
+function posterDb(SQL) {
+    const db = new SQL.Database();
+    db.run('CREATE TABLE poster (posterId INTEGER PRIMARY KEY AUTOINCREMENT, UUID TEXT UNIQUE, providerId TEXT NOT NULL)');
+    db.run('CREATE TABLE posterRoleMembership (posterUUID TEXT NOT NULL, roleId TEXT NOT NULL, roleSortKey INTEGER NOT NULL)');
+    db.run('CREATE TABLE posterAttributes (posterUUID TEXT NOT NULL, roleId TEXT NOT NULL, attributeIdentifier TEXT NOT NULL, attributePayload TEXT NOT NULL)');
+    const other = '58C9BB1E-0000-4000-8000-000000000001', clock = '7978E98C-0000-4000-8000-000000000002';
+    [[POSTER, 'com.apple.MercuryPoster'], [other, 'com.apple.PhotosUIPrivate.PhotosPosterProvider'], [clock, 'com.apple.ClockPoster.ClockPosterExtension']].forEach(([u, p]) => db.run('INSERT INTO poster (UUID, providerId) VALUES (?, ?)', [u, p]));
+    [[POSTER, 'PRPosterRoleLockScreen', 1], [other, 'PRPosterRoleLockScreen', 2], [clock, 'PRPosterRoleAmbient', 1]].forEach((r) => db.run('INSERT INTO posterRoleMembership VALUES (?, ?, ?)', r));
+    const usage = (sec) => JSON.stringify({ creationDate: sec - 60, lastModifiedDate: sec });
+    db.run('INSERT INTO posterAttributes VALUES (?, ?, ?, ?)', [POSTER, 'PRPosterRoleLockScreen', 'PRPosterRoleAttributeTypeUsageMetadata', usage(T - 86400)]);
+    db.run('INSERT INTO posterAttributes VALUES (?, ?, ?, ?)', [other, 'PRPosterRoleLockScreen', 'PRPosterRoleAttributeTypeUsageMetadata', usage(T)]);
+    db.run('INSERT INTO posterAttributes VALUES (?, ?, ?, ?)', [POSTER, 'PRPosterRoleLockScreen', 'SELECTED', '1']);
+    db.run('INSERT INTO posterAttributes VALUES (?, ?, ?, ?)', [clock, 'PRPosterRoleAmbient', 'SELECTED', '1']);
+    return Buffer.from(db.export());
+}
+
+// En Apple-textur (.atx) med ASTC 4 × 4 i Apples ordning: rutor om 32 × 32 block i Morton-ordning (y på de jämna
+// bitarna). Varje block har en enda färg (void extent), så bilden blir en gradient i block.
+function atxFile(w, h, color) {
+    const bx = Math.ceil(w / 4), by = Math.ceil(h / 4), stride = Math.ceil(bx / 32) * 32, rows = Math.ceil(by / 32) * 32;
+    const data = Buffer.alloc(stride * rows * 16);
+    const morton = (x, y) => { let v = 0; for (let k = 0; k < 5; k++) v |= (((y >> k) & 1) << (2 * k)) | (((x >> k) & 1) << (2 * k + 1)); return v; };
+    for (let y = 0; y < by; y++) for (let x = 0; x < bx; x++) {
+        const at = (((y >> 5) * (stride >> 5) + (x >> 5)) * 1024 + morton(x & 31, y & 31)) * 16, c = color(x, y);
+        data.writeUInt16LE(0xfdfc, at);
+        for (let k = 2; k < 8; k++) data[at + k] = 0xff;
+        c.forEach((v, i) => data.writeUInt16LE(v * 257, at + 8 + 2 * i));
+    }
+    const u32 = (v) => { const b = Buffer.alloc(4); b.writeUInt32LE(v); return b; };
+    const head = Buffer.concat([u32(1), u32(0), u32(0), u32(0), u32(0x93b0), u32(0x1908), u32(w), u32(h), u32(1), u32(0), u32(1), u32(1), Buffer.alloc(36)]);
+    const chunk = (tag, body) => Buffer.concat([u32(body.length), Buffer.from(tag, 'latin1'), body]);
+    return Buffer.concat([Buffer.from('AAPL\r\n\x1a\n', 'latin1'), chunk('HEAD', head), chunk('astc', Buffer.concat([u32(data.length), data])), chunk('END ', Buffer.alloc(0))]);
+}
+
 function addressBookDb(SQL) {
     const db = schemaDb(SQL, 'ios-contacts');
     db.run("INSERT INTO ABStore (ROWID, Name, Type) VALUES (0, '', 0)");
@@ -856,6 +892,15 @@ async function build() {
         { name: P + 'Library/CallHistoryDB/CallHistory.storedata', data: callHistoryDb(SQL), deflate: true },
         { name: P + 'Library/AddressBook/AddressBook.sqlitedb', data: addressBookDb(SQL), deflate: true },
         { name: P + 'Library/Safari/History.db', data: safariHistoryDb(SQL), deflate: true },
+        // Bakgrunden ur PosterBoard och några lägen.
+        { name: P + 'Containers/Data/Application/24242424-3535-4646-5757-686868686868/Library/Application Support/PRBPosterExtensionDataStore/61/PBFPosterExtensionDataStoreSQLiteDatabase.sqlite3', data: posterDb(SQL), deflate: true },
+        { name: P + 'Containers/Data/Application/24242424-3535-4646-5757-686868686868/Library/Application Support/PRBPosterExtensionDataStore/61/Extensions/com.apple.MercuryPoster/configurations/' + POSTER + '/versions/2/RuntimeSnapshot-home.atx',
+            data: atxFile(64, 128, (x, y) => [40 + x * 12, 30 + y * 5, 150, 255]), deflate: true },
+        { name: P + 'Containers/Data/Application/24242424-3535-4646-5757-686868686868/Library/Application Support/PRBPosterExtensionDataStore/61/Extensions/com.apple.MercuryPoster/configurations/' + POSTER + '/versions/1/RuntimeSnapshot-home.atx',
+            data: atxFile(64, 128, () => [255, 0, 0, 255]), deflate: true },
+        { name: 'filesystem1/private/var/preferences/SystemConfiguration/com.apple.radios.plist', data: plistXml('<dict><key>AirplaneMode</key><true/></dict>') },
+        { name: P + 'Library/Preferences/com.apple.BTServer.plist', data: plistXml('<dict><key>defaultPoweredState</key><string>on</string><key>defaultAirplaneModePowerState</key><string>off</string></dict>') },
+        { name: P + 'Library/Preferences/com.apple.uikitservices.userInterfaceStyleMode.plist', data: plistXml('<dict><key>UserInterfaceStyleMode</key><integer>2</integer></dict>') },
         { name: P + 'Library/Safari/SafariTabs.db', data: safariTabsDb(SQL), deflate: true },
         { name: P + 'Library/Biome/streams/restricted/Notification.Usage/local/739000000000000', data: biomeNotifications([{ sec: T2 + 60, app: 'net.whatsapp.WhatsApp', title: 'Kim' }, { sec: T2 + 120, app: 'org.whispersystems.signal', title: 'Lo' }]) },
         { name: 'filesystem1/private/var/containers/Bundle/Application/11111111-2222-3333-4444-555555555555/WhatsApp.app/Info.plist', data: plistXml('<dict><key>CFBundleIdentifier</key><string>net.whatsapp.WhatsApp</string><key>CFBundleDisplayName</key><string>WhatsApp</string><key>CFBundleShortVersionString</key><string>25.1.0</string></dict>') },

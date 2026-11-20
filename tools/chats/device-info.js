@@ -13,8 +13,10 @@
 //            Android 12), wallpaper och wallpaper_lock (bakgrunden, en bildfil utan ändelse) med wallpaper_info.xml,
 //            WifiConfigStore.xml, bluedroid/bt_config.conf, system_ce/0/accounts_ce.db, build.prop och launcherns
 //            ikoncache app_icons.db (ikonerna som telefonen ritar), och notishistoriken i system_ce/0/notification_history.
+//            Samsung utan fil wallpaper: wallpaper_thumbs/<n>/thumbnail_0 och wallpaper_lock_images/wallpaper_first.
 //   iOS-notiserna är Biomes Notification.Usage (tools/provenance/biome.js): appen, titeln och tiden, inte texten.
-// Bakgrunden på iOS 16 och senare ligger i PosterBoard som Apples egna texturer (.atx) och ritas inte.
+// Bakgrunden på iOS 16 och senare: PosterBoards databas och den valda posterns RuntimeSnapshot-home.atx (ASTC, astc.js).
+// Lägen på iOS ur com.apple.radios.plist, com.apple.wifi.plist, com.apple.BTServer.plist, com.apple.locationd.plist m.fl.
 (function (root) {
     'use strict';
 
@@ -49,6 +51,31 @@
         { id: 'iconCache', platform: 'Android', re: /\/data\/(?:data|user\/0)\/[^\/]+\/databases\/app_icons\.db$/, sqlite: true, many: true, label: 'app_icons.db' },
         { id: 'appleNotes', platform: 'iOS', re: /\/Containers\/Shared\/AppGroup\/[0-9A-Fa-f-]{36}\/NoteStore\.sqlite$/, sqlite: true, label: 'NoteStore.sqlite' },
         { id: 'samsungNotes', platform: 'Android', re: /\/data\/(?:data|user\/0)\/com\.samsung\.android\.app\.notes\/databases\/sdoc\.db$/, sqlite: true, label: 'sdoc.db (Samsung Notes)' },
+        // Bakgrunden på iOS 16 och senare: PosterBoards databas säger vilken poster som är vald, och postern har en bild av
+        // hemskärmen och låsskärmen som Apple-textur (RuntimeSnapshot-home.atx, ASTC, tools/_shared/astc.js). Före iOS 16:
+        // en liten JPEG-bild i SpringBoard.
+        { id: 'posterDb', platform: 'iOS', re: /\/PRBPosterExtensionDataStore\/\d+\/PBFPosterExtensionDataStoreSQLiteDatabase\.sqlite3$/, sqlite: true, label: 'PBFPosterExtensionDataStoreSQLiteDatabase.sqlite3 (PosterBoard)' },
+        { id: 'posterSnap', platform: 'iOS', re: /\/PRBPosterExtensionDataStore\/\d+\/Extensions\/[^\/]+\/configurations\/[0-9A-Fa-f-]{36}\/versions\/\d+\/RuntimeSnapshot-(?:home|lock)\.atx$/, many: true, label: 'RuntimeSnapshot-home.atx och -lock.atx (PosterBoard)' },
+        { id: 'oldWall', platform: 'iOS', re: /\/mobile\/Library\/SpringBoard\/(?:Home|Lock)BackgroundThumbnail\.jpg$/, many: true, label: 'SpringBoard/HomeBackgroundThumbnail.jpg' },
+        // Lägen på iOS.
+        { id: 'radios', platform: 'iOS', re: /\/preferences\/SystemConfiguration\/com\.apple\.radios\.plist$/, label: 'com.apple.radios.plist' },
+        { id: 'wifiPrefs', platform: 'iOS', re: /\/preferences\/SystemConfiguration\/com\.apple\.wifi\.plist$/, label: 'SystemConfiguration/com.apple.wifi.plist' },
+        { id: 'btServer', platform: 'iOS', re: /\/mobile\/Library\/Preferences\/com\.apple\.BTServer\.plist$/, label: 'com.apple.BTServer.plist' },
+        { id: 'locationd', platform: 'iOS', re: /\/(?:mobile|root)\/Library\/Preferences\/com\.apple\.locationd\.plist$/, many: true, label: 'com.apple.locationd.plist' },
+        { id: 'uiStyle', platform: 'iOS', re: /\/mobile\/Library\/Preferences\/com\.apple\.uikitservices\.userInterfaceStyleMode\.plist$/, label: 'com.apple.uikitservices.userInterfaceStyleMode.plist' },
+        { id: 'globalPrefs', platform: 'iOS', re: /\/var\/mobile\/Library\/Preferences\/\.GlobalPreferences\.plist$/, label: '.GlobalPreferences.plist' },
+        { id: 'datetime', platform: 'iOS', re: /\/mobile\/Library\/Preferences\/com\.apple\.preferences\.datetime\.plist$/, label: 'com.apple.preferences.datetime.plist' },
+        { id: 'springboard', platform: 'iOS', re: /\/mobile\/Library\/Preferences\/com\.apple\.springboard\.plist$/, label: 'com.apple.springboard.plist' },
+        { id: 'focusModes', platform: 'iOS', re: /\/mobile\/Library\/DoNotDisturb\/DB\/ModeConfigurations\.json$/, label: 'DoNotDisturb/DB/ModeConfigurations.json' },
+        { id: 'focusOn', platform: 'iOS', re: /\/mobile\/Library\/DoNotDisturb\/DB\/Assertions\.json$/, label: 'DoNotDisturb/DB/Assertions.json' },
+        { id: 'backup', platform: 'iOS', re: /\/mobile\/Library\/Preferences\/com\.apple\.MobileBackup\.plist$/, label: 'com.apple.MobileBackup.plist' },
+        { id: 'buddy', platform: 'iOS', re: /\/mobile\/Library\/Preferences\/com\.apple\.purplebuddy\.plist$/, label: 'com.apple.purplebuddy.plist' },
+        { id: 'btPaired', platform: 'iOS', re: /\/Library\/Database\/com\.apple\.MobileBluetooth\.ledevices\.paired\.db$/, sqlite: true, label: 'com.apple.MobileBluetooth.ledevices.paired.db' },
+        { id: 'btDevices', platform: 'iOS', re: /\/Library\/Preferences\/com\.apple\.MobileBluetooth\.devices\.plist$/, label: 'com.apple.MobileBluetooth.devices.plist' },
+        // Samsungs bakgrund: One UI sparar ingen fil wallpaper för standardbilden, men en miniatyr av hemskärmens bild och
+        // låsskärmens bild i egna mappar.
+        { id: 'wallpaperThumb', platform: 'Android', re: /\/system\/users\/0\/wallpaper_thumbs\/\d+\/thumbnail_\d+$/, many: true, label: 'wallpaper_thumbs' },
+        { id: 'wallpaperLockImg', platform: 'Android', re: /\/system\/users\/0\/wallpaper_lock_images\/wallpaper_[a-z0-9_]+$/, many: true, label: 'wallpaper_lock_images' },
     ];
     var BY_ID = {};
     FILES.forEach(function (f) { BY_ID[f.id] = f; });
@@ -653,6 +680,136 @@
         return { id: 'toggles', title: 'Lägen', rows: rows };
     }
 
+    // ---------- iOS: bakgrunden, lägena och Bluetooth ----------
+
+    // Posterns slag efter appen som ritar den (providerId).
+    var POSTERS = {
+        'com.apple.MercuryPoster': 'Apples standardbakgrund',
+        'com.apple.PhotosUIPrivate.PhotosPosterProvider': 'En bild ur Bilder',
+        'com.apple.WallpaperKit.CollectionsPoster': 'Apples samling',
+        'com.apple.EmojiPoster.EmojiPosterExtension': 'Emoji',
+        'com.apple.UnityPoster.UnityPosterExtension': 'Unity',
+        'com.apple.PridePoster.PridePosterExtension': 'Pride',
+        'com.apple.GradientPoster.GradientPosterExtension': 'Färg',
+        'com.apple.WeatherPoster': 'Väder',
+        'com.apple.NanoUniverse.AegirProxyApp.AegirPoster': 'Astronomi',
+    };
+    function posterName(provider) { return POSTERS[provider] || ''; }
+
+    // Den valda postern för låsskärmen (och hemskärmen, som hör till den) ur PosterBoards databas. posters: { UUID,
+    // providerId }, members: { posterUUID, roleId }, attrs: { posterUUID, roleId, attributeIdentifier, attributePayload }.
+    // Attributet SELECTED säger vilken som är vald; saknas det tas den som ändrades senast. Ger { uuid, provider, name,
+    // how ('selected' eller 'latest'), count, modifiedMs } eller null.
+    var LOCK_ROLE = 'PRPosterRoleLockScreen';
+    function posterChoice(posters, members, attrs) {
+        var lock = (members || []).filter(function (m) { return m.roleId === LOCK_ROLE; }).map(function (m) { return String(m.posterUUID); });
+        if (!lock.length) return null;
+        var provider = {};
+        (posters || []).forEach(function (p) { provider[String(p.UUID)] = String(p.providerId || ''); });
+        var selected = null, modified = {};
+        (attrs || []).forEach(function (a) {
+            if (a.roleId !== LOCK_ROLE) return;
+            var id = String(a.posterUUID), payload = textOf(a.attributePayload);
+            if (a.attributeIdentifier === 'SELECTED' && /^\s*1\s*$/.test(payload)) selected = id;
+            if (a.attributeIdentifier === 'PRPosterRoleAttributeTypeUsageMetadata') {
+                try { var j = JSON.parse(payload); if (typeof j.lastModifiedDate === 'number') modified[id] = Math.round(j.lastModifiedDate * 1000); } catch (e) { /* utan tid */ }
+            }
+        });
+        var how = 'selected', uuid = selected && lock.indexOf(selected) >= 0 ? selected : null;
+        if (!uuid) { how = 'latest'; uuid = lock.slice().sort(function (a, b) { return (modified[b] || 0) - (modified[a] || 0); })[0]; }
+        return { uuid: uuid, provider: provider[uuid] || '', name: posterName(provider[uuid] || ''), how: how, count: lock.length, modifiedMs: modified[uuid] || null };
+    }
+
+    // Posterns bilder: den högsta versionen av RuntimeSnapshot-home.atx och -lock.atx. { home: { name, version }, lock }.
+    function posterSnapshots(names, uuid) {
+        var out = {}, want = String(uuid || '').toUpperCase();
+        (names || []).forEach(function (n) {
+            var m = /\/configurations\/([0-9A-Fa-f-]{36})\/versions\/(\d+)\/RuntimeSnapshot-(home|lock)\.atx$/.exec(n);
+            if (!m || m[1].toUpperCase() !== want) return;
+            var v = Number(m[2]);
+            if (!out[m[3]] || v > out[m[3]].version) out[m[3]] = { name: n, version: v };
+        });
+        return out;
+    }
+
+    // Fokuslägena, med svenska namn för Apples egna.
+    var FOCUS_NAMES = {
+        'com.apple.donotdisturb.mode.default': 'Stör ej', 'com.apple.sleep.sleep-mode': 'Sömn', 'com.apple.donotdisturb.mode.driving': 'Bilkörning',
+        'com.apple.focus.work': 'Arbete', 'com.apple.focus.personal-time': 'Privat', 'com.apple.focus.fitness': 'Träning', 'com.apple.focus.gaming': 'Spel',
+        'com.apple.focus.mindfulness': 'Mindfulness', 'com.apple.focus.reading': 'Läsning', 'com.apple.focus.reduce-interruptions': 'Färre avbrott',
+    };
+    function focusModes(json) {
+        var out = [];
+        ((json && json.data) || []).forEach(function (d) {
+            var mc = (d && d.modeConfigurations) || {};
+            Object.keys(mc).forEach(function (k) {
+                var m = mc[k] && mc[k].mode;
+                if (m) { var id = String(m.modeIdentifier || k); out.push({ id: id, name: FOCUS_NAMES[id] || String(m.name || id) }); }
+            });
+        });
+        return out;
+    }
+    // Fokuslägena som var på: assertionDetailsModeIdentifier i Assertions.json.
+    function focusActive(json) {
+        var ids = [];
+        (function walk(o) {
+            if (!o || typeof o !== 'object') return;
+            if (Array.isArray(o)) { o.forEach(walk); return; }
+            Object.keys(o).forEach(function (k) { if (k === 'assertionDetailsModeIdentifier' && typeof o[k] === 'string') { if (ids.indexOf(o[k]) < 0) ids.push(o[k]); } else walk(o[k]); });
+        })(json);
+        return ids;
+    }
+
+    // Lägen på iOS. p: de lästa filerna ({ radios, wifi, bt, locs, style, global, datetime, springboard, focus, focusOn,
+    // backup, buddy }). Bara det som har ett värde i filen. En rad med tid har ms, som ritas i vald tidszon.
+    function iosToggles(p) {
+        var rows = [];
+        var onOff = function (v) { return v === true || v === 1 || v === '1' || v === 'on' ? 'På' : v === false || v === 0 || v === '0' || v === 'off' ? 'Av' : String(v); };
+        var has = function (o, k) { return !!o && o[k] !== undefined && o[k] !== null; };
+        var timed = function (label, ms, source, suffix) { if (ms === null) return; var r = row(label, utc(ms) + (suffix || ''), source); r.ms = ms; r.suffix = suffix || ''; rows.push(r); };
+        if (has(p.radios, 'AirplaneMode')) rows.push(row('Flygplansläge', onOff(p.radios.AirplaneMode), 'com.apple.radios.plist · AirplaneMode'));
+        if (has(p.wifi, 'AllowEnable')) rows.push(row('Wi-Fi', onOff(p.wifi.AllowEnable), 'com.apple.wifi.plist · AllowEnable', p.wifi.KeepWiFiPoweredAirplaneMode === true ? 'Wi-Fi hålls på i flygplansläge (KeepWiFiPoweredAirplaneMode).' : ''));
+        if (has(p.bt, 'defaultPoweredState')) rows.push(row('Bluetooth', onOff(p.bt.defaultPoweredState), 'com.apple.BTServer.plist · defaultPoweredState',
+            has(p.bt, 'defaultAirplaneModePowerState') ? 'I flygplansläge: ' + onOff(p.bt.defaultAirplaneModePowerState).toLowerCase() + ' (defaultAirplaneModePowerState).' : ''));
+        var loc = null;
+        (p.locs || []).forEach(function (l) { Object.keys(l || {}).forEach(function (k) { if (/^LocationServicesEnabled/.test(k) && typeof l[k] === 'boolean') loc = { v: l[k], k: k }; }); });
+        if (loc) rows.push(row('Platstjänster', onOff(loc.v), 'com.apple.locationd.plist · ' + loc.k));
+        if (has(p.style, 'UserInterfaceStyleMode')) { var st = Number(p.style.UserInterfaceStyleMode); rows.push(row('Utseende', st === 1 ? 'Ljust' : st === 2 ? 'Mörkt' : 'Läge ' + p.style.UserInterfaceStyleMode, 'com.apple.uikitservices.userInterfaceStyleMode.plist · UserInterfaceStyleMode')); }
+        if (has(p.springboard, 'SBShowBatteryPercentage')) rows.push(row('Batteriprocent', onOff(p.springboard.SBShowBatteryPercentage), 'com.apple.springboard.plist · SBShowBatteryPercentage'));
+        if (p.global && Array.isArray(p.global.AppleLanguages) && p.global.AppleLanguages.length) rows.push(row('Språk', p.global.AppleLanguages.map(String).join(', '), '.GlobalPreferences.plist · AppleLanguages'));
+        if (has(p.global, 'AppleLocale')) rows.push(row('Region', p.global.AppleLocale, '.GlobalPreferences.plist · AppleLocale'));
+        if (has(p.datetime, 'timezone')) rows.push(row('Tidszon (vald ort)', p.datetime.timezone, 'com.apple.preferences.datetime.plist · timezone', 'Orten som senast valdes under Datum och tid. Med automatisk tidszon gäller den där telefonen är.'));
+        var modes = focusModes(p.focus), on = focusActive(p.focusOn);
+        if (modes.length) rows.push(row('Fokuslägen', modes.map(function (m) { return m.name; }).join(', '), 'ModeConfigurations.json · mode/name'));
+        if (p.focusOn) rows.push(row('Fokus på', on.length ? on.map(function (id) { var m = modes.filter(function (x) { return x.id === id; })[0]; return m ? m.name : FOCUS_NAMES[id] || id; }).join(', ') : 'Inget', 'Assertions.json · assertionDetailsModeIdentifier'));
+        if (p.backup) {
+            var bs = p.backup.BackupStateInfo;
+            if (bs && typeof bs === 'object') timed('Senaste säkerhetskopiering', nsMs(bs.date), 'com.apple.MobileBackup.plist · BackupStateInfo/date', bs.isCloud === true ? ' (iCloud)' : '');
+            timed('iCloud-säkerhetskopiering påslagen', nsMs(p.backup.AccountEnabledDate), 'com.apple.MobileBackup.plist · AccountEnabledDate');
+        }
+        if (p.springboard) timed('Senast avstängd', nsMs(p.springboard.SBLastKnownShutdownDate), 'com.apple.springboard.plist · SBLastKnownShutdownDate');
+        if (p.buddy) timed('Inställningsassistenten senast klar', nsMs(p.buddy.SetupLastExit), 'com.apple.purplebuddy.plist · SetupLastExit');
+        return { id: 'toggles', title: 'Lägen', rows: rows };
+    }
+
+    // Bluetooth-enheter på iOS: parkopplade Bluetooth LE-enheter (PairedDevices) och klassiska enheter
+    // (com.apple.MobileBluetooth.devices.plist, en nyckel per adress). Tiderna är Unix-sekunder.
+    function iosBluetooth(paired, devices) {
+        var out = [];
+        (paired || []).forEach(function (r) {
+            var t = Number(r.LastConnectionTime) || Number(r.LastSeenTime) || 0;
+            out.push({ address: textOf(r.Address || r.ResolvedAddress || r.Uuid), name: textOf(r.Name), paired: true, ms: t > 0 ? t * 1000 : null, type: 'Bluetooth LE' });
+        });
+        Object.keys(devices || {}).forEach(function (addr) {
+            var d = devices[addr];
+            if (!d || typeof d !== 'object') return;
+            var t = Number(d.LastSeenTime) || 0;
+            out.push({ address: addr, name: textOf(d.Name || d.DefaultName || ''), paired: true, ms: t > 0 ? t * 1000 : null, type: 'Klassisk' });
+        });
+        out.sort(function (a, b) { return (b.ms || 0) - (a.ms || 0); });
+        return { adapter: null, devices: out };
+    }
+
     // Kontona: Accounts3.sqlite på iOS och accounts_ce.db på Android, ett per namn med sina slag.
     function accounts(rows, platform) {
         var by = {}, order = [];
@@ -672,6 +829,7 @@
         buildProps: buildProps, appName: appName, infoName: infoName, packageOf: packageOf, packPage: packPage, iosHome: iosHome, oneUiHome: oneUiHome,
         launcher3Home: launcher3Home, homeAppIds: homeAppIds, widgetName: widgetName, iconCache: iconCache, protoFields: protoFields, notificationHistory: notificationHistory, clean: clean, roleOf: roleOf, iosAbout: iosAbout, iosWifi: iosWifi, androidWifi: androidWifi,
         androidBluetooth: androidBluetooth, androidAbout: androidAbout, androidToggles: androidToggles, accounts: accounts, utc: utc, row: row, IOS_NAMES: IOS_NAMES,
+        posterChoice: posterChoice, posterSnapshots: posterSnapshots, posterName: posterName, iosToggles: iosToggles, iosBluetooth: iosBluetooth, focusModes: focusModes, focusActive: focusActive,
     };
     if (node) module.exports = api;
     else root.DeviceInfo = api;
