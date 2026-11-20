@@ -13,6 +13,8 @@
 //   Signal Android    databases/signal-key-value.db, SQLCipher med databasnyckeln (OnePlus Nord, 2026-11-02)
 //   Signal iOS        grdb/signal.sqlite: keyvalue och Device (iPhone, 2026-11-11; en macOS-dator länkad 2026-11-03,
 //                     och meddelanden från den länkade enheten i labben 2026-11-05)
+//   Snapchat          Spöksläget: databases/feature, ShareLocationPreferences (labbmobilen 2026-11-20: av, 3 timmar och
+//                     tills det stängs av, med tiderna)
 //   Snapchat          Spara till: core.db SnapchatUserProperties _id 24 (Android, labbet 2026-11-16) och
 //                     primary.docobjects userproperties itemId 24 (iOS, labbet 2026-11-19), tools/provenance/snapchat.js
 (function (root) {
@@ -25,6 +27,7 @@
         { id: 'waIos', app: 'WhatsApp', platform: 'iOS', re: /\/Library\/Preferences\/group\.net\.whatsapp\.WhatsApp\.shared\.plist$/, label: 'group.net.whatsapp.WhatsApp.shared.plist' },
         { id: 'sigKv', app: 'Signal', platform: 'Android', re: /\/org\.thoughtcrime\.securesms\/databases\/signal-key-value\.db$/, sqlite: true, label: 'signal-key-value.db' },
         { id: 'snapCore', app: 'Snapchat', platform: 'Android', re: /\/com\.snapchat\.android\/databases\/core\.db$/, sqlite: true, label: 'core.db' },
+        { id: 'snapFeature', app: 'Snapchat', platform: 'Android', re: /\/com\.snapchat\.android\/databases\/feature$/, sqlite: true, label: 'feature (Snapchat)' },
         { id: 'snapSession', app: 'Snapchat', platform: 'Android', re: /\/com\.snapchat\.android\/shared_prefs\/user_session_shared_pref\.xml$/, label: 'user_session_shared_pref.xml' },
         { id: 'snapDoc', app: 'Snapchat', platform: 'iOS', re: /\/DocObjects\/primary\.docobjects$/, sqlite: true, label: 'primary.docobjects' },
         { id: 'snapIos', app: 'Snapchat', platform: 'iOS', re: /\/Library\/Preferences\/com\.toyopagroup\.picaboo\.plist$/, label: 'com.toyopagroup.picaboo.plist' },
@@ -282,9 +285,26 @@
         return { app: 'Signal', platform: 'iOS', groups: groups, devices: devs };
     }
 
-    // Snapchat: inställningen Spara till (ProvenanceSnapchat.saveSetting, kontrollerad på båda plattformarna), användar-id
-    // och tiderna i appens egna inställningar.
-    function snapchat(platform, save, session, ios, nsMs) {
+    // Snapchats karta på Android: raden i ShareLocationPreferences (feature). Kontrollerat på labbmobilen 2026-11-20:
+    // ghostModeEnabled 1/0, ghostModeExpiration slutet (3 timmar efter, eller 0 = tills det stängs av), version = när
+    // läget senast ändrades (ms), audience FRIENDS när vännerna ser platsen. Andra värden på audience är inte prövade.
+    var SNAP_AUDIENCE = { FRIENDS: 'Mina vänner' };
+    function snapLocation(r) {
+        if (!r) return [];
+        var F = 'feature · ShareLocationPreferences: ', on = Number(r.ghostModeEnabled) === 1, exp = Number(r.ghostModeExpiration) || 0;
+        return [
+            row('Spöksläge', on ? 'På' : 'Av', F + 'ghostModeEnabled', { on: on, checked: true, note: 'Spöksläge på: vännerna ser inte platsen på Snap Map.' }),
+            on ? (exp ? timed('Spökslägets slut', exp, F + 'ghostModeExpiration', { checked: true }) : row('Spökslägets slut', 'Tills det stängs av', F + 'ghostModeExpiration (0)', { checked: true })) : null,
+            timed('Platsinställningen ändrad', r.version, F + 'version', { checked: true, note: 'Tiden för den senaste ändringen av spöksläget eller vem som ser platsen.' }),
+            has(r, 'audience') ? row('Vem ser min plats', SNAP_AUDIENCE[r.audience] || (r.audience === 'NONE' ? 'Ingen' : String(r.audience)), F + 'audience', { checked: !!SNAP_AUDIENCE[r.audience],
+                note: r.audience === 'NONE' ? 'NONE i filen (Samsungen i labbet 2026-11-11, med spöksläget på); inte prövat.' : '' }) : null,
+            has(r, 'backgroundSharingEnabled') ? row('Plats i bakgrunden', onOff(Number(r.backgroundSharingEnabled) === 1), F + 'backgroundSharingEnabled', { on: Number(r.backgroundSharingEnabled) === 1 }) : null,
+        ];
+    }
+
+    // Snapchat: inställningen Spara till (ProvenanceSnapchat.saveSetting, kontrollerad på båda plattformarna), spöksläget
+    // (Android), användar-id och tiderna i appens egna inställningar.
+    function snapchat(platform, save, session, ios, nsMs, location) {
         session = session || {}; ios = ios || {};
         var ms = function (v) { return v && typeof v === 'object' && nsMs ? nsMs(v) : typeof v === 'number' ? (v > 1e12 ? v : v * 1000) : null; };
         var saveRow = save ? row('Spara till', save.label.charAt(0).toUpperCase() + save.label.slice(1), platform === 'iOS' ? 'primary.docobjects · userproperties itemId 24' : 'core.db · SnapchatUserProperties _id 24 (textVal)',
@@ -294,6 +314,7 @@
             group('Konto', platform === 'Android' ? [has(session, 'key_user_id') ? row('Användar-id', session.key_user_id, 'user_session_shared_pref.xml · key_user_id') : null] :
                 [timed('Installerad första gången', ms(ios.user_first_install_date) || ms(ios.first_install_date), 'com.toyopagroup.picaboo.plist · ' + (ios.user_first_install_date ? 'user_first_install_date' : 'first_install_date'))]),
             group('Memories', [saveRow, savedAt]),
+            group('Snap Map', snapLocation(location)),
         ].filter(Boolean);
         return { app: 'Snapchat', platform: platform, groups: groups };
     }

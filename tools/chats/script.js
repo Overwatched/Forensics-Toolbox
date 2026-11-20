@@ -2820,7 +2820,14 @@
                             if (r24) save = ProvenanceSnapchat.saveSetting({ value: r24.textVal, version: r24.row_version, updatedMs: r24.last_updated_time });
                         } catch (err) { A.notes.push('core.db kunde inte läsas: ' + errText(err)); }
                     }
-                    A.list.push(AppSettings.snapchat('Android', save, await prefs('snapSession')));
+                    var loc = null;
+                    if (got.snapFeature) {
+                        try {
+                            var fdb = await openDb('snapFeature');
+                            try { loc = tablesOf(fdb).indexOf('ShareLocationPreferences') >= 0 ? rowsOf(fdb, 'SELECT ghostModeEnabled AS ghostModeEnabled, ghostModeExpiration AS ghostModeExpiration, version AS version, audience AS audience, backgroundSharingEnabled AS backgroundSharingEnabled FROM ShareLocationPreferences ORDER BY _id DESC LIMIT 1')[0] || null : null; } finally { fdb.close(); }
+                        } catch (err) { A.notes.push('Snapchats databas feature kunde inte läsas: ' + errText(err)); }
+                    }
+                    A.list.push(AppSettings.snapchat('Android', save, await prefs('snapSession'), null, null, loc));
                 }
                 if (got.snapDoc || got.snapIos) {
                     var saveI = null;

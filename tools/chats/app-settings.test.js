@@ -150,3 +150,22 @@ test('Snapchat: Spara till är kontrollerad i labb på båda plattformarna, och 
 test('tiden i ord för försvinnande meddelanden', () => {
     assert.deepStrictEqual([0, 30, 300, 3600 * 8, 86400, 604800, 2419200, 7776000].map(A.secondsText), ['Av', '30 sekunder', '5 minuter', '8 timmar', '24 timmar', '1 vecka (7 dagar)', '4 veckor (28 dagar)', '90 dagar']);
 });
+
+test('Snapchats spöksläge på Android: på med slut, tills det stängs av, och av, kontrollerat på labbmobilen', () => {
+    const base = { version: 1795200772065, audience: 'FRIENDS', backgroundSharingEnabled: 0 };
+    const three = rowsOf(A.snapchat('Android', null, {}, null, null, Object.assign({ ghostModeEnabled: 1, ghostModeExpiration: 1795211572065 }, base)));
+    assert.strictEqual(three['Spöksläge'].value, 'På');
+    assert.strictEqual(three['Spöksläge'].checked, true);
+    assert.strictEqual(three['Spökslägets slut'].ms, 1795211572065);
+    assert.strictEqual(three['Platsinställningen ändrad'].ms, 1795200772065);
+    assert.strictEqual(three['Vem ser min plats'].value, 'Mina vänner');
+    assert.strictEqual(three['Plats i bakgrunden'].checked, false);
+    const until = rowsOf(A.snapchat('Android', null, {}, null, null, Object.assign({ ghostModeEnabled: 1, ghostModeExpiration: 0 }, base)));
+    assert.strictEqual(until['Spökslägets slut'].value, 'Tills det stängs av');
+    const off = rowsOf(A.snapchat('Android', null, {}, null, null, Object.assign({ ghostModeEnabled: 0, ghostModeExpiration: 1795211572065 }, base, { audience: 'CUSTOM' })));
+    assert.strictEqual(off['Spöksläge'].value, 'Av');
+    assert.strictEqual(off['Spökslägets slut'], undefined);
+    assert.strictEqual(off['Vem ser min plats'].value, 'CUSTOM');
+    assert.strictEqual(off['Vem ser min plats'].checked, false);
+    assert.deepStrictEqual(A.fileOf('Dump/data/data/com.snapchat.android/databases/feature-wal'), { id: 'snapFeature', wal: true });
+});

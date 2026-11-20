@@ -1654,7 +1654,12 @@ senare.
     inkognitotangentbord, stories av, försvinnande som standard (sekunder: 604800, 2419200) och numrets sekretess
     (`sharingMode` 1 alla, 2 ingen; `listingMode` 0 alla, 1 ingen) ändrades och lästes ur signal-key-value.db direkt från
     telefonen (dekrypterad med databasnyckeln). Skärmlåset kräver telefonens kod och notisernas innehåll kräver
-    notistillstånd; de är inte prövade. Snapchats spöksläge kräver att platsen delas och är inte prövat.
+    notistillstånd; de är inte prövade.
+    Snapchats spöksläge på Android, samma kväll (Snapchat fick platstillstånd under provet, som drogs tillbaka efteråt):
+    databasen `feature`, tabellen `ShareLocationPreferences`. `ghostModeEnabled` 1/0, `ghostModeExpiration` slutet i ms
+    (3 timmar efter ändringen, eller 0 = tills det stängs av; tiden står kvar när läget stängs av), `version` = tiden för
+    ändringen, `audience` FRIENDS när vännerna ser platsen (NONE på Samsungen 2026-11-11, inte prövat). core.db
+    `SnapchatUserProperties` _id 216 fick samma tid men inte läget. Var spöksläget ligger på iOS är inte hittat.
   - **En app** visar sina chattar, den senaste först (`appThreads`), 200 i taget. En chatt öppnas i telefonvyn med
     knappen tillbaka (`#c-phone-back`) till appens lista. Att byta till Lista lämnar inte telefonen: där står knappen
     i chattens huvud (`#c-list-back`, `backButtons`). En chatt som öppnas ur listan till vänster medan en chatt visas
