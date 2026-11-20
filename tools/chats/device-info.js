@@ -658,18 +658,27 @@
     }
 
     // Lägen ur Androids inställningar som syns i en riktig telefon. Bara det som har ett värde i filen.
+    // checked: kontrollerat på labbmobilen 2026-11-20 (OnePlus Nord, Android 13): läget växlades med systemets egna
+    // kommandon (samma tjänster som snabbinställningarna) och värdet lästes ur filen efter varje växling.
+    var LAB_TOGGLES = 'Kontrollerat på labbmobilen 2026-11-20 (Android 13): läget växlades och filen lästes efter varje växling.';
     function androidToggles(global, secure, system) {
         var rows = [];
         var onOff = function (v) { return v === '1' ? 'På' : v === '0' ? 'Av' : v; };
-        var add = function (label, map, file, key, fmt) { if (map[key] !== undefined && map[key] !== null) rows.push(row(label, (fmt || onOff)(map[key]), file + ' · ' + key)); };
-        add('Flygplansläge', global, 'settings_global.xml', 'airplane_mode_on');
-        add('Wi-Fi', global, 'settings_global.xml', 'wifi_on', function (v) { return v === '0' ? 'Av' : v === '1' ? 'På' : v === '2' ? 'På (flygplansläge)' : v === '3' ? 'Av (flygplansläge, sparat på)' : v; });
-        add('Bluetooth', global, 'settings_global.xml', 'bluetooth_on');
-        add('Mobildata', global, 'settings_global.xml', 'mobile_data');
+        var add = function (label, map, file, key, fmt, checked, note) {
+            if (map[key] === undefined || map[key] === null) return;
+            var r = row(label, (fmt || onOff)(map[key]), file + ' · ' + key, note || (checked ? LAB_TOGGLES : ''));
+            if (checked !== undefined) r.checked = checked;
+            rows.push(r);
+        };
+        add('Flygplansläge', global, 'settings_global.xml', 'airplane_mode_on', null, true);
+        add('Wi-Fi', global, 'settings_global.xml', 'wifi_on', function (v) { return v === '0' ? 'Av' : v === '1' ? 'På' : v === '2' ? 'På (flygplansläge)' : v === '3' ? 'Av (flygplansläge, sparat på)' : v; }, true);
+        add('Bluetooth', global, 'settings_global.xml', 'bluetooth_on', function (v) { return v === '0' ? 'Av' : v === '1' ? 'På' : v === '2' ? 'Av (flygplansläge, sparat på)' : v; }, true);
+        add('Mobildata', global, 'settings_global.xml', 'mobile_data', null, false, 'Inte kontrollerat: labbmobilen saknar SIM-kort, och värdet ändrades inte när mobildata slogs av.');
         add('Dataroaming', global, 'settings_global.xml', 'data_roaming');
-        add('Plats', secure, 'settings_secure.xml', 'location_mode', function (v) { return v === '0' ? 'Av' : v === '3' ? 'På (hög noggrannhet)' : v === '1' ? 'På (bara GPS)' : v === '2' ? 'På (sparar batteri)' : v; });
-        add('Mörkt läge', secure, 'settings_secure.xml', 'ui_night_mode', function (v) { return v === '2' ? 'På' : v === '1' ? 'Av' : v === '0' ? 'Automatiskt' : v; });
-        add('Stör ej', global, 'settings_global.xml', 'zen_mode', function (v) { return v === '0' ? 'Av' : v === '1' ? 'På (bara prioriterade)' : v === '2' ? 'På (total tystnad)' : v === '3' ? 'På (bara alarm)' : v; });
+        add('Plats', secure, 'settings_secure.xml', 'location_mode', function (v) { return v === '0' ? 'Av' : v === '3' ? 'På (hög noggrannhet)' : v === '1' ? 'På (bara GPS)' : v === '2' ? 'På (sparar batteri)' : v; }, true);
+        add('Mörkt läge', secure, 'settings_secure.xml', 'ui_night_mode', function (v) { return v === '2' ? 'På' : v === '1' ? 'Av' : v === '0' ? 'Automatiskt' : v; }, true,
+            LAB_TOGGLES + ' Nyckeln finns först när läget ändrats en gång; utan den kan telefonen ändå vara mörk.');
+        add('Stör ej', global, 'settings_global.xml', 'zen_mode', function (v) { return v === '0' ? 'Av' : v === '1' ? 'På (bara prioriterade)' : v === '2' ? 'På (total tystnad)' : v === '3' ? 'På (bara alarm)' : v; }, true);
         add('Automatisk tid', global, 'settings_global.xml', 'auto_time');
         add('Automatisk tidszon', global, 'settings_global.xml', 'auto_time_zone');
         add('Utvecklaralternativ', global, 'settings_global.xml', 'development_settings_enabled');
@@ -791,6 +800,8 @@
         }
         if (p.springboard) timed('Senast avstängd', nsMs(p.springboard.SBLastKnownShutdownDate), 'com.apple.springboard.plist · SBLastKnownShutdownDate');
         if (p.buddy) timed('Inställningsassistenten senast klar', nsMs(p.buddy.SetupLastExit), 'com.apple.purplebuddy.plist · SetupLastExit');
+        // Inget av det är kontrollerat på en iPhone än (labben med lägena väntar).
+        rows.forEach(function (r) { r.checked = false; });
         return { id: 'toggles', title: 'Lägen', rows: rows };
     }
 

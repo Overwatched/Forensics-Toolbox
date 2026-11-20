@@ -304,3 +304,17 @@ test('Bluetooth på iOS: Bluetooth LE ur databasen och klassiska enheter ur plis
         { address: '11:22:33:44:55:66', name: 'Bilen', paired: true, ms: 1750000000000, type: 'Klassisk' },
     ] });
 });
+
+test('Androids lägen: Bluetooth och Wi-Fi i flygplansläge, mörkt läge och Stör ej, märkta som kontrollerade på labbmobilen', () => {
+    const t = D.androidToggles({ airplane_mode_on: '1', wifi_on: '3', bluetooth_on: '2', mobile_data: '1', zen_mode: '3' }, { location_mode: '0', ui_night_mode: '0' }, {});
+    const v = Object.fromEntries(t.rows.map((r) => [r.label, r]));
+    assert.strictEqual(v['Bluetooth'].value, 'Av (flygplansläge, sparat på)');
+    assert.strictEqual(v['Wi-Fi'].value, 'Av (flygplansläge, sparat på)');
+    assert.strictEqual(v['Mörkt läge'].value, 'Automatiskt');
+    assert.strictEqual(v['Stör ej'].value, 'På (bara alarm)');
+    assert.strictEqual(v['Plats'].value, 'Av');
+    assert.ok(['Flygplansläge', 'Wi-Fi', 'Bluetooth', 'Plats', 'Mörkt läge', 'Stör ej'].every((k) => v[k].checked === true));
+    assert.strictEqual(v['Mobildata'].checked, false);
+    assert.match(v['Mobildata'].note, /saknar SIM-kort/);
+    assert.ok(D.iosToggles({ radios: { AirplaneMode: true } }).rows.every((r) => r.checked === false));
+});

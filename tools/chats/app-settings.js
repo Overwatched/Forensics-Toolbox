@@ -132,7 +132,7 @@
         s = Number(s);
         if (!s) return 'Av';
         var d = s / 86400;
-        if (d >= 1 && d === Math.round(d)) return d === 1 ? '24 timmar' : d === 7 ? '7 dagar' : d === 90 ? '90 dagar' : d + ' dagar';
+        if (d >= 1 && d === Math.round(d)) return d === 1 ? '24 timmar' : d % 7 === 0 && d <= 28 ? (d === 7 ? '1 vecka' : d / 7 + ' veckor') + ' (' + d + ' dagar)' : d + ' dagar';
         if (s >= 3600) return Math.round(s / 3600) + ' timmar';
         if (s >= 60) return Math.round(s / 60) + ' minuter';
         return s + ' sekunder';
@@ -210,6 +210,8 @@
         kv = kv || {};
         var F = 'signal-key-value.db · ';
         var b = function (k, label, opts) { return has(kv, k) ? row(label, onOff(Number(kv[k]) === 1 || kv[k] === true), F + k, Object.assign({ on: Number(kv[k]) === 1 || kv[k] === true }, opts || {})) : null; };
+        // Kontrollerat på labbmobilen 2026-11-20 (Signal på Android 13): inställningen ändrades i appen och filen lästes.
+        var lab = { checked: true };
         // Androids PhoneNumberPrivacyValues: sharingMode 0 standard, 1 alla, 2 ingen; listingMode 0 listad, 1 olistad.
         var sharing = { 0: 'Standard', 1: 'Alla', 2: 'Ingen' }, listing = { 0: 'Alla', 1: 'Ingen' };
         var groups = [
@@ -218,19 +220,19 @@
                 timed('Senast i förgrunden', kv['misc.last_foreground_time'], F + 'misc.last_foreground_time'),
             ]),
             group('Sekretess', [
-                b('settings.read.receipts.enabled', 'Läskvitton'),
-                b('settings.typing.indicators.enabled', 'Skrivindikator'),
-                b('settings.link_previews', 'Förhandsvisning av länkar'),
-                has(kv, 'phoneNumberPrivacy.sharingMode') ? row('Vem ser mitt nummer', sharing[kv['phoneNumberPrivacy.sharingMode']] || 'värde ' + kv['phoneNumberPrivacy.sharingMode'], F + 'phoneNumberPrivacy.sharingMode') : null,
-                has(kv, 'phoneNumberPrivacy.listingMode') ? row('Vem kan hitta mig med numret', listing[kv['phoneNumberPrivacy.listingMode']] || 'värde ' + kv['phoneNumberPrivacy.listingMode'], F + 'phoneNumberPrivacy.listingMode') : null,
-                b('settings.screen.lock.enabled', 'Skärmlås'),
-                b('settings.screen.security.enabled', 'Skärmskydd (inga skärmdumpar)'),
-                b('settings.incognito.keyboard.enabled', 'Inkognitotangentbord'),
+                b('settings.read.receipts.enabled', 'Läskvitton', lab),
+                b('settings.typing.indicators.enabled', 'Skrivindikator', lab),
+                b('settings.link_previews', 'Förhandsvisning av länkar', lab),
+                has(kv, 'phoneNumberPrivacy.sharingMode') ? row('Vem ser mitt nummer', sharing[kv['phoneNumberPrivacy.sharingMode']] || 'värde ' + kv['phoneNumberPrivacy.sharingMode'], F + 'phoneNumberPrivacy.sharingMode', lab) : null,
+                has(kv, 'phoneNumberPrivacy.listingMode') ? row('Vem kan hitta mig med numret', listing[kv['phoneNumberPrivacy.listingMode']] || 'värde ' + kv['phoneNumberPrivacy.listingMode'], F + 'phoneNumberPrivacy.listingMode', lab) : null,
+                b('settings.screen.lock.enabled', 'Skärmlås', { note: 'Inte kontrollerat: Signal kräver telefonens kod för att slå på skärmlåset.' }),
+                b('settings.screen.security.enabled', 'Skärmskydd (inga skärmdumpar)', lab),
+                b('settings.incognito.keyboard.enabled', 'Inkognitotangentbord', lab),
             ]),
             group('Meddelanden', [
-                has(kv, 'settings.universal.expire.timer') ? row('Försvinnande meddelanden (standard för nya chattar)', secondsText(kv['settings.universal.expire.timer']), F + 'settings.universal.expire.timer', { on: Number(kv['settings.universal.expire.timer']) > 0 }) : null,
+                has(kv, 'settings.universal.expire.timer') ? row('Försvinnande meddelanden (standard för nya chattar)', secondsText(kv['settings.universal.expire.timer']), F + 'settings.universal.expire.timer', { on: Number(kv['settings.universal.expire.timer']) > 0, checked: true, note: 'Sekunder: 1 vecka är 604800 och 4 veckor 2419200 (labbmobilen 2026-11-20).' }) : null,
                 has(kv, 'settings.message.notification.privacy') ? row('Notisernas innehåll', { all: 'Namn och meddelande', contact: 'Bara namn', none: 'Inget namn eller meddelande' }[kv['settings.message.notification.privacy']] || kv['settings.message.notification.privacy'], F + 'settings.message.notification.privacy') : null,
-                b('stories.disable', 'Stories avstängda'),
+                b('stories.disable', 'Stories avstängda', lab),
             ]),
             group('Säkerhetskopiering', [b('settings.backups.enabled', 'Lokal säkerhetskopiering')]),
             group('Länkade enheter', [b('account.has_linked_devices', 'Har länkade enheter')]),

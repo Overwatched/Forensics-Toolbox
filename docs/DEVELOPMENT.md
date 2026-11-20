@@ -1643,6 +1643,18 @@ senare.
     med raden i Inställningar → Lägen bakom varje ruta. Nås med statusraden överst på hemskärmen och låsskärmen
     (`statusBarHtml`: ikonerna för lägena) eller med ett drag nedåt från överkanten: från högra halvan på iPhone (vänstra
     ger notiserna), överallt på Android. Android-lägena har också Mörkt läge (`ui_night_mode`) och Stör ej (`zen_mode`).
+    Kontrollerat på labbmobilen 2026-11-20 (Android 13; lägena växlades med `cmd connectivity airplane-mode`, `svc wifi`,
+    `svc bluetooth`, `cmd location set-location-enabled`, `cmd uimode night` och `cmd notification set_dnd`, och
+    `settings_*.xml` lästes efter varje växling): flygplansläge 0/1; i flygplansläge blir `wifi_on` 3 och `bluetooth_on`
+    2 (avslaget av flygplansläget, på efteråt); plats 0/3; mörkt läge 0 automatiskt, 1 av, 2 på, och nyckeln saknas
+    tills läget ändrats en gång; Stör ej 0 av, 1 prioriterade, 2 total tystnad, 3 bara alarm. Mobildata gick inte att
+    pröva (inget SIM-kort). Raderna i Lägen är märkta på samma sätt som appinställningarna (`checked`); iOS-lägena är
+    Ej verifierad tills en iPhone-labb gjorts.
+    Signal på Android, samma dag i appen: läskvitton, skrivindikator, förhandsvisning av länkar, skärmskydd,
+    inkognitotangentbord, stories av, försvinnande som standard (sekunder: 604800, 2419200) och numrets sekretess
+    (`sharingMode` 1 alla, 2 ingen; `listingMode` 0 alla, 1 ingen) ändrades och lästes ur signal-key-value.db direkt från
+    telefonen (dekrypterad med databasnyckeln). Skärmlåset kräver telefonens kod och notisernas innehåll kräver
+    notistillstånd; de är inte prövade. Snapchats spöksläge kräver att platsen delas och är inte prövat.
   - **En app** visar sina chattar, den senaste först (`appThreads`), 200 i taget. En chatt öppnas i telefonvyn med
     knappen tillbaka (`#c-phone-back`) till appens lista. Att byta till Lista lämnar inte telefonen: där står knappen
     i chattens huvud (`#c-list-back`, `backButtons`). En chatt som öppnas ur listan till vänster medan en chatt visas

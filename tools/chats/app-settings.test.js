@@ -73,7 +73,7 @@ test('WhatsApp på Android: sekretessen, försvinnande meddelanden, säkerhetsko
     assert.strictEqual(r['Senast sedd'].value, 'Mina kontakter');
     assert.strictEqual(r['Online'].value, 'Alla');
     assert.strictEqual(r['Grupper (vem som får lägga till)'].value, 'Ingen');
-    assert.strictEqual(r['Försvinnande meddelanden (standard för nya chattar)'].value, '7 dagar');
+    assert.strictEqual(r['Försvinnande meddelanden (standard för nya chattar)'].value, '1 vecka (7 dagar)');
     assert.strictEqual(r['Senast inloggad'].ms, 1794430493000);
     assert.strictEqual(r['Installerad från'].value, 'google-play');
     assert.strictEqual(r['Google Drive'].value, 'Inte påslagen (0)');
@@ -104,6 +104,10 @@ test('Signal på Android: signal-key-value.db, med registreringen kontrollerad i
     assert.strictEqual(r['Har länkade enheter'].on, true);
     assert.strictEqual(r['Notisernas innehåll'].value, 'Bara namn');
     assert.strictEqual(r['Har länkade enheter'].checked, false);
+    // Kontrollerat på labbmobilen 2026-11-20: läskvitton, skrivindikator, numrets sekretess, försvinnande; inte skärmlåset.
+    assert.ok(['Läskvitton', 'Skrivindikator', 'Vem ser mitt nummer', 'Vem kan hitta mig med numret', 'Försvinnande meddelanden (standard för nya chattar)'].every((k) => r[k].checked));
+    assert.strictEqual(r['Skärmlås'].checked, false);
+    assert.strictEqual(r['Notisernas innehåll'].checked, false);
 });
 
 test('Signal på iOS: keyvalue som arkiv, text och tal, och den länkade datorn ur Device, kontrollerad i labb', () => {
@@ -144,5 +148,5 @@ test('Snapchat: Spara till är kontrollerad i labb på båda plattformarna, och 
 });
 
 test('tiden i ord för försvinnande meddelanden', () => {
-    assert.deepStrictEqual([0, 30, 300, 3600 * 8, 86400, 604800, 7776000].map(A.secondsText), ['Av', '30 sekunder', '5 minuter', '8 timmar', '24 timmar', '7 dagar', '90 dagar']);
+    assert.deepStrictEqual([0, 30, 300, 3600 * 8, 86400, 604800, 2419200, 7776000].map(A.secondsText), ['Av', '30 sekunder', '5 minuter', '8 timmar', '24 timmar', '1 vecka (7 dagar)', '4 veckor (28 dagar)', '90 dagar']);
 });

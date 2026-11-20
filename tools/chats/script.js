@@ -2855,8 +2855,7 @@
     function appSettingRow(r, f) {
         var value = r.ms ? (r.prefix || '') + f(r.ms) + (r.suffix || '') : r.value;
         var sw = r.on === undefined ? '' : '<span class="d-switch' + (r.on ? ' on' : '') + '" aria-hidden="true"><i></i></span>';
-        var mark = r.checked ? '<span class="d-check" title="Kontrollerad i en labb: inställningen ändrades eller händelsen gjordes vid en loggad tid och syntes i filen.">✓ Labb</span>' :
-            '<span class="d-unverified" title="Värdet står i filen, men vad det betyder är inte prövat i en labb ännu.">Ej verifierad</span>';
+        var mark = labMark(!!r.checked);
         return '<div class="d-kv d-appset"><span class="d-kv-label">' + esc(r.label) + '</span><span class="d-kv-value">' + (sw ? sw + '<span class="d-switch-text">' + esc(value) + '</span>' : esc(value)) + '</span>' +
             '<small class="d-kv-src">' + mark + ' ' + esc(r.source) + '</small>' + (r.note ? '<small class="d-kv-note">' + esc(r.note) + '</small>' : '') + '</div>';
     }
@@ -2920,7 +2919,7 @@
         if (android) tiles.forEach(function (t) { if (t.key === 'focus') t.name = 'Stör ej'; });
         var html = tiles.map(function (t) {
             var state2 = t.on === true ? 'på' : t.on === false ? 'av' : 'okänt';
-            return '<button type="button" class="d-tile' + (t.on ? ' on' : t.on === false ? ' off' : '') + '" data-section="toggles" title="' + esc(t.row.source + (t.row.note ? ' · ' + t.row.note : '')) + '" aria-label="' + esc(t.name + ', ' + state2 + ', ' + t.row.value) + '">' +
+            return '<button type="button" class="d-tile' + (t.on ? ' on' : t.on === false ? ' off' : '') + '" data-section="toggles" title="' + esc((t.row.checked === true ? '✓ Labb · ' : t.row.checked === false ? 'Ej verifierad · ' : '') + t.row.source + (t.row.note ? ' · ' + t.row.note : '')) + '" aria-label="' + esc(t.name + ', ' + state2 + ', ' + t.row.value) + '">' +
                 '<span class="d-tile-icon"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + t.glyph + '</svg></span>' +
                 '<span class="d-tile-text"><b>' + esc(t.name) + '</b><small>' + esc(t.row.value) + '</small></span></button>';
         }).join('');
@@ -3027,8 +3026,13 @@
         box.innerHTML = '<div class="d-sets">' + rows.join('') + '</div>' + (info.notes.length ? '<p class="d-empty warn">' + esc(info.notes.join(' ')) + '</p>' : '') +
             '<p class="d-note">Bara det som står i telefonens egna filer. Varje rad säger vilken fil och vilket fält den kommer ur.</p>';
     }
-    function kv(label, value, source, note) {
-        return '<div class="d-kv"><span class="d-kv-label">' + esc(label) + '</span><span class="d-kv-value">' + esc(value) + '</span>' + (source ? '<small class="d-kv-src">' + esc(source) + '</small>' : '') + (note ? '<small class="d-kv-note">' + esc(note) + '</small>' : '') + '</div>';
+    // checked: true = kontrollerat i labb, false = ej verifierat, utelämnat = ingen märkning.
+    function kv(label, value, source, note, checked) {
+        return '<div class="d-kv"><span class="d-kv-label">' + esc(label) + '</span><span class="d-kv-value">' + esc(value) + '</span>' + (source || checked !== undefined ? '<small class="d-kv-src">' + labMark(checked) + esc(source || '') + '</small>' : '') + (note ? '<small class="d-kv-note">' + esc(note) + '</small>' : '') + '</div>';
+    }
+    function labMark(checked) {
+        return checked === true ? '<span class="d-check" title="Kontrollerad i en labb: inställningen ändrades eller händelsen gjordes vid en loggad tid och syntes i filen.">✓ Labb</span> ' :
+            checked === false ? '<span class="d-unverified" title="Värdet står i filen, men vad det betyder är inte prövat i en labb ännu.">Ej verifierad</span> ' : '';
     }
     function renderSetting(body) {
         var P = state.device, info = P.info, f = fmt();
@@ -3044,7 +3048,7 @@
         } else if (!s) { openDevice('settings'); return; }
         else {
             $('c-device-title').textContent = s.title;
-            if (s.rows) html = s.rows.map(function (r) { return kv(r.label, r.ms ? t(r.ms) + (r.suffix || '') : r.value, r.source, r.note); }).join('');
+            if (s.rows) html = s.rows.map(function (r) { return kv(r.label, r.ms ? t(r.ms) + (r.suffix || '') : r.value, r.source, r.note, r.checked); }).join('');
             if (s.wall && (s.wall.home || s.wall.lock)) html = '<div class="d-walls">' + ['home', 'lock'].filter(function (k) { return s.wall[k]; }).map(function (k) { return '<figure><img src="' + esc(s.wall[k]) + '" alt=""><figcaption>' + (k === 'home' ? 'Hemskärm' : 'Låsskärm') + '</figcaption></figure>'; }).join('') + '</div>' + html;
             if (s.networks !== undefined) {
                 html = s.networks === null ? kv('Wi-Fi', 'Inte läst', s.source + (s.abx ? ' (binär XML, som verktyget inte läser för Wi-Fi)' : ' finns inte i ' + Z())) : !s.networks.length ? kv('Wi-Fi', 'Inga sparade nät', s.source) :

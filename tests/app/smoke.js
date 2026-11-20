@@ -1475,7 +1475,7 @@ const scenarios = [
         await ev(`document.getElementById('c-device-back').click(), 1`);
         await ev(`document.querySelector('[data-section="toggles"]').click(), 1`);
         const modes = await ev(`document.getElementById('c-device-body').innerText`);
-        expect(/Flygplansläge\s+På\s+com\.apple\.radios\.plist · AirplaneMode/.test(modes) && /Bluetooth\s+På/.test(modes) && /I flygplansläge: av/.test(modes) && /Utseende\s+Mörkt/.test(modes), 'Lägen: ' + modes);
+        expect(/Flygplansläge\s+På\s+Ej verifierad\s+com\.apple\.radios\.plist · AirplaneMode/.test(modes) && /Bluetooth\s+På/.test(modes) && /I flygplansläge: av/.test(modes) && /Utseende\s+Mörkt/.test(modes), 'Lägen: ' + modes);
         await ev(`document.getElementById('c-device-back').click(), 1`);
         await ev(`document.querySelector('[data-section="wallpaper"]').click(), 1`);
         await c.waitFor(PH, `[...document.querySelectorAll('#c-device-body .d-walls img')].some(i => i.naturalWidth > 0)`, 10000, 'bakgrunden i Inställningar');
