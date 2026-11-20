@@ -37,6 +37,38 @@
     // En tidskolumn som inte heter något med time: ZDATECREATED, date_added, datetaken.
     var DATE_COLUMN = /date/i;
     var NOT_DATE = /update|zone|offset/i;
+    // Appen och enheten i en rad om en bild: Photos.sqlite och MediaStore.
+    var APP_NAME_COLUMN = /^(ZIMPORTEDBYDISPLAYNAME|app|app_name|appnamn)$/i;
+    var APP_ID_COLUMN = /^(ZIMPORTEDBYBUNDLEIDENTIFIER|owner_package_name|bundle_?id|package(_name)?)$/i;
+    var MAKE_COLUMN = /^(ZCAMERAMAKE|make|tillverkare)$/i;
+    var MODEL_COLUMN = /^(ZCAMERAMODEL|model|modell)$/i;
+
+    // Kolumnerna som SQL:en räknar om till datorns lokala tid: datetime(…, 'localtime') AS namn.
+    function localColumns(sql) {
+        var out = [];
+        var re = /'localtime'\s*\)\s*AS\s+["`\[]?([A-Za-z_][\w]*)/gi;
+        var m;
+        while ((m = re.exec(String(sql || '')))) out.push(m[1]);
+        return out;
+    }
+
+    // Tillverkaren och modellen som en enhet. En modell som redan börjar med tillverkaren står ensam.
+    function deviceText(make, model) {
+        make = make == null ? '' : String(make).trim();
+        model = model == null ? '' : String(model).trim();
+        if (!model) return make;
+        return make && model.toLowerCase().indexOf(make.toLowerCase()) !== 0 ? make + ' ' + model : model;
+    }
+
+    // Datorns zon för en tid "ÅÅÅÅ-MM-DD TT:MM:SS" i lokal tid, som +01:00.
+    function localZone(sort) {
+        var m = /^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2}):(\d{2})/.exec(sort || '');
+        if (!m) return '';
+        var d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]), Number(m[4]), Number(m[5]), Number(m[6]));
+        var off = -d.getTimezoneOffset();
+        var a = Math.abs(off);
+        return (off < 0 ? '-' : '+') + String(Math.floor(a / 60)).padStart(2, '0') + ':' + String(a % 60).padStart(2, '0');
+    }
 
     function toPoints(columns, rows, opts) {
         opts = opts || {};
@@ -44,15 +76,44 @@
         var headers = columns.map(String);
         var col = imp.guessColumns(headers);
         if (col.lat < 0 || col.lon < 0) return { points: [], skipped: rows.length, columns: col };
-        if (col.time < 0) col.time = headers.findIndex(function (h) { return DATE_COLUMN.test(h) && !NOT_DATE.test(h); });
         var zone = function (i) { return i >= 0 && /utc/i.test(headers[i]) ? 'UTC' : ''; };
+        // Tiden ur den första kolumnen vars värden går att läsa som tid: den gissade först (UTC före lokal), sedan
+        // kolumner med date i namnet. ZEXIFTIMESTAMPSTRING heter något med time men har kolon i datumet.
+        var readable = function (i) {
+            var seen = 0, ok = 0;
+            for (var r = 0; r < rows.length && seen < 20; r++) {
+                var v = rows[r][i];
+                if (v === null || v === undefined || v === '') continue;
+                seen++;
+                if (imp.takenFrom(v, zone(i))) ok++;
+            }
+            return seen > 0 && ok * 2 >= seen;
+        };
+        var timeCandidates = [col.time].concat(headers.map(function (h, i) { return /utc/i.test(h) && DATE_COLUMN.test(h) && !NOT_DATE.test(h) ? i : -1; }))
+            .concat(headers.map(function (h, i) { return DATE_COLUMN.test(h) && !NOT_DATE.test(h) ? i : -1; }))
+            .concat(headers.map(function (h, i) { return /time/i.test(h) && !NOT_DATE.test(h) ? i : -1; }))
+            .filter(function (i) { return i >= 0 && i !== col.end; });
+        col.time = timeCandidates.filter(readable)[0];
+        if (col.time === undefined) col.time = -1;
+        var appCol = headers.findIndex(function (h) { return APP_NAME_COLUMN.test(h); });
+        if (appCol < 0) appCol = headers.findIndex(function (h) { return APP_ID_COLUMN.test(h); });
+        var makeCol = headers.findIndex(function (h) { return MAKE_COLUMN.test(h); });
+        var modelCol = headers.findIndex(function (h) { return MODEL_COLUMN.test(h); });
         var typeCol = headers.findIndex(function (h) { return TYPE_COLUMN.test(h); });
         var nameCol = headers.findIndex(function (h) { return FILE_NAME_COLUMN.test(h); });
         var dirCol = nameCol >= 0 ? headers.findIndex(function (h) { return FILE_DIR_COLUMN.test(h); }) : -1;
         // Tiden säger vilken kolumn den kom ur, eftersom en databas har flera.
+        // En kolumn som SQL:en räknade om med datetime(…, 'localtime') står i datorns zon. opts.localZone(tid) ger
+        // zonen för den tiden (+01:00), så att punkten får en verklig tidpunkt.
+        var local = opts.localColumns || [];
         var timed = function (value, i) {
             var t = i >= 0 ? imp.takenFrom(value, zone(i)) : null;
-            if (t) t.kind = 'Tid (' + headers[i] + ')';
+            if (!t) return null;
+            t.kind = 'Tid (' + headers[i] + ')';
+            if (!t.zone && opts.localZone && local.indexOf(headers[i]) >= 0) {
+                t.zone = opts.localZone(t.sort) || '';
+                if (t.zone) { t.text = t.sort + ' ' + t.zone; t.kind = 'Tid (' + headers[i] + ', datorns zon)'; }
+            }
             return t;
         };
         // Radens övriga kolumner står i punktens ruta på kartan.
@@ -81,7 +142,9 @@
                 until: until,
                 visit: col.end >= 0,
                 accuracy: isFinite(accuracy) && accuracy > 0 ? accuracy : null,
-                type: kind, device: '', software: '', mime: '',
+                type: kind, software: '', mime: '',
+                device: deviceText(makeCol >= 0 ? row[makeCol] : null, modelCol >= 0 ? row[modelCol] : null),
+                app: appCol >= 0 && row[appCol] != null ? String(row[appCol]) : '',
                 extra: headers.map(function (h, i) { return shownOnMap.indexOf(i) < 0 && row[i] !== null && row[i] !== '' ? [h, cellText(row[i]).slice(0, 200)] : null; }).filter(Boolean).slice(0, 12),
             });
         });
@@ -167,7 +230,7 @@
     }
 
     var api = {
-        toCsv: toCsv, cellText: cellText, toPoints: toPoints, epochMs: epochMs, epochText: epochText, withUtcColumns: withUtcColumns,
+        toCsv: toCsv, cellText: cellText, toPoints: toPoints, localColumns: localColumns, localZone: localZone, epochMs: epochMs, epochText: epochText, withUtcColumns: withUtcColumns,
         findRows: findRows, rowWindow: rowWindow, readsOnly: readsOnly,
     };
     if (typeof module !== 'undefined' && module.exports) module.exports = api;

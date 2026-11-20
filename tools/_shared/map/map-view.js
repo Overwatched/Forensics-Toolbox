@@ -575,7 +575,13 @@
             opt.value = o[0];
             speed.append(opt);
         });
-        timeBar.append(play, speed, timeInput, timeLabel);
+        // Tidsspannet (ett verktyg lägger sina fält här med addToMenu('time', …)) och uppspelningen står i samma rad.
+        var timeSpanBtn = make('button', 'map-bar-btn map-bar-menu map-time-span display-none', 'Tidsspann');
+        timeSpanBtn.type = 'button';
+        timeSpanBtn.title = 'Visa bara punkterna inom ett tidsspann';
+        var timeControls = make('div', 'map-time-controls');
+        timeControls.append(play, speed, timeInput, timeLabel);
+        timeBar.append(timeSpanBtn, timeControls);
         var baseSection = make('div', 'map-section');
         var basemapRow = make('div', 'map-segment');
         basemapRow.setAttribute('role', 'radiogroup');
@@ -624,6 +630,16 @@
             pops[o[0]] = pop;
             popButtons[o[0]] = btn;
         });
+        var timePop = make('div', 'map-pop map-pop-time display-none');
+        timePop.setAttribute('role', 'dialog');
+        timePop.setAttribute('aria-label', 'Tidsspann');
+        pops.time = timePop;
+        popButtons.time = timeSpanBtn;
+        timeSpanBtn.setAttribute('aria-expanded', 'false');
+        timeSpanBtn.addEventListener('click', function (e) {
+            e.stopPropagation();
+            openPop(timePop.classList.contains('display-none') ? 'time' : null);
+        });
         [fit, measureBtn, saveBtn].forEach(function (b) { b.className = 'map-bar-btn'; bar.append(b); });
         var count = make('span', 'map-bar-count');
         bar.append(count);
@@ -669,7 +685,7 @@
         host.append(timeBar, consent, editor, pickBar);
         return {
             editor: editor, pickBar: pickBar, bubbleCustom: bubbleCustom, bubbleReset: bubbleReset,
-            wrap: host, map: mapEl, status: status, route: route.input, perDevice: perDevice.input, cluster: cluster.input, count: count, bar: bar, openPop: openPop, alert: alert,
+            wrap: host, map: mapEl, status: status, route: route.input, perDevice: perDevice.input, cluster: cluster.input, count: count, bar: bar, openPop: openPop, alert: alert, pops: pops, timeSpanBtn: timeSpanBtn, timeControls: timeControls,
             online: online.input, fit: fit, measureBtn: measureBtn, saveBtn: saveBtn, measureNote: measureNote,
             listBtn: listBtn, list: list, numbers: numbers,
             bubbleStandard: bubbleStandard,
@@ -725,6 +741,7 @@
             updateBasemap();
         }
         var missingShown = false;
+        var phoneMinutes = 15;
 
         function updateBasemap() {
             var modes = root.MapCore.basemapModes(archives);
@@ -1595,7 +1612,38 @@
             copy.type = 'button';
             copy.addEventListener('click', function () { opts.copy(p.lat + ', ' + p.lon); });
             actions.append(more, copy);
+            var act = function (text, fn) {
+                var b = make('button', 'link-btn', text);
+                b.type = 'button';
+                b.addEventListener('click', function (e) { e.stopPropagation(); fn(); });
+                actions.append(b);
+            };
+            act('Anpassa bubblan', function () { openEditor([p.id]); });
+            act(excluded[p.id] ? 'Med i rutten' : 'Ur rutten', function () { setInRoute([p.id], !!excluded[p.id]); openPoint(p); });
+            act('Dölj', function () { closePopup(); setHidden([p.id], true); });
             box.append(actions);
+            // Var var telefonen när bilden skapades: positionerna runt punktens tid, ur extraktionen.
+            if (opts.phoneAround) {
+                var at = p.taken && root.MapCore.instant && root.MapCore.zoneMinutes ? (root.MapCore.zoneMinutes(p.taken.zone) === null ? null : root.MapCore.instant(p.taken.sort, p.taken.zone)) : null;
+                var phone = make('div', 'map-popup-phone');
+                var ask = make('button', 'secondary-btn', 'Var var telefonen?');
+                ask.type = 'button';
+                var span = make('select');
+                span.setAttribute('aria-label', 'Tid före och efter');
+                [5, 15, 60].forEach(function (m) { var o = make('option', '', '±' + m + ' min'); o.value = String(m); span.append(o); });
+                span.value = String(phoneMinutes);
+                span.addEventListener('change', function () { phoneMinutes = Number(span.value); });
+                if (at === null) {
+                    ask.disabled = true;
+                    span.disabled = true;
+                    ask.title = p.taken ? 'Tiden saknar tidszon, så den verkliga tidpunkten är okänd.' : 'Punkten har ingen tid.';
+                } else {
+                    ask.title = 'Telefonens positioner runt ' + p.taken.text + ' ur extraktionen som är öppen (Cache.sqlite, Rubin), som en egen källa.';
+                    ask.addEventListener('click', function () { opts.phoneAround(p, at, phoneMinutes); });
+                }
+                phone.append(ask, span);
+                box.append(phone);
+            }
             return box;
         }
 
@@ -1997,10 +2045,7 @@
             return items;
         }
 
-        function fieldLabel(key) {
-            var f = root.MapCore.BUBBLE_FIELDS.filter(function (x) { return x.key === key; })[0];
-            return f ? f.label : '';
-        }
+        function fieldLabel(key) { return root.MapCore.fieldLabel(key); }
 
         function openStandard() {
             if (editing) closeEditor(false);
@@ -2075,6 +2120,11 @@
         function renderEditor() {
             var box = el.editor;
             var items = editing.cfg.items;
+            // Kolumnerna i punkternas rader (Queries) kan också visas, var för sig, efter de vanliga fälten.
+            var scope = editing.standard ? points : editing.ids.map(function (id) { return byId[id]; }).filter(Boolean);
+            root.MapCore.columnKeys(scope).forEach(function (key) {
+                if (!items.some(function (i) { return i.key === key; })) items.push({ key: key, on: false, label: '' });
+            });
             box.textContent = '';
             var many = !editing.standard && editing.ids.length > 1;
             var heading = editing.standard ? 'Standard för bubblor'
@@ -2352,7 +2402,8 @@
             var ids = pickedIds();
             var bar = el.pickBar;
             bar.textContent = '';
-            if (!ids.length) {
+            // En punkt som klickats på har sina val i popupen. Raden behövs för flera, eller när listan är öppen.
+            if (!ids.length || (ids.length === 1 && !listOpen)) {
                 bar.classList.add('display-none');
                 return;
             }
@@ -2552,7 +2603,10 @@
             timeCursor = null;
             var split = appliedRanges && customRoutes.filter(function (r) { return r.steps.length > 1; }).length > 1;
             var on = el.route.checked && routeInfo && routeInfo.steps.length > 1 && !split;
-            el.timeBar.classList.toggle('display-none', !on);
+            // Med ett tidsspann att välja står raden kvar, också utan rutt att spela upp.
+            var span = !el.timeSpanBtn.classList.contains('display-none');
+            el.timeBar.classList.toggle('display-none', !on && !span);
+            el.timeControls.classList.toggle('display-none', !on);
             if (!on) return;
             el.timeInput.min = String(routeInfo.steps[0].at);
             el.timeInput.max = String(routeInfo.steps[routeInfo.steps.length - 1].at);
@@ -3074,6 +3128,18 @@
             },
             setMarker: setMarker,
             setMenu: el.setMenu,
+            // Ett verktygs egna fält i en av menyns rutor: 'base', 'points', 'route', 'bubbles' eller 'time' (tidsspannet
+            // i raden längst ner).
+            addToMenu: function (key, node) {
+                if (!el.pops[key]) return;
+                el.pops[key].append(node);
+                if (key === 'time') { el.timeSpanBtn.classList.remove('display-none'); setupTime(); }
+            },
+            // Texten på knappen Tidsspann, t.ex. "2024-06-01 14:00 – 16:00". Tom: inget spann valt.
+            setTimeSpan: function (text) {
+                el.timeSpanBtn.textContent = text || 'Tidsspann';
+                el.timeSpanBtn.classList.toggle('is-set', !!text);
+            },
         };
     }
 

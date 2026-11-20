@@ -494,6 +494,12 @@ function visibleQueries(list) {
     return (list || []).filter((q) => !q.hidden);
 }
 
+// Rollqueryn för telefonens positioner i ett tidsfönster (Härkomsts role: location), om databasen har en. Kartan
+// använder den för att visa var telefonen var när en bild skapades.
+function locationRole(list) {
+    return (list || []).find((q) => q.hidden && q.role === 'location' && q.fields && q.sql) || null;
+}
+
 function buildDatabases(photos, android, appUsage, routined, snapchat, snapchatAndroid, signalAndroid, signalIos, whatsappIos, telegramIos, samsungAndroid, whatsappAndroid, telegramAndroid, systemLogs, notes, comms, web) {
     routined = routined || {};
     notes = notes || {};
@@ -593,6 +599,7 @@ function buildDatabases(photos, android, appUsage, routined, snapchat, snapchatA
             footerHtml: db.id === 'knowledgec'
                 ? '<p>Biome <code>App.InFocus</code> är SEGB/protobuf, inte SQL — använd iLEAPP.</p>'
                 : '',
+            locationQuery: locationRole(db.queries),
             queries: visibleQueries(db.queries).map((q) => ({
                 id: q.id,
                 title: q.title,
@@ -620,6 +627,7 @@ function buildDatabases(photos, android, appUsage, routined, snapchat, snapchatA
             source: db.source,
             note: routined.sourceNote,
             runnable: true,
+            locationQuery: locationRole(db.queries),
             queries: visibleQueries(db.queries).map((q) => ({
                 id: q.id,
                 title: q.title,
@@ -653,7 +661,8 @@ function buildDatabases(photos, android, appUsage, routined, snapchat, snapchatA
                 note: cat.sourceNote,
                 cipher: db.cipher || null,
                 runnable: true,
-                queries: visibleQueries(db.queries).map((q) => ({
+                locationQuery: locationRole(db.queries),
+            queries: visibleQueries(db.queries).map((q) => ({
                     id: q.id,
                     title: q.title,
                     subtitle: q.subtitle || '',
@@ -690,7 +699,8 @@ function buildDatabases(photos, android, appUsage, routined, snapchat, snapchatA
                 cipher: db.cipher || null,
                 derive: db.derive || null,
                 runnable: true,
-                queries: visibleQueries(db.queries).map((q) => ({
+                locationQuery: locationRole(db.queries),
+            queries: visibleQueries(db.queries).map((q) => ({
                     id: q.id,
                     title: q.title,
                     subtitle: q.subtitle || '',
@@ -722,6 +732,7 @@ function buildDatabases(photos, android, appUsage, routined, snapchat, snapchatA
             convert: db.convert || null,
             folder: !!db.folder,
             runnable: true,
+            locationQuery: locationRole(db.queries),
             queries: visibleQueries(db.queries).map((q) => ({
                 id: q.id,
                 title: q.title,
@@ -753,6 +764,7 @@ function buildDatabases(photos, android, appUsage, routined, snapchat, snapchatA
             folder: !!db.folder,
             cipher: db.cipher || null,
             runnable: true,
+            locationQuery: locationRole(db.queries),
             queries: visibleQueries(db.queries).map((q) => ({
                 id: q.id,
                 title: q.title,
@@ -781,6 +793,7 @@ function buildDatabases(photos, android, appUsage, routined, snapchat, snapchatA
             source: db.source,
             note: comms.sourceNote,
             runnable: true,
+            locationQuery: locationRole(db.queries),
             queries: visibleQueries(db.queries).map((q) => ({
                 id: q.id,
                 title: q.title,
@@ -810,6 +823,7 @@ function buildDatabases(photos, android, appUsage, routined, snapchat, snapchatA
             source: db.source,
             note: web.sourceNote,
             runnable: true,
+            locationQuery: locationRole(db.queries),
             queries: visibleQueries(db.queries).map((q) => ({
                 id: q.id,
                 title: q.title,
@@ -839,6 +853,7 @@ function buildDatabases(photos, android, appUsage, routined, snapchat, snapchatA
             note: notes.sourceNote,
             derive: db.derive || null,
             runnable: true,
+            locationQuery: locationRole(db.queries),
             queries: visibleQueries(db.queries).map((q) => ({
                 id: q.id,
                 title: q.title,
@@ -1362,6 +1377,10 @@ window.addEventListener('message', function (event) {
         return;
     }
     // Knappen i raden högst upp: en zip eller en databas, som extraction.js känner igen.
+    if (data.type === 'phone-positions' && typeof data.atMs === 'number' && window.QueriesExtraction) {
+        ready.then(() => window.QueriesExtraction.phonePositions(data));
+        return;
+    }
     if (data.type === 'open-files' && Array.isArray(data.files) && window.QueriesExtraction) {
         ready.then(() => window.QueriesExtraction.openPicked(data.files))
             .catch((err) => console.warn('Filerna kunde inte öppnas', err));

@@ -468,10 +468,25 @@ const scenarios = [
             const r = { menus: b.map(x => x.textContent), open: !!pop, cluster: box && box.checked, label: box && box.parentNode.textContent };
             if (box) { box.click(); r.after = box.checked; box.click(); }
             document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })); r.closed = ![...document.querySelectorAll('.map-pop')].some(x => !x.classList.contains('display-none')); return r; })()`);
-        expect(bar.menus.join(',') === 'Bakgrund,Punkter,Rutt,Bubblor' && bar.open && bar.cluster === true && bar.after === false && /Gruppera/.test(bar.label) && bar.closed, 'Kartans meny: ' + JSON.stringify(bar));
+        expect(bar.menus.join(',') === 'Bakgrund,Punkter,Rutt,Bubblor,Tidsspann' && bar.open && bar.cluster === true && bar.after === false && /Gruppera/.test(bar.label) && bar.closed, 'Kartans meny: ' + JSON.stringify(bar));
+        // Tidsspannet och de namngivna rutterna står i kartan, inte i sidopanelen.
+        expect(await c.ev('positions/index.html', `!!document.querySelector('.map-pop #time-from-date') && !!document.querySelector('.map-pop #route-add') && !document.querySelector('.side #route-add')`), 'Tidsspannet eller rutterna står inte i kartan');
+        // Var var telefonen: en punkt med tid frågar Queries, som kör Cache.sqlite för fönstret och skickar positionerna som en källa.
+        // En klickad punkt har sina val i popupen; raden för markerade punkter syns inte.
+        const phone = await c.ev('positions/index.html', `(async function(){ const ps = PositionsApp.points().filter(p => p.exifId == null); PositionsApp.open(ps[0].id); await new Promise(r => setTimeout(r, 900));
+            const b = [...document.querySelectorAll('.maplibregl-popup button, .map-popup button')].find(x => /Var var telefonen/.test(x.textContent));
+            const r = { button: !!b, disabled: b && b.disabled, pickbar: !document.querySelector('.map-pickbar').classList.contains('display-none') };
+            if (b && !b.disabled) b.click(); return r; })()`);
+        if (phone.button) {
+            expect(!phone.disabled && !phone.pickbar, 'Popupen: ' + JSON.stringify(phone));
+            const said = await c.waitFor('positions/index.html', `(function(){ const t = document.getElementById('status').textContent; return /ur Cache\.sqlite|Inga positioner|ingen databas|kunde inte/.test(t) && t; })()`, 30000, 'telefonens positioner');
+            expect(/positioner? \d+ min före och efter .* ur Cache\.sqlite/.test(said), 'Var var telefonen: ' + said);
+            expect(await c.ev('positions/index.html', `[...document.querySelectorAll('#layer-list .layer span')].some(s => /^Telefonen kring/.test(s.textContent))`), 'Telefonens positioner blev ingen källa');
+            expect(await c.ev(null, `document.querySelector('.tool-frame.is-active').dataset.tool`) === 'tools/positions/index.html', 'Vyn byttes från Positioner');
+        }
         void active;
         await c.nav('Queries');
-        return after.rows + ' positioner i Positioner';
+        return after.rows + ' positioner i Positioner' + (phone.button ? ', telefonens positioner runt en punkt' : ', utan karta (WebGL2)');
     }],
 
     ['Queries: en inläst databas läses inte om, och en query som skriver påverkar inte nästa', async ({ c }) => {

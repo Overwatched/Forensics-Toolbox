@@ -420,3 +420,11 @@ test('rutt per enhet: en punkt utan enhet räknas till sin källa', () => {
     assert.deepStrictEqual(map.routesBy(list, 'device').map((g) => g.name), ['iPhone', 'Photos.sqlite']);
     assert.strictEqual(map.bubbleParts({ type: 'gps', lat: 1, lon: 2 }, map.defaultBubble({ type: true }), '')[0].text, 'gps');
 });
+
+test('bubblan kan visa en kolumn ur raden från Queries', () => {
+    const p = { lat: 1, lon: 2, extra: [['ZKIND', '0'], ['ZIMPORTEDBYBUNDLEIDENTIFIER', 'com.apple.camera']] };
+    assert.deepStrictEqual(map.columnKeys([p, { extra: [['ZKIND', '1'], ['annan', 'x']] }]), ['col:ZKIND', 'col:ZIMPORTEDBYBUNDLEIDENTIFIER', 'col:annan']);
+    const cfg = { titles: true, items: [{ key: 'col:ZIMPORTEDBYBUNDLEIDENTIFIER', on: true, label: '' }, { key: 'col:saknas', on: true, label: '' }] };
+    assert.deepStrictEqual(map.bubbleParts(p, cfg, ''), [{ text: 'ZIMPORTEDBYBUNDLEIDENTIFIER: com.apple.camera' }]);
+    assert.strictEqual(map.fieldLabel('col:ZKIND'), 'ZKIND');
+});

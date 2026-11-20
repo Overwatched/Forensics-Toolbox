@@ -2628,6 +2628,21 @@ inklistrade koordinater. EXIF & karta kan skicka synliga positioner dit via hubb
   igenom en gång till efter filnamnen (Queries sparar bara databaserna), mappen väljer bland filer med samma namn,
   och bilden (HEIC via förhandsbilden) skickas som `update: 'files'` med `fileKey` (`r` + radens nummer), högst 500.
   Före 2026-11-20 hette punkterna queryns titel, tiden saknades och enheten var källans namn.
+- **Tiden ur Queries** väljs bland kolumnerna efter vad som går att läsa (`ZEXIFTIMESTAMPSTRING` heter time men har
+  kolon i datumet): den gissade, sedan UTC, sedan date, sedan time i namnet. En kolumn som SQL:en räknar om med
+  `datetime(…, 'localtime') AS namn` står i datorns zon och får den (`QueryRunCore.localColumns`, `localZone`), så att
+  punkten har en verklig tidpunkt. Appen tas ur `ZIMPORTEDBYDISPLAYNAME` (annars bundle-id eller `owner_package_name`)
+  och enheten ur `ZCAMERAMAKE` och `ZCAMERAMODEL`. Radens övriga kolumner kan visas i bubblan som egna fält
+  (`col:kolumn`, `MapCore.columnKeys`), som bubbeleditorn listar efter de vanliga fälten.
+- **Var var telefonen?** Popupen för en punkt med tid och zon frågar huvudfönstret (`phone-positions`, ±5/15/60 min).
+  Queries skapas vid behov utan att visas, öppnar extraktionen i raden högst upp och kör katalogernas rollqueryer för
+  positioner (`role: location`: Cache.sqlite på iPhone, Rubin på Samsung; `locationQuery` i Queries databaser) för
+  fönstret, med `ProvenanceRoles.fill` och `mapRows`. Positionerna blir källan "Telefonen kring <bild> (±N min)", och
+  svaret (`phone-positions-done`) står i Positioners status. Provat 2026-11-20 på iPhone-labbzippen: 175 positioner
+  ±60 min kring en bild ur Cache.sqlite.
+- **Tidsspannet och de namngivna rutterna** står i kartan: tidsspannet i raden längst ner bredvid Spela
+  (`addToMenu('time', …)`, knappen visar det valda spannet), rutterna under Rutt. En klickad punkt har Anpassa
+  bubblan, Ur rutten och Dölj i popupen, och raden för markerade punkter visas bara för flera eller med listan öppen.
 - **Enhet** är bara filens eller radens egen. Positioner satte förr källans namn som enhet; Per enhet räknar nu en
   punkt utan enhet till sin källa (`MapCore.routesBy`).
 - **Menyn** är en rad knappar överst på kartan (`.map-bar`): Bakgrund, Punkter, Rutt och Bubblor fäller ut sin ruta

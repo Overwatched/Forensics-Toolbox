@@ -139,5 +139,28 @@ test('positioner: en rad om en bild heter som filen och får tiden ur datumkolum
     assert.strictEqual(r.points[0].name, 'gps 1');
     assert.strictEqual(r.points[0].type, 'gps');
     assert.strictEqual(r.points[1].name, 'Rad 2');
-    assert.strictEqual(run.toPoints(['date_added', 'last_update', 'lat', 'lon'], [[null, 1, 59, 18]], { importer: imp }).columns.time, 0);
+    assert.strictEqual(run.toPoints(['date_added', 'last_update', 'lat', 'lon'], [['2024-01-01 10:00:00', '2024-01-02 10:00:00', 59, 18]], { importer: imp }).columns.time, 0);
+});
+
+test('positioner: en tid som SQL:en räknat om till lokal tid får datorns zon', () => {
+    const sql = "SELECT a.ZFILENAME, datetime(a.ZDATECREATED + 978307200, 'unixepoch', 'localtime') AS ZDATECREATED, datetime(x, 'unixepoch') AS utc_tid FROM t";
+    assert.deepStrictEqual(run.localColumns(sql), ['ZDATECREATED']);
+    const out = run.toPoints(['ZFILENAME', 'ZDATECREATED', 'lat', 'lon'], [['a.jpg', '2026-11-19 08:34:03', 59.3, 18.0]], { importer: imp, localColumns: ['ZDATECREATED'], localZone: () => '+01:00' });
+    assert.strictEqual(out.points[0].taken.text, '2026-11-19 08:34:03 +01:00');
+    assert.strictEqual(out.points[0].taken.kind, 'Tid (ZDATECREATED, datorns zon)');
+    assert.match(run.localZone('2026-07-01 12:00:00'), /^[+-]\d{2}:\d{2}$/);
+});
+
+test('positioner: standardqueryn i Photos.sqlite får tid, app och enhet', () => {
+    const cols = ['Z_PK', 'ZDIRECTORY', 'ZFILENAME', 'ZDATECREATED', 'ZEXIFTIMESTAMPSTRING', 'ZTIMEZONENAME', 'ZIMPORTEDBYBUNDLEIDENTIFIER', 'ZIMPORTEDBYDISPLAYNAME', 'ZLATITUDE', 'ZLONGITUDE', 'ZCAMERAMAKE', 'ZCAMERAMODEL'];
+    const rows = [[1, 'DCIM/100APPLE', 'IMG_0013.HEIC', '2025-08-21 17:33:08', '2025:08:21 17:33:08', 'GMT+0200', 'com.apple.camera', 'Kamera', 59.33, 18.04, 'Apple', 'iPhone 12'],
+        [2, 'DCIM/100APPLE', 'IMG_0014.HEIC', '2025-08-21 17:40:00', null, null, null, null, 59.33, 18.04, 'Apple', 'Apple iPhone 12']];
+    const out = run.toPoints(cols, rows, { importer: imp });
+    const p = out.points[0];
+    assert.strictEqual(out.columns.time, 3);
+    assert.strictEqual(p.taken.text, '2025-08-21 17:33:08');
+    assert.strictEqual(p.app, 'Kamera');
+    assert.strictEqual(p.device, 'Apple iPhone 12');
+    assert.strictEqual(out.points[1].device, 'Apple iPhone 12', 'modellen som redan börjar med tillverkaren');
+    assert.ok(!p.extra.some((x) => x[0] === 'ZFILENAME' || x[0] === 'ZDATECREATED'));
 });

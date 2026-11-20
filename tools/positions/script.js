@@ -352,6 +352,7 @@
         $('time-from-time').value = time.fromTime || '';
         $('time-to-date').value = time.toDate || '';
         $('time-to-time').value = time.toTime || '';
+        ensureMap().setTimeSpan(timeSpanText());
         loadRoutes(data);
         refresh();
         ensureMap().setState(data.map);
@@ -408,13 +409,27 @@
                 layers = layers.filter(function (layer) { return layer.points.length; });
                 refresh();
             },
+            // Var var telefonen: Queries letar upp positionerna runt tiden i extraktionen och skickar dem som en källa.
+            phoneAround: function (p, atMs, minutes) {
+                setStatus('Letar efter telefonens positioner ±' + minutes + ' min kring ' + (p.taken ? p.taken.text : '') + '…');
+                window.parent.postMessage({ source: 'forensics-toolbox', type: 'phone-positions', atMs: atMs, minutes: minutes, title: p.name }, '*');
+            },
             onContext: function (pos) {
                 clickAt = pos;
                 $('manual').classList.remove('display-none');
                 $('manual-where').textContent = pos.lat.toFixed(5) + ', ' + pos.lon.toFixed(5);
             },
         });
+        // Tidsspannet står i kartans rad längst ner, och de namngivna rutterna under Rutt.
+        mapView.addToMenu('time', $('time-block'));
+        mapView.addToMenu('route', $('routes-block'));
         return mapView;
+    }
+
+    function timeSpanText() {
+        var a = [$('time-from-date').value.trim(), $('time-from-time').value.trim()].filter(Boolean).join(' ');
+        var b = [$('time-to-date').value.trim(), $('time-to-time').value.trim()].filter(Boolean).join(' ');
+        return a || b ? (a || '…') + ' – ' + (b || '…') : '';
     }
 
     $('pick').addEventListener('click', function () { $('file').click(); });
@@ -495,8 +510,9 @@
         $('paste').value = '';
     });
     ['time-from-date', 'time-from-time', 'time-to-date', 'time-to-time'].forEach(function (id) {
-        $(id).addEventListener('input', refresh);
-        $(id).addEventListener('change', refresh);
+        var changed = function () { refresh(); if (mapView) mapView.setTimeSpan(timeSpanText()); };
+        $(id).addEventListener('input', changed);
+        $(id).addEventListener('change', changed);
     });
 
     $('manual-add').addEventListener('click', function () {
@@ -732,6 +748,7 @@
 
     window.addEventListener('message', function (e) {
         var data = e.data;
+        if (data && data.source === 'forensics-toolbox' && data.type === 'phone-positions-done') { setStatus(data.text || ''); return; }
         if (!data || data.source !== 'forensics-toolbox' || data.type !== 'positions' || !Array.isArray(data.points)) return;
         receivePositions(data);
     });

@@ -604,7 +604,8 @@
         var db = app.currentDb();
         var q = app.currentQuery();
         var label = (db ? db.label : 'Query') + (q ? ' – ' + q.title : '');
-        var out = QueryRunCore.toPoints(last.columns, last.rows, { importer: MapImport, title: q && q.title, source: label });
+        var out = QueryRunCore.toPoints(last.columns, last.rows, { importer: MapImport, title: q && q.title, source: label,
+            localColumns: QueryRunCore.localColumns(last.sql), localZone: QueryRunCore.localZone });
         if (!out.points.length) {
             status.textContent = 'Inga rader med giltig latitud och longitud.';
             return;

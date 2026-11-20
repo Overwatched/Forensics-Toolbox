@@ -712,6 +712,72 @@
     }
     window.QueriesExtraction.mapThumbs = mapThumbs;
 
+    // Var telefonen var runt en tidpunkt: katalogernas rollqueryer för positioner (Härkomsts role: location, Cache.sqlite
+    // på iPhone och Samsungs Rubin) körs mot databaserna i extraktionen för fönstret, och positionerna skickas till
+    // Positioner som en egen källa. Inget byts i Queries vy. msg: { file, atMs, minutes, title }.
+    function fmtUtc(ms) { return new Date(ms).toISOString().slice(0, 19).replace('T', ' '); }
+    async function phonePositions(msg) {
+        var reply = function (text, ok) {
+            window.parent.postMessage({ source: 'forensics-toolbox', type: 'phone-positions-done', text: text, ok: !!ok, atMs: msg.atMs }, '*');
+        };
+        try {
+            if (msg.file) await ensure(msg.file);
+            if (!current) { reply('Ingen extraktion är öppen. Öppna den i raden högst upp.'); return; }
+            var from = current;
+            var minutes = Math.max(1, Math.min(24 * 60, Number(msg.minutes) || 15));
+            var win = { startMs: msg.atMs - minutes * 60000, endMs: msg.atMs + minutes * 60000 };
+            var jobs = [];
+            from.found.forEach(function (f, i) {
+                var db = describe(f).db;
+                if (db && db.locationQuery && !jobs.some(function (j) { return j.db.family === db.family; })) jobs.push({ f: f, db: db, q: db.locationQuery });
+            });
+            if (!jobs.length) { reply('Extraktionen har ingen databas med telefonens positioner (Cache.sqlite på iPhone, Rubin på Samsung).'); return; }
+            var points = [], notes = [];
+            for (var k = 0; k < jobs.length; k++) {
+                var j = jobs[k];
+                try {
+                    var cipher = cipherFor(j.db) || { profile: null, passphrase: null, source: null };
+                    var o = await window.QueriesRun.load({
+                        db: ExtractionCore.zipSource(from.read, j.f.db, ['Extraktion: ' + from.file.name]),
+                        wal: j.f.wal ? ExtractionCore.zipSource(from.read, j.f.wal) : null,
+                        zipFile: from.file,
+                    }, cipher);
+                    var db = new o.SQL.Database(ExtractionCore.noCopy(o.bytes));
+                    var res;
+                    try { db.run('PRAGMA query_only = ON'); res = db.exec(ProvenanceRoles.fill(j.q.sql, { window: win }))[0]; }
+                    finally { db.close(); }
+                    var rows = ProvenanceRoles.mapRows(j.q, res, ['time'], { raw: false });
+                    rows.forEach(function (r) {
+                        var lat = Number(r.latitude), lon = Number(r.longitude);
+                        if (!isFinite(lat) || !isFinite(lon) || (lat === 0 && lon === 0) || r.timeMs == null) return;
+                        var type = r.type == null ? (r.provider || '') : ({ 1: 'GNSS', 4: 'Wi-Fi' }[r.type] || String(r.type));
+                        var t = fmtUtc(r.timeMs);
+                        points.push({
+                            id: points.length + 1, name: (type || 'Position') + ' ' + t.slice(11), path: '', lat: lat, lon: lon,
+                            source: j.f.db.name, taken: { sort: t, zone: 'UTC', text: t + ' UTC', kind: 'Tid (' + j.q.fields.time + ')', source: 'import' },
+                            accuracy: Number(r.accuracy) > 0 ? Number(r.accuracy) : null, type: type, device: '', software: '', mime: '',
+                            extra: [['Databas', j.f.db.name.slice(j.f.db.name.lastIndexOf('/') + 1)], ['Från bilden', Math.round((r.timeMs - msg.atMs) / 1000) + ' s']],
+                        });
+                    });
+                } catch (err) {
+                    notes.push(j.db.label + ': ' + (err && err.message ? err.message : String(err)));
+                }
+            }
+            var span = minutes + ' min före och efter ' + fmtUtc(msg.atMs) + ' UTC';
+            if (!points.length) { reply('Inga positioner ' + span + '.' + (notes.length ? ' ' + notes.join(' ') : '')); return; }
+            points.sort(function (a, b) { return a.taken.sort < b.taken.sort ? -1 : a.taken.sort > b.taken.sort ? 1 : 0; });
+            window.parent.postMessage({
+                source: 'forensics-toolbox', type: 'positions', layerKey: 'phone-' + msg.atMs + '-' + minutes,
+                layerName: 'Telefonen kring ' + (msg.title || fmtUtc(msg.atMs)) + ' (±' + minutes + ' min)',
+                points: points, noun: ['position', 'positioner'],
+            }, '*');
+            reply(points.length + (points.length === 1 ? ' position' : ' positioner') + ' ' + span + ' ur ' + jobs.map(function (x) { return x.db.label; }).join(' och ') + '.' + (notes.length ? ' ' + notes.join(' ') : ''), true);
+        } catch (err) {
+            reply('Telefonens positioner kunde inte läsas: ' + (err && err.message ? err.message : String(err)));
+        }
+    }
+    window.QueriesExtraction.phonePositions = phonePositions;
+
     window.QueriesApp.ready.then(layout);
     document.addEventListener('queries:db-change', function () {
         if (current && !window.QueriesApp.fromExtraction()) current.chosen = -1;

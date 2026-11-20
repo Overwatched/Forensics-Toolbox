@@ -524,12 +524,28 @@
         { key: 'note', label: 'Händelse' },
     ];
 
+    // Fält ur raden i en databas (Queries) heter col:kolumnen och visar radens värde.
     function fieldLabel(key) {
+        if (String(key).indexOf('col:') === 0) return String(key).slice(4);
         var f = BUBBLE_FIELDS.filter(function (x) { return x.key === key; })[0];
         return f ? f.label : '';
     }
 
+    // Kolumnerna i punkternas rader, i den ordning de först förekommer.
+    function columnKeys(list) {
+        var seen = {}, out = [];
+        (list || []).forEach(function (p) {
+            (p && p.extra || []).forEach(function (x) { if (!seen[x[0]]) { seen[x[0]] = true; out.push('col:' + x[0]); } });
+        });
+        return out;
+    }
+
     function fieldValue(p, key, note) {
+        if (String(key).indexOf('col:') === 0) {
+            var col = String(key).slice(4);
+            var hit = (p.extra || []).filter(function (x) { return x[0] === col; })[0];
+            return hit ? str(hit[1]) : '';
+        }
         if (key === 'time') return p.taken ? p.taken.text : '';
         if (key === 'name') return str(p.name);
         if (key === 'device') return str(p.device);
@@ -760,6 +776,8 @@
         BUBBLE_FIELDS: BUBBLE_FIELDS,
         defaultBubble: defaultBubble,
         bubbleParts: bubbleParts,
+        columnKeys: columnKeys,
+        fieldLabel: fieldLabel,
         sourceOf: sourceOf,
         points: points,
         route: route,
@@ -780,6 +798,7 @@
         formatDistance: formatDistance,
         formatDuration: formatDuration,
         instant: instant,
+        zoneMinutes: zoneMinutes,
         isoTime: isoTime,
         toKml: toKml,
         toGeoJson: toGeoJson,

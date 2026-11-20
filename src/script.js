@@ -620,6 +620,26 @@ function initToolNav() {
                 : { source: 'forensics-toolbox', type: 'provenance-files', files: data.files });
             return;
         }
+        // Positioner frågar var telefonen var runt en tidpunkt. Queries kör rollqueryerna för positioner mot extraktionen
+        // i bakgrunden (ramen skapas utan att visas) och skickar positionerna som en vanlig källa. Svaret går tillbaka.
+        if (data.type === 'phone-positions' && typeof data.atMs === 'number') {
+            const reply = (text) => postToFrame(frames.get('tools/positions/index.html'), { source: 'forensics-toolbox', type: 'phone-positions-done', text: text, ok: false, atMs: data.atMs });
+            if (!extraction.file) { reply('Ingen extraktion är öppen. Öppna den i raden högst upp, så letar Queries upp telefonens positioner.'); return; }
+            const path = TOOL_PATH.queries;
+            let frame = frames.get(path);
+            if (!frame) {
+                const item = document.querySelector('.nav-item[data-type="frame"][data-src="' + path + '"]');
+                frame = createFrame(path, path, item && item.querySelector('.nav-item-title') ? item.querySelector('.nav-item-title').textContent.trim() : 'Queries');
+            }
+            const send = () => postToFrame(frame, { source: 'forensics-toolbox', type: 'phone-positions', file: extraction.file, atMs: data.atMs, minutes: data.minutes, title: data.title || '' });
+            if (frame.dataset.ready) send();
+            else frame.addEventListener('load', send, { once: true });
+            return;
+        }
+        if (data.type === 'phone-positions-done') {
+            postToFrame(frames.get('tools/positions/index.html'), data);
+            return;
+        }
         // EXIF & karta ber Härkomst om innehållet i en fil ur extraktionen (file-need), och Härkomst svarar
         // (file-content). Inget verktyg öppnas eller byts. Är Härkomst inte laddat får EXIF & karta veta det.
         if (data.type === 'file-need' || data.type === 'file-content') {
