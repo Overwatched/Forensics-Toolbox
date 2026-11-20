@@ -324,13 +324,13 @@ const scenarios = [
         notAtT(old, ' filen skapades i filsystemet');
         expect(old.texts.includes('Filen skapades i filsystemet') && old.texts.includes('731 dygn efter T'), 'Filens rad: ' + old.texts.join(' | '));
         expect(/Källa: Zippen → filens skapandetid \(UT-fältet, fjärde tiden\)/.test(old.note), 'Raden: ' + old.note);
-        // Samma fil i EXIF & karta, med knappen under bilden: varje tid ur zippen säger i klartext vad den är, med fältet inom parentes.
-        expect(await c.ev(PROV, `(function(){ const b = document.getElementById('file-to-exif'); return !!b && b.offsetParent !== null; })()`), 'Knappen Visa i EXIF & karta syns inte vid filen');
+        // Samma fil i EXIF, med knappen under bilden: varje tid ur zippen säger i klartext vad den är, med fältet inom parentes.
+        expect(await c.ev(PROV, `(function(){ const b = document.getElementById('file-to-exif'); return !!b && b.offsetParent !== null; })()`), 'Knappen Visa i EXIF syns inte vid filen');
         await c.ev(PROV, `document.getElementById('file-to-exif').click(), 1`);
-        await c.waitFor('exif-viewer/index.html', `document.getElementById('detail-name').textContent === 'gammal.jpg' && !document.getElementById('detail').classList.contains('display-none')`, 20000, 'filen öppnad i EXIF & karta');
+        await c.waitFor('exif-viewer/index.html', `document.getElementById('detail-name').textContent === 'gammal.jpg' && !document.getElementById('detail').classList.contains('display-none')`, 20000, 'filen öppnad i EXIF');
         const notes = await c.ev('exif-viewer/index.html', `[...document.querySelectorAll('#detail-summary dt')].filter(d => d.nextElementSibling.querySelector('.src') && /filsystemet|ctime/.test(d.textContent)).map(d => d.textContent + ': ' + d.nextElementSibling.querySelector('.src').textContent)`);
         expect(JSON.stringify(notes) === JSON.stringify(['Skapad i filsystemet: zippen, filens skapandetid (UT-fältet, fjärde tiden)', 'Ändrad i filsystemet: zippen, filens ändringstid (UT-fältet)',
-            'Metadata ändrad (ctime): zippen, metadata ändrad (UT-fältet, tredje tiden)', 'Senast läst i filsystemet: zippen, senast läst (UT-fältet)']), 'Källorna i EXIF & karta: ' + JSON.stringify(notes));
+            'Metadata ändrad (ctime): zippen, metadata ändrad (UT-fältet, tredje tiden)', 'Senast läst i filsystemet: zippen, senast läst (UT-fältet)']), 'Källorna i EXIF: ' + JSON.stringify(notes));
         await c.ev('exif-viewer/index.html', `document.getElementById('clear').click(), 1`);
         await c.nav('Härkomst');
         return 'två tidpunkter i biblioteket och utanför, ' + images + ' bilder i protokollet';
@@ -468,7 +468,7 @@ const scenarios = [
             const r = { menus: b.map(x => x.textContent), open: !!pop, cluster: box && box.checked, label: box && box.parentNode.textContent };
             if (box) { box.click(); r.after = box.checked; box.click(); }
             document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })); r.closed = ![...document.querySelectorAll('.map-pop')].some(x => !x.classList.contains('display-none')); return r; })()`);
-        expect(bar.menus.join(',') === 'Bakgrund,Punkter,Rutt,Bubblor,Tidsspann' && bar.open && bar.cluster === true && bar.after === false && /Gruppera/.test(bar.label) && bar.closed, 'Kartans meny: ' + JSON.stringify(bar));
+        expect(bar.menus.join(',') === 'Bakgrund,Punkter,Rutt,Bubblor,Tidsspann' && bar.open && bar.cluster === false && bar.after === true && /Gruppera/.test(bar.label) && bar.closed, 'Kartans meny: ' + JSON.stringify(bar));
         // Tidsspannet och de namngivna rutterna står i kartan, inte i sidopanelen.
         expect(await c.ev('positions/index.html', `!!document.querySelector('.map-pop #time-from-date') && !!document.querySelector('.map-pop #route-add') && !document.querySelector('.side #route-add')`), 'Tidsspannet eller rutterna står inte i kartan');
         // Var var telefonen: en punkt med tid frågar Queries, som kör Cache.sqlite för fönstret och skickar positionerna som en källa.
@@ -1390,11 +1390,11 @@ const scenarios = [
         expect(sheet.shown && /\(ZDATECREATED\)$/.test(sheet.rows.Skapad) && /Media\/DCIM\/100APPLE\/IMG_0002\.JPG/.test(sheet.rows['I zippen']) && sheet.assess, 'Arket med bilden: ' + JSON.stringify(sheet));
         await ev(`document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })), 1`);
         expect(await ev(`document.getElementById('c-device-sheet').classList.contains('display-none')`), 'Esc stängde inte arket');
-        // Visa i EXIF & karta: filen ur zippen öppnas där, med zippens tider.
+        // Visa i EXIF: filen ur zippen öppnas där, med zippens tider.
         await ev(`[...document.querySelectorAll('#c-device-body .g-tile')].find(t => t.getAttribute('aria-label') === 'IMG_0002.JPG').click(), 1`);
         await ev(`document.querySelector('#c-device-sheet [data-sheet-exif]').click(), 1`);
-        await c.waitFor('exif-viewer/index.html', `document.getElementById('detail-name').textContent === 'IMG_0002.JPG' && !document.getElementById('detail').classList.contains('display-none')`, 20000, 'bilden ur Telefonen i EXIF & karta');
-        expect(await c.ev('exif-viewer/index.html', `[...document.querySelectorAll('#detail-summary dt')].some(d => d.textContent === 'Ändrad i filsystemet' && /^zippen/.test(d.nextElementSibling.querySelector('.src') ? d.nextElementSibling.querySelector('.src').textContent : ''))`), 'EXIF & karta fick inte zippens tid');
+        await c.waitFor('exif-viewer/index.html', `document.getElementById('detail-name').textContent === 'IMG_0002.JPG' && !document.getElementById('detail').classList.contains('display-none')`, 20000, 'bilden ur Telefonen i EXIF');
+        expect(await c.ev('exif-viewer/index.html', `[...document.querySelectorAll('#detail-summary dt')].some(d => d.textContent === 'Ändrad i filsystemet' && /^zippen/.test(d.nextElementSibling.querySelector('.src') ? d.nextElementSibling.querySelector('.src').textContent : ''))`), 'EXIF fick inte zippens tid');
         await c.ev('exif-viewer/index.html', `document.getElementById('clear').click(), 1`);
         await c.nav('Chattar');
         // Bedöm i Härkomst: namnet skickas dit och bedöms i samma extraktion.
@@ -1582,10 +1582,10 @@ const scenarios = [
         return home.apps.join(', ') + '; inställningar: ' + sets.join(', ') + '; album: ' + albums.groups.join(', ');
     }],
 
-    ['HEIC: avkodaren laddas först när den behövs och ritar testfilen i Chattar, Härkomst och EXIF & karta, med förhandsbilden för listor', async ({ c }) => {
+    ['HEIC: avkodaren laddas först när den behövs och ritar testfilen i Chattar, Härkomst och EXIF, med förhandsbilden för listor', async ({ c }) => {
         const b64 = fs.readFileSync(path.join(__dirname, '..', '..', 'tools', '_shared', 'fixtures', 'prov.heic')).toString('base64');
         const out = [];
-        for (const [title, part] of [['Chattar', 'chats/index.html'], ['Härkomst', PROV], ['EXIF & karta', 'exif-viewer/index.html']]) {
+        for (const [title, part] of [['Chattar', 'chats/index.html'], ['Härkomst', PROV], ['EXIF', 'exif-viewer/index.html']]) {
             await c.nav(title);
             await c.waitFor(part, `!!window.Heic`, 30000, 'Heic i ' + title);
             const r = await c.ev(part, `(async function () {
@@ -1624,9 +1624,9 @@ const scenarios = [
         await c.waitFor(CHAT, `document.getElementById('c-lb-img').naturalWidth === 64`, 15000, 'förstoringen');
         const cap = await ev(`document.getElementById('c-lb-cap').textContent`);
         expect(/^Dokument \(skickad som fil\) · /.test(cap), 'Förstoringens text: ' + cap);
-        // Bilden i förstoringen till EXIF & karta.
+        // Bilden i förstoringen till EXIF.
         await ev(`document.getElementById('c-lb-exif').click(), 1`);
-        await c.waitFor('exif-viewer/index.html', `document.getElementById('detail-name').textContent === 'IMG_0042.HEIC' && !document.getElementById('detail').classList.contains('display-none')`, 20000, 'dokumentet i EXIF & karta');
+        await c.waitFor('exif-viewer/index.html', `document.getElementById('detail-name').textContent === 'IMG_0042.HEIC' && !document.getElementById('detail').classList.contains('display-none')`, 20000, 'dokumentet i EXIF');
         await c.ev('exif-viewer/index.html', `document.getElementById('clear').click(), 1`);
         expect(await ev(`document.getElementById('c-lightbox').classList.contains('display-none')`), 'Förstoringen stängdes inte');
         return r.tag;
@@ -1807,8 +1807,8 @@ const scenarios = [
         return n.lib + ' bilder i biblioteket, ' + n.entries + (n.entries === 1 ? ' fil' : ' filer') + ' utanför';
     }],
 
-    ['EXIF & karta, Positioner och Time Converter fungerar med testdata', async ({ c }) => {
-        await c.nav('EXIF & karta');
+    ['EXIF, Positioner och Time Converter fungerar med testdata', async ({ c }) => {
+        await c.nav('EXIF');
         await c.ev('exif-viewer/index.html', `document.getElementById('fill-sample').click(), 1`);
         await c.waitFor('exif-viewer/index.html', `document.body.innerText.includes('IMG_4101.JPG')`, 30000, 'EXIF-testdatan');
         // Tiderna i filen står för sig, med tagg och UTC, och filsystemets tider säger att de gäller filen på datorn.
@@ -2403,7 +2403,7 @@ const scenarios = [
         return 'stapeln ' + steps.length + ' lägen, loggen i ' + (after.parts - before.parts) + ' delar, meddelandena ur tabellen i minnet (' + (again.indexed - before.indexed) + ' uppslag), filen kopplad till val och meddelande';
     }],
 
-    ['Härkomst → EXIF & karta: listan lämnas över som hänvisningar och läses fil för fil, Signals bilaga dekrypteras med bilagenyckeln, och utan nyckel eller extraktion står skälet på raden', async ({ c, fx }) => {
+    ['Härkomst → EXIF: listan lämnas över som hänvisningar och läses fil för fil, Signals bilaga dekrypteras med bilagenyckeln, och utan nyckel eller extraktion står skälet på raden', async ({ c, fx }) => {
         const EXIF = 'exif-viewer/index.html';
         const NAMES = ['part7.mms', 'chatt_kamera.jpg', '20260312_133111.jpg'];
         const ev = (e) => c.ev(PROV, e);
@@ -2424,10 +2424,10 @@ const scenarios = [
             await sleep(300);
             await c.waitFor(PROV, `!ProvenanceApp.busy() && document.querySelectorAll('#batch-list tbody tr').length === 3`, 90000, 'listan med tre filer');
             await ev(`document.getElementById('batch-exif').click(), 1`);
-            await c.waitFor(PROV, `/skickades till EXIF/.test(document.getElementById('run-status').textContent)`, 20000, 'listan till EXIF & karta');
+            await c.waitFor(PROV, `/skickades till EXIF/.test(document.getElementById('run-status').textContent)`, 20000, 'listan till EXIF');
             return ev(`document.getElementById('run-status').textContent`);
         };
-        // Raderna i EXIF & karta för filerna ur den här extraktionen: flaggorna, miniatyren och radens text.
+        // Raderna i EXIF för filerna ur den här extraktionen: flaggorna, miniatyren och radens text.
         const exifRows = () => c.ev(EXIF, `Object.fromEntries([...document.querySelectorAll('table.files tbody tr')].filter(tr => /Testextraktion-Samsung-med-Signal\.zip/.test(tr.innerText)).map(tr => [tr.querySelector('.name').textContent,
             { pending: tr.classList.contains('pending'), flags: [...tr.querySelectorAll('.flag')].map(f => f.textContent), reasons: [...tr.querySelectorAll('.flag')].map(f => f.title).join(' '), thumb: (tr.querySelector('.row-thumb') || {}).src || '', text: tr.innerText }]))`);
         const exifDone = (label) => c.waitFor(EXIF, `(function(){ const rows = [...document.querySelectorAll('table.files tbody tr')].filter(tr => /Testextraktion-Samsung-med-Signal\.zip/.test(tr.innerText)); return rows.length === 3 && rows.every(tr => !tr.classList.contains('pending')); })()`, 60000, label);
@@ -2440,12 +2440,12 @@ const scenarios = [
         expect(/en av Signals bilagor och ligger krypterad i zippen\. Bilagenyckeln \(modernKey\) saknas/.test(k.rows['Innehållet'] || '') && !k.media && k.exif === 0, 'Kortet utan bilagenyckel: ' + JSON.stringify(k.rows) + ' ' + k.exif);
         expect(/<b>Innehållet:<\/b> Filen lästes, men den är en av Signals bilagor och ligger krypterad/.test(k.report), 'Protokollet säger inte att bilagan ligger krypterad');
 
-        // Listan till EXIF & karta: alla tre filerna kommer fram, ingen läses i Härkomst, och bilagan står som krypterad.
+        // Listan till EXIF: alla tre filerna kommer fram, ingen läses i Härkomst, och bilagan står som krypterad.
         let said = await toExif();
-        expect(/^3 filer skickades till EXIF & karta, som läser dem en i taget ur zippen\.$/.test(said), 'Härkomsts rad om överlämningen: ' + said);
-        await exifDone('de tre filerna i EXIF & karta');
+        expect(/^3 filer skickades till EXIF, som läser dem en i taget ur zippen\.$/.test(said), 'Härkomsts rad om överlämningen: ' + said);
+        await exifDone('de tre filerna i EXIF');
         let rows = await exifRows();
-        expect(NAMES.every((n) => rows[n]), 'Alla tre filerna ska stå i EXIF & karta: ' + Object.keys(rows).join(', '));
+        expect(NAMES.every((n) => rows[n]), 'Alla tre filerna ska stå i EXIF: ' + Object.keys(rows).join(', '));
         expect(rows['part7.mms'].flags.includes('Krypterad') && /Bilagenyckeln \(modernKey\) saknas/.test(rows['part7.mms'].reasons), 'Bilagan utan nyckel: ' + JSON.stringify(rows['part7.mms']));
         expect(!rows['chatt_kamera.jpg'].flags.includes('Fel') && !rows['chatt_kamera.jpg'].flags.includes('Krypterad'), 'Bilden ur galleriet: ' + JSON.stringify(rows['chatt_kamera.jpg']));
         // Den lilla bilden görs när filen läses, och innehållet ligger inte kvar på raden.
@@ -2463,7 +2463,7 @@ const scenarios = [
 
         // Samma lista en gång till: raden som stod som krypterad läses om och visar det dekrypterade innehållet.
         await toExif();
-        await c.waitFor(EXIF, `[...document.querySelectorAll('table.files tbody tr')].some(tr => tr.querySelector('.name') && tr.querySelector('.name').textContent === 'part7.mms' && [...tr.querySelectorAll('.flag')].some(f => f.textContent === 'Dekrypterat innehåll'))`, 60000, 'bilagan dekrypterad i EXIF & karta');
+        await c.waitFor(EXIF, `[...document.querySelectorAll('table.files tbody tr')].some(tr => tr.querySelector('.name') && tr.querySelector('.name').textContent === 'part7.mms' && [...tr.querySelectorAll('.flag')].some(f => f.textContent === 'Dekrypterat innehåll'))`, 60000, 'bilagan dekrypterad i EXIF');
         await exifDone('listan en gång till');
         rows = await exifRows();
         const part = rows['part7.mms'];
@@ -2476,25 +2476,25 @@ const scenarios = [
         await c.waitFor(EXIF, `(function(){ const m = document.querySelector('#detail-media img.media-view'); return !!m && /^blob:/.test(m.src) && m.naturalWidth > 0; })()`, 20000, 'bilden i detaljvyn');
         // Filsystemets tid säger i klartext vad den är, och var den står i zippen inom parentes. Testzippen har bara DOS-tid.
         const fsNote = await c.ev(EXIF, `(function(){ const dt = [...document.querySelectorAll('#detail dt')].find(d => d.textContent === 'Ändrad i filsystemet'); const s = dt && dt.nextElementSibling.querySelector('.src'); return s ? s.textContent : ''; })()`);
-        expect(fsNote === 'zippen, filens ändringstid (DOS-tid)', 'Källan för filsystemets tid i EXIF & karta: ' + fsNote);
+        expect(fsNote === 'zippen, filens ändringstid (DOS-tid)', 'Källan för filsystemets tid i EXIF: ' + fsNote);
         const note = await c.ev(EXIF, `document.getElementById('detail-media').textContent + ' | ' + document.getElementById('detail-summary').textContent`);
         expect(/Innehållet läses ur extraktionen genom Härkomst/.test(note) && /Det som visas är det dekrypterade innehållet/.test(note) && /Tredje tiden i zippen|Ändrad i filsystemet/.test(note), 'Detaljvyn för bilagan: ' + note.slice(0, 500));
         await c.ev(EXIF, `document.getElementById('detail-close').click(), 1`);
         await c.ev(EXIF, `[...document.querySelectorAll('table.files tbody tr')].find(tr => /Testextraktion-Samsung-med-Signal\.zip/.test(tr.innerText) && tr.querySelector('.name').textContent === 'chatt_kamera.jpg').click(), 1`);
         await c.waitFor(null, `document.getElementById('cb-file-name').textContent === 'chatt_kamera.jpg'`, 10000, 'filen i raden högst upp');
         await c.ev(null, `document.querySelector('#cb-file [data-to="provenance"]').click(), 1`);
-        await waitResult(c, 'chatt_kamera.jpg från EXIF & karta');
-        expect(await ev(`ProvenanceApp.model().file.filename`) === 'chatt_kamera.jpg', 'Härkomst bedömde inte filen från EXIF & karta');
+        await waitResult(c, 'chatt_kamera.jpg från EXIF');
+        expect(await ev(`ProvenanceApp.model().file.filename`) === 'chatt_kamera.jpg', 'Härkomst bedömde inte filen från EXIF');
 
-        // Filen som visas i Härkomst lämnas över med knappen i raden högst upp, och öppnas i EXIF & karta.
+        // Filen som visas i Härkomst lämnas över med knappen i raden högst upp, och öppnas i EXIF.
         await assessNamed(c, '20260312_133111.jpg');
         await c.ev(null, `document.querySelector('#cb-file [data-to="exif"]').click(), 1`);
-        await c.waitFor(EXIF, `document.getElementById('detail-name').textContent === '20260312_133111.jpg' && !document.getElementById('detail').classList.contains('display-none')`, 20000, 'filen öppnad i EXIF & karta');
+        await c.waitFor(EXIF, `document.getElementById('detail-name').textContent === '20260312_133111.jpg' && !document.getElementById('detail').classList.contains('display-none')`, 20000, 'filen öppnad i EXIF');
 
         // Stängs extraktionen går filen inte att hämta, och detaljvyn säger varför i stället för att stå tom.
         await c.nav('Härkomst');
         await ev(`document.getElementById('ex-close').click(), 1`);
-        await c.nav('EXIF & karta');
+        await c.nav('EXIF');
         await c.ev(EXIF, `document.getElementById('detail-close').click(), 1`);
         await c.ev(EXIF, `[...document.querySelectorAll('table.files tbody tr')].find(tr => /Testextraktion-Samsung-med-Signal\.zip/.test(tr.innerText) && tr.querySelector('.name').textContent === 'chatt_kamera.jpg').click(), 1`);
         const gone = await c.waitFor(EXIF, `(function(){ const m = document.querySelector('#detail-media .media-miss'); return m ? m.textContent : ''; })()`, 20000, 'skälet när extraktionen är stängd');
@@ -2504,7 +2504,7 @@ const scenarios = [
         return 'tre filer som hänvisningar, bilagan krypterad utan nyckel och dekrypterad med, summan lika med databasens, skälet står när extraktionen är stängd';
     }],
 
-    ['Extraktionen byts och stängs: det som står kvar räknas upp i en fråga, Låt stå kvar märker vyn med var det kommer ifrån, och Rensa alla vyer tömmer Härkomst, EXIF & karta och Positioner', async ({ c, fx }) => {
+    ['Extraktionen byts och stängs: det som står kvar räknas upp i en fråga, Låt stå kvar märker vyn med var det kommer ifrån, och Rensa alla vyer tömmer Härkomst, EXIF och Positioner', async ({ c, fx }) => {
         const EXIF = 'exif-viewer/index.html';
         const POS = 'positions/index.html';
         const A = 'Testextraktion-iOS17.zip';
@@ -2542,8 +2542,8 @@ const scenarios = [
             if (await question()) await answer('clear-modal-clear');
             await close();
             await c.waitFor(PROV, `document.readyState === 'complete' && !!window.ProvenanceApp && document.getElementById('filename').value === ''`, 30000, 'Härkomst från början');
-            await c.nav('EXIF & karta');
-            await c.waitFor(EXIF, `document.readyState === 'complete' && !document.querySelectorAll('table.files tbody tr').length`, 30000, 'EXIF & karta från början');
+            await c.nav('EXIF');
+            await c.waitFor(EXIF, `document.readyState === 'complete' && !document.querySelectorAll('table.files tbody tr').length`, 30000, 'EXIF från början');
             await c.nav('Positioner');
             await c.waitFor(POS, `document.readyState === 'complete' && !!document.getElementById('layer-list') && !document.querySelectorAll('#layer-list .layer').length`, 30000, 'Positioner från början');
             await c.nav('Härkomst');
@@ -2553,13 +2553,13 @@ const scenarios = [
             expect(await question() === null, 'Frågan kom när den första extraktionen öppnades');
             await opened(A);
 
-            // En bedömning i Härkomst, filen vidare till EXIF & karta, och testdata i Positioner.
+            // En bedömning i Härkomst, filen vidare till EXIF, och testdata i Positioner.
             await c.ev(PROV, `document.getElementById('filename').value = '${fx.imageName}', document.getElementById('run').click(), 1`);
             await c.waitFor(PROV, `!document.getElementById('hits').classList.contains('display-none') && document.querySelectorAll('#hits tr.pick').length`, 60000, 'vallistan');
             await c.ev(PROV, `[...document.querySelectorAll('#hits tr.pick')].find(tr => /100APPLE/.test(tr.innerText)).click(), 1`);
             await waitResult(c, 'bedömningen');
             await c.ev(null, `document.querySelector('#cb-file [data-to="exif"]').click(), 1`);
-            await c.waitFor(EXIF, `document.querySelectorAll('table.files tbody tr').length === 1`, 30000, 'filen i EXIF & karta');
+            await c.waitFor(EXIF, `document.querySelectorAll('table.files tbody tr').length === 1`, 30000, 'filen i EXIF');
             await c.nav('Positioner');
             await c.ev(POS, `document.getElementById('fill-sample').click(), 1`);
             await c.waitFor(POS, `document.querySelectorAll('#layer-list .layer').length > 0`, 20000, 'testdatan i Positioner');
@@ -2571,10 +2571,10 @@ const scenarios = [
             let q = await question();
             expect(q && q.text === A + ' byttes mot ' + B + '. Det här står kvar från förut:', 'Frågan vid bytet: ' + JSON.stringify(q));
             expect(q.rows['Härkomst'] === 'Härkomst: ifyllt i sökfälten: filnamn', 'Härkomst i frågan: ' + q.rows['Härkomst']);
-            expect(q.rows['EXIF & karta'] === 'EXIF & karta: 1 fil i listan', 'EXIF & karta i frågan: ' + q.rows['EXIF & karta']);
+            expect(q.rows['EXIF'] === 'EXIF: 1 fil i listan', 'EXIF i frågan: ' + q.rows['EXIF']);
             expect(/^Positioner: \d+ punkter i \d+ käll(a|or)$/.test(q.rows['Positioner'] || ''), 'Positioner i frågan: ' + q.rows['Positioner']);
             expect(!q.rows['Chattar'], 'Chattar står i frågan: ' + q.rows['Chattar']);
-            expect(/^Rensa alla vyer tömmer .*Härkomst.*EXIF & karta och Positioner och ställer tillbaka inställningarna där\.$/.test(q.note), 'Vad Rensa gör: ' + q.note);
+            expect(/^Rensa alla vyer tömmer .*Härkomst.*EXIF och Positioner och ställer tillbaka inställningarna där\.$/.test(q.note), 'Vad Rensa gör: ' + q.note);
             // Härkomst ställer markören i sin ruta när den nya extraktionen är öppnad. Frågan tar tillbaka den.
             await opened(B);
             await c.waitFor(null, `document.activeElement && document.activeElement.id === 'clear-modal-keep'`, 3000, 'markören tillbaka i frågan');
@@ -2589,19 +2589,19 @@ const scenarios = [
             expect(await c.ev(PROV, `document.getElementById('filename').value`) === fx.imageName, 'Filnamnet i Härkomst stod inte kvar');
             expect(await strip() === '', 'Härkomst fick en rad: ' + await strip());
             const said = 'Här står det kvar som visades när ' + A + ' byttes mot ' + B + '.';
-            await c.nav('EXIF & karta');
-            expect(await strip() === said, 'Raden över EXIF & karta: ' + await strip());
-            expect(await exifRows() === 1, 'Filen i EXIF & karta stod inte kvar');
+            await c.nav('EXIF');
+            expect(await strip() === said, 'Raden över EXIF: ' + await strip());
+            expect(await exifRows() === 1, 'Filen i EXIF stod inte kvar');
             await c.nav('Positioner');
             expect(await strip() === said, 'Raden över Positioner: ' + await strip());
             expect(await layers() === sources, 'Källorna i Positioner stod inte kvar');
 
             // Töms vyn med verktygets egen knapp försvinner raden, och Rensa vyn på raden tömmer bara den vyn.
-            await c.nav('EXIF & karta');
+            await c.nav('EXIF');
             await c.ev(EXIF, `document.getElementById('clear').click(), 1`);
             await c.waitFor(null, `document.getElementById('kept-strip').hidden`, 5000, 'raden över en tömd vy');
             await c.nav('Positioner');
-            expect(await strip() === said, 'Raden över Positioner försvann med den över EXIF & karta');
+            expect(await strip() === said, 'Raden över Positioner försvann med den över EXIF');
             await c.ev(null, `document.getElementById('kept-clear').click(), 1`);
             await c.waitFor(POS, `document.readyState === 'complete' && !!document.getElementById('layer-list') && !document.querySelectorAll('#layer-list .layer').length`, 30000, 'Positioner från början');
             expect(await strip() === '', 'Raden står kvar över en rensad vy: ' + await strip());
@@ -2615,7 +2615,7 @@ const scenarios = [
             await c.ev(null, `document.getElementById('cb-close').click(), 1`);
             q = await question();
             expect(q && q.text === B + ' stängdes. Det här står kvar från förut:', 'Frågan vid stängningen: ' + JSON.stringify(q));
-            expect(q.rows['Härkomst'] && q.rows['Positioner'] && !q.rows['EXIF & karta'], 'Raderna vid stängningen: ' + JSON.stringify(q.rows));
+            expect(q.rows['Härkomst'] && q.rows['Positioner'] && !q.rows['EXIF'], 'Raderna vid stängningen: ' + JSON.stringify(q.rows));
             await answer('clear-modal-clear');
             await c.waitFor(PROV, `document.readyState === 'complete' && !!window.ProvenanceApp && document.getElementById('filename').value === ''`, 30000, 'Härkomst från början');
             await c.waitFor(POS, `document.readyState === 'complete' && !!document.getElementById('layer-list') && !document.querySelectorAll('#layer-list .layer').length`, 30000, 'Positioner från början');
@@ -2661,7 +2661,7 @@ const scenarios = [
             await close();
             await c.waitFor(QUER, `document.readyState === 'complete' && !!window.QueriesApp && !QueriesApp.source()`, 30000, 'Queries från början');
             await noInjectedScript(c);
-            return 'fråga vid byte och stängning, ingen fråga när inget står kvar, raden över EXIF & karta och Positioner, Queries i frågan, Rensa vyn och Rensa alla vyer';
+            return 'fråga vid byte och stängning, ingen fråga när inget står kvar, raden över EXIF och Positioner, Queries i frågan, Rensa vyn och Rensa alla vyer';
         } finally {
             await c.ev(null, `window.__ftAnswer = '', 1`);
         }

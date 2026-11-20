@@ -1,4 +1,4 @@
-// Testdata för EXIF & karta och Positioner. Bilderna är små JPEG-motiv. EXIF är påhittad
+// Testdata för EXIF och Positioner. Bilderna är små JPEG-motiv. EXIF är påhittad
 // och skrivs här, så att inget hämtas och inga riktiga filer behövs.
 (function (root) {
     'use strict';

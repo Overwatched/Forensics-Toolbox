@@ -133,8 +133,8 @@ att ingen app var öppen."
 5. **Exportera.** "Kopiera protokoll för Word", "Kopiera förklaring för Word", "Spara som HTML"
    och "Spara bild".
 
-Härkomst visar ingen EXIF-tabell, ingen karta och ingen SQL. EXIF & karta, Positioner och
-Queries finns redan för det. I stället finns länkar: "Öppna i EXIF & karta" (bara när
+Härkomst visar ingen EXIF-tabell, ingen karta och ingen SQL. EXIF, Positioner och
+Queries finns redan för det. I stället finns länkar: "Öppna i EXIF" (bara när
 bilden finns som fil på disk, se "Inte med i första versionen"), "Visa på karta" bara om
 routined gav positioner (skickar punkter via hubben som i dag), och varje rad i protokollet
 anger queryns id så att den går att öppna i Queries.
@@ -168,7 +168,7 @@ Bilder tas sällan ensamma. Verktyget visar de bilder i biblioteket som skapades
 och de närmaste i nummerordning (`IMG_0041` före `IMG_0042`). Grannar som kommer från samma app
 tätt inpå, till exempel en serie kamerabilder, är ett stöd i sig och syns i tidslinjen som små
 markörer på raden **Fil**. En Live Photo-video med samma nummer visas som par, med sin egen tid
-ur QuickTime (i UTC, som EXIF & karta redan hanterar). Protokollet listar grannarna. Förklaringen
+ur QuickTime (i UTC, som EXIF redan hanterar). Protokollet listar grannarna. Förklaringen
 nämner dem bara som en mening: "Sju bilder till togs inom en minut."
 
 ## De tre faktorerna
@@ -409,7 +409,7 @@ sökväg eller ett bundle-id, och att protokollet innehåller allt det.
 - Delade skalet `../_shared/toolkit.js` för temat, som andra verktyg.
 - Extraktionsrutan, filnamnsfältet, fönsterväljaren, tidslinjen, faktorerna, händelselistan
   och knapparna. Status medan databaserna läses.
-- ExifTool-motorn från EXIF & karta (`vendor/exiftool`) körs i en worker mot bildfilens bytes.
+- ExifTool-motorn från EXIF (`vendor/exiftool`) körs i en worker mot bildfilens bytes.
   Bara de fält som faktor 1 behöver läses ut.
 - Knapp i `Toolbox.html` under Queries. README, `docs/DEVELOPMENT.md` och tabellen i
   [PLAN.md](PLAN.md) (flödet "Bildfil – härkomst") uppdateras.
@@ -455,7 +455,7 @@ sökväg eller ett bundle-id, och att protokollet innehåller allt det.
 ## Inte med i första versionen
 
 - **Mapp i stället för zip.** Samma skäl som i extraktionsplanen.
-- **Öppna bilden i EXIF & karta direkt ur zippen.** Det kräver att en `Blob` skickas mellan
+- **Öppna bilden i EXIF direkt ur zippen.** Det kräver att en `Blob` skickas mellan
   ramar via hubben. Hubben skickar i dag bara punktdata, och det valet ändras inte nu. Länken
   visas bara när bilden finns på disk.
 - **Biome `App.InFocus` (iOS 16+).** Strömmen finns i FFS-zipparna som SEGB-filer och

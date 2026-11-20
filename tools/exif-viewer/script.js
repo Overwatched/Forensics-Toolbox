@@ -1509,7 +1509,7 @@
         if (mapTab) mapTab.title = 'Visa bilderna som en källa i Positioner';
     }
 
-    // EXIF & karta följer inte extraktionen: filerna i listan står kvar när den byts eller stängs (toolkit.js).
+    // EXIF följer inte extraktionen: filerna i listan står kvar när den byts eller stängs (toolkit.js).
     if (window.toolboxHolds) window.toolboxHolds(function () {
         var n = rows.length;
         return { items: n ? [n + (n === 1 ? ' fil' : ' filer') + ' i listan'] : [] };

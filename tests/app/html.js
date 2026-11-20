@@ -145,10 +145,10 @@ const noWasmScenarios = [
         const text = await c.ev(null, `(function(){ const n = document.getElementById('browser-notice'); return n && !n.hidden ? n.innerText : ''; })()`);
         expect(/WebAssembly är avstängt/.test(text) && /edge:\/\/policy/.test(text), 'Beskedet i huvudfönstret: ' + text);
     }],
-    ['EXIF & karta säger varför i stället för att stå och starta', async ({ c }) => {
-        await c.nav('EXIF & karta');
-        const status = await c.waitFor(EXIF, `document.getElementById('engine-status') && /WebAssembly/.test(document.getElementById('engine-status').textContent) && document.getElementById('engine-status').textContent`, 15000, 'beskedet i EXIF & karta');
-        expect(/WebAssembly är avstängt/.test(status), 'EXIF & karta: ' + status);
+    ['EXIF säger varför i stället för att stå och starta', async ({ c }) => {
+        await c.nav('EXIF');
+        const status = await c.waitFor(EXIF, `document.getElementById('engine-status') && /WebAssembly/.test(document.getElementById('engine-status').textContent) && document.getElementById('engine-status').textContent`, 15000, 'beskedet i EXIF');
+        expect(/WebAssembly är avstängt/.test(status), 'EXIF: ' + status);
     }],
     ['Queries och Härkomst säger varför när något ska läsas', async ({ c, fx }) => {
         await c.nav('Queries');

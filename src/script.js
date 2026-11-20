@@ -120,7 +120,7 @@ function initToolNav() {
     };
     const TOOL_PATH = { provenance: 'tools/provenance/index.html', queries: 'tools/db-queries/queries.html', exif: 'tools/exif-viewer/index.html', chats: 'tools/chats/index.html', phone: 'tools/phone' };
     let activePath = '';
-    // Filen man senast tittade på i Härkomst eller EXIF & karta: { name, path, place, owner, from }.
+    // Filen man senast tittade på i Härkomst eller EXIF: { name, path, place, owner, from }.
     // owner är verktygets sökväg; verktyget lämnar ut filen när någon vill visa den någon annanstans.
     let current = null;
 
@@ -612,7 +612,7 @@ function initToolNav() {
             renderBar();
             return;
         }
-        // Filer från ett verktyg till ett annat: till EXIF & karta som filer att läsa, till Härkomst som
+        // Filer från ett verktyg till ett annat: till EXIF som filer att läsa, till Härkomst som
         // filer att leta upp i extraktionen.
         if (data.type === 'file-for' && TOOL_PATH[data.to] && Array.isArray(data.files)) {
             deliver(data.to, data.to === 'exif'
@@ -631,7 +631,8 @@ function initToolNav() {
                 const item = document.querySelector('.nav-item[data-type="frame"][data-src="' + path + '"]');
                 frame = createFrame(path, path, item && item.querySelector('.nav-item-title') ? item.querySelector('.nav-item-title').textContent.trim() : 'Queries');
             }
-            const send = () => postToFrame(frame, { source: 'forensics-toolbox', type: 'phone-positions', file: extraction.file, atMs: data.atMs, minutes: data.minutes, title: data.title || '' });
+            const send = () => postToFrame(frame, { source: 'forensics-toolbox', type: 'phone-positions', file: extraction.file, atMs: data.atMs, minutes: data.minutes, title: data.title || '',
+                marks: Array.isArray(data.marks) ? data.marks : null, label: data.label || '', key: data.key || '' });
             if (frame.dataset.ready) send();
             else frame.addEventListener('load', send, { once: true });
             return;
@@ -640,8 +641,8 @@ function initToolNav() {
             postToFrame(frames.get('tools/positions/index.html'), data);
             return;
         }
-        // EXIF & karta ber Härkomst om innehållet i en fil ur extraktionen (file-need), och Härkomst svarar
-        // (file-content). Inget verktyg öppnas eller byts. Är Härkomst inte laddat får EXIF & karta veta det.
+        // EXIF ber Härkomst om innehållet i en fil ur extraktionen (file-need), och Härkomst svarar
+        // (file-content). Inget verktyg öppnas eller byts. Är Härkomst inte laddat får EXIF veta det.
         if (data.type === 'file-need' || data.type === 'file-content') {
             const frame = frames.get(TOOL_PATH[data.type === 'file-need' ? 'provenance' : 'exif']);
             if (frame && frame.dataset.ready) postToFrame(frame, data);

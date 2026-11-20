@@ -479,7 +479,7 @@
         if (opts.routeOn) route.input.checked = true;
         var perDevice = labeledToggle('Per enhet');
         var cluster = labeledToggle('Gruppera närliggande punkter');
-        cluster.input.checked = true;
+        cluster.input.checked = false;
         cluster.label.title = 'Punkter nära varandra visas som en ring med antalet tills du zoomar in. Utan gruppering ritas varje punkt för sig.';
         var online = labeledToggle('Onlinekarta');
         var fit = make('button', 'link-btn', 'Visa alla');
@@ -680,12 +680,22 @@
         pickBar.setAttribute('aria-label', 'Markerade punkter');
         var alert = make('p', 'map-alert');
         alert.setAttribute('role', 'alert');
-        host.append(mapEl, list, bar, measureNote, alert);
+        // Återkopplingen till undersökaren: en ruta mitt överst på kartan, som syns. busy har en snurra och står kvar,
+        // ok försvinner efter en stund, error står kvar tills den stängs.
+        var toast = make('div', 'map-toast display-none');
+        toast.setAttribute('role', 'status');
+        toast.setAttribute('aria-live', 'polite');
+        var toastText = make('span', 'map-toast-text');
+        var toastClose = make('button', 'map-toast-close', '×');
+        toastClose.type = 'button';
+        toastClose.setAttribute('aria-label', 'Stäng');
+        toast.append(make('span', 'map-toast-spin'), toastText, toastClose);
+        host.append(mapEl, list, bar, measureNote, alert, toast);
         Object.keys(pops).forEach(function (k) { host.append(pops[k]); });
         host.append(timeBar, consent, editor, pickBar);
         return {
             editor: editor, pickBar: pickBar, bubbleCustom: bubbleCustom, bubbleReset: bubbleReset,
-            wrap: host, map: mapEl, status: status, route: route.input, perDevice: perDevice.input, cluster: cluster.input, count: count, bar: bar, openPop: openPop, alert: alert, pops: pops, timeSpanBtn: timeSpanBtn, timeControls: timeControls,
+            wrap: host, map: mapEl, status: status, route: route.input, perDevice: perDevice.input, cluster: cluster.input, count: count, bar: bar, openPop: openPop, alert: alert, pops: pops, timeSpanBtn: timeSpanBtn, timeControls: timeControls, toast: toast, toastText: toastText, toastClose: toastClose,
             online: online.input, fit: fit, measureBtn: measureBtn, saveBtn: saveBtn, measureNote: measureNote,
             listBtn: listBtn, list: list, numbers: numbers,
             bubbleStandard: bubbleStandard,
@@ -715,7 +725,8 @@
         var basemap = 'map';
         // Närliggande punkter slås ihop till en klunga upp till zoom 16. Ett verktyg som redan har
         // gjort ett urval (Härkomsts sammanfattade positioner) kan stänga av det.
-        var clustering = true;
+        // Utan gruppering som standard: varje punkt ritas för sig. Går att slå på under Punkter.
+        var clustering = false;
 
         function setStatus(text, state) {
             el.status.textContent = text;
@@ -741,6 +752,16 @@
             updateBasemap();
         }
         var missingShown = false;
+        var toastTimer = null;
+        function notify(text, kind) {
+            clearTimeout(toastTimer);
+            el.toast.classList.toggle('display-none', !text);
+            if (!text) return;
+            el.toast.dataset.kind = kind || 'ok';
+            el.toastText.textContent = text;
+            if (!kind || kind === 'ok') toastTimer = setTimeout(function () { el.toast.classList.add('display-none'); }, 9000);
+        }
+        el.toastClose.addEventListener('click', function () { notify(''); });
         var phoneMinutes = 15;
 
         function updateBasemap() {
@@ -865,10 +886,12 @@
             return el.numbers.value === 'none' ? 'none' : 'visible';
         }
 
+        // Som standard nålar, så att punkterna syns också bland många.
         function freshStandard() {
             var cfg = root.MapCore.defaultBubble({});
             cfg.leader = false;
             cfg.ring = false;
+            cfg.pin = true;
             return cfg;
         }
 
@@ -1623,7 +1646,8 @@
             act('Dölj', function () { closePopup(); setHidden([p.id], true); });
             box.append(actions);
             // Var var telefonen när bilden skapades: positionerna runt punktens tid, ur extraktionen.
-            if (opts.phoneAround) {
+            // Bara för en fil (en bild ur EXIF eller en rad med filnamn), inte för telefonens egna positioner.
+            if (opts.phoneAround && (p.exifId != null || p.path)) {
                 var at = p.taken && root.MapCore.instant && root.MapCore.zoneMinutes ? (root.MapCore.zoneMinutes(p.taken.zone) === null ? null : root.MapCore.instant(p.taken.sort, p.taken.zone)) : null;
                 var phone = make('div', 'map-popup-phone');
                 var ask = make('button', 'secondary-btn', 'Var var telefonen?');
@@ -3128,6 +3152,7 @@
             },
             setMarker: setMarker,
             setMenu: el.setMenu,
+            notify: notify,
             // Ett verktygs egna fält i en av menyns rutor: 'base', 'points', 'route', 'bubbles' eller 'time' (tidsspannet
             // i raden längst ner).
             addToMenu: function (key, node) {

@@ -1524,7 +1524,7 @@
         }
     });
 
-    // En bild till EXIF & karta: filen som den ligger i extraktionen (en krypterad bilaga dekrypterad), med
+    // En bild till EXIF: filen som den ligger i extraktionen (en krypterad bilaga dekrypterad), med
     // filsystemets tider ur zippen, som när Härkomst skickar den.
     async function toExif(entry, bytes, how) {
         var zt = ExtractionCore.entryTimes(entry), sources = {};
@@ -3491,7 +3491,7 @@
         var table = /\bFROM\s+(\w+)/i.exec(q.sql || '');
         rows.push(['Källa', esc(baseName(ph.db)) + (table ? ' · ' + esc(table[1]) : '')]);
         showSheet(esc(it.name), (url ? '<img src="' + esc(url) + '" alt="">' : '') + '<table>' + rows.map(function (r) { return '<tr><th>' + r[0] + '</th><td>' + r[1] + '</td></tr>'; }).join('') + '</table>',
-            inHub ? (file ? '<button type="button" class="c-btn" data-sheet-exif="' + esc(it.key) + '">Visa i EXIF &amp; karta</button>' : '') +
+            inHub ? (file ? '<button type="button" class="c-btn" data-sheet-exif="' + esc(it.key) + '">Visa i EXIF</button>' : '') +
                 '<button type="button" class="c-btn c-primary" data-sheet-assess="1">Bedöm i Härkomst</button>' : '', it.name);
     }
     // Ett ark i telefonen: rubriken (HTML), innehållet och knapparna före Stäng.

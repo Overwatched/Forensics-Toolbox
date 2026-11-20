@@ -1,4 +1,4 @@
-// Testdata för Härkomst: samma påhittade promenad i Stockholm 1 juni 2024 som i EXIF & karta.
+// Testdata för Härkomst: samma påhittade promenad i Stockholm 1 juni 2024 som i EXIF.
 // Anna tar IMG_4104.JPG vid Sergels torg mitt i en Snapchat-session, och några minuter senare
 // spelar hon in en video med Snapchats kamera och skickar den till Erik. Två scenarier delar
 // samma telefonlogg: kamerabilden i biblioteket (scenario) och Snapchat-videon utanför
@@ -182,7 +182,7 @@
                 name: MOBILE + 'Containers/Shared/AppGroup/1A79BE73-8D07-45B5-BC79-BBB0DFC3B273/File Provider Storage/photospicker/uuid=22AEE635-96CF-4365-9E74-8A92BE6BA0C5&code=001&library=1&type=1&mode=1&loc=true&cap=true.pvt/IMG_4104.JPG',
                 size: 2437118, crc32: 'påhittad', mtime: '2024-06-01 12:33:02 UTC', area: 'picker', label: 'Bildväljaren (kopia som en app fick välja ur biblioteket)', plain: 'som en kopia en app fick ur bildbiblioteket', shaOk: true,
             }],
-            note: 'Påhittade testdata: samma promenad i Stockholm som i EXIF & karta. Inget kommer från en riktig telefon.',
+            note: 'Påhittade testdata: samma promenad i Stockholm som i EXIF. Inget kommer från en riktig telefon.',
             file: file,
             fileSource: PHOTOS,
             neighbourSource: NEIGHBOURS,

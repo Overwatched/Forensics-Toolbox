@@ -16,7 +16,11 @@
         return n;
     }
 
-    function setStatus(text) { $('status').textContent = text || ''; }
+    // Texten står i sidopanelen och, så att den syns, också som en ruta på kartan. kind: 'busy', 'ok' eller 'error'.
+    function setStatus(text, kind) {
+        $('status').textContent = text || '';
+        if (mapView && text) mapView.notify(text, kind || 'ok');
+    }
 
     function timeBound(date, time, end) {
         var d = (date || '').trim();
@@ -40,13 +44,37 @@
         return true;
     }
 
+    // Täta positioner glesas ut: en per källa och tidsintervall (den med bäst noggrannhet). En fil (en bild) och en
+    // punkt utan tid visas alltid. thinMinutes 0 = alla.
+    var thinMinutes = 0;
+    var thinned = { shown: 0, total: 0 };
+    function isFilePoint(p) { return p.exifId != null || !!p.path || !!p.file; }
+    function pointMs(p) { return p.taken && p.taken.sort ? MapCore.instant(p.taken.sort, p.taken.zone || '') : null; }
+    function thin(list) {
+        thinned = { shown: list.length, total: list.length };
+        if (!thinMinutes) return list;
+        var size = thinMinutes * 60000, best = {}, out = [];
+        list.forEach(function (p, i) {
+            var ms = isFilePoint(p) ? null : pointMs(p);
+            if (ms === null) { out.push({ p: p, i: i }); return; }
+            var key = p.layerId + ':' + Math.floor(ms / size);
+            var have = best[key];
+            var acc = function (q) { return q.accuracy > 0 ? q.accuracy : Infinity; };
+            if (!have) { best[key] = { p: p, i: i }; out.push(best[key]); }
+            else if (acc(p) < acc(have.p)) { have.p = p; }
+        });
+        var kept = out.sort(function (a, b) { return a.i - b.i; }).map(function (x) { return x.p; });
+        thinned = { shown: kept.length, total: list.length };
+        return kept;
+    }
+
     function visiblePoints() {
         var out = [];
         layers.forEach(function (layer) {
             if (!layer.visible) return;
             layer.points.forEach(function (p) { if (inRange(p)) out.push(p); });
         });
-        return out;
+        return thin(out);
     }
 
     function currentRoute(points) {
@@ -89,7 +117,8 @@
     function redraw() {
         var points = visiblePoints();
         var shownLayers = layers.filter(function (l) { return l.visible; }).length;
-        var note = points.length + (points.length === 1 ? ' punkt' : ' punkter') + ' i ' + shownLayers + (shownLayers === 1 ? ' källa.' : ' källor.');
+        var note = points.length + (points.length === 1 ? ' punkt' : ' punkter') + ' i ' + shownLayers + (shownLayers === 1 ? ' källa.' : ' källor.') +
+            (thinned.shown < thinned.total ? ' ' + (thinned.total - thinned.shown) + ' täta positioner dolda (en per ' + thinMinutes + ' min).' : '');
         if (mapView) mapView.setPoints(points, note);
         fillRouteSpan();
     }
@@ -142,15 +171,55 @@
                 if (!ids.length) { setStatus('Inga punkter från ' + layer.name + ' visas just nu.'); return; }
                 adaptPoints(ids, layer.name);
             });
+            // Var var telefonen när bilderna i källan togs: positionerna runt varje bilds tid, ur extraktionen.
+            var marks = phoneMarks(layer);
+            var phone = null;
+            if (marks.length) {
+                phone = make('button', '', 'Telefonen…');
+                phone.type = 'button';
+                phone.title = 'Var var telefonen när bilderna togs? Telefonens positioner runt varje bilds tid, ur extraktionen som är öppen.';
+                phone.addEventListener('click', function () { row.classList.toggle('show-phone'); });
+            }
             var del = make('button', 'quiet', '×');
             del.type = 'button';
             del.title = 'Ta bort källa';
             del.addEventListener('click', function () { layers = layers.filter(function (l) { return l !== layer; }); refresh(); });
             var actions = make('div', 'layer-actions');
-            actions.append(eye, route, bubbles, del);
+            actions.append(eye, route, bubbles);
+            if (phone) actions.append(phone);
+            actions.append(del);
             row.append(swatch, name, actions);
+            if (phone) {
+                var ask = make('div', 'layer-phone');
+                ask.append(make('span', '', marks.length + (marks.length === 1 ? ' bild med tid' : ' bilder med tid') + ', ±'));
+                var span = make('select');
+                span.setAttribute('aria-label', 'Minuter före och efter');
+                [5, 15, 60].forEach(function (m) { var o = make('option', '', m + ' min'); o.value = String(m); span.append(o); });
+                span.value = '15';
+                var go = make('button', 'secondary-btn', 'Hämta positionerna');
+                go.type = 'button';
+                go.addEventListener('click', function () {
+                    var minutes = Number(span.value);
+                    setStatus('Letar efter telefonens positioner ±' + minutes + ' min kring ' + marks.length + (marks.length === 1 ? ' bild' : ' bilder') + ' i ' + layer.name + '…', 'busy');
+                    window.parent.postMessage({ source: 'forensics-toolbox', type: 'phone-positions', atMs: marks[0].atMs, minutes: minutes, marks: marks, label: layer.name, key: 'layer' + layer.id }, '*');
+                    row.classList.remove('show-phone');
+                });
+                ask.append(span, go);
+                row.append(ask);
+            }
             list.append(row);
         });
+    }
+
+    // Bilderna i en källa med en verklig tidpunkt (tid med zon): { atMs, title }.
+    function phoneMarks(layer) {
+        var out = [];
+        layer.points.forEach(function (p) {
+            if (!isFilePoint(p) || !p.taken || MapCore.zoneMinutes(p.taken.zone) === null) return;
+            var ms = MapCore.instant(p.taken.sort, p.taken.zone);
+            if (ms !== null) out.push({ atMs: ms, title: p.name });
+        });
+        return out;
     }
 
     function paint(layer, points) {
@@ -308,6 +377,7 @@
                     };
                 }),
                 thumbs: thumbs,
+                thin: thinMinutes,
                 routes: namedRoutes,
                 map: mapView ? mapView.getState() : null,
             };
@@ -353,6 +423,8 @@
         $('time-to-date').value = time.toDate || '';
         $('time-to-time').value = time.toTime || '';
         ensureMap().setTimeSpan(timeSpanText());
+        thinMinutes = [0, 1, 5, 10, 30, 60].indexOf(Number(data.thin)) >= 0 ? Number(data.thin) : 0;
+        if ($('thin')) $('thin').value = String(thinMinutes);
         loadRoutes(data);
         refresh();
         ensureMap().setState(data.map);
@@ -411,7 +483,7 @@
             },
             // Var var telefonen: Queries letar upp positionerna runt tiden i extraktionen och skickar dem som en källa.
             phoneAround: function (p, atMs, minutes) {
-                setStatus('Letar efter telefonens positioner ±' + minutes + ' min kring ' + (p.taken ? p.taken.text : '') + '…');
+                setStatus('Letar efter telefonens positioner ±' + minutes + ' min kring ' + (p.taken ? p.taken.text : '') + '…', 'busy');
                 window.parent.postMessage({ source: 'forensics-toolbox', type: 'phone-positions', atMs: atMs, minutes: minutes, title: p.name }, '*');
             },
             onContext: function (pos) {
@@ -422,6 +494,20 @@
         });
         // Tidsspannet står i kartans rad längst ner, och de namngivna rutterna under Rutt.
         mapView.addToMenu('time', $('time-block'));
+        var thinBox = make('div', 'side-block');
+        thinBox.append(make('h2', '', 'Täta positioner'));
+        var thinSel = make('select');
+        thinSel.id = 'thin';
+        thinSel.setAttribute('aria-label', 'Glesa ut täta positioner');
+        [[0, 'Visa alla'], [1, 'En per minut'], [5, 'En per 5 min'], [10, 'En per 10 min'], [30, 'En per 30 min'], [60, 'En per timme']].forEach(function (o) {
+            var opt = make('option', '', o[1]);
+            opt.value = String(o[0]);
+            thinSel.append(opt);
+        });
+        thinSel.value = String(thinMinutes);
+        thinSel.addEventListener('change', function () { thinMinutes = Number(thinSel.value) || 0; redraw(); });
+        thinBox.append(thinSel, make('p', 'zone-note', 'En position per källa och intervall, den med bäst noggrannhet. Bilder och punkter utan tid visas alltid.'));
+        mapView.addToMenu('points', thinBox);
         mapView.addToMenu('route', $('routes-block'));
         return mapView;
     }
@@ -583,7 +669,7 @@
     // behålls, så att ruttval och bubblor ligger kvar när filtren i EXIF ändras.
     function receivePositions(data) {
         if (data.update === 'files') { receiveFiles(data); return; }
-        if (!data.layerKey) { addChunked('EXIF & karta', data.points); return; }
+        if (!data.layerKey) { addChunked('EXIF', data.points); return; }
         var name = String(data.layerName || 'EXIF-bilder');
         var layer = layers.filter(function (l) { return l.key === data.layerKey; })[0];
         var created = !layer;
@@ -613,7 +699,7 @@
         }
     }
 
-    // Miniatyrerna som görs efter att punkterna skickats: från EXIF & karta per bild (exifId), från Queries per rad
+    // Miniatyrerna som görs efter att punkterna skickats: från EXIF per bild (exifId), från Queries per rad
     // (fileKey). Kommer de före punkterna sparas de tills källan finns.
     var pendingFiles = {};
     function receiveFiles(data, quiet) {
@@ -748,7 +834,7 @@
 
     window.addEventListener('message', function (e) {
         var data = e.data;
-        if (data && data.source === 'forensics-toolbox' && data.type === 'phone-positions-done') { setStatus(data.text || ''); return; }
+        if (data && data.source === 'forensics-toolbox' && data.type === 'phone-positions-done') { setStatus(data.text || '', data.ok ? 'ok' : 'error'); return; }
         if (!data || data.source !== 'forensics-toolbox' || data.type !== 'positions' || !Array.isArray(data.points)) return;
         receivePositions(data);
     });

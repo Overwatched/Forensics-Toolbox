@@ -144,7 +144,7 @@ steg 1–3, och det enda som finns kvar i `tools/exif-viewer/` från kartan är 
 
 **Förslag (användaren kan ändra namnen):**
 
-- **EXIF-visare → "EXIF & karta"**, med beskrivningen *"Metadata, positioner och rutt
+- **EXIF-visare → "EXIF"**, med beskrivningen *"Metadata, positioner och rutt
   för en hel mapp — bara läsning"*. Verktyget behåller tabell och karta som i dag.
 - Nytt verktyg **"Positioner"** (`tools/positions/`), beskrivning *"Karta och rutt från
   GPX, KML, CSV, GeoJSON, Google-tidslinje och bilder"*. Här samlas positioner från
@@ -161,7 +161,7 @@ Uppdatera namnen i `Toolbox.html` (sidopanelen), `README.md` (verktygstabellen),
    - **KML:** `Placemark/Point` med `TimeStamp`, `gx:Track` (`when` + `gx:coord`), och
      `LineString` utan tid.
    - **GeoJSON:** `Point`, `MultiPoint` och `LineString`. Tid hämtas från egenskaperna
-     `time`, `timestamp`, `tid` eller `date`. Filer exporterade från EXIF & karta ska gå att
+     `time`, `timestamp`, `tid` eller `date`. Filer exporterade från EXIF ska gå att
      läsa in igen.
    - **CSV/TSV:** gissa avgränsare (`,` `;` tab) och decimalkomma. Hitta kolumner på namn
      (`lat`/`latitude`/`breddgrad`, `lon`/`lng`/`longitude`/`längdgrad`, `time`/
@@ -170,7 +170,7 @@ Uppdatera namnen i `Toolbox.html` (sidopanelen), `README.md` (verktygstabellen),
    - **Google Takeout:** `Records.json` (`latitudeE7`/`longitudeE7`, `timestamp`) och den
      nya tidslinjen på enheten (`semanticSegments`, `"geo:59.33, 18.06"`).
    - **Inklistrat:** rader som `59.3293, 18.0686` eller `59.3293 18.0686 2024-06-01 14:00`.
-   - **Bilder:** "Hämta från EXIF & karta". Det verktyget får knappen "Skicka positioner
+   - **Bilder:** "Hämta från EXIF". Det verktyget får knappen "Skicka positioner
      till Positioner". Den skickar via hubben: `postMessage({ source: 'forensics-toolbox',
      type: 'positions', points })` till `parent`. Hubben (`src/script.js`, lyssnaren kring
      rad 284) öppnar Positioner och vidarebefordrar. Skicka bara punktdata (sökväg, tid,
@@ -184,7 +184,7 @@ Uppdatera namnen i `Toolbox.html` (sidopanelen), `README.md` (verktygstabellen),
 3. **Manuell punkt:** högerklicka på kartan → "Lägg till punkt här", med etikett och
    valfri tid. Punkten hamnar i lagret "Manuella".
 4. Samma tidsfilter och export (KML, GeoJSON, CSV, och nytt: **GPX**) som i
-   EXIF & karta. Exporten innehåller källa/lager per punkt.
+   EXIF. Exporten innehåller källa/lager per punkt.
 5. **Prestanda:** 100 000 punkter ska gå att läsa in. Tolka i bitar med
    `setTimeout`-pauser och visa förloppet, använd kluster, och förenkla ruttlinjen när
    den har fler än 5 000 punkter (Douglas–Peucker i `map-core`).
@@ -193,7 +193,7 @@ Testdata i `tools/_shared/map/fixtures/`: små exempelfiler för varje format, m
 kantfall (tom fil, saknad tid, decimalkomma, latitud/longitud omkastade, 0,0).
 
 **Klart när:** alla format i fixtures läses in med rätt antal punkter och tider, lager
-kan döljas och tas bort, och en GeoJSON-export från EXIF & karta ger samma punkter
+kan döljas och tas bort, och en GeoJSON-export från EXIF ger samma punkter
 när den läses in i Positioner.
 
 ---
@@ -214,7 +214,7 @@ Rutten i tidsordning finns redan och var uppskattad. Bygg vidare i den här ordn
    separata turer. Varje tur har egen färgton och visas i en förklaringsruta: *"Tur 1 · 1
    juni 14:00–15:02 · 3,9 km"*. I testmappen ska det bli tre turer: promenaden,
    Djurgården och Södermalm.
-4. **En rutt per enhet eller källa.** Ett val "Dela rutt per enhet" (i EXIF & karta per
+4. **En rutt per enhet eller källa.** Ett val "Dela rutt per enhet" (i EXIF per
    `device`, i Positioner per lager) ger en linje per enhet i olika färger. Samsung och
    iPhone i testmappen ska ge två rutter.
 5. **Vistelser.** Följande punkter inom 100 m som tillsammans täcker minst 5 minuter

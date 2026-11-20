@@ -430,8 +430,8 @@
         toHub({ type: 'current-file', name: m.file.filename, path: meta.mediaEntry.name, place: ProvenanceCopies.classifyPath(meta.mediaEntry.name, placeOpts()).label });
     }
 
-    // Poster ur zippen åt EXIF & karta, som hänvisningar: zippen, postens plats i den, namnet, storleken och tiderna.
-    // Inget innehåll läses här. EXIF & karta ber om en fil i taget när den ska läsas eller visas (fileNeeded), så
+    // Poster ur zippen åt EXIF, som hänvisningar: zippen, postens plats i den, namnet, storleken och tiderna.
+    // Inget innehåll läses här. EXIF ber om en fil i taget när den ska läsas eller visas (fileNeeded), så
     // listan får vara hur lång som helst och ingen fil är för stor för att följa med.
     function entriesAsRefs(entries) {
         var z = state.zip;
@@ -456,14 +456,14 @@
         return { modified: zt.modified, created: zt.created, changed: zt.changed, third: zt.third, accessed: zt.accessed, field: zt.field, sources: sources };
     }
 
-    // Huvudfönstret ber om filen som visas, för att visa den i EXIF & karta.
+    // Huvudfönstret ber om filen som visas, för att visa den i EXIF.
     async function handOver(to) {
         var meta = state.meta;
         if (to !== 'exif' || !state.zip || !meta || !meta.mediaEntry) return;
         toHub({ type: 'file-for', to: 'exif', files: entriesAsRefs([meta.mediaEntry]) });
     }
 
-    // Listan i EXIF & karta: filerna som lästes ur zippen, med alla taggar och positionerna på kartan.
+    // Listan i EXIF: filerna som lästes ur zippen, med alla taggar och positionerna på kartan.
     async function batchToExif() {
         var b = state.batch, z = state.zip;
         if (!b || !z || isBusy()) return;
@@ -477,14 +477,14 @@
             var found = {};
             entries.forEach(function (e) { found[e.name] = true; });
             var gone = Object.keys(wanted).filter(function (name) { return !found[name]; });
-            // Varje fil i listan följer med. Innehållet läses av EXIF & karta, en fil i taget, så inget läses om här.
-            setStatus('run-status', escapeHtml(num(entries.length) + (entries.length === 1 ? ' fil skickades' : ' filer skickades') + ' till EXIF & karta, som läser dem en i taget ur ' + Z() + '.' +
+            // Varje fil i listan följer med. Innehållet läses av EXIF, en fil i taget, så inget läses om här.
+            setStatus('run-status', escapeHtml(num(entries.length) + (entries.length === 1 ? ' fil skickades' : ' filer skickades') + ' till EXIF, som läser dem en i taget ur ' + Z() + '.' +
                 (gone.length ? ' ' + num(gone.length) + (gone.length === 1 ? ' fil hittades inte längre i ' : ' filer hittades inte längre i ') + Z() + ': ' + gone.slice(0, 5).join(', ') + (gone.length > 5 ? ' med flera.' : '.') : '')), gone.length ? 'warn' : '');
             if (entries.length) toHub({ type: 'file-for', to: 'exif', files: entriesAsRefs(entries) });
         } finally { busy(false); }
     }
 
-    // EXIF & karta ber om innehållet i en fil som den fått en hänvisning till. Svaret är filen som den ligger i
+    // EXIF ber om innehållet i en fil som den fått en hänvisning till. Svaret är filen som den ligger i
     // zippen, eller för en av Signals bilagor det dekrypterade innehållet med en rad som säger det, eller skälet
     // till att filen inte kunde läsas. Zippen måste vara den som hänvisningen gäller. Frågorna besvaras en i taget.
     var needChain = Promise.resolve();
@@ -525,7 +525,7 @@
         }
     }
 
-    // Filer från EXIF & karta: samma innehåll letas upp i extraktionen, som med bilder från disk.
+    // Filer från EXIF: samma innehåll letas upp i extraktionen, som med bilder från disk.
     function receiveFiles(list) {
         zipReady.then(function () {
             var files = (list || []).map(function (f) { return f && f.file; }).filter(Boolean);
@@ -1494,7 +1494,7 @@
         var canShow = !!(pv && pv.url), toExif = !!(state.zip && meta.mediaEntry);
         $('file-card').innerHTML = '<div class="file-card"><div class="file-media">' + mediaHtml +
             (canShow || toExif ? '<div class="button-row">' + (canShow ? '<button type="button" class="secondary" id="toggle-media">' + (state.showMedia ? 'Dölj bilden' : 'Visa bilden') + '</button>' : '') +
-                (toExif ? '<button type="button" class="secondary hub-only" id="file-to-exif" title="Alla EXIF-taggar och positionen på kartan">Visa i EXIF &amp; karta</button>' : '') + '</div>' : '') + '</div>' +
+                (toExif ? '<button type="button" class="secondary hub-only" id="file-to-exif" title="Alla EXIF-taggar och positionen på kartan">Visa i EXIF</button>' : '') + '</div>' : '') + '</div>' +
             '<div class="file-facts">' + groups.map(function (g) {
                 return (g.title ? '<div class="file-facts-title">' + escapeHtml(g.title) + (g.note ? ' <span class="file-facts-note">' + escapeHtml(g.note) + '</span>' : '') + '</div>' : '') +
                     '<dl' + (g.times ? ' class="file-times"' : '') + '>' + g.rows.map(function (r) { return '<dt>' + escapeHtml(r[0]) + '</dt><dd' + (MONO_ROWS[r[0]] ? ' class="mono"' : '') + '>' + escapeHtml(r[1]) + '</dd>'; }).join('') + '</dl>';
@@ -4851,7 +4851,7 @@
         return { model: model, meta: meta };
     }
 
-    // Testdata: samma påhittade promenad i Stockholm som i EXIF & karta, utan extraktion. Två
+    // Testdata: samma påhittade promenad i Stockholm som i EXIF, utan extraktion. Två
     // scenarier: kamerabilden IMG_4104.JPG i biblioteket, och (kind 'snapchat') videon som spelas in
     // med Snapchats kamera strax efter och bara finns i Snapchats cache. Rollqueryernas SQL i
     // protokollet är den riktiga ur katalogerna, ifylld för fönstret, i samma ordning som en körning.

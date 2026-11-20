@@ -339,3 +339,17 @@
 .map-popup-phone { display: flex; align-items: center; gap: 6px; margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border); }
 .map-popup-phone .secondary-btn { font-size: 12px; padding: 4px 10px; border-radius: 8px; }
 .map-popup-phone select { width: auto; font: inherit; font-size: 12px; color: var(--text); background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 2px 4px; margin: 0; }
+
+.map-toast {
+    position: absolute; top: 54px; left: 50%; transform: translateX(-50%); z-index: 5;
+    display: flex; align-items: center; gap: 10px; max-width: min(560px, calc(100% - 40px));
+    font-size: 13px; font-weight: 600; line-height: 1.4; color: var(--text); background: var(--surface);
+    border: 1px solid var(--accent); border-left-width: 4px; border-radius: 10px; padding: 10px 12px 10px 14px;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+}
+.map-toast[data-kind="error"] { border-color: var(--warn); }
+.map-toast-text { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.map-toast-close { border: none; background: transparent; color: var(--text-muted); font-size: 18px; line-height: 1; cursor: pointer; padding: 0 2px; }
+.map-toast-spin { display: none; width: 14px; height: 14px; flex: none; border-radius: 50%; border: 2px solid var(--border); border-top-color: var(--accent); animation: map-spin 0.8s linear infinite; }
+.map-toast[data-kind="busy"] .map-toast-spin { display: inline-block; }
+@keyframes map-spin { to { transform: rotate(360deg); } }

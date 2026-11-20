@@ -174,7 +174,7 @@ npm test
   zippen, och bytet erbjuds i flikens notis; startsidan och nya flikar följer. Öppningarna i Queries
   görs i tur och ordning (`serial()` i `extraction.js`), så att läget och en query från Härkomst inte
   läser samma zip två gånger.
-- Raden högst upp (`#context-bar` i `Toolbox.html`) visas i Härkomst, Queries, Chattar och EXIF & karta
+- Raden högst upp (`#context-bar` i `Toolbox.html`) visas i Härkomst, Queries, Chattar och EXIF
   (`CONTEXT_TOOLS`). Där öppnas, byts och stängs extraktionen; ändringen skickas med `force` till verktyget
   som visas, som då byter även om det visar något. Inne i huvudfönstret döljer verktygen sina egna knappar
   för att öppna och stänga (`body.in-hub .standalone-only`). Verktygen rapporterar
@@ -184,14 +184,14 @@ npm test
   den (`pendingInfo`) tills beskedet om samma fil kommer.
 - Mellan verktygen: raden ber verktyget som har filen om den (`{ type: 'deliver-file', to }`), verktyget
   svarar `{ type: 'file-for', to, files: [{ file, path }] }`, och huvudfönstret öppnar målet och skickar
-  `exif-files` (EXIF & karta läser filerna som från disk och öppnar en ensam fil) eller `provenance-files`
+  `exif-files` (EXIF läser filerna som från disk och öppnar en ensam fil) eller `provenance-files`
   (Härkomst letar upp samma innehåll i extraktionen). Queries skickar filnamnen i ett resultat med `ZFILENAME`,
   `_display_name` eller `filename` som `{ type: 'names-for', to: 'provenance', names, zipName }`.
 - Från Härkomst går inget innehåll med i `file-for`, bara hänvisningar (`entriesAsRefs()`): zippens namn, storlek
-  och ändringstid, postens nyckel och namn, och filens namn, storlek och tider. EXIF & karta ber om en fil i taget
+  och ändringstid, postens nyckel och namn, och filens namn, storlek och tider. EXIF ber om en fil i taget
   med `{ type: 'file-need', token, ref }`, huvudfönstret lämnar frågan till Härkomsts ram utan att byta verktyg, och
   Härkomst svarar `{ type: 'file-content', token, file, times, note, state }` eller `{ …, error }`. Se "Listan till
-  EXIF & karta" under Härkomst.
+  EXIF" under Härkomst.
 
 #### Det som står kvar när extraktionen byts eller stängs
 
@@ -200,7 +200,7 @@ om vyerna ska rensas (`askWhatStays()` i `src/script.js`, `#clear-modal` i `Tool
 
 - Bytet görs först och väntar inte på svaret. `setExtraction()` frågar efteråt, och bara när en extraktion
   var öppen före. Öppnas den första extraktionen, eller står ingenting kvar, kommer ingen fråga.
-- Huvudfönstret frågar vyerna i `VIEW_TOOLS` (Härkomst, Queries, EXIF & karta och Positioner) med
+- Huvudfönstret frågar vyerna i `VIEW_TOOLS` (Härkomst, Queries, EXIF och Positioner) med
   `{ type: 'holds-ask', id, file, force }`, och varje vy svarar `{ type: 'holds', id, items, own }`:
   `items` är rader i klartext om det som står kvar, och `own` säger att vyn själv skriver ut vad det hör till
   (Härkomst och Queries). Svaret byggs av `whatStays()` i verktyget och skickas med `toolboxHolds()` i
@@ -458,7 +458,7 @@ i extraktionen med `-wal` pålagd, och bygger en händelselista i UTC.
   "Zippen → filens ändringstid (DOS-tid)". Orden är filens ändringstid, filens skapandetid, senast läst och metadata ändrad.
   Namnet i filen står med där det finns ett. I UT-fältet står platsen med för skapandetiden (fjärde tiden) och ctime
   (tredje tiden), eftersom den tolkningen är härledd. Tredje tiden av tre får inget annat ord, den är inte tolkad.
-  Härkomsts tabeller, tidslinje och protokoll och EXIF & karta får texten från samma funktion (`handoverTimes()` lämnar den i `sources`).
+  Härkomsts tabeller, tidslinje och protokoll och EXIF får texten från samma funktion (`handoverTimes()` lämnar den i `sources`).
 - Zippar med metadata (`tools/db-queries/fs-times.js`): har zippen `metadataN/metadata.msgpack` bredvid `filesystemN/` kommer tiderna därifrån, med riktiga namn och
   på millisekunden, avrundade från nanosekunder (`timeField` `metadata.msgpack`). Zippens egna fält säger inget i de zipparna: UT-fältet har flaggorna 7 och tre lika värden, alla lika med `atime`, och
   DOS-tiden är samma tid i lokal tid. Prövat på två iPhone-extraktioner, 329 181 och 315 296 filer: alla finns i kartan, och alla fyra tider stämmer med en
@@ -515,7 +515,7 @@ i extraktionen med `-wal` pålagd, och bygger en händelselista i UTC.
     gruppen (`GROUPS`; `contradiction` är filer med underlag där någon faktor inte är förenlig). Rader utanför urvalet
     göms med `display-none` på sin plats, så att `tbody.rows[i]` fortfarande är `b.rows[i]`; `renderBatchRow()` och
     `backToList()` bygger på det. Föregående och Nästa (`nextOpenable()`) hoppar över gömda rader. Exporterna och
-    Visa listan i EXIF & karta tar hela listan, och raden vid urvalet säger det. Urvalet följer med när listan görs
+    Visa listan i EXIF tar hela listan, och raden vid urvalet säger det. Urvalet följer med när listan görs
     om för en ny zon eller ett nytt fönster, och en ny lista börjar utan.
   - **En rad per träff.** Ett mål med flera träffar bär det som skiljer dem åt: `choices` (`{ pk }` för rader i
     bildbiblioteket, `{ path }` för poster i zippen) eller `entries` (sökning på innehåll). `expandHits()` byter
@@ -559,7 +559,7 @@ i extraktionen med `-wal` pålagd, och bygger en händelselista i UTC.
   `opts.containerApps` och `opts.appName` (paketnamn på Android).
 - En fil utanför biblioteket utan EXIF-tid får T ur zippens ändringstid, även när zippen bara har
   DOS-tid utan zon (`ProvenanceMedia.entryMs`, som sökningen på tid); protokollet får en varning.
-- Bildfilen läses ur zippen och ExifTool-workern från EXIF & karta laddas först när den behövs.
+- Bildfilen läses ur zippen och ExifTool-workern från EXIF laddas först när den behövs.
 - Positionerna (bildens enligt databasen och EXIF, telefonens enligt routined) visas i en tabell
   och på den delade kartvyn med nålar. Kartbilden hämtas med `mapView.toImage()` och läggs i
   båda exporterna. Kartans laddning kräver att fönstret ritas: med låst skärm kommer ingen
@@ -1112,17 +1112,17 @@ uppgifterna görs sökbara i minnet.
   (`work.indexBuilt`), att uppslagen gick dit (`work.indexed`) och att ett prövades mot databasen
   (`work.indexChecked`).
 
-#### Listan till EXIF & karta: hänvisningar, och Signals bilagor dekrypterade (1.66)
+#### Listan till EXIF: hänvisningar, och Signals bilagor dekrypterade (1.66)
 
-En användare hade 3000 filer i Härkomsts lista och tryckte på knappen till EXIF & karta. Härkomst läste då in
-filerna i minnet tills en gräns på 1 GB var nådd (104 filer), lämnade över dem, och EXIF & karta kunde inte visa
+En användare hade 3000 filer i Härkomsts lista och tryckte på knappen till EXIF. Härkomst läste då in
+filerna i minnet tills en gräns på 1 GB var nådd (104 filer), lämnade över dem, och EXIF kunde inte visa
 något: filerna var Signals bilagor (`app_parts/part….mms`), som ligger krypterade i extraktionen.
 
 - **Hänvisningar i stället för innehåll (`entriesAsRefs` i Härkomst).** Varje fil lämnas över som zippens namn,
   storlek och ändringstid, postens nyckel och namn, och filens namn, storlek och tider. Ingen gräns för antal eller
   storlek, och inget läses i Härkomst vid knapptrycket. Härkomsts lägesrad säger hur många som skickades, och
   hur många som inte längre finns i zippen, med de fem första vid namn.
-- **EXIF & karta ber om en fil i taget** (`content(row)`): `{ type: 'file-need', token, ref }` till huvudfönstret,
+- **EXIF ber om en fil i taget** (`content(row)`): `{ type: 'file-need', token, ref }` till huvudfönstret,
   som lämnar frågan till Härkomsts ram utan att öppna eller byta verktyg. Härkomst (`fileNeeded`, `answerNeed`)
   svarar i tur och ordning med `{ type: 'file-content', token, file, times, note, state }` eller `{ …, error }`.
   Innehållet hålls bara medan ExifTool läser det (`row.held`). En liten bild (240 punkter, `keepThumb`) sparas till
@@ -1139,7 +1139,7 @@ något: filerna var Signals bilagor (`app_parts/part….mms`), som ligger krypte
   karta får raden flaggan "Dekrypterat innehåll", och flaggan "Fel filändelse" tas bort (`.mms` är Signals namn på
   filen, inte en ändelse för innehållet).
 - **Utan nyckel eller rad** sägs skälet i klartext ("Bilagenyckeln (modernKey) saknas…", "Ingen rad i signal.db
-  pekar ut filen…"), ExifTool frågas inte, och raden i EXIF & karta får flaggan "Krypterad".
+  pekar ut filen…"), ExifTool frågas inte, och raden i EXIF får flaggan "Krypterad".
 - **T ändras inte.** En bilaga utan rad i galleriet har zippens ändringstid som T, som förut; tiden i det
   dekrypterade innehållet står bland filens tider men flyttar inte T. Förut frågades ExifTool om den krypterade
   filen två gånger per bilaga utan att kunna få svar (när T bestämdes och i förväg); nu frågas det en gång, om
@@ -1147,11 +1147,11 @@ något: filerna var Signals bilagor (`app_parts/part….mms`), som ligger krypte
 - **Uppmätt** på en påhittad extraktion (utvecklarens Mac: `signal-logs.db` 4,2 GB, `signal.db` 1,4 GB, 3000
   bilagor på 150 kB–50 MB, 1,8 GB sammanlagt): Härkomsts lista med alla 3000 tog 767 s med två ExifTool-anrop per
   bilaga och 474 s med ett (omkring 145 s inläsning en gång, sedan 0,11 s per fil; fönstret stod still sammanlagt
-  80 s, mest under sökningen i loggen, längst 3,7 s). Raderna stod i EXIF & karta efter 2 s, alla 3000 var lästa och
+  80 s, mest under sökningen i loggen, längst 3,7 s). Raderna stod i EXIF efter 2 s, alla 3000 var lästa och
   dekrypterade efter 451 s (0,15 s per fil), detaljvyn visade en bilaga på 50 MB efter 0,8 s. Av tiden stod
-  fönstret still omkring 90 s i stycken på högst 1,2 s: EXIF & karta ritar om hela tabellen var 1,5:e sekund medan
+  fönstret still omkring 90 s i stycken på högst 1,2 s: EXIF ritar om hela tabellen var 1,5:e sekund medan
   filer läses, och det tar längre ju fler rader som finns. Det gäller också filer från disk och är inte ändrat.
-- **Tester:** röktestet 'Härkomst → EXIF & karta: …' (också i HTML-utgåvan) har en bilaga krypterad med Nodes
+- **Tester:** röktestet 'Härkomst → EXIF: …' (också i HTML-utgåvan) har en bilaga krypterad med Nodes
   `crypto`, inte med programmets egen kod (`signalAndroidPart` i `tests/app/fixtures.js`), och går igenom: utan
   bilagenyckel, listan som hänvisningar, med bilagenyckel, listan en gång till, detaljvyn, knapparna i raden högst
   upp åt båda håll, och extraktionen stängd. `FT_ONLY=<text>` kör bara delarna med den texten i namnet.
@@ -1679,7 +1679,7 @@ senare.
     (dolda och Nyligen raderade, rödmarkerade). `galleryGroups`, `filterItems`. Alla urval utom Nyligen raderade
     lämnar papperskorgen utanför, som telefonen; Bibliotek visar allt, med papperskorgen rödmarkerad och de dolda
     märkta Dold. Omslaget är den senaste bilden i urvalet. Ett urval öppnas som galleri med knappen tillbaka till Album.
-  - **En bild** öppnas i ett ark med tiderna och källan, och knapparna Visa i EXIF & karta och Bedöm i Härkomst.
+  - **En bild** öppnas i ett ark med tiderna och källan, och knapparna Visa i EXIF och Bedöm i Härkomst.
     `toExif` skickar filen ur zippen (en krypterad bilaga dekrypterad) med zippens tider som `file-for`, som Härkomst
     gör; förstoringen i en chatt har samma knapp.
   - **Galleriet** (`ChatPhone.Gallery`) ritar bara raderna som syns och en skärm åt varje håll, med en rubrik per
@@ -2558,7 +2558,7 @@ Mätt 2026-11-04 i Edge 156 på en Windows-maskin i CI, med en slinga på 30 mil
 - Kontrollerat mot en labbtelefon (iOS 26.4.1, Telegram 13.1.2, 2026-11-03), inte mot anteckningar. Bara det
   första kontot läses när telefonen har flera, och en varning säger det.
 - **Tidslinjen** har rader för WhatsApp och Telegram, med meddelandena som trianglar.
-- **CSV:** alla CSV-exporter (Queries, EXIF & karta, Positioner, App-id) sätter en apostrof före en cell som
+- **CSV:** alla CSV-exporter (Queries, EXIF, Positioner, App-id) sätter en apostrof före en cell som
   börjar med `=`, `+`, `-`, `@`, tabb eller vagnretur, så att Excel inte tolkar den som en formel. Vanliga tal
   lämnas som de är.
 - **Tester:**
@@ -2602,19 +2602,19 @@ out of bounds". Bygget byter därför två saker i bibliotekets kod med esbuilds
 `self.FT_EXIF.NoRef`, som aldrig har något kvar, och `WebAssembly.instantiate` mot `self.FT_EXIF.instantiate`, som
 gör instansen av modulen som workern kompilerade vid starten. Svaret från workern säger vilken instans i ordningen
 som läste (`instance`), och testet 'varje läsning får en ny Perl-instans och samma svar' faller om en ny version av
-biblioteket håller kvar sin instans på något annat sätt. EXIF & karta och Härkomst använder samma worker.
+biblioteket håller kvar sin instans på något annat sätt. EXIF och Härkomst använder samma worker.
 
 Detaljrutan visar alla tider i filen (`ExifCore.timeTags()`): som de står i filen, med taggen och samma tid i UTC, eller
 "ingen zon i filen". Filsystemets tider står för sig: ur zippen för en fil från Härkomst, annars för kopian på datorn.
 
-### Kartor i EXIF & karta
+### Kartor i EXIF
 
-Kartan delas av EXIF & karta och Positioner. Koden ligger i `tools/_shared/map/`
+Kartan delas av EXIF och Positioner. Koden ligger i `tools/_shared/map/`
 (`map-core.js`, `map-view.js`, `import-core.js`, `vendor/maps/`). `ToolboxMap.create({ host })`
 bygger panelen själv. Positioner läser GPX, KML, CSV, GeoJSON, Google-tidslinje och
-inklistrade koordinater. EXIF & karta kan skicka synliga positioner dit via hubben.
+inklistrade koordinater. EXIF kan skicka synliga positioner dit via hubben.
 - **Miniatyrerna** i bubblorna och popupen: kartan avgör på filens egen typ (`drawableFile`, JPEG, PNG, GIF, WebP,
-  BMP, AVIF), inte på bildens. EXIF & karta skickar den lilla JPEG-bilden (`row.thumb`, 240 bildpunkter, för HEIC
+  BMP, AVIF), inte på bildens. EXIF skickar den lilla JPEG-bilden (`row.thumb`, 240 bildpunkter, för HEIC
   förhandsbilden i filen) eller filen själv för högst 50 bilder (`mapImage`). Det som saknas (filer ur extraktionen
   som inte visats, HEIC, fler än 50 bilder) görs efteråt, en i taget, och skickas i omgångar som
   `{ type: 'positions', update: 'files', files: { exifId: blob } }` (`mapThumbs`, högst 2 000). Huvudfönstret byter
@@ -2640,6 +2640,15 @@ inklistrade koordinater. EXIF & karta kan skicka synliga positioner dit via hubb
   fönstret, med `ProvenanceRoles.fill` och `mapRows`. Positionerna blir källan "Telefonen kring <bild> (±N min)", och
   svaret (`phone-positions-done`) står i Positioners status. Provat 2026-11-20 på iPhone-labbzippen: 175 positioner
   ±60 min kring en bild ur Cache.sqlite.
+- **Alla bilder i en källa:** knappen Telefonen… i källistan hämtar positionerna runt varje bild med tid och zon i
+  en omgång (`marks`): fönstren slås ihop där de går omlott, och varje position säger närmaste bild och hur långt före
+  eller efter. Knappen finns bara för filer (en bild ur EXIF eller en rad med filnamn), inte för telefonens egna
+  positioner.
+- **Täta positioner** (Punkter → Täta positioner): en per källa och intervall (1, 5, 10, 30 eller 60 min), den med bäst
+  noggrannhet. Bilder och punkter utan tid visas alltid, och antalet dolda står i raden överst. Sparas i vyn (`thin`).
+- **Återkopplingen** står som en ruta mitt överst på kartan (`notify(text, 'busy' | 'ok' | 'error')`): busy med snurra,
+  ok försvinner efter 9 s, error står kvar tills den stängs. Positioners `setStatus` skriver dit också.
+- **Standard:** nålar och ingen gruppering (2026-11-20). Testdataknappen i Positioner är dold (röktestet använder den).
 - **Tidsspannet och de namngivna rutterna** står i kartan: tidsspannet i raden längst ner bredvid Spela
   (`addToMenu('time', …)`, knappen visar det valda spannet), rutterna under Rutt. En klickad punkt har Anpassa
   bubblan, Ur rutten och Dölj i popupen, och raden för markerade punkter visas bara för flera eller med listan öppen.

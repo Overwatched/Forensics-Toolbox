@@ -87,7 +87,7 @@ const readme = [
     'Start:',
     '  1. Packa upp zip-filen om den inte redan är uppackad.',
     '  2. Öppna Toolbox.html i Edge eller Chrome.',
-    '  3. Gå till EXIF & karta eller Positioner.',
+    '  3. Gå till EXIF eller Positioner.',
     '  4. Välj mappen maps. Dialogen är en mapp, inte en enstaka fil.',
     '',
     'Kartan läser filerna direkt från mappen. Ingen server och inget skript behövs.',

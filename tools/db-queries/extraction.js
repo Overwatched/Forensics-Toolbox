@@ -725,7 +725,26 @@
             if (!current) { reply('Ingen extraktion är öppen. Öppna den i raden högst upp.'); return; }
             var from = current;
             var minutes = Math.max(1, Math.min(24 * 60, Number(msg.minutes) || 15));
-            var win = { startMs: msg.atMs - minutes * 60000, endMs: msg.atMs + minutes * 60000 };
+            // En eller flera bilder: fönstren runt deras tider slås ihop där de går omlott, och varje fönster körs en gång.
+            var marks = (Array.isArray(msg.marks) && msg.marks.length ? msg.marks : [{ atMs: msg.atMs, title: msg.title }])
+                .filter(function (m) { return typeof m.atMs === 'number' && isFinite(m.atMs); })
+                .sort(function (a, b) { return a.atMs - b.atMs; });
+            var wins = [];
+            marks.forEach(function (m) {
+                var w = { startMs: m.atMs - minutes * 60000, endMs: m.atMs + minutes * 60000 };
+                var last = wins[wins.length - 1];
+                if (last && w.startMs <= last.endMs) last.endMs = Math.max(last.endMs, w.endMs);
+                else wins.push(w);
+            });
+            var nearest = function (ms) {
+                var best = null;
+                marks.forEach(function (m) { if (!best || Math.abs(m.atMs - ms) < Math.abs(best.atMs - ms)) best = m; });
+                return best;
+            };
+            var gap = function (sec) {
+                var a = Math.abs(sec), t = a < 60 ? a + ' s' : Math.floor(a / 60) + ' min' + (a % 60 ? ' ' + (a % 60) + ' s' : '');
+                return sec === 0 ? 'samtidigt' : t + (sec < 0 ? ' före' : ' efter');
+            };
             var jobs = [];
             from.found.forEach(function (f, i) {
                 var db = describe(f).db;
@@ -743,10 +762,11 @@
                         zipFile: from.file,
                     }, cipher);
                     var db = new o.SQL.Database(ExtractionCore.noCopy(o.bytes));
-                    var res;
-                    try { db.run('PRAGMA query_only = ON'); res = db.exec(ProvenanceRoles.fill(j.q.sql, { window: win }))[0]; }
-                    finally { db.close(); }
-                    var rows = ProvenanceRoles.mapRows(j.q, res, ['time'], { raw: false });
+                    var rows = [];
+                    try {
+                        db.run('PRAGMA query_only = ON');
+                        wins.forEach(function (win) { rows = rows.concat(ProvenanceRoles.mapRows(j.q, db.exec(ProvenanceRoles.fill(j.q.sql, { window: win }))[0], ['time'], { raw: false })); });
+                    } finally { db.close(); }
                     rows.forEach(function (r) {
                         var lat = Number(r.latitude), lon = Number(r.longitude);
                         if (!isFinite(lat) || !isFinite(lon) || (lat === 0 && lon === 0) || r.timeMs == null) return;
@@ -756,19 +776,23 @@
                             id: points.length + 1, name: (type || 'Position') + ' ' + t.slice(11), path: '', lat: lat, lon: lon,
                             source: j.f.db.name, taken: { sort: t, zone: 'UTC', text: t + ' UTC', kind: 'Tid (' + j.q.fields.time + ')', source: 'import' },
                             accuracy: Number(r.accuracy) > 0 ? Number(r.accuracy) : null, type: type, device: '', software: '', mime: '',
-                            extra: [['Databas', j.f.db.name.slice(j.f.db.name.lastIndexOf('/') + 1)], ['Från bilden', Math.round((r.timeMs - msg.atMs) / 1000) + ' s']],
+                            extra: (function () {
+                                var near = nearest(r.timeMs);
+                                return [['Databas', j.f.db.name.slice(j.f.db.name.lastIndexOf('/') + 1)],
+                                    [marks.length > 1 ? 'Närmaste bild' : 'Bilden', (near.title ? near.title + ', ' : '') + gap(Math.round((r.timeMs - near.atMs) / 1000)) + ' bilden']];
+                            })(),
                         });
                     });
                 } catch (err) {
                     notes.push(j.db.label + ': ' + (err && err.message ? err.message : String(err)));
                 }
             }
-            var span = minutes + ' min före och efter ' + fmtUtc(msg.atMs) + ' UTC';
+            var span = marks.length > 1 ? minutes + ' min före och efter ' + marks.length + ' bilder' : minutes + ' min före och efter ' + fmtUtc(marks[0].atMs) + ' UTC';
             if (!points.length) { reply('Inga positioner ' + span + '.' + (notes.length ? ' ' + notes.join(' ') : '')); return; }
             points.sort(function (a, b) { return a.taken.sort < b.taken.sort ? -1 : a.taken.sort > b.taken.sort ? 1 : 0; });
             window.parent.postMessage({
-                source: 'forensics-toolbox', type: 'positions', layerKey: 'phone-' + msg.atMs + '-' + minutes,
-                layerName: 'Telefonen kring ' + (msg.title || fmtUtc(msg.atMs)) + ' (±' + minutes + ' min)',
+                source: 'forensics-toolbox', type: 'positions', layerKey: 'phone-' + (msg.key || marks[0].atMs) + '-' + minutes,
+                layerName: 'Telefonen kring ' + (msg.label || marks[0].title || fmtUtc(marks[0].atMs)) + ' (±' + minutes + ' min)',
                 points: points, noun: ['position', 'positioner'],
             }, '*');
             reply(points.length + (points.length === 1 ? ' position' : ' positioner') + ' ' + span + ' ur ' + jobs.map(function (x) { return x.db.label; }).join(' och ') + '.' + (notes.length ? ' ' + notes.join(' ') : ''), true);

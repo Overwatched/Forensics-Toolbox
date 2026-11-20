@@ -21,9 +21,9 @@ Verktyg för IT-forensik som körs på din egen dator, utan nätverk (onlinekart
 
 **Laboration** hjälper dig göra en egen laboration: utgå från ett färdigt flöde eller bygg ett eget med dra och släpp, logga tiden för varje steg och läs sedan in loggen med extraktionerna för att se var varje steg syns i telefonen.
 
-![EXIF & karta: metadata för en hel mapp](docs/images/exif-tabell.png)
+![EXIF: metadata för en hel mapp](docs/images/exif-tabell.png)
 
-**EXIF & karta** läser metadata för en hel mapp med ExifTool och ritar positionerna på kartan.
+**EXIF** läser metadata för en hel mapp med ExifTool och ritar positionerna på kartan.
 
 ![Positioner: rutt på offlinekartan](docs/images/positioner-rutt.png)
 

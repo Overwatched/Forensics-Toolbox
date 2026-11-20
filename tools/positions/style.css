@@ -171,3 +171,8 @@ textarea::placeholder, input::placeholder { color: var(--text-muted); }
 
 .display-none { display: none !important; }
 .link-btn { border: none; background: transparent; color: var(--accent); font: inherit; font-weight: 650; cursor: pointer; }
+
+.layer-phone { grid-column: 1 / -1; display: none; align-items: center; gap: 6px; flex-wrap: wrap; padding-top: 4px; color: var(--text-muted); }
+.layer.show-phone .layer-phone { display: flex; }
+.layer-phone select { width: auto; padding: 2px 4px; font-size: 12px; }
+.layer-phone .secondary-btn { padding: 4px 8px; font-size: 12px; }
