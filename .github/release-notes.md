@@ -1,5 +1,12 @@
 Automatiskt byggd från commit `{{SHA}}`.
 
+## Nytt i 1.81
+
+- **Kartans miniatyrer kommer fram igen:** bilder från EXIF & karta får sin miniatyr i Positioner, också HEIC-bilder, filer ur en extraktion och listor med fler än 50 bilder. Miniatyrerna som saknas görs efteråt och fylls på medan kartan visas.
+- **Telefonen visar telefonens egen bakgrund:** på iPhone den valda bakgrunden ur PosterBoard (telefonens egen bild av hemskärmen och låsskärmen), på Samsung standardbakgrunden. Bakgrunden står bara på hemskärmen och låsskärmen.
+- **Fler inställningar på iPhone:** flygplansläge, Wi-Fi, Bluetooth, platstjänster, utseende, batteriprocent, språk, region, Fokus, senaste säkerhetskopiering och när telefonen senast stängdes av, och parkopplade Bluetooth-enheter. Varje rad säger vilken fil och vilket fält den kommer ur.
+- **Sök i telefonen:** knappen Sök ovanför dockan, eller att börja skriva på hemskärmen, söker bland apparna, kontakterna, konversationerna, anteckningarna, webbhistoriken och inställningarna. I en chattapp söker fältet överst i namnen och i meddelandenas text i alla appens chattar, och en träff öppnar chatten vid meddelandet. Inställningar har ett eget sökfält, och Escape går tillbaka.
+
 ## Nytt i 1.80
 
 - **Härkomst säger varifrån en nedladdad fil kom:** den nya upplysningen Webbläsaren visar nedladdningen i Chrome eller Samsung Internet med adressen, sidan den kom från och sidorna som besöktes strax före. En bild som Safari sparade i bildbiblioteket får sidorna som besöktes strax före.
