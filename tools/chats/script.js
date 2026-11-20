@@ -2376,6 +2376,8 @@
         if (P.screen === 'photos' && P.filter !== 'all') return { screen: 'albums', text: 'Album' };
         if (P.screen === 'setting') return { screen: 'settings', text: 'Inställningar' };
         if (P.screen === 'note') return { screen: 'notes', text: 'Anteckningar' };
+        if (P.screen === 'memory') return { screen: 'memories', text: 'Memories', app: 'Snapchat' };
+        if (P.screen === 'memories') return { screen: 'app', text: 'Snapchat', app: 'Snapchat' };
         if (P.screen === 'call') return { screen: 'calls', text: 'Samtal' };
         if (P.screen === 'webItem') { var wbB = webBrowser(P.web); return { screen: 'web', text: wbB ? wbB.name : 'Tillbaka' }; }
         if (P.screen === 'appInfo') return P.appInfoFrom === 'settings' ? { screen: 'settings', text: 'Inställningar' } : { screen: 'app', text: P.appInfo, app: P.appInfo };
@@ -2418,6 +2420,8 @@
         else if (P.screen === 'search') renderSearch(body);
         else if (P.screen === 'appInfo') renderAppInfo(body);
         else if (P.screen === 'control') renderControl(body);
+        else if (P.screen === 'memories') renderMemories(body);
+        else if (P.screen === 'memory') renderMemory(body);
         else renderPhotos(body);
     }
 
@@ -2576,6 +2580,15 @@
         if (!q && APP_SETTING_APPS.indexOf(P.app) >= 0) {
             if (!P.apps || P.apps.zip !== state.zip) loadAppSettings();
             if (appSettingsOf(P.app)) head = '<button type="button" class="d-row d-applink" data-app-info="' + esc(P.app) + '"><span class="d-row-text"><span class="d-row-top"><b>Inställningar i ' + esc(P.app) + '</b><span class="d-chev" aria-hidden="true">›</span></span><span class="d-row-sub">Konto, sekretess, meddelanden, säkerhetskopiering och länkade enheter</span></span></button>';
+        }
+        // Snapchats Memories på iPhone: bilderna och videorna, dekrypterade ur cachen.
+        if (!q && P.app === 'Snapchat' && window.Memories) {
+            var MS = P.memories && P.memories.zip === state.zip ? P.memories : null;
+            if (!MS) loadMemories();
+            else if (MS.state === 'ready' && MS.list.length) {
+                var mc = Memories.counts(MS.list);
+                head += '<button type="button" class="d-row d-applink" data-device-memories="1"><span class="d-row-text"><span class="d-row-top"><b>Memories</b><span class="d-chev" aria-hidden="true">›</span></span><span class="d-row-sub">' + esc(many(mc.all, 'minne', 'minnen') + (mc.meo ? ', ' + num(mc.meo) + ' i My Eyes Only' : '') + (mc.located ? ', ' + num(mc.located) + ' med position' : '')) + '</span></span></button>';
+            }
         }
         box.innerHTML = head + rows + (q && !list.length && q.length < 2 ? '<p class="d-empty">Ingen chatt heter så.</p>' : '') + note + (list.length > shown.length ? '<button type="button" class="c-btn d-more" data-device-more="1">Visa fler (' + num(list.length - shown.length) + ' kvar)</button>' : '') +
             (q.length >= 2 ? '<section id="d-msg-hits" class="d-msg-hits" aria-live="polite"></section>' : '');
@@ -2809,7 +2822,7 @@
                     } catch (err) { A.notes.push('Signals inställningar i signal.sqlite kunde inte läsas: ' + errText(err)); }
                 }
                 // Snapchat: Spara till (core.db på Android, primary.docobjects på iOS) och appens egna inställningar.
-                if (got.snapCore || got.snapSession) {
+                if (got.snapCore || got.snapSession || got.snapMemories) {
                     var save = null;
                     if (got.snapCore) {
                         try {
@@ -2825,7 +2838,14 @@
                             try { loc = tablesOf(fdb).indexOf('ShareLocationPreferences') >= 0 ? rowsOf(fdb, 'SELECT ghostModeEnabled AS ghostModeEnabled, ghostModeExpiration AS ghostModeExpiration, version AS version, audience AS audience, backgroundSharingEnabled AS backgroundSharingEnabled FROM ShareLocationPreferences ORDER BY _id DESC LIMIT 1')[0] || null : null; } finally { fdb.close(); }
                         } catch (err) { A.notes.push('Snapchats databas feature kunde inte läsas: ' + errText(err)); }
                     }
-                    A.list.push(AppSettings.snapchat('Android', save, await prefs('snapSession'), null, null, loc));
+                    var meo = null;
+                    if (got.snapMemories) {
+                        try {
+                            var mdb = await openDb('snapMemories');
+                            try { meo = tablesOf(mdb).indexOf('memories_meo_confidential') >= 0 ? rowsOf(mdb, 'SELECT hashed_passcode AS hash, master_key IS NOT NULL AS masterKey FROM memories_meo_confidential WHERE hashed_passcode IS NOT NULL LIMIT 1')[0] || null : null; } finally { mdb.close(); }
+                        } catch (err) { A.notes.push('Snapchats memories.db kunde inte läsas: ' + errText(err)); }
+                    }
+                    A.list.push(AppSettings.snapchat('Android', save, await prefs('snapSession'), null, null, loc, meo));
                 }
                 if (got.snapDoc || got.snapIos) {
                     var saveI = null;
@@ -2857,7 +2877,21 @@
         var A = state.device.apps;
         return A && A.zip === state.zip && A.state === 'ready' ? A.list.filter(function (x) { return x.app === app; })[0] || null : null;
     }
+    // Koden till My Eyes Only: prövad i den här vyn, per hash (state.device.meo[hash] = { state, code, tried, total }).
+    function meoValue(r) {
+        var m = (state.device.meo || {})[r.hash];
+        if (!m) return { text: r.value, html: '<button type="button" class="c-btn d-meo-btn" data-meo-crack="' + esc(r.hash) + '">Pröva alla fyrsiffriga koder</button>' };
+        if (m.state === 'busy') return { text: 'Prövar…', html: '<span class="c-spin" aria-hidden="true"></span> ' + esc(num(m.tried) + ' av ' + num(m.total)) };
+        if (m.code !== null) return { text: m.code, html: '' };
+        return { text: 'Inte en kod med fyra siffror', html: '' };
+    }
     function appSettingRow(r, f) {
+        if (r.action === 'meo') {
+            var mv = meoValue(r);
+            return '<div class="d-kv d-appset"><span class="d-kv-label">' + esc(r.label) + '</span><span class="d-kv-value">' + esc(mv.text) + '</span>' +
+                (mv.html ? '<span class="d-meo">' + mv.html + '</span>' : '') +
+                '<small class="d-kv-src">' + labMark(!!r.checked) + ' ' + esc(r.source) + '</small>' + (r.note ? '<small class="d-kv-note">' + esc(r.note) + '</small>' : '') + '</div>';
+        }
         var value = r.ms ? (r.prefix || '') + f(r.ms) + (r.suffix || '') : r.value;
         var sw = r.on === undefined ? '' : '<span class="d-switch' + (r.on ? ' on' : '') + '" aria-hidden="true"><i></i></span>';
         var mark = labMark(!!r.checked);
@@ -2881,6 +2915,183 @@
         var groups = s.groups.map(function (g) { return '<p class="n-sec">' + esc(g.title) + '</p><div class="d-kvs">' + g.rows.map(function (r) { return appSettingRow(r, f); }).join('') + '</div>'; }).join('');
         body.innerHTML = head + groups + (A.notes.length ? '<p class="d-empty warn">' + esc(A.notes.join(' ')) + '</p>' : '') +
             '<p class="d-note">Bara det som står i appens egna filer. ✓ Labb: kontrollerat i en labb. Ej verifierad: värdet står i filen, men vad det betyder är inte prövat ännu. Raderna kan ändras när labbarna gjorts.</p>';
+    }
+
+    // ---------- Snapchat Memories (iPhone) ----------
+    // Snapsen ur scdb-27.sqlite3, nyckeln, positionen och platsnamnet ur gallery.encrypteddb (nyckelringen behövs) och
+    // filerna i Snapchats cache, dekrypterade med snapens nyckel (Memories, memories.js). En gång per extraktion.
+    function loadMemories() {
+        var z = state.zip, P = state.device;
+        if (!z || !window.Memories) return Promise.resolve(null);
+        if (P.memories && P.memories.zip === z) return P.memories.loading || Promise.resolve(P.memories);
+        var S = P.memories = { zip: z, state: 'busy', list: [], files: {}, urls: {}, notes: [], read: [], loading: null, paint: 0 };
+        S.loading = (async function () {
+            try {
+                await loadSql();
+                var got = Memories.pick(await ExtractionCore.find(z.read, z.file.size, function (name) { return !!Memories.which(name); }));
+                if (!got.scdb) { S.state = 'none'; return S; }
+                var open = async function (id, cipher) {
+                    var loaded = await ExtractionCore.loadDatabase(z.read, { db: got[id].entry, wal: got[id].wal }, [z.line], cipher ? { cipher: cipher } : {});
+                    S.read.push(got[id].entry.name);
+                    return new SQL.Database(ExtractionCore.noCopy(loaded.bytes));
+                };
+                var rowsOf = function (db, sql) { var r = db.exec(sql)[0]; return r ? r.values.map(function (v) { var o = {}; r.columns.forEach(function (c, i) { o[c] = v[i]; }); return o; }) : []; };
+                var snaps = [], keys = [], locs = [], claims = [];
+                var d1 = await open('scdb');
+                try { snaps = rowsOf(d1, Memories.SQL.snaps); } finally { d1.close(); }
+                if (got.gallery) {
+                    var cipher = cipherFor({ cipher: 'snapchat-gallery' });
+                    if (!cipher || !cipher.passphrase) S.notes.push('gallery.encrypteddb är krypterad, och nyckeln saknas. Välj nyckelringen (…_keychain.plist) med extraktionen, så visas bilderna, positionerna och platserna.');
+                    else {
+                        try {
+                            var d2 = await open('gallery', cipher);
+                            try { keys = rowsOf(d2, Memories.SQL.keys); locs = rowsOf(d2, Memories.SQL.locations); } finally { d2.close(); }
+                        } catch (err) { S.notes.push('gallery.encrypteddb kunde inte läsas: ' + errText(err)); }
+                    }
+                } else S.notes.push('gallery.encrypteddb finns inte i ' + Z() + ', så nycklarna och positionerna saknas.');
+                if (got.cache) {
+                    try { var d3 = await open('cache'); try { claims = rowsOf(d3, Memories.SQL.claims); } finally { d3.close(); } }
+                    catch (err) { S.notes.push('cache_controller.db kunde inte läsas: ' + errText(err)); }
+                }
+                S.list = Memories.build(snaps, keys, locs, claims);
+                var want = {};
+                S.list.forEach(function (m) { if (m.media) want[m.media] = true; if (m.overlay) want[m.overlay] = true; });
+                if (Object.keys(want).length) {
+                    (await ExtractionCore.find(z.read, z.file.size, function (name) {
+                        var n = '/' + String(name);
+                        return Memories.FILE_MANAGER.test(n) && !!want[n.slice(n.lastIndexOf('/') + 1)];
+                    })).forEach(function (e) { S.files[e.name.slice(e.name.lastIndexOf('/') + 1)] = e; });
+                }
+                S.state = 'ready';
+            } catch (err) {
+                S.state = 'error';
+                S.notes.push('Memories kunde inte läsas: ' + errText(err));
+            }
+            S.loading = null;
+            if (P.on && /^(app|memories|memory)$/.test(P.screen)) renderDevice();
+            return S;
+        })();
+        return S.loading;
+    }
+    function memoryOf(id) { var S = state.device.memories; return S ? S.list.filter(function (m) { return m.id === id; })[0] || null : null; }
+    async function memoryBytes(m, part) {
+        var S = state.device.memories, e = m[part] ? S.files[m[part]] : null;
+        if (!m[part] || !e) throw new Error('Filen finns inte i ' + Z() + '.');
+        if (!m.key) throw new Error(m.keyLocked ? 'Nyckeln är krypterad (My Eyes Only).' : 'Nyckeln saknas.');
+        return Memories.decrypt(crypto.subtle, (await ExtractionCore.readEntry(state.zip.read, e)).bytes, m.key, m.iv);
+    }
+    async function memoryUrl(m, part) {
+        var S = state.device.memories, k = m.id + ':' + part;
+        if (!S.urls[k]) {
+            var bytes = await memoryBytes(m, part);
+            S.urls[k] = { url: URL.createObjectURL(new Blob([bytes], { type: Memories.mime(bytes) || 'application/octet-stream' })), mime: Memories.mime(bytes) };
+        }
+        return S.urls[k];
+    }
+    function durText(s) { s = Math.round(s || 0); return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); }
+    function renderMemories(body) {
+        var P = state.device, S = P.memories, f = fmt();
+        $('c-device-title').textContent = 'Memories';
+        if (!S || S.zip !== state.zip) { loadMemories(); S = P.memories; }
+        if (!S || S.state === 'busy') { $('c-device-sub').textContent = 'Läser Memories…'; body.innerHTML = '<p class="d-empty"><span class="c-spin" aria-hidden="true"></span> Läser Memories och dekrypterar nycklarna…</p>'; return; }
+        var c = Memories.counts(S.list);
+        $('c-device-sub').textContent = 'Snapchat · ' + many(c.all, 'minne', 'minnen') + (c.meo ? ' · ' + num(c.meo) + ' i My Eyes Only' : '');
+        var tiles = S.list.map(function (m) {
+            var label = (m.kind === 'video' ? 'Video' : 'Bild') + (m.captureMs ? ', ' + f(m.captureMs) : '') + (m.meo ? ', My Eyes Only' : '');
+            return '<button type="button" class="m-tile' + (m.meo ? ' meo' : '') + '" data-memory-id="' + esc(m.id) + '" aria-label="' + esc(label) + '" title="' + esc(label) + '">' +
+                '<span class="m-img" data-mem-thumb="' + esc(m.id) + '"></span>' +
+                (m.kind === 'video' ? '<span class="m-badge">▶ ' + esc(durText(m.durationS)) + '</span>' : '') +
+                (m.meo ? '<span class="m-lock">My Eyes Only</span>' : '') +
+                '<span class="m-date">' + esc(m.captureMs ? f(m.captureMs).slice(0, 10) : '') + '</span></button>';
+        }).join('');
+        body.innerHTML = (c.located ? '<div class="m-head"><button type="button" class="c-btn" data-memories-map="1">Visa på kartan (' + num(c.located) + ')</button></div>' : '') +
+            (S.list.length ? '<div class="m-grid">' + tiles + '</div>' : '<p class="d-empty">Inga Memories i scdb-27.sqlite3.</p>') +
+            (S.notes.length ? '<p class="d-empty warn">' + esc(S.notes.join(' ')) + '</p>' : '') +
+            '<p class="d-note">Ur scdb-27.sqlite3 (snapsen), gallery.encrypteddb (nyckeln, positionen och platsen; SQLCipher med nyckeln i nyckelringen) och Snapchats cache. Filerna dekrypteras med snapens nyckel (AES-256-CBC). My Eyes Only har nyckeln krypterad med koden.</p>';
+        fillMemoryThumbs(body, S);
+    }
+    // Miniatyrerna en i taget, så länge rutnätet visas.
+    function fillMemoryThumbs(body, S) {
+        var seq = ++S.paint;
+        (async function () {
+            for (var i = 0; i < S.list.length; i++) {
+                var m = S.list[i];
+                if (S.paint !== seq || state.device.screen !== 'memories') return;
+                var el = [].filter.call(body.querySelectorAll('[data-mem-thumb]'), function (x) { return x.dataset.memThumb === m.id; })[0];
+                if (!el) continue;
+                if (!m.key || !m.media) { el.classList.add(m.keyLocked ? 'locked' : 'none'); continue; }
+                try {
+                    var u = await memoryUrl(m, 'media');
+                    if (/^video\//.test(u.mime)) el.innerHTML = '<video src="' + esc(u.url) + '#t=0.1" muted preload="metadata"></video>';
+                    else el.style.backgroundImage = 'url("' + u.url + '")';
+                } catch (err) { el.classList.add('none'); el.title = errText(err); }
+            }
+        })();
+    }
+    function renderMemory(body) {
+        var P = state.device, S = P.memories, f = fmt(), m = memoryOf(P.memory);
+        $('c-device-title').textContent = 'Memory';
+        if (!m) { openDevice('memories', 'Snapchat'); return; }
+        $('c-device-sub').textContent = (m.kind === 'video' ? 'Video' : 'Bild') + (m.captureMs ? ' · ' + f(m.captureMs) : '');
+        var e = m.media ? S.files[m.media] : null;
+        var rows = [
+            m.captureMs ? kv('Tagen', f(m.captureMs), 'scdb-27.sqlite3 · ZGALLERYSNAP.ZCAPTURETIMEUTC') : '',
+            m.savedMs ? kv('Sparad i Memories', f(m.savedMs), 'ZGALLERYSNAP.ZCREATETIMEUTC, ZGALLERYENTRY.ZDUPLICATETIMEUTC') : '',
+            kv('Typ', m.kind + (m.w && m.h ? ', ' + m.w + ' × ' + m.h : '') + (m.durationS && m.kind === 'video' ? ', ' + durText(m.durationS) : '') + (m.front ? ', framkameran' : ''), 'ZMEDIAFORMAT, ZWIDTH, ZHEIGHT, ZDURATION, ZCAMERAFRONTFACING'),
+            kv('My Eyes Only', m.meo ? 'Ja' : 'Nej', 'ZGALLERYENTRY.ZISPRIVATE'),
+            m.lat !== null ? kv('Position', m.lat.toFixed(6) + ', ' + m.lon.toFixed(6) + (m.address ? ' · ' + m.address : ''), 'gallery.encrypteddb · snap_location_table, snap_address_title') : kv('Position', 'Ingen', 'gallery.encrypteddb · snap_location_table'),
+            m.zone ? kv('Tidszon i snapen', m.zone, 'ZTIMEZONENAME') : '',
+            m.copyOf ? kv('Kopia av', m.copyOf, 'ZDUPLICATEDFROMSNAPID') : '',
+            kv('Snap-id', m.id, 'ZGALLERYSNAP.ZSNAPID'),
+            kv('Filen', e ? e.name : m.media ? 'Finns inte i ' + Z() : 'Ingen i cachen', 'cache_controller.db · CACHE_FILE_CLAIM (EXTERNAL_KEY snap-media-<id>)'),
+            kv('Nyckel', m.keyLocked ? 'Krypterad med koden till My Eyes Only' : m.key ? 'AES-256-CBC med snapens nyckel och iv' : 'Saknas', 'gallery.encrypteddb · snap_key_iv'),
+        ].join('');
+        var canImage = !!(m.key && e);
+        body.innerHTML = '<div class="m-view" id="m-view">' + (canImage ? '<span class="c-spin" aria-hidden="true"></span>' : '<p class="d-empty">' + esc(m.keyLocked ? 'My Eyes Only: filen går inte att öppna utan koden.' : 'Filen finns inte i ' + Z() + '.') + '</p>') + '</div>' +
+            (canImage ? '<div class="m-actions">' + (inHub ? '<button type="button" class="c-btn" data-memory-exif="' + esc(m.id) + '">Visa i EXIF</button>' : '') + '<button type="button" class="c-btn" data-memory-save="' + esc(m.id) + '">Spara filen</button></div>' : '') +
+            '<div class="d-kvs">' + rows + '</div>';
+        if (!canImage) return;
+        Promise.all([memoryUrl(m, 'media'), m.overlay && S.files[m.overlay] ? memoryUrl(m, 'overlay').catch(function () { return null; }) : null]).then(function (r) {
+            var view = $('m-view');
+            if (!view || state.device.memory !== m.id) return;
+            var media = /^video\//.test(r[0].mime) ? '<video src="' + esc(r[0].url) + '" controls playsinline></video>' : '<img src="' + esc(r[0].url) + '" alt="">';
+            view.innerHTML = '<div class="m-stack">' + media + (r[1] ? '<img class="m-overlay" src="' + esc(r[1].url) + '" alt="" title="Text och ritning ovanpå snapen (snap-overlay)">' : '') + '</div>';
+        }).catch(function (err) { var view = $('m-view'); if (view) view.innerHTML = '<p class="d-empty warn">' + esc(errText(err)) + '</p>'; });
+    }
+    async function memoryFile(m) {
+        var bytes = await memoryBytes(m, 'media'), type = Memories.mime(bytes);
+        var ext = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'video/mp4': 'mp4' }[type] || 'bin';
+        return new File([bytes], 'snapchat-memory-' + m.id + '.' + ext, { type: type || 'application/octet-stream', lastModified: m.captureMs || 0 });
+    }
+    // Minnena med position till Positioner, med en liten bild för varje bild.
+    async function memoriesToMap() {
+        var S = state.device.memories;
+        var list = S.list.filter(function (m) { return m.lat !== null; });
+        toast('Minnena skickas till Positioner…');
+        var points = [];
+        for (var i = 0; i < list.length; i++) {
+            var m = list[i], file = null;
+            if (m.kind === 'bild' && m.key && m.media && S.files[m.media]) {
+                try {
+                    var bytes = await memoryBytes(m, 'media');
+                    var bmp = await createImageBitmap(new Blob([bytes]));
+                    var k = Math.min(1, 360 / Math.max(bmp.width, bmp.height));
+                    var cv = document.createElement('canvas');
+                    cv.width = Math.round(bmp.width * k); cv.height = Math.round(bmp.height * k);
+                    cv.getContext('2d').drawImage(bmp, 0, 0, cv.width, cv.height);
+                    var blob = await new Promise(function (res) { cv.toBlob(res, 'image/jpeg', 0.85); });
+                    if (blob) file = new File([blob], m.id + '.jpg', { type: 'image/jpeg' });
+                } catch (err) { file = null; }
+            }
+            var t = m.captureMs ? new Date(m.captureMs).toISOString().slice(0, 19).replace('T', ' ') : '';
+            points.push({
+                id: points.length + 1, name: 'Memory ' + (t ? t.slice(0, 16) : m.id.slice(0, 8)), path: 'Snapchat Memories/' + m.id, lat: m.lat, lon: m.lon,
+                source: 'gallery.encrypteddb', taken: t ? { sort: t, zone: 'UTC', text: t + ' UTC', kind: 'Tagen (ZCAPTURETIMEUTC)', source: 'import' } : null,
+                type: m.meo ? 'My Eyes Only' : m.kind, device: '', app: 'Snapchat', software: '', mime: '', file: file,
+                extra: [m.address ? ['Plats', m.address] : null, ['Snap-id', m.id]].filter(Boolean),
+            });
+        }
+        toHub({ type: 'positions', layerKey: 'snapchat-memories', layerName: 'Snapchat Memories', points: points, noun: ['minne', 'minnen'] });
     }
 
     // ---------- Kontrollcenter ----------
@@ -3537,12 +3748,40 @@
         var b = e.target.closest('[data-device-tab]');
         if (b) openDevice(b.dataset.deviceTab === 'albums' ? 'albums' : 'photos', '', { filter: 'all' });
     });
+    // Alla koder med fyra siffror mot hashen för My Eyes Only, i flera trådar. Förloppet står på raden.
+    function crackMeo(hash) {
+        var P = state.device, M = P.meo || (P.meo = {});
+        if (M[hash] && M[hash].state === 'busy') return;
+        var codes = Bcrypt.fourDigits();
+        var m = M[hash] = { state: 'busy', code: null, tried: 0, total: codes.length };
+        var paint = function () { if (P.on && P.screen === 'appInfo') renderDevice(); };
+        var last = 0;
+        paint();
+        Bcrypt.crack(hash, codes, { onProgress: function (n) { m.tried = n; if (Date.now() - last > 250) { last = Date.now(); paint(); } } })
+            .then(function (code) { m.state = 'done'; m.code = code; paint(); })
+            .catch(function (err) { m.state = 'done'; m.code = null; P.apps && P.apps.notes.push('Koden kunde inte prövas: ' + errText(err)); paint(); });
+    }
+
     function onDeviceClick(e) {
         var b = e.target.closest('button');
         if (!b || b.classList.contains('g-tile')) return;
         // Det som öppnas ur sökningen går tillbaka dit.
         state.device.fromSearch = state.device.screen === 'search';
         state.device.fromControl = state.device.screen === 'control';
+        if (b.dataset.meoCrack) { crackMeo(b.dataset.meoCrack); return; }
+        if (b.dataset.deviceMemories) return openDevice('memories', 'Snapchat');
+        if (b.dataset.memoryId) { state.device.memory = b.dataset.memoryId; return openDevice('memory', 'Snapchat'); }
+        if (b.dataset.memoriesMap) { memoriesToMap().catch(showError); return; }
+        if (b.dataset.memoryExif) {
+            var mx = memoryOf(b.dataset.memoryExif);
+            if (mx) memoryFile(mx).then(function (file) { toHub({ type: 'file-for', to: 'exif', from: 'Snapchat Memories', files: [{ file: file, path: state.zip.file.name + ' › ' + (state.device.memories.files[mx.media] || {}).name + ' (dekrypterad)' }] }); }).catch(showError);
+            return;
+        }
+        if (b.dataset.memorySave) {
+            var ms = memoryOf(b.dataset.memorySave);
+            if (ms) memoryFile(ms).then(function (file) { var a = document.createElement('a'); a.href = URL.createObjectURL(file); a.download = file.name; a.click(); setTimeout(function () { URL.revokeObjectURL(a.href); }, 2000); }).catch(showError);
+            return;
+        }
         if (b.dataset.deviceSearch) return openDevice('search');
         if (b.dataset.deviceControl) return openDevice('control');
         if (b.dataset.appInfo) { state.device.appInfo = b.dataset.appInfo; state.device.appInfoFrom = state.device.screen === 'settings' ? 'settings' : state.device.screen === 'search' ? 'search' : 'app'; return openDevice('appInfo', state.device.screen === 'app' ? state.device.app : ''); }

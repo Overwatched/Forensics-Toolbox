@@ -1521,7 +1521,7 @@ const scenarios = [
         await ev(`document.getElementById('c-device-back').click(), 1`);
         await ev(`document.querySelector('#d-set-list [data-app-info="Signal"]').click(), 1`);
         const sig = await ev(`[...document.querySelectorAll('.d-appset')].map(r => r.querySelector('.d-kv-label').textContent + '=' + r.querySelector('.d-kv-value').textContent + (r.querySelector('.d-check') ? ' ✓' : ''))`);
-        expect(sig.includes('Länkade enheter=1 ✓') && sig.some((x) => /^macOS=länkad \d{4}-\d\d-\d\d \d\d:\d\d:\d\d · senast sedd \d{4}-\d\d-\d\d ✓$/.test(x)) && sig.includes('Kan hittas med numret=Av'), 'Signal: ' + JSON.stringify(sig));
+        expect(sig.includes('Länkade enheter=1 ✓') && sig.some((x) => /^macOS=länkad \d{4}-\d\d-\d\d \d\d:\d\d:\d\d · senast sedd \d{4}-\d\d-\d\d ✓$/.test(x)) && sig.includes('Kan hittas med numret=Av') && sig.includes('PIN=4711 ✓'), 'Signal: ' + JSON.stringify(sig));
         // Sök i inställningarna: raderna i alla delar.
         await ev(`document.getElementById('c-device-back').click(), 1`);
         const typeIn = async (id, v) => { await ev(`(function(){ const i = document.getElementById(${JSON.stringify(id)}); i.value = ${JSON.stringify(v)}; i.dispatchEvent(new Event('input', { bubbles: true })); return 1; })()`); await sleep(400); };

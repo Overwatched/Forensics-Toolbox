@@ -28,6 +28,7 @@
         { id: 'sigKv', app: 'Signal', platform: 'Android', re: /\/org\.thoughtcrime\.securesms\/databases\/signal-key-value\.db$/, sqlite: true, label: 'signal-key-value.db' },
         { id: 'snapCore', app: 'Snapchat', platform: 'Android', re: /\/com\.snapchat\.android\/databases\/core\.db$/, sqlite: true, label: 'core.db' },
         { id: 'snapFeature', app: 'Snapchat', platform: 'Android', re: /\/com\.snapchat\.android\/databases\/feature$/, sqlite: true, label: 'feature (Snapchat)' },
+        { id: 'snapMemories', app: 'Snapchat', platform: 'Android', re: /\/com\.snapchat\.android\/databases\/memories\.db$/, sqlite: true, label: 'memories.db (Snapchat)' },
         { id: 'snapSession', app: 'Snapchat', platform: 'Android', re: /\/com\.snapchat\.android\/shared_prefs\/user_session_shared_pref\.xml$/, label: 'user_session_shared_pref.xml' },
         { id: 'snapDoc', app: 'Snapchat', platform: 'iOS', re: /\/DocObjects\/primary\.docobjects$/, sqlite: true, label: 'primary.docobjects' },
         { id: 'snapIos', app: 'Snapchat', platform: 'iOS', re: /\/Library\/Preferences\/com\.toyopagroup\.picaboo\.plist$/, label: 'com.toyopagroup.picaboo.plist' },
@@ -275,6 +276,16 @@
                 bool('TSStorageUserAccountCollection', 'TSAccountManager_IsDiscoverableByPhoneNumber', 'Kan hittas med numret'),
                 typeof sharing === 'number' ? row('Vem ser mitt nummer', sharingText[sharing] || 'värde ' + sharing, F + 'kUDCollection/phoneNumberSharingMode') : null,
             ]),
+            // PIN:en sparas i klartext, för Signals påminnelser om den (2FA/PinCode). Kontrollerad mot labbens PIN
+            // 2026-11-03 (iPhone, PIN satt). Tiden är unixsekunder.
+            group('PIN', (function () {
+                var pin = get('2FA', 'PinCode'), had = get('2FA', 'HasEverHadPin'), last = get('2FA', 'LastSuccessfulReminderDate');
+                return [
+                    typeof pin === 'string' && pin ? row('PIN', pin, F + '2FA/PinCode', { checked: true, note: 'Sparad i klartext för Signals påminnelser om PIN:en. Samma PIN skyddar kontot vid ny registrering.' }) : null,
+                    had !== undefined && had !== null && typeof had !== 'object' ? row('Har haft PIN', Number(had) === 1 ? 'Ja' : 'Nej', F + '2FA/HasEverHadPin', { checked: true, on: Number(had) === 1 }) : null,
+                    typeof last === 'number' && last > 0 ? timed('Senaste påminnelse om PIN:en', Math.round(last * 1000), F + '2FA/LastSuccessfulReminderDate') : null,
+                ];
+            })()),
             group('Länkade enheter', devs.length ? [row('Länkade enheter', linked.length ? String(linked.length) : 'Inga', 'signal.sqlite · Device', { checked: true, on: linked.length > 0, note: 'Enhet 1 är telefonen. Senast sedd är avrundad till dygnet.' })].concat(linked.map(function (d) {
                 var r = row(d.name || 'Enhet ' + d.id, (d.createdMs ? 'länkad ' + utc(d.createdMs) : '') + (d.lastSeenMs ? (d.createdMs ? ' · ' : '') + 'senast sedd ' + utc(d.lastSeenMs).slice(0, 10) : ''), 'signal.sqlite · Device: deviceId ' + d.id + ', createdAt, lastSeenAt', { checked: true });
                 // I vald zon: länkad med tiden, senast sedd som dygn (lastSeenAt är avrundad).
@@ -304,7 +315,20 @@
 
     // Snapchat: inställningen Spara till (ProvenanceSnapchat.saveSetting, kontrollerad på båda plattformarna), spöksläget
     // (Android), användar-id och tiderna i appens egna inställningar.
-    function snapchat(platform, save, session, ios, nsMs, location) {
+    // Koden till My Eyes Only på Android: en bcrypt-hash i memories.db (memories_meo_confidential.hashed_passcode),
+    // kostnad 6 över koden. Koden prövas i telefonvyn (Bcrypt.crack); raden bär hashen. Kontrollerad på labbmobilen
+    // 2026-11-16 (koden hittades och stämmer med labbanteckningarna). På iPhone finns ingen sådan hash i appens filer.
+    function snapMeo(meo) {
+        if (!meo || !meo.hash) return [];
+        var m = /^\$(2[abxy]?)\$(\d{2})\$/.exec(meo.hash);
+        var F = 'memories.db · memories_meo_confidential: ';
+        return [
+            Object.assign(row('Kod till My Eyes Only', 'Okänd', F + 'hashed_passcode', { checked: true, note: 'Koden sparas som en bcrypt-hash' + (m ? ' (kostnad ' + Number(m[2]) + ')' : '') + '. Alla koder med fyra siffror kan prövas här på några sekunder; en lösenfras går inte att pröva så.' }), { action: 'meo', hash: meo.hash }),
+            meo.masterKey ? row('Huvudnyckel för My Eyes Only', 'Finns (krypterad med koden)', F + 'master_key, master_key_iv', { note: 'Nyckeln som låser upp snaps i My Eyes Only. Den är krypterad, och koden behövs för att använda den.' }) : null,
+        ];
+    }
+
+    function snapchat(platform, save, session, ios, nsMs, location, meo) {
         session = session || {}; ios = ios || {};
         var ms = function (v) { return v && typeof v === 'object' && nsMs ? nsMs(v) : typeof v === 'number' ? (v > 1e12 ? v : v * 1000) : null; };
         var saveRow = save ? row('Spara till', save.label.charAt(0).toUpperCase() + save.label.slice(1), platform === 'iOS' ? 'primary.docobjects · userproperties itemId 24' : 'core.db · SnapchatUserProperties _id 24 (textVal)',
@@ -314,6 +338,7 @@
             group('Konto', platform === 'Android' ? [has(session, 'key_user_id') ? row('Användar-id', session.key_user_id, 'user_session_shared_pref.xml · key_user_id') : null] :
                 [timed('Installerad första gången', ms(ios.user_first_install_date) || ms(ios.first_install_date), 'com.toyopagroup.picaboo.plist · ' + (ios.user_first_install_date ? 'user_first_install_date' : 'first_install_date'))]),
             group('Memories', [saveRow, savedAt]),
+            group('My Eyes Only', snapMeo(meo)),
             group('Snap Map', snapLocation(location)),
         ].filter(Boolean);
         return { app: 'Snapchat', platform: platform, groups: groups };

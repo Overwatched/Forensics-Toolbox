@@ -130,5 +130,9 @@
         "DCIM/Snapchat/Snapchat-254258240.mp4"
       ]
     }
-  ]
+  ],
+  "meo": {
+    "zip": "del1",
+    "what": "Koden till My Eyes Only hittas ur bcrypt-hashen i memories.db och är koden i labbanteckningarna (kontrollerat 2026-11-20). Koden står inte här."
+  }
 }

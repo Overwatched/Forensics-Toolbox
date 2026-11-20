@@ -200,5 +200,13 @@
         "DCIM/100APPLE/IMG_0064.JPG"
       ]
     }
-  ]
+  ],
+  "phone": {
+    "zip": "lab",
+    "what": "Telefonen visar Memories ur scdb-27.sqlite3 med filerna dekrypterade med nycklarna i gallery.encrypteddb (kontrollerat 2026-11-20)",
+    "memories": 19,
+    "meo": 2,
+    "located": 13,
+    "drawn": 17
+  }
 }

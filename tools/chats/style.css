@@ -578,3 +578,25 @@ body {
 .d-tile-text small { font-size: .7em; opacity: .8; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .d-tile:focus-visible, .d-statusbar:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .c-device-body.control .d-note { color: #ddd; background: rgba(0, 0, 0, .45); }
+
+/* Koden till My Eyes Only: knappen och förloppet under värdet. */
+.d-meo { grid-column: 1 / -1; display: flex; align-items: center; gap: .5em; justify-content: flex-end; font-size: .8em; color: var(--text-muted); }
+.d-meo .c-btn { font-size: .95em; }
+
+/* Snapchat Memories: rutnätet och visningen. */
+.m-head { display: flex; justify-content: flex-end; padding: .5em .9em 0; }
+.m-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 2px; padding: .5em 0; }
+.m-tile { position: relative; aspect-ratio: 9 / 16; padding: 0; border: none; background: var(--surface-hover); cursor: pointer; overflow: hidden; color: #fff; font: inherit; }
+.m-img { position: absolute; inset: 0; background: center / cover no-repeat; display: block; }
+.m-img video { width: 100%; height: 100%; object-fit: cover; display: block; }
+.m-img.locked { background: repeating-linear-gradient(45deg, #2a2a30, #2a2a30 6px, #32323a 6px, #32323a 12px); }
+.m-img.none { background: var(--surface-hover); }
+.m-badge, .m-date, .m-lock { position: absolute; font-size: .65em; font-weight: 700; text-shadow: 0 1px 2px rgba(0, 0, 0, .8); }
+.m-badge { top: .35em; right: .4em; }
+.m-lock { top: .35em; left: .4em; background: #d08600; border-radius: .4em; padding: .1em .4em; text-shadow: none; }
+.m-date { bottom: .3em; left: .4em; }
+.m-view { padding: .6em .9em 0; }
+.m-stack { position: relative; border-radius: .8em; overflow: hidden; background: #000; }
+.m-stack > img, .m-stack > video { display: block; width: 100%; max-height: 60vh; object-fit: contain; }
+.m-stack .m-overlay { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; pointer-events: none; }
+.m-actions { display: flex; gap: .5em; justify-content: flex-end; padding: .5em .9em 0; }

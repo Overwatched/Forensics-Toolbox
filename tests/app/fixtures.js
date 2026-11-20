@@ -142,6 +142,7 @@ function signalDb(SQL, imageSha) {
     db.run('CREATE TABLE keyvalue (KEY TEXT NOT NULL, collection TEXT NOT NULL, VALUE BLOB NOT NULL, PRIMARY KEY (KEY, collection))');
     db.run('INSERT INTO keyvalue VALUES (?, ?, ?)', ['TSAccountManager_IsDiscoverableByPhoneNumber', 'TSStorageUserAccountCollection', 0]);
     db.run('INSERT INTO keyvalue VALUES (?, ?, ?)', ['TSAccountManager_RegistrationDateKey', 'TSStorageUserAccountCollection', T2 - 3600]);
+    db.run('INSERT INTO keyvalue VALUES (?, ?, ?)', ['PinCode', '2FA', '4711']);
     db.run('CREATE TABLE Device (id INTEGER PRIMARY KEY, deviceId INTEGER NOT NULL, createdAt DOUBLE NOT NULL, lastSeenAt DOUBLE NOT NULL, name TEXT)');
     db.run('INSERT INTO Device (deviceId, createdAt, lastSeenAt, name) VALUES (1, ?, ?, NULL), (2, ?, ?, ?)', [T2 - 3600, T2, T2 - 1800, T2 - 86400 + 0, 'macOS']);
     const ms = (sec) => Math.round((T2 + sec) * 1000);

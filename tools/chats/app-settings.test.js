@@ -116,6 +116,9 @@ test('Signal på iOS: keyvalue som arkiv, text och tal, och den länkade datorn 
         { collection: 'kUDCollection', key: 'phoneNumberSharingMode', value: keyed(2) },
         { collection: 'TSStorageUserAccountCollection', key: 'TSAccountManager_IsDiscoverableByPhoneNumber', value: 1 },
         { collection: 'TSStorageUserAccountCollection', key: 'TSAccountManager_RegistrationDateKey', value: 1793703360.93293 },
+        { collection: '2FA', key: 'PinCode', value: '0000' },
+        { collection: '2FA', key: 'HasEverHadPin', value: 1 },
+        { collection: '2FA', key: 'LastSuccessfulReminderDate', value: 1793703356.585328 },
     ];
     const s = A.signalIos(rows, [{ deviceId: 1, createdAt: 1793703337.99, lastSeenAt: 1794355200, name: null }, { deviceId: 2, createdAt: 1793703673.047, lastSeenAt: 1794268800, name: 'macOS' }], KC.bplist.parse);
     const r = rowsOf(s);
@@ -127,6 +130,11 @@ test('Signal på iOS: keyvalue som arkiv, text och tal, och den länkade datorn 
     assert.strictEqual(r['Länkade enheter'].checked, true);
     assert.strictEqual(r['macOS'].ms, 1793703673047);
     assert.strictEqual(r['macOS'].suffix, ' · senast sedd 2026-11-10');
+    // PIN:en i klartext (2FA/PinCode), kontrollerad mot labbens PIN.
+    assert.strictEqual(r['PIN'].value, '0000');
+    assert.strictEqual(r['PIN'].checked, true);
+    assert.strictEqual(r['Har haft PIN'].value, 'Ja');
+    assert.strictEqual(r['Senaste påminnelse om PIN:en'].ms, 1793703356585);
     assert.deepStrictEqual(s.devices.map((d) => [d.id, d.linked, d.name]), [[1, false, 'Den här telefonen'], [2, true, 'macOS']]);
     // Ett krypterat namn visas inte som tecken.
     assert.strictEqual(A.signalIos([], [{ deviceId: 3, createdAt: 1, name: '\u0001\u0002binärt' }]).devices[0].name, 'krypterat namn');
@@ -168,4 +176,16 @@ test('Snapchats spöksläge på Android: på med slut, tills det stängs av, och
     assert.strictEqual(off['Vem ser min plats'].value, 'CUSTOM');
     assert.strictEqual(off['Vem ser min plats'].checked, false);
     assert.deepStrictEqual(A.fileOf('Dump/data/data/com.snapchat.android/databases/feature-wal'), { id: 'snapFeature', wal: true });
+});
+
+test('Snapchat på Android: koden till My Eyes Only som bcrypt-hash, med huvudnyckeln', () => {
+    const s = A.snapchat('Android', null, {}, null, null, null, { hash: '$2a$06$nr4tAXAsZVveR/MDnllr1OvMukMwR1bK/BtKvKOqr8nFNBdZ8yH3.', masterKey: 1 });
+    const g = s.groups.find((x) => x.title === 'My Eyes Only');
+    assert.ok(g);
+    assert.strictEqual(g.rows[0].action, 'meo');
+    assert.strictEqual(g.rows[0].checked, true);
+    assert.match(g.rows[0].note, /kostnad 6/);
+    assert.strictEqual(g.rows[1].label, 'Huvudnyckel för My Eyes Only');
+    assert.ok(!A.snapchat('Android', null, {}, null, null, null, null).groups.some((x) => x.title === 'My Eyes Only'));
+    assert.ok(A.FILES.some((f) => f.id === 'snapMemories' && f.re.test('/data/data/com.snapchat.android/databases/memories.db')));
 });

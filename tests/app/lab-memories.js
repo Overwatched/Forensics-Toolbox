@@ -105,6 +105,42 @@ function scenarios(zips, facit) {
         expect(d.hits.every((h) => h.split('\t').length > 3), 'Kolumnen Varför saknas');
         return d.hits.length + ' filer';
     }]);
+    // Telefonen: Snapchat öppnas via sökningen (appen ligger ofta på en annan sida av hemskärmen).
+    const PH = 'chats/index.html';
+    const snapchatApp = async (c) => {
+        await c.nav('Telefonen');
+        await c.waitFor(PH, `ChatsApp.state().device.info && ChatsApp.state().device.info.state === 'ready'`, 180000, 'telefonen');
+        await c.ev(PH, `document.querySelector('[data-device-search]').click(), 1`);
+        await sleep(300);
+        await c.ev(PH, `(function(){ const i = document.querySelector('#c-device-body .d-q'); i.value = 'Snapchat'; i.dispatchEvent(new Event('input', { bubbles: true })); return 1; })()`);
+        await c.waitFor(PH, `!!document.querySelector('#c-device-body [data-device-app="Snapchat"]')`, 30000, 'Snapchat i sökningen');
+        await c.ev(PH, `document.querySelector('#c-device-body [data-device-app="Snapchat"]').click(), 1`);
+    };
+    if (facit.phone) out.push([facit.phone.zip + ' Telefonen: ' + facit.phone.what, async ({ c }) => {
+        await ensure(c, facit.phone.zip);
+        await snapchatApp(c);
+        await c.waitFor(PH, `!!document.querySelector('[data-device-memories]')`, 120000, 'länken Memories');
+        await c.ev(PH, `document.querySelector('[data-device-memories]').click(), 1`);
+        const r = await c.waitFor(PH, `(function(){ const t = document.querySelectorAll('.m-tile').length, d = [...document.querySelectorAll('.m-img')].filter(x => x.style.backgroundImage || x.querySelector('video')).length;
+            return t && d >= ${facit.phone.drawn} && { tiles: t, drawn: d, locked: document.querySelectorAll('.m-img.locked').length, meo: document.querySelectorAll('.m-tile.meo').length, map: (document.querySelector('[data-memories-map]') || {}).textContent || '' }; })()`, 120000, 'Memories ritade');
+        expect(r.tiles === facit.phone.memories && r.meo === facit.phone.meo && r.locked === facit.phone.meo && r.map.includes('(' + facit.phone.located + ')'), 'Memories: ' + JSON.stringify(r));
+        return r.tiles + ' minnen, ' + r.drawn + ' dekrypterade, ' + r.meo + ' i My Eyes Only';
+    }]);
+    if (facit.meo) out.push([facit.meo.zip + ' Telefonen: ' + facit.meo.what, async ({ c }) => {
+        await ensure(c, facit.meo.zip);
+        await snapchatApp(c);
+        await c.waitFor(PH, `!!document.querySelector('[data-app-info="Snapchat"]')`, 120000, 'Inställningar i Snapchat');
+        await c.ev(PH, `document.querySelector('[data-app-info="Snapchat"]').click(), 1`);
+        await c.waitFor(PH, `!!document.querySelector('[data-meo-crack]')`, 60000, 'raden My Eyes Only');
+        await c.ev(PH, `document.querySelector('[data-meo-crack]').click(), 1`);
+        await c.waitFor(PH, `(function(){ const m = ChatsApp.state().device.meo; const k = m && Object.keys(m)[0]; return k && m[k].state === 'done'; })()`, 300000, 'koden');
+        const code = await c.ev(PH, `(function(){ const m = ChatsApp.state().device.meo; return m[Object.keys(m)[0]].code; })()`);
+        // Koden jämförs med labbanteckningarna i labbmappen och skrivs inte ut.
+        const dir = path.dirname(path.dirname(zips[facit.meo.zip]));
+        const notes = fs.readdirSync(dir, { recursive: true }).filter((f) => /\.(json|txt|md)$/i.test(String(f))).map((f) => { try { return fs.readFileSync(path.join(dir, String(f)), 'utf8'); } catch (e) { return ''; } }).join('\n');
+        expect(/^\d{4}$/.test(code || '') && notes.includes(code), 'Koden hittades inte, eller står inte i labbanteckningarna');
+        return 'koden hittad och stämmer med labbanteckningarna';
+    }]);
     out.push(['Zipparna är orörda', async () => {
         Object.entries(opened.before || {}).forEach(([k, b]) => {
             const a = fs.statSync(zips[k]);

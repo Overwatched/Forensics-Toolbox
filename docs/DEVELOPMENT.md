@@ -1660,6 +1660,29 @@ senare.
     (3 timmar efter ändringen, eller 0 = tills det stängs av; tiden står kvar när läget stängs av), `version` = tiden för
     ändringen, `audience` FRIENDS när vännerna ser platsen (NONE på Samsungen 2026-11-11, inte prövat). core.db
     `SnapchatUserProperties` _id 216 fick samma tid men inte läget. Var spöksläget ligger på iOS är inte hittat.
+    **Signals PIN på iOS** (2026-11-20, fyndet från MSF-projektet): signal.sqlite, keyvalue, collection `2FA`: `PinCode`
+    i klartext (för påminnelserna), `HasEverHadPin` och `LastSuccessfulReminderDate` (unixsekunder). Kontrollerad mot
+    iPhone-labbet 2026-11-03: PIN:en i filen är labbens. Android är inte undersökt.
+    **Koden till My Eyes Only på Android** (2026-11-20): memories.db, `memories_meo_confidential.hashed_passcode`, en
+    bcrypt-hash (`$2a$06$`, kostnad 6) över koden, och `master_key`/`master_key_iv` (huvudnyckeln, krypterad). Raden har
+    knappen Pröva alla fyrsiffriga koder (`crackMeo`): `tools/_shared/bcrypt.js` (bcrypt i ren JavaScript, Blowfish med
+    pi-decimalerna, kontrollerad mot Pythons bcrypt och OpenBSD:s testvektor) prövar 0000–9999 i flera trådar
+    (`Bcrypt.crack`, workers ur en Blob), de vanliga koderna först. 3 ms per kod i en tråd. Kontrollerad på OnePlus-labbet
+    2026-11-16: koden hittas och står i labbanteckningarna (facit `meo`, koden står inte i repot). På iPhone finns ingen
+    sådan hash i appens filer.
+  - **Snapchat Memories på iPhone** (`memories.js`, `Memories`; `loadMemories`, `renderMemories`, `renderMemory`): länken
+    Memories i Snapchats lista. Snapsen ur `gallery_data_object/…/scdb-27.sqlite3` (ZGALLERYSNAP, ZGALLERYENTRY:
+    tagen, sparad, typ, storlek, längd, My Eyes Only = ZISPRIVATE, tidszon, framkamera, kopia av),
+    nyckeln per snap (`snap_key_iv`: 32 byte nyckel, 16 byte iv; `encrypted = 1` = nyckeln krypterad, My Eyes Only),
+    positionen och platsnamnet (`snap_location_table`, `snap_address_title`) ur `gallery_encrypted_db/…/gallery.encrypteddb`
+    (SQLCipher 3, profilen `snapchat-gallery`, nyckeln `egocipher.key.avoidkeyderivation` i nyckelringen), och filerna
+    ur `cache_controller.db` (`CACHE_FILE_CLAIM.EXTERNAL_KEY` = `snap-media-<id>`, `<id>~1` eller `snap-overlay-<id>`;
+    filen heter `CACHE_KEY` i `com.snap.file_manager_3_SCContent_…`). Filerna är AES-256-CBC med PKCS7 och snapens nyckel
+    och iv (WebCrypto). Overlayn (text och ritning) läggs ovanpå bilden. Visa på kartan skickar minnena med position till
+    Positioner med en liten bild, Visa i EXIF och Spara filen tar den dekrypterade filen. Kontrollerat på iPhone-labbet
+    2026-11-19: 19 minnen, 17 dekrypterade (15 JPEG, 2 MP4, och 2 overlays i WebP), 2 i My Eyes Only med låst nyckel,
+    13 med position (facit `phone`). Fyndet att gallery.encrypteddb går att öppna och att snap_key_iv är nycklarna kom
+    från MSF-projektet; att cachens filer dekrypteras med dem prövades här.
   - **En app** visar sina chattar, den senaste först (`appThreads`), 200 i taget. En chatt öppnas i telefonvyn med
     knappen tillbaka (`#c-phone-back`) till appens lista. Att byta till Lista lämnar inte telefonen: där står knappen
     i chattens huvud (`#c-list-back`, `backButtons`). En chatt som öppnas ur listan till vänster medan en chatt visas
