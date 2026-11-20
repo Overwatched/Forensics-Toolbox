@@ -100,6 +100,17 @@
             });
         });
 
+        // Webbhistoriken (queries/web): nedladdningarna och besöken, för en fil som kom från webben.
+        ((catalogs.web || {}).databases || []).forEach(function (db) {
+            var roles = roleMap(db.queries);
+            if (!roles['web-downloads'] && !roles['web-visits']) return;
+            var label = db.label.replace(/^(Android|iOS) — /, '');
+            sources.push({
+                key: db.id, platform: db.os, title: label, app: db.app || '', web: true, paths: db.paths || [], source: db.source, roles: roles, beta: true,
+                databases: [{ id: db.id, family: db.id, familyTitle: label, label: label, paths: db.paths || [], ios: null }],
+            });
+        });
+
         (android.categories || []).forEach(function (cat) {
             var roles = roleMap(cat.queries);
             if (!Object.keys(roles).length) return;

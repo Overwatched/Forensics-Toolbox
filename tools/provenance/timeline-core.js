@@ -1894,6 +1894,36 @@
             plain: o.download ? 'Filen laddades ner' + (o.download.uri ? ' från ' + o.download.uri : '') + '.' : 'Filerna som kom in i bildbiblioteket strax före och efter visar vad som hände runt filen.' };
     }
 
+    // Webbläsaren: nedladdningen som filen är (Android: Chrome, Samsung Internet), eller att Safari sparade bilden i
+    // bildbiblioteket (iOS), med sidorna som besöktes strax före. Bara en upplysning.
+    var WEB_HOW = {
+        mediastore: 'Nedladdningens sökväg är filens post i MediaStore (content://…/%ID%).',
+        path: 'Nedladdningen sparades på filens sökväg.',
+        'name-time': 'Nedladdningen har samma namn och slutade inom tio minuter från när filen lades till; kopplingen är inte säker.',
+    };
+    function factorWeb(input) {
+        var w = input.web;
+        if (!w || !w.browser) return null;
+        var fmt = input.format || formatUtc, name = w.browser.name, items = [], plain;
+        var page = function (v) { return (v.title ? v.title + ' (' + v.url + ')' : v.url) + ' ' + fmt(v.timeMs); };
+        if (w.download) {
+            var d = w.download, from = d.tab || d.referrer || d.site;
+            items.push({ state: 'info', text: 'Filen laddades ner i ' + name + ' ' + fmt(d.startMs) + (d.url ? ' från ' + d.url : '') + (from && from !== d.url ? ', på sidan ' + from : '') +
+                (d.chain && d.chain.indexOf(' → ') > 0 ? ' (omdirigerad: ' + d.chain + ')' : '') + '. ' + (WEB_HOW[w.how] || '').replace('%ID%', String(input.file && input.file.pk)), source: w.source });
+            plain = 'Filen laddades ner i ' + name + (d.url ? ' från ' + d.url : '') + (from && from !== d.url ? ', på sidan ' + from : '') + '.';
+        } else {
+            items.push({ state: 'info', text: name + ' sparade filen i bildbiblioteket' + (w.savedMs ? ' ' + fmt(w.savedMs) : '') + '. ' + name + ' sparar inte varifrån bilden kom, så bara sidorna som besöktes strax före säger var den fanns.', source: w.source });
+            plain = name + ' sparade filen i bildbiblioteket.';
+        }
+        if (w.visits && w.visits.length) {
+            items.push({ state: 'info', text: 'Sidorna som besöktes i ' + name + ' de tio minuterna före, den senaste först: ' + w.visits.map(page).join('; ') + '.', source: w.visitSource });
+            if (!w.download) plain += ' Strax före besöktes ' + (w.visits[0].title || w.visits[0].url) + '.';
+        } else {
+            items.push({ state: 'info', text: 'Historiken i ' + name + ' har inga besök de tio minuterna före. Besöken kan vara borttagna, eller gjorda i en privat flik.', source: w.visitSource });
+        }
+        return { id: 'web', title: 'Webbläsaren', state: 'info', verdictText: w.download ? (w.how === 'name-time' ? 'Kanske nedladdad i ' + name : 'Nedladdad i ' + name) : 'Sparad ur ' + name, items: items, plain: plain };
+    }
+
     function factorScreen(input, events, type) {
         var T = input.file.createdMs;
         var on = events.filter(function (e) { return e.kind === 'screen' && covers(e, T); });
@@ -2102,6 +2132,9 @@
             factors = [factorTime(input, type)];
             warnings.push('Skapandetiden saknas, så app, kamera och skärm kan inte bedömas.');
         }
+        // Webbläsaren behöver inte filens tid: nedladdningen har sin egen.
+        var fWeb = factorWeb(input);
+        if (fWeb) factors.push(fWeb);
         var alts = file.createdMs ? alternatives(input, type, factors) : [];
         var perWindow = wins.map(function (w) {
             var n = narrative(events.filter(function (e) { return inRange(e.ms, w) || (e.endMs != null && e.endMs >= w.startMs && e.ms <= w.endMs); }), [w], { centerMs: w.centerMs, format: input.format, extraNotes: input.extraNotes, outside: type.type === 'snapchat' });
@@ -2155,6 +2188,7 @@
         'Signal': { q: 'Finns filen bland Signals bilagor, och vad hände med den i Signal?', support: 'Bilaga ur Signal', contradiction: 'Togs emot i Signal', info: 'Upplysning', missing: 'Hittas inte' },
         'Telegram': { q: 'Hör filen till ett meddelande i Telegram, och vad hände med den där?', support: 'Fil ur Telegram', contradiction: 'Togs emot i Telegram', info: 'Upplysning', missing: 'Hittas inte' },
         'Telegrams kamera': { q: 'Togs filen med Telegrams kamera på den här telefonen?', support: 'Telegrams kamera', info: 'Upplysning', missing: 'Inte registrerat' },
+        'Webbläsaren': { q: 'Kom filen från webben, och vilka sidor besöktes strax före?', info: 'Upplysning' },
         'Sammanhang i bildbiblioteket': { q: 'Varifrån kom filen, och vad kom in i bildbiblioteket strax före och efter den?', info: 'Upplysning' },
         'WhatsApp': { q: 'Finns filen bland WhatsApps mediefiler, och vad hände med den i WhatsApp?', support: 'Fil ur WhatsApp', contradiction: 'Togs emot i WhatsApp', info: 'Upplysning', missing: 'Hittas inte' },
     };
@@ -2198,7 +2232,7 @@
         buildEvents: buildEvents, narrative: narrative, build: build, summaryText: summaryText, hypothesis: hypothesis, FACTOR_WORDS: FACTOR_WORDS,
         formatWithOffset: formatWithOffset, formatUtc: formatUtc, duration: duration, appName: appName, isCameraApp: isCameraApp, covers: covers,
         positions: positions, distanceM: distanceM, metres: metres, validCoord: validCoord, inWindows: inWindows, activityAt: activityAt,
-        snapOrigin: snapOrigin, SNAPCHAT: SNAPCHAT, SNAPCHAT_ANDROID: SNAPCHAT_ANDROID, SIGNAL_ANDROID: SIGNAL_ANDROID, SIGNAL_IOS: SIGNAL_IOS, WHATSAPP: WHATSAPP, TELEGRAM: TELEGRAM, WHATSAPP_ANDROID: WHATSAPP_ANDROID, TELEGRAM_ANDROID: TELEGRAM_ANDROID, isSnapchatApp: isSnapchatApp, logInfo: logInfo, factorSignal: factorSignal, factorWhatsApp: factorWhatsApp, factorContext: factorContext, factorTelegram: factorTelegram, factorTelegramCamera: factorTelegramCamera,
+        snapOrigin: snapOrigin, SNAPCHAT: SNAPCHAT, SNAPCHAT_ANDROID: SNAPCHAT_ANDROID, SIGNAL_ANDROID: SIGNAL_ANDROID, SIGNAL_IOS: SIGNAL_IOS, WHATSAPP: WHATSAPP, TELEGRAM: TELEGRAM, WHATSAPP_ANDROID: WHATSAPP_ANDROID, TELEGRAM_ANDROID: TELEGRAM_ANDROID, isSnapchatApp: isSnapchatApp, logInfo: logInfo, factorSignal: factorSignal, factorWhatsApp: factorWhatsApp, factorContext: factorContext, factorWeb: factorWeb, factorTelegram: factorTelegram, factorTelegramCamera: factorTelegramCamera,
         STATE_LABEL: STATE_LABEL, TOLERANCE_MS: TOLERANCE_MS, SAME_TIME_MS: SAME_TIME_MS, LATE_MS: LATE_MS,
     };
     if (typeof module !== 'undefined' && module.exports) module.exports = api;

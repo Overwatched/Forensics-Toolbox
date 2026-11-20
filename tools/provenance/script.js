@@ -1645,6 +1645,11 @@
         if (platform === 'iOS' && (ProvenanceSnapchat.isSnapchatApp(fileRow.importer) || fileRow.snapchatCache)) {
             try { input.snapchatSetting = await snapSaveSetting(run); } catch (e) { console.warn('Inställningen kunde inte läsas', e); }
         }
+        // Webbläsaren: nedladdningen som filen är (Android), eller en bild som Safari sparade i bildbiblioteket (iOS),
+        // med sidorna som besöktes strax före.
+        if (!run.mediaEntry) {
+            try { input.web = await webOrigin(fileRow, run); } catch (e) { console.warn('Webbhistoriken kunde inte läsas', e); }
+        }
         if (platform === 'Android') {
             // Sammanhanget i MediaStore: nedladdningen och filerna före och efter i ordningen (role-media-origin).
             if (!run.mediaEntry) {
@@ -2637,6 +2642,40 @@
             timeBack: prev && prev.addedMs != null && own.addedMs != null && own.addedMs < prev.addedMs - 2000 ? prev : null,
             source: { db: 'external.db', table: 'files', column: 'generation_added, download_uri, referer_uri', queryId: role.id },
         };
+    }
+
+    // Webbläsaren som filen kom ur: { browser, download, how, savedMs, visits, source, visitSource } eller null.
+    // Android: nedladdningen i Chrome, Samsung Internet eller en annan Chromium-webbläsare vars sökväg är filens post i
+    // MediaStore, filens sökväg, eller samma namn nära i tid. iOS: en bild som Safari (eller Chrome) sparade i
+    // bildbiblioteket, där bara besöken före säger var den fanns.
+    var WEB_SPAN_MS = 10 * 60000;
+    // Databasen med appens paket: com.android.chrome/…/History.
+    function webBase(p) { var m = /\/(?:data|user\/\d+)\/([^\/]+)\/.*\/([^\/]+)$/.exec(String(p || '')); return m ? m[1] + ' · ' + m[2] : String(p || '').replace(/^.*\//, ''); }
+    async function webOrigin(fileRow, run) {
+        var z = state.zip, platform = z.platform;
+        var iosApp = platform === 'iOS' ? ProvenanceWeb.IOS_BROWSERS[fileRow.importer || ''] : null;
+        if (platform === 'iOS' && !iosApp) return null;
+        var hits = z.found.filter(function (h) { var s = sourceByKey(h.key); return s && s.web && s.platform === platform; });
+        for (var i = 0; i < hits.length; i++) {
+            var hit = hits[i], src = sourceByKey(hit.key), who = Web.browserOf({ key: src.key, app: src.app, title: src.title, platform: src.platform }, hit.db.name);
+            if (platform === 'iOS' && who.name !== iosApp) continue;
+            var db = await loadDb(hit, src.title), visitsRole = src.roles['web-visits'];
+            var visitSource = visitsRole ? { db: webBase(hit.db.name), table: platform === 'iOS' ? 'history_visits' : 'visits', column: 'visit_time', queryId: visitsRole.id } : null;
+            var visits = function () { return visitsRole ? runRole(db, visitsRole, {}, ['time'], run).rows : []; };
+            if (platform === 'iOS') {
+                var at = fileRow.addedMs || fileRow.createdMs;
+                return { browser: who, savedMs: at, visits: ProvenanceWeb.visitsBefore(visits(), at, WEB_SPAN_MS, 5), visitSource: visitSource,
+                    source: { db: 'Photos.sqlite', table: 'ZASSET', column: 'ZIMPORTEDBYBUNDLEIDENTIFIER, ZADDEDDATE' } };
+            }
+            var role = src.roles['web-downloads'];
+            if (!role) continue;
+            var downloads = runRole(db, role, {}, ['start', 'end', 'lastAccess'], run).rows;
+            var m = ProvenanceWeb.matchDownload({ pk: fileRow.pk, path: fileRow.path, filename: fileRow.filename, addedMs: fileRow.addedMs }, downloads);
+            if (!m) continue;
+            return { browser: who, download: m.d, how: m.how, visits: ProvenanceWeb.visitsBefore(visits(), m.d.startMs, WEB_SPAN_MS, 5), visitSource: visitSource,
+                source: { db: webBase(hit.db.name), table: 'downloads', column: 'target_path, start_time, downloads_url_chains, referrer, tab_url', queryId: role.id } };
+        }
+        return null;
     }
 
     // En rad i Memories som är en kopia av filen ur kamerarullen: id, när den lades in och om det var i en "featured story".
@@ -6562,9 +6601,10 @@
                 loadLocalJson('../../queries/android/whatsapp/catalog.json', 'WHATSAPP_ANDROID_CATALOG'),
                 loadLocalJson('../../queries/android/telegram/catalog.json', 'TELEGRAM_ANDROID_CATALOG'),
                 loadLocalJson('../../queries/android/samsung/catalog.json', 'SAMSUNG_ANDROID_CATALOG'),
+                loadLocalJson('../../queries/web/catalog.json', 'WEB_CATALOG'),
             ]);
             state.sources = ProvenanceRoles.collect({ photos: cats[0], android: cats[1], appUsage: cats[2], routined: cats[3], snapchat: cats[4], snapchatAndroid: cats[5], signalAndroid: cats[6], signalIos: cats[7], whatsappIos: cats[8], telegramIos: cats[9],
-                whatsappAndroid: cats[10], telegramAndroid: cats[11], samsungAndroid: cats[12] });
+                whatsappAndroid: cats[10], telegramAndroid: cats[11], samsungAndroid: cats[12], web: cats[13] });
             state.databases = ProvenanceRoles.databases(state.sources);
             state.targets = ExtractionCore.targets(state.databases);
         } catch (err) {

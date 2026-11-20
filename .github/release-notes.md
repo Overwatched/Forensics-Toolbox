@@ -1,5 +1,10 @@
 Automatiskt byggd från commit `{{SHA}}`.
 
+## Nytt i 1.80
+
+- **Härkomst säger varifrån en nedladdad fil kom:** den nya upplysningen Webbläsaren visar nedladdningen i Chrome eller Samsung Internet med adressen, sidan den kom från och sidorna som besöktes strax före. En bild som Safari sparade i bildbiblioteket får sidorna som besöktes strax före.
+- **Laboration** har en gemensam labb för en iPhone och en Samsung, Egna appar och webben: kontakter, SMS och MMS, samtal och webben i Safari, Chrome och Samsung Internet. Labben finns också som fil i `docs/labbar/`.
+
 ## Nytt i 1.79
 
 - **Härkomst:** knappen Visa i EXIF & karta står också under bilden i filkortet.

@@ -2215,6 +2215,16 @@ inte i repot; katalogen ändras direkt i `catalog.json` och synkas till `catalog
   sökvägen på Android, Safari och Chrome på iPhone; användare 0 först). Webbläsaren öppnas från sin ikon på
   hemskärmen (eller sista sidan) med flikarna Historik, Sökningar, Nedladdningar, Flikar och Rensat, och varje rad
   har en detalj med fälten och källan.
+- **Härkomst (upplysningen Webbläsaren, `web-origin.js`, `ProvenanceWeb`):** webbkällorna samlas av
+  `ProvenanceRoles.collect` (`web: true`), och `webOrigin` i Härkomst letar för filen:
+  - Android: nedladdningen i en Chromium-webbläsare vars `target_path`/`current_path` är filens post i MediaStore
+    (`content://media/external/downloads/<_id>`; alla samlingar är vyer av `files`, så numret är filens `_id`), annars
+    samma sökväg i den delade lagringen (`tail`), annars samma namn med slut inom tio minuter från `date_added`
+    (märks som osäker).
+  - iOS: en bild som Safari eller Chrome sparade i bildbiblioteket (`ZIMPORTEDBYBUNDLEIDENTIFIER`). Safari sparar
+    inte källan, så bara besöken före visas. Hämtningar i Safari (`Downloads.plist`) läses inte än.
+  - Besöken de tio minuterna före (högst fem). Upplysningen väger inte och visas också när filen saknar skapandetid.
+  - Prövat i Samsung-labbet: F-Droid.apk kopplas till Samsung Internets nedladdning genom MediaStores post 24.
 
 ### Raderade bilder och Secure Folder (`queries/android/samsung/`, `android-users` i `queries/system-logs/`)
 
