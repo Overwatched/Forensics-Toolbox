@@ -35,7 +35,12 @@
     font-size: 11px; color: var(--text-muted); background: var(--surface); border: 1px solid var(--border);
     border-radius: 8px; padding: 5px 8px; max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.map-bar-count:empty, .map-chip:empty { display: none; }
+.map-bar-count:empty, .map-chip:empty, .map-alert:empty { display: none; }
+.map-alert {
+    position: absolute; top: 52px; left: 10px; right: 60px; z-index: 2; margin: 0; max-width: 520px;
+    font-size: 12px; line-height: 1.45; color: var(--text); background: var(--surface); border: 1px solid var(--warn);
+    border-radius: 10px; padding: 8px 12px; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.18);
+}
 .map-chip {
     position: absolute; top: 52px; left: 50%; transform: translateX(-50%); z-index: 2; margin: 0;
     font-size: 12px; font-weight: 650; color: var(--text); background: var(--surface); border: 1px solid var(--border);

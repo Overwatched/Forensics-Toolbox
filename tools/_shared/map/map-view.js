@@ -662,12 +662,14 @@
         var pickBar = make('div', 'map-pickbar display-none');
         pickBar.setAttribute('role', 'toolbar');
         pickBar.setAttribute('aria-label', 'Markerade punkter');
-        host.append(mapEl, list, bar, measureNote);
+        var alert = make('p', 'map-alert');
+        alert.setAttribute('role', 'alert');
+        host.append(mapEl, list, bar, measureNote, alert);
         Object.keys(pops).forEach(function (k) { host.append(pops[k]); });
         host.append(timeBar, consent, editor, pickBar);
         return {
             editor: editor, pickBar: pickBar, bubbleCustom: bubbleCustom, bubbleReset: bubbleReset,
-            wrap: host, map: mapEl, status: status, route: route.input, perDevice: perDevice.input, cluster: cluster.input, count: count, bar: bar, openPop: openPop,
+            wrap: host, map: mapEl, status: status, route: route.input, perDevice: perDevice.input, cluster: cluster.input, count: count, bar: bar, openPop: openPop, alert: alert,
             online: online.input, fit: fit, measureBtn: measureBtn, saveBtn: saveBtn, measureNote: measureNote,
             listBtn: listBtn, list: list, numbers: numbers,
             bubbleStandard: bubbleStandard,
@@ -1822,6 +1824,7 @@
         function start() {
             if (ready) return ready;
             setStatus('Laddar kartan…');
+            el.alert.textContent = '';
             ready = loadVendor().then(function () {
                 setupProtocols();
                 return openBundled().catch(function () { archives = []; });
@@ -1855,6 +1858,9 @@
                 return new Promise(function (resolve) { map.once('load', resolve); });
             }).catch(function (err) {
                 setStatus('Kartan kunde inte starta: ' + mapStartError(err), 'missing');
+                // Skälet ska synas också när rutan Bakgrund är stängd.
+                el.bar.querySelector('.map-bar-menu').dataset.state = 'missing';
+                el.alert.textContent = 'Kartan kunde inte starta: ' + mapStartError(err);
                 // Blev kartan aldrig skapad kan nästa anrop försöka igen.
                 if (!map) ready = null;
                 throw err;
