@@ -67,6 +67,7 @@ test('inga kolumner i någon katalog saknar exempelvärde', () => {
         ['Android', require('../../queries/android/snapchat/catalog.json')],
         ['Android', require('../../queries/android/samsung/catalog.json')],
         ['iOS', require('../../queries/notes/catalog.json')],
+        ['iOS', require('../../queries/comms/catalog.json')],
         ['Android', android],
     ];
     const missing = [];

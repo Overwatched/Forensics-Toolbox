@@ -494,9 +494,10 @@ function visibleQueries(list) {
     return (list || []).filter((q) => !q.hidden);
 }
 
-function buildDatabases(photos, android, appUsage, routined, snapchat, snapchatAndroid, signalAndroid, signalIos, whatsappIos, telegramIos, samsungAndroid, whatsappAndroid, telegramAndroid, systemLogs, notes) {
+function buildDatabases(photos, android, appUsage, routined, snapchat, snapchatAndroid, signalAndroid, signalIos, whatsappIos, telegramIos, samsungAndroid, whatsappAndroid, telegramAndroid, systemLogs, notes, comms) {
     routined = routined || {};
     notes = notes || {};
+    comms = comms || {};
     systemLogs = systemLogs || {};
     samsungAndroid = samsungAndroid || {};
     snapchat = snapchat || {};
@@ -526,7 +527,8 @@ function buildDatabases(photos, android, appUsage, routined, snapchat, snapchatA
         samsungAndroid.paramLabels || {},
         whatsappAndroid.paramLabels || {},
         telegramAndroid.paramLabels || {},
-        notes.paramLabels || {}
+        notes.paramLabels || {},
+        comms.paramLabels || {}
     );
     paramDefaults = Object.assign({}, routined.paramDefaults || {});
 
@@ -763,6 +765,35 @@ function buildDatabases(photos, android, appUsage, routined, snapchat, snapchatA
         });
     });
 
+    // Meddelanden, samtal och kontakter: telefonens egna appar. De dolda rollerna används av Chattar och Telefonen.
+    (comms.databases || []).forEach((db) => {
+        out.push({
+            id: db.id,
+            os: db.os,
+            category: 'comms',
+            family: db.id,
+            familyTitle: db.label.replace(/^(iOS|Android) — /, ''),
+            label: db.label.replace(/^(iOS|Android) — /, '') + ' (beta)',
+            blurb: db.blurb || '',
+            dbPathHint: db.dbPathHint,
+            paths: db.paths || [],
+            source: db.source,
+            note: comms.sourceNote,
+            runnable: true,
+            queries: visibleQueries(db.queries).map((q) => ({
+                id: q.id,
+                title: q.title,
+                subtitle: q.subtitle || '',
+                recommended: !!q.recommended,
+                group: q.group,
+                returns: q.returns || '',
+                params: q.params || [],
+                sql: q.sql,
+                chat: q.chat || null,
+            })),
+        });
+    });
+
     // Anteckningar: Apples text är gzip-packad protobuf och avkodas i minnet (Notes, derive); Samsung Notes läses direkt.
     (notes.databases || []).forEach((db) => {
         out.push({
@@ -873,6 +904,14 @@ const CATEGORIES = {
             Android: 'WhatsApps databaser i appens datamapp: meddelanden, mediefiler, kvitton på leverans och läsning, chattar och kontonas namn.',
         },
     },
+    comms: {
+        title: 'Meddelanden, samtal och kontakter',
+        beta: true,
+        intro: {
+            iOS: 'Appen Meddelanden (SMS, iMessage, RCS) med Nyligen raderade, samtalshistoriken med FaceTime och appars samtal, och kontakterna.',
+            Android: 'SMS och MMS (mmssms.db), Google Meddelanden (bugle_db), samtalsloggen och kontakterna med raderade.',
+        },
+    },
     notes: {
         title: 'Anteckningar',
         beta: true,
@@ -890,7 +929,7 @@ const CATEGORIES = {
         },
     },
 };
-const CATEGORY_ORDER = ['system', 'samsung', 'notes', 'snapchat', 'signal', 'whatsapp', 'telegram'];
+const CATEGORY_ORDER = ['system', 'comms', 'samsung', 'notes', 'snapchat', 'signal', 'whatsapp', 'telegram'];
 
 function categoryOf(d) {
     return d.category || 'system';
@@ -1156,7 +1195,7 @@ function applyDeepLink() {
 
 async function init() {
     try {
-        const [photos, android, appUsage, routined, snapchat, snapchatAndroid, signalAndroid, signalIos, whatsappIos, telegramIos, samsungAndroid, whatsappAndroid, telegramAndroid, systemLogs, notes] = await Promise.all([
+        const [photos, android, appUsage, routined, snapchat, snapchatAndroid, signalAndroid, signalIos, whatsappIos, telegramIos, samsungAndroid, whatsappAndroid, telegramAndroid, systemLogs, notes, comms] = await Promise.all([
             loadLocalJson('../../queries/ios/photos-sqlite/catalog.json', 'PHOTOS_SQLITE_CATALOG'),
             loadLocalJson('../../queries/android/catalog.json', 'ANDROID_QUERIES_CATALOG'),
             loadLocalJson('../../queries/app-usage/catalog.json', 'APP_USAGE_CATALOG'),
@@ -1172,8 +1211,9 @@ async function init() {
             loadLocalJson('../../queries/android/telegram/catalog.json', 'TELEGRAM_ANDROID_CATALOG'),
             loadLocalJson('../../queries/system-logs/catalog.json', 'SYSTEM_LOGS_CATALOG'),
             loadLocalJson('../../queries/notes/catalog.json', 'NOTES_CATALOG'),
+            loadLocalJson('../../queries/comms/catalog.json', 'COMMS_CATALOG'),
         ]);
-        databases = buildDatabases(photos, android, appUsage, routined, snapchat, snapchatAndroid, signalAndroid, signalIos, whatsappIos, telegramIos, samsungAndroid, whatsappAndroid, telegramAndroid, systemLogs, notes);
+        databases = buildDatabases(photos, android, appUsage, routined, snapchat, snapchatAndroid, signalAndroid, signalIos, whatsappIos, telegramIos, samsungAndroid, whatsappAndroid, telegramAndroid, systemLogs, notes, comms);
         renderSide();
         applyDeepLink();
         readyResolve();

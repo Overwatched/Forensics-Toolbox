@@ -2147,6 +2147,42 @@ påhittade databaser i telefonernas schema (`notes.test.js`, röktestets testzip
 - **Inte byggt:** Google Keep (ingen extraktion med `keep.db`), bilagornas bilder, `.sdocx`-filernas innehåll och
   äldre iOS-anteckningar i `notes.sqlite` (före iOS 9).
 
+### Meddelanden, samtal och kontakter (`queries/comms/`, `tools/_shared/comms.js`, `Comms`)
+
+Telefonens egna appar, byggda 2026-11-20 med queries först: katalogen `COMMS_CATALOG` har de synliga frågorna i
+Queries (Meddelanden, samtal och kontakter, beta) och dolda roller som Chattar och Telefonen läser.
+- **Databaserna:** `sms.db` (iOS), `mmssms.db` (Androids SMS-leverantör, `user_de/0` eller `data/data`), `bugle_db`
+  (Google Meddelanden), `CallHistory.storedata`, `calllog.db`, `AddressBook.sqlitedb` och `contacts2.db` (AOSP och
+  Samsungs `com.samsung.android.providers.contacts`). Tabellerna (bara CREATE TABLE) ligger i
+  `tools/db-queries/fixtures/comm-schemas.json`: labbiPhonen (iOS 26.4.1) och Samsung A33 (Android 16).
+- **Provat mot riktiga data:** iPhone-labbet (3 SMS, 21 samtal i Signal, WhatsApp och Telegram, 3 kontakter), en
+  iOS 18.7-extraktion (iMessage med två bilagor vars sökvägar finns i zippen) och Google Meddelanden i Samsung-labbet
+  (14 meddelanden, `sms_message_uri` pekar på rader som saknas i den tomma `mmssms.db`). `mmssms.db`, `calllog.db` och
+  `contacts2.db` var tomma i alla Android-extraktioner: de frågorna är bara provade mot schemat och testets rader.
+- **sms.db:** tiderna är Cocoa-nanosekunder (äldre: sekunder), epoken `cocoaAuto` i `roles.js` och `run-core.js`.
+  Texten står i `text` eller bara i `attributedBody` (typedstream): SQL:en läser strängen efter `NSString` och `+`, med
+  längden i en byte eller `0x81` och två byte, och tar bort U+FFFC. Nyligen raderade:
+  `chat_recoverable_message_join` (med `delete_date`) i stället för `chat_message_join`; `date_retracted` (ångrat),
+  `date_edited`, `deleted_messages`. Chattrollerna kräver iOS 16 eller senare. Bilagorna: `~/Library/SMS/Attachments/…`
+  med `fileRoot` `../..`.
+- **mmssms.db:** SMS och MMS i samma tråd med nycklarna `s<id>` och `m<id>`; MMS-texten ur `part`, avsändaren ur `addr`
+  (137), bilagan i `app_parts/`. **bugle_db:** `message_status` under 100 utgående, 100–199 inkommande, 200 och högre
+  händelser i appen; motparter har `sub_id` -2. Bilagornas filer är inte kopplade (sökvägen inte kontrollerad).
+- **Samtal** (roll `calls`): riktningen som `in`, `out`, `missed` med flera; på iOS appen ur `ZSERVICE_PROVIDER` utan
+  utvecklarens prefix och fler deltagare ur `Z_2REMOTEPARTICIPANTHANDLES`. För appar är `ZADDRESS` appens id för
+  motparten. **Kontakter** (roller `contacts` och `contact-points`): en rad per kontakt (Android per `contact_id`, med
+  kontona) och en per nummer eller e-post. Queries visar också `ABPersonChanges`, sökindexets rester och
+  `deleted_contacts`.
+- **Namnen:** `Comms.phoneKey` jämför de nio sista siffrorna (e-post med gemener). Chattar läser kontakterna före
+  konversationerna (`loadComms`), och `ChatCore.applyContacts` ger deltagare, enskilda chattar och avsändare som bara
+  har ett nummer kontaktens namn; ett namn som appen själv har behålls.
+- **Telefonen:** Meddelanden (`com.apple.MobileSMS`, Google och Samsung Meddelanden) är en chattapp. Telefon visar
+  samtalen per dag med urvalen Alla, Missade och I appar, och ett samtal med fälten det kommer ur, kontakten och
+  chattarna med numret. Kontakter visar kontakterna efter bokstav, och en kontakt med nummer, konto, tider, samtalen och
+  chattarna.
+- **Inte byggt:** Samsung Meddelanden (`message_content.db`), `calls` i `contacts2.db` före Android 7, iOS 15 och äldre
+  i Chattar, och redigeringshistoriken i `message_summary_info`.
+
 ### Raderade bilder och Secure Folder (`queries/android/samsung/`, `android-users` i `queries/system-logs/`)
 
 Byggt 2026-11-19 utan rader att kontrollera mot: tabellerna finns i alla tre Samsung-zipparna (A33, tvåtelefonslabbet

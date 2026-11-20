@@ -336,11 +336,13 @@
     }
 
     // Råvärde i databasen -> UTC-millisekunder. unixAuto: sekunder eller millisekunder efter storlek.
+    // cocoaAuto: Cocoa-nanosekunder (sms.db från iOS 11) eller Cocoa-sekunder (äldre), efter storlek.
     function toMs(value, epoch) {
         if (value === null || value === undefined || value === '') return null;
         var n = Number(value);
         if (!isFinite(n) || n === 0) return null;
         if (epoch === 'cocoa') return Math.round((n + COCOA_EPOCH) * 1000);
+        if (epoch === 'cocoaAuto') return Math.round(((n > 100000000000 ? n / 1e9 : n) + COCOA_EPOCH) * 1000);
         if (epoch === 'unixMs') return Math.round(n);
         if (epoch === 'unixAuto') return Math.round(n > 1000000000000 ? n : n * 1000);
         return Math.round(n * 1000);

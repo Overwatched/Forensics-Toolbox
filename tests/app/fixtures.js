@@ -541,6 +541,54 @@ function sdocDb(SQL) {
     return Buffer.from(bytes);
 }
 
+// Meddelanden, samtal och kontakter på iPhone, i labbtelefonens tabeller (comm-schemas.json): en chatt med Anna
+// (texten i attributedBody, ett svar och ett meddelande i Nyligen raderade), en grupp med HTML i namnet, tre samtal
+// och Anna i Kontakter.
+const COMM_SCHEMAS = require(path.join(ROOT, 'tools', 'db-queries', 'fixtures', 'comm-schemas.json'));
+function schemaDb(SQL, key) {
+    const db = new SQL.Database();
+    Object.values(COMM_SCHEMAS[key]).forEach((sql) => db.run(sql.replace(/COLLATE\s+PHONEBOOK/gi, '').replace(/DEFAULT\s*\(\s*ab_generate_guid\(\)\s*\)/gi, '').replace(/(?<!IS )NOT NULL/gi, '')));
+    return db;
+}
+function typedstream(text) {
+    const t = Buffer.from(text, 'utf8');
+    return Buffer.concat([Buffer.from([0x04, 0x0b]), Buffer.from('streamtyped'), Buffer.from([0x81, 0xe8, 0x03, 0x84, 0x01, 0x40, 0x84, 0x84, 0x84, 0x08]), Buffer.from('NSString'), Buffer.from([0x01, 0x95, 0x84, 0x01, 0x2b, t.length]), t, Buffer.from([0x86])]);
+}
+function exported(db) { const b = Buffer.from(db.export()); db.close(); return b; }
+function smsDb(SQL) {
+    const db = schemaDb(SQL, 'ios-sms');
+    const at = (sec) => (BigInt(sec - COCOA) * 1000000000n).toString();
+    db.run("INSERT INTO handle (ROWID, id, service, country) VALUES (1, '+46705550101', 'iMessage', 'se'), (2, '+46739876543', 'SMS', 'se')");
+    db.run("INSERT INTO chat (ROWID, guid, style, chat_identifier, service_name, display_name) VALUES (1, 'iMessage;-;+46705550101', 45, '+46705550101', 'iMessage', ''), (2, 'SMS;+;chat7', 43, 'chat7', 'SMS', ?)", [XSS]);
+    db.run('INSERT INTO chat_handle_join (chat_id, handle_id) VALUES (1, 1), (2, 1), (2, 2)');
+    const ins = db.prepare('INSERT INTO message (ROWID, guid, text, attributedBody, handle_id, service, is_from_me, date, date_read, date_delivered) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, 0)');
+    ins.run([1, 'M1', null, typedstream('Hej från Meddelanden'), 1, 'iMessage', 0, at(T2 + 30)]);
+    ins.run([2, 'M2', 'Svar från telefonen', null, 1, 'iMessage', 1, at(T2 + 90)]);
+    ins.run([3, 'M3', 'Raderat sms', null, 1, 'iMessage', 0, at(T2 + 150)]);
+    ins.run([4, 'M4', 'I gruppen', null, 2, 'SMS', 0, at(T2 + 210)]);
+    ins.free();
+    db.run('INSERT INTO chat_message_join (chat_id, message_id, message_date) VALUES (1, 1, 0), (1, 2, 0), (2, 4, 0)');
+    db.run('INSERT INTO chat_recoverable_message_join (chat_id, message_id, delete_date) VALUES (1, 3, ?)', [at(T2 + 400)]);
+    return exported(db);
+}
+function callHistoryDb(SQL) {
+    const db = schemaDb(SQL, 'ios-calls');
+    const ins = db.prepare('INSERT INTO ZCALLRECORD (Z_PK, Z_ENT, Z_OPT, ZDATE, ZDURATION, ZADDRESS, ZNAME, ZORIGINATED, ZANSWERED, ZCALLTYPE, ZSERVICE_PROVIDER, ZREAD, ZUNIQUE_ID, ZISO_COUNTRY_CODE) VALUES (?, 2, 1, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)');
+    ins.run([1, T2 + 600 - COCOA, 65, '+46705550101', null, 1, 0, 1, 'com.apple.Telephony', 'C1', 'se']);
+    ins.run([2, T2 + 700 - COCOA, 0, '+46739876543', null, 0, 0, 1, 'com.apple.Telephony', 'C2', 'se']);
+    ins.run([3, T2 + 800 - COCOA, 12, '+46705550101', 'Anna WA', 0, 1, 0, 'UKFA9XBX6K.net.whatsapp.WhatsApp', 'C3', null]);
+    ins.free();
+    return exported(db);
+}
+function addressBookDb(SQL) {
+    const db = schemaDb(SQL, 'ios-contacts');
+    db.run("INSERT INTO ABStore (ROWID, Name, Type) VALUES (0, '', 0)");
+    db.run("INSERT INTO ABPerson (ROWID, First, Last, Organization, Note, CreationDate, ModificationDate, StoreID) VALUES (1, 'Anna', 'Svensson', 'Exempel AB', 'Granne', ?, ?, 0)", [T - COCOA, T2 - COCOA]);
+    db.run("INSERT INTO ABMultiValueLabel (ROWID, value) VALUES (1, '_$!<Mobile>!$_')");
+    db.run("INSERT INTO ABMultiValue (UID, record_id, property, identifier, label, value) VALUES (1, 1, 3, 0, 1, '070-555 01 01')");
+    return exported(db);
+}
+
 function samsungEntries(SQL, jpeg) {
     const other = (tag) => Buffer.concat([jpeg, Buffer.from(tag)]);
     const rtc = (localText, utcText) => localText + ' [RTC] 148911.38 37981.19    ' + utcText + ' ' + Date.parse(utcText.replace(' ', 'T') + 'Z') / 1000;
@@ -763,12 +811,15 @@ async function build() {
             '<dict><key>elements</key><array><dict><key>containerBundleIdentifier</key><string>com.apple.weather</string><key>widgetIdentifier</key><string>com.apple.weather</string></dict></array><key>gridSize</key><string>small</string><key>iconType</key><string>custom</string></dict>' +
             '<string>com.apple.mobileslideshow</string><string>net.whatsapp.WhatsApp</string>' +
             '<dict><key>displayName</key><string>Verktyg</string><key>listType</key><string>folder</string><key>iconLists</key><array><array><string>com.apple.calculator</string><string>ph.telegra.Telegraph</string></array></array></dict>' +
-            '</array><array><string>com.apple.Preferences</string><string>org.whispersystems.signal</string><string>com.example.okand</string><string>com.apple.mobilenotes</string></array></array>' +
+            '</array><array><string>com.apple.Preferences</string><string>org.whispersystems.signal</string><string>com.example.okand</string><string>com.apple.mobilenotes</string><string>com.apple.MobileAddressBook</string></array></array>' +
             '<key>buttonBar</key><array><string>com.apple.mobilephone</string><string>com.apple.MobileSMS</string></array></dict>') },
         { name: 'filesystem1/private/var/preferences/SystemConfiguration/preferences.plist', data: plistXml('<dict><key>System</key><dict><key>System</key><dict><key>ComputerName</key><string>Testtelefon</string></dict></dict></dict>') },
         { name: 'filesystem1/private/var/preferences/com.apple.wifi.known-networks.plist', data: plistXml('<dict><key>wifi.network.ssid.Labbnätet</key><dict><key>SSID</key><data>' + Buffer.from('Labbnätet').toString('base64') + '</data>' +
             '<key>AddedAt</key><date>2024-05-01T10:00:00Z</date><key>JoinedByUserAt</key><date>2024-06-01T08:00:00Z</date><key>SupportedSecurityTypes</key><string>WPA2 Personal</string></dict></dict>') },
         { name: P + 'Containers/Shared/AppGroup/7A7A7A7A-1111-4222-8333-944444444444/NoteStore.sqlite', data: noteStoreDb(SQL), deflate: true },
+        { name: P + 'Library/SMS/sms.db', data: smsDb(SQL), deflate: true },
+        { name: P + 'Library/CallHistoryDB/CallHistory.storedata', data: callHistoryDb(SQL), deflate: true },
+        { name: P + 'Library/AddressBook/AddressBook.sqlitedb', data: addressBookDb(SQL), deflate: true },
         { name: P + 'Library/Biome/streams/restricted/Notification.Usage/local/739000000000000', data: biomeNotifications([{ sec: T2 + 60, app: 'net.whatsapp.WhatsApp', title: 'Kim' }, { sec: T2 + 120, app: 'org.whispersystems.signal', title: 'Lo' }]) },
         { name: 'filesystem1/private/var/containers/Bundle/Application/11111111-2222-3333-4444-555555555555/WhatsApp.app/Info.plist', data: plistXml('<dict><key>CFBundleIdentifier</key><string>net.whatsapp.WhatsApp</string><key>CFBundleDisplayName</key><string>WhatsApp</string><key>CFBundleShortVersionString</key><string>25.1.0</string></dict>') },
     ];

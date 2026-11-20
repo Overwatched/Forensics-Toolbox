@@ -100,6 +100,25 @@
 
     function nameText(n) { return n ? n.name ? n.name + (n.username ? ' (@' + n.username + ')' : '') : '@' + n.username : ''; }
 
+    // Kontakternas namn (Kontakter i telefonen) på deltagare och enskilda chattar som bara har ett nummer.
+    // nameOf(nummer eller id) -> namn eller ''. Ett namn som appen själv har behålls.
+    function looksRaw(name, p) { var n = String(name || ''); return !n || n === p.id || n === p.address || /^[+\d\s()-]{6,}$/.test(n) || /@(s\.whatsapp\.net|c\.us|lid)$/.test(n); }
+    function applyContacts(list, people, nameOf) {
+        if (!nameOf) return;
+        Object.keys(people).forEach(function (k) {
+            people[k].forEach(function (p) {
+                if (!looksRaw(p.name, p)) return;
+                var n = nameOf(p.address) || nameOf(p.id);
+                if (n) { p.name = n; p.named = 'contacts'; }
+            });
+        });
+        list.forEach(function (t) {
+            if (t.kind !== 'person' || !looksRaw(t.name, { id: t.id, address: t.address })) return;
+            var n = nameOf(t.address) || nameOf(t.name);
+            if (n) { t.name = n; t.namedBy = 'contacts'; }
+        });
+    }
+
     // Namnen läggs på deltagare, avsändare och konversationer som rollen säger ska få namn ur deltagarna.
     function applyNames(src, list, people, map) {
         if (!map || !Object.keys(map).length) return;
@@ -224,6 +243,8 @@
         if (q.textFrom === 'snapchat') rows.forEach(function (r) { if (!r.text && r.content) r.text = snapText(r.content); });
         var nameMap = opts && opts.names;
         if (nameMap) rows.forEach(function (r) { if (!r.senderName && r.senderId) { var n = nameMap[idKey(r.senderId)]; if (n) r.senderName = nameText(n); } });
+        var nameOf = opts && opts.nameOf;
+        if (nameOf) rows.forEach(function (r) { if (r.senderId && looksRaw(r.senderName, { id: String(r.senderId), address: String(r.senderId) })) { var n = nameOf(r.senderId); if (n) r.senderName = n; } });
         var messages = rows.map(function (r, i) {
             var times = specs.map(function (t) { return { key: t.key, label: t.label, note: t.note, col: t.col, epoch: t.epoch, raw: r[t.key], ms: r[t.key + 'Ms'] }; });
             var sort = times.find(function (t) { return t.key === sortKey && t.ms !== null; }) || times.find(function (t) { return t.ms !== null; }) || null;
@@ -639,7 +660,7 @@
         HUES: HUES, hueOf: hueOf, senderKey: senderKey, initialOf: initialOf, sameRun: sameRun, RUN_MS: RUN_MS,
         ROLES: ROLES, THREAD_KIND: THREAD_KIND, KIND_TEXT: KIND_TEXT,
         sources: sources, databases: databases, threads: threads, members: members, conversation: conversation, timeSpecs: timeSpecs,
-        names: names, applyNames: applyNames, snapText: snapText, pbPath: pbPath, idKey: idKey,
+        names: names, applyNames: applyNames, applyContacts: applyContacts, snapText: snapText, pbPath: pbPath, idKey: idKey,
         resolvePath: resolvePath, hexOfBase64: hexOfBase64, mediaKind: mediaKind, sentAsDocument: sentAsDocument, heicFile: heicFile,
         zoneName: zoneName, formatter: formatter, offsetText: offsetText, parseLocal: parseLocal,
         pick: pick, senderText: senderText, sizeText: sizeText, durationText: durationText,

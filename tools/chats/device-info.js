@@ -526,6 +526,9 @@
         'com.huawei.photos': 'Bilder', 'com.hihonor.photos': 'Bilder', 'com.vivo.gallery': 'Bilder', 'com.motorola.gallery': 'Bilder',
         'com.apple.Preferences': 'Inställningar', 'com.android.settings': 'Inställningar',
         'com.apple.mobilenotes': 'Anteckningar', 'com.samsung.android.app.notes': 'Anteckningar',
+        'com.apple.MobileSMS': 'Meddelanden', 'com.google.android.apps.messaging': 'Meddelanden', 'com.samsung.android.messaging': 'Meddelanden', 'com.android.mms': 'Meddelanden', 'com.android.messaging': 'Meddelanden',
+        'com.apple.mobilephone': 'Telefon', 'com.google.android.dialer': 'Telefon', 'com.samsung.android.dialer': 'Telefon', 'com.android.dialer': 'Telefon',
+        'com.apple.MobileAddressBook': 'Kontakter', 'com.google.android.contacts': 'Kontakter', 'com.samsung.android.app.contacts': 'Kontakter', 'com.android.contacts': 'Kontakter',
     };
     function roleOf(id) { return APP_ROLE[id] || ''; }
 

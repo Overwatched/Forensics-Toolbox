@@ -435,9 +435,9 @@ body {
 .d-set-val { font-size: .82em; color: var(--text-muted); font-variant-numeric: tabular-nums; }
 .d-chev { color: var(--text-muted); }
 .d-kvs { display: flex; flex-direction: column; gap: 0; margin-top: .5em; border-radius: .9em; border: 1px solid var(--border); overflow: hidden; }
-.d-kv { display: grid; grid-template-columns: 1fr auto; gap: .1em .6em; padding: .6em .9em; border-bottom: 1px solid var(--border); background: var(--surface); }
+.d-kv { display: grid; grid-template-columns: minmax(6.5em, auto) minmax(0, 1fr); gap: .1em .6em; padding: .6em .9em; border-bottom: 1px solid var(--border); background: var(--surface); }
 .d-kv:last-of-type { border-bottom: none; }
-.d-kv-label { font-size: .88em; font-weight: 600; overflow-wrap: anywhere; }
+.d-kv-label { font-size: .88em; font-weight: 600; overflow-wrap: normal; }
 .d-kv-value { font-size: .85em; text-align: right; overflow-wrap: anywhere; }
 .d-kv-src, .d-kv-note { grid-column: 1 / -1; font-size: .7em; color: var(--text-muted); overflow-wrap: anywhere; }
 .d-kv-foot { display: block; padding: .5em .9em .7em; background: var(--surface); }
@@ -513,3 +513,7 @@ body {
     .c-main { grid-template-columns: 1fr; grid-template-rows: minmax(260px, 45vh) 1fr; }
     .phone-tool .c-main { grid-template-rows: 1fr; }
 }
+
+/* Samtal och kontakter i Telefonen. */
+.k-row.missed b { color: #d93025; }
+.k-open { margin: .6em .9em 0; }

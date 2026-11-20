@@ -1152,8 +1152,8 @@ const scenarios = [
         // Från början: allt visas, och varje app och slag säger hur många konversationer det har.
         const all = await read();
         expect(!all.filtered && all.count === '' && all.items.length === all.total && all.total === all.shown, 'Från början: ' + JSON.stringify(all));
-        expect(all.apps.length === 3 && all.apps.includes('WhatsApp 4'), 'Apparna: ' + all.apps);
-        expect(all.kinds.join(', ') === 'Enskilda ' + (all.total - 1) + ', Grupper 1', 'Slagen: ' + all.kinds);
+        expect(all.apps.length === 4 && all.apps.includes('WhatsApp 4') && all.apps.includes('Meddelanden 2'), 'Apparna: ' + all.apps);
+        expect(all.kinds.join(', ') === 'Enskilda ' + (all.total - 2) + ', Grupper 2', 'Slagen: ' + all.kinds);
         expect(all.empty === 'Dölj tomma (1)', 'De tomma: ' + all.empty);
 
         // En app: bara den står kvar, och raden under valen säger hur mycket som visas.
@@ -1409,13 +1409,13 @@ const scenarios = [
         const PH = 'phone';
         const ev = (e) => c.ev(PH, e);
         await c.nav('Telefonen');
-        await c.waitFor(PH, `window.ChatsApp && ChatsApp.state().device.info && ChatsApp.state().device.info.state === 'ready' && ChatsApp.state().device.photos && ChatsApp.state().device.photos.state === 'ready'`, 60000, 'telefonens filer');
+        await c.waitFor(PH, `window.ChatsApp && ChatsApp.state().device.info && ChatsApp.state().device.info.state === 'ready' && ChatsApp.state().device.photos && ChatsApp.state().device.photos.state === 'ready' && ChatsApp.state().comms && ChatsApp.state().comms.state === 'ready'`, 60000, 'telefonens filer');
         const home = await ev(`({ tool: document.body.classList.contains('phone-tool'), side: getComputedStyle(document.querySelector('.c-side')).display, title: document.getElementById('c-device-title').textContent,
             sub: document.getElementById('c-device-sub').textContent, widget: [...document.querySelectorAll('#c-device-body .d-widget')].map(w => w.innerText.replace(/\\n/g, ' ')),
             apps: [...document.querySelectorAll('#c-device-body .d-screen .d-app')].map(a => a.getAttribute('aria-label')), dock: [...document.querySelectorAll('#c-device-body .d-dock .d-app')].map(a => a.getAttribute('aria-label')),
             dots: document.querySelectorAll('#c-device-body .d-dot').length })`);
         expect(home.tool && home.side === 'none' && home.title === 'Testtelefon' && home.sub === 'iOS · 2 sidor · IconState.plist', 'Telefonen: ' + JSON.stringify(home));
-        expect(home.widget[0] === 'Väder Widget' && home.apps.includes('Bilder, 10 bilder') && home.apps.some((a) => /^WhatsApp, \d+ chattar?$/.test(a)) && home.apps.includes('Mappen Verktyg, 2 appar') && home.dock.join() === 'Telefon,Meddelanden' && home.dots === 2,
+        expect(home.widget[0] === 'Väder Widget' && home.apps.includes('Bilder, 10 bilder') && home.apps.some((a) => /^WhatsApp, \d+ chattar?$/.test(a)) && home.apps.includes('Mappen Verktyg, 2 appar') && home.dock.join() === 'Telefon, 3 samtal,Meddelanden, 2 chattar' && home.dots === 2,
             'Första sidan: ' + JSON.stringify(home));
         // Notiserna: knappen överst öppnar låsskärmen med Biomes notiser, den senaste först.
         await ev(`document.querySelector('[data-device-lock]').click(), 1`);
@@ -1588,6 +1588,71 @@ const scenarios = [
         expect(/Anteckningarna avkodades i minnet/.test(await c.ev(QUER, `document.getElementById('run-trace').textContent`)), 'Spårbarheten säger inte att anteckningarna avkodades');
         await noInjectedScript(c);
         return list.rows.length + ' anteckningar i Telefonen, checklistan, den låsta och den raderade; 3 rader i Queries';
+    }],
+
+    ['Meddelanden, samtal och kontakter: sms.db i Chattar och Telefonen med kontaktens namn, samtalen, kontakten och Queries', async ({ c }) => {
+        const CHAT = 'chats/index.html';
+        const ev = (e) => c.ev(CHAT, e);
+        await c.nav('Chattar');
+        await c.waitFor(CHAT, `!ChatsApp.busy() && ChatsApp.device().comms && ChatsApp.device().comms.state === 'ready' && [...document.querySelectorAll('.c-item')].some(b => b.innerText.includes('Anna Svensson'))`, 60000, 'chatten med Anna i Meddelanden');
+        const comms = await ev(`ChatsApp.device().comms`);
+        expect(comms.calls === 3 && comms.contacts === 1 && !comms.errors.length, 'Samtal och kontakter: ' + JSON.stringify(comms));
+        // Telefonen: Telefon och Meddelanden i dockan har data.
+        await ev(`document.getElementById('c-device-open').click(), 1`);
+        await c.waitFor(CHAT, `ChatsApp.device().info && ChatsApp.device().info.state === 'ready' && !!document.querySelector('#c-device-body .d-dock [data-device-calls]')`, 60000, 'Telefon i dockan');
+        const dock = await ev(`[...document.querySelectorAll('#c-device-body .d-dock .d-app')].map(a => a.getAttribute('aria-label'))`);
+        expect(dock.join('|') === 'Telefon, 3 samtal|Meddelanden, 2 chattar', 'Dockan: ' + JSON.stringify(dock));
+        // Meddelanden: chatten heter som kontakten, texten ur attributedBody och meddelandet i Nyligen raderade.
+        await ev(`document.querySelector('#c-device-body .d-dock [data-device-app="Meddelanden"]').click(), 1`);
+        const rows = await ev(`[...document.querySelectorAll('#c-device-body .d-row b')].map(b => b.textContent)`);
+        expect(rows.length === 2 && rows.includes('Anna Svensson') && rows.some((r) => r.startsWith('<img src=x')), 'Meddelandens chattar: ' + JSON.stringify(rows));
+        await ev(`[...document.querySelectorAll('#c-device-body .d-row')].find(b => b.querySelector('b').textContent === 'Anna Svensson').click(), 1`);
+        await c.waitFor(CHAT, `!ChatsApp.busy() && ChatsApp.view() && ChatsApp.view().n === 3`, 30000, 'chatten i Meddelanden');
+        const msgs = await ev(`[...document.querySelectorAll('#c-msgs .m')].map(m => m.innerText.replace(/\\s+/g, ' '))`);
+        expect(msgs.some((m) => m.includes('Hej från Meddelanden')) && msgs.some((m) => m.includes('Raderat sms') && /raderat/.test(m)), 'Meddelandena: ' + JSON.stringify(msgs));
+        await ev(`document.getElementById('c-phone-back').click(), 1`);
+        await ev(`document.getElementById('c-device-back').click(), 1`);
+        // Telefon: samtalen med kontaktens namn, det missade rött, och urvalen.
+        await ev(`document.querySelector('#c-device-body .d-dock [data-device-calls]').click(), 1`);
+        const calls = await ev(`({ title: document.getElementById('c-device-title').textContent, rows: [...document.querySelectorAll('#c-device-body .k-row')].map(r => r.querySelector('b').textContent + ' | ' + r.querySelector('.d-row-sub').textContent),
+            missed: [...document.querySelectorAll('#c-device-body .k-row.missed b')].map(b => b.textContent), chips: [...document.querySelectorAll('#c-device-body .n-chip')].map(b => b.textContent) })`);
+        expect(calls.title === 'Samtal' && calls.rows.length === 3 && calls.rows[0] === 'Anna Svensson | ↙ Inkommande · WhatsApp · 0:12' && calls.missed.join() === '+46739876543', 'Samtalen: ' + JSON.stringify(calls));
+        expect(calls.chips.join('|') === 'Alla 3|Missade 1|I appar 1', 'Urvalen: ' + JSON.stringify(calls.chips));
+        await ev(`[...document.querySelectorAll('#c-device-body .k-row')].find(r => /Utgående/.test(r.textContent)).click(), 1`);
+        const call = await ev(`({ screen: ChatsApp.device().screen, kv: Object.fromEntries([...document.querySelectorAll('#c-device-body .d-kv')].map(k => [k.querySelector('.d-kv-label').textContent, k.querySelector('.d-kv-value').textContent])),
+            chats: [...document.querySelectorAll('#c-device-body .d-row[data-thread] b')].map(b => b.textContent) })`);
+        expect(call.screen === 'call' && call.kv['Kontakt i telefonen'] === 'Anna Svensson' && call.kv['Längd'] === '1:05 (65 s)' && call.kv.Nummer === '+46705550101', 'Samtalet: ' + JSON.stringify(call));
+        expect(call.chats.includes('Anna Svensson'), 'Chattarna med numret: ' + JSON.stringify(call.chats));
+        // Kontakten från samtalet, med samtalen och chattarna.
+        await ev(`document.querySelector('#c-device-body [data-contact-id]').click(), 1`);
+        const k = await ev(`({ screen: ChatsApp.device().screen, title: document.getElementById('c-device-title').textContent, back: document.getElementById('c-device-back-text').textContent,
+            kv: Object.fromEntries([...document.querySelectorAll('#c-device-body .d-kv')].map(k => [k.querySelector('.d-kv-label').textContent, k.querySelector('.d-kv-value').textContent])),
+            calls: document.querySelectorAll('#c-device-body .k-row').length })`);
+        expect(k.screen === 'contact' && k.title === 'Anna Svensson' && k.back === 'Samtalet' && k.kv.Mobile === '070-555 01 01' && k.kv['Företag'] === 'Exempel AB' && k.calls === 2, 'Kontakten: ' + JSON.stringify(k));
+        // Kontakter på hemskärmens andra sida.
+        await ev(`document.getElementById('c-device-back').click(), 1`);
+        await ev(`document.getElementById('c-device-back').click(), 1`);
+        await ev(`document.getElementById('c-device-back').click(), 1`);
+        await ev(`(function(){ const d = document.querySelector('#c-device-body .d-dot[data-page="1"]'); if (d) d.click(); return 1; })()`);
+        await c.waitFor(CHAT, `!!document.querySelector('#c-device-body [data-device-contacts]')`, 15000, 'appen Kontakter');
+        expect(await ev(`document.querySelector('#c-device-body [data-device-contacts]').getAttribute('aria-label')`) === 'Kontakter, 1 kontakt', 'Ikonen Kontakter');
+        await ev(`document.querySelector('#c-device-body [data-device-contacts]').click(), 1`);
+        const list = await ev(`({ secs: [...document.querySelectorAll('#c-device-body .n-sec')].map(s => s.textContent), rows: [...document.querySelectorAll('#c-device-body .k-row b')].map(b => b.textContent) })`);
+        expect(list.secs.join() === 'A' && list.rows.join() === 'Anna Svensson', 'Kontakterna: ' + JSON.stringify(list));
+        await ev(`document.getElementById('c-device-back').click(), 1`);
+        await noInjectedScript(c);
+        // Queries: konversationerna i sms.db.
+        await c.nav('Queries');
+        await c.ev(QUER, `(function(){ const b = document.querySelector('.side-db[data-family="ios-sms"]'); if (b.getAttribute('aria-expanded') !== 'true') b.click(); return 1; })()`);
+        await c.ev(QUER, `document.querySelector('.side-q[data-db="ios-sms"][data-q="sms-chats"]').click(), 1`);
+        await sleep(300);
+        await c.ev(QUER, `document.getElementById('run-button').click(), 1`);
+        await c.waitFor(QUER, `/rad(er)? på/.test(document.getElementById('run-status').textContent) || /run-warn/.test(document.getElementById('run-status').innerHTML)`, 30000, 'körningen');
+        const q = await c.ev(QUER, `({ status: document.getElementById('run-status').innerText, cols: [...document.querySelectorAll('#run-result thead th')].map(t => t.textContent), rows: [...document.querySelectorAll('#run-result tbody tr')].map(tr => [...tr.children].map(td => td.textContent)) })`);
+        const ki = q.cols.indexOf('konversation'), ri = q.cols.indexOf('i_nyligen_raderade');
+        expect(q.rows.length === 2 && q.rows.some((r) => r[ki] === '+46705550101' && r[ri] === '1') && q.rows.some((r) => r[ki].startsWith('<img')), 'Queries: ' + JSON.stringify(q.rows) + ' ' + q.status);
+        await noInjectedScript(c);
+        return '2 chattar i Meddelanden, 3 samtal och 1 kontakt i Telefonen; 2 rader i Queries';
     }],
 
     ['Härkomst: sökning på tid listar filerna, och HTML i namnen körs inte', async ({ c }) => {

@@ -11,9 +11,12 @@
     var VERSION = new URLSearchParams(location.search).get('version') || '';
     // Telefonen i sidopanelen öppnar samma sida med ?view=phone: bara telefonen, utan listan med konversationer.
     var PHONE_TOOL = new URLSearchParams(location.search).get('view') === 'phone';
-    var CATALOGS = [window.WHATSAPP_IOS_CATALOG, window.WHATSAPP_ANDROID_CATALOG, window.SIGNAL_IOS_CATALOG, window.SIGNAL_ANDROID_CATALOG, window.TELEGRAM_IOS_CATALOG, window.TELEGRAM_ANDROID_CATALOG, window.SNAPCHAT_CATALOG, window.SNAPCHAT_ANDROID_CATALOG].filter(Boolean);
+    var CATALOGS = [window.WHATSAPP_IOS_CATALOG, window.WHATSAPP_ANDROID_CATALOG, window.SIGNAL_IOS_CATALOG, window.SIGNAL_ANDROID_CATALOG, window.TELEGRAM_IOS_CATALOG, window.TELEGRAM_ANDROID_CATALOG, window.SNAPCHAT_CATALOG, window.SNAPCHAT_ANDROID_CATALOG, window.COMMS_CATALOG].filter(Boolean);
     var SOURCES = ChatCore.sources(CATALOGS);
-    var TARGETS = ExtractionCore.targets(ChatCore.databases(SOURCES));
+    // Samtalen och kontakterna (queries/comms): hittas med chattdatabaserna och läses före dem, så att kontakternas
+    // namn finns när konversationerna läses.
+    var COMM_SOURCES = window.Comms ? Comms.sources(window.COMMS_CATALOG) : [];
+    var TARGETS = ExtractionCore.targets(ChatCore.databases(SOURCES).concat(window.Comms ? Comms.databases(COMM_SOURCES) : []));
     // En bilaga större än så läses först när undersökaren ber om det.
     var MAX_AUTO = 80 * 1024 * 1024;
     // Bilder större än så bäddas inte in i en export.
@@ -266,6 +269,7 @@
                 } catch (e) { console.warn('Nyckelfilen kunde inte läsas', e); }
             }
             var zip = state.zip;
+            state.comms = { zip: zip, state: 'wait', hits: found.found.filter(function (h) { return commOf(h.key); }), contacts: null, calls: null, files: {}, errors: [] };
             var all = found.found.map(function (hit) {
                 return { hit: hit, src: sourceOf(hit.key), zip: zip, loaded: null, threads: [], members: {}, index: null, error: null, state: 'wait', note: '', loading: null, collapsed: false, limit: LIST_STEP };
             }).filter(function (d) { return d.src; });
@@ -280,6 +284,11 @@
                 progress(o, 'Läser namnen i ' + names[n].src.app + ' (' + baseName(names[n].hit.db.name) + ')…', null);
                 await loadNames(names[n]);
             }
+            if (state.comms.hits.length) {
+                progress(o, 'Läser kontakterna och samtalen…', null);
+                await loadComms(state.comms);
+                if (deviceShown()) renderDevice();
+            } else state.comms.state = 'none';
             if (!state.dbs.length) {
                 setStatus('ex-status', esc(file.name) + ': ingen databas för ' + esc(SOURCES.map(function (s) { return s.app; }).filter(function (a, i, l) { return l.indexOf(a) === i; }).join(', ')) + ' hittades i ' + Z() + '.');
                 return;
@@ -319,6 +328,42 @@
     }
 
     function sourceOf(key) { return SOURCES.find(function (s) { return s.key === key; }) || null; }
+    function commOf(key) { return COMM_SOURCES.find(function (s) { return s.key === key; }) || null; }
+
+    // Kontakterna och samtalen, med katalogens roller contacts, contact-points och calls. Den första databasen av
+    // varje slag läses (användare 0 före andra användare).
+    async function loadComms(c) {
+        c.state = 'busy';
+        var first = {};
+        c.hits.slice().sort(function (a, b) { return (/\/user\/(?!0\/)\d+\//.test(a.db.name) ? 1 : 0) - (/\/user\/(?!0\/)\d+\//.test(b.db.name) ? 1 : 0); }).forEach(function (h) {
+            var src = commOf(h.key);
+            if (src && !first[src.kind]) first[src.kind] = { hit: h, src: src };
+        });
+        for (var kind of Object.keys(first)) {
+            var x = first[kind], d = { hit: x.hit, src: { app: x.src.title, cipher: null, derive: null }, zip: c.zip, loaded: null };
+            try {
+                var loaded = await loadDb(d);
+                try {
+                    if (kind === 'contacts') c.contacts = Comms.contacts(x.src, query(loaded, x.src.roles.contacts), x.src.roles.points ? query(loaded, x.src.roles.points) : null);
+                    else c.calls = Comms.calls(x.src, query(loaded, x.src.roles.calls));
+                    c.files[kind] = x.hit.db.name;
+                    c.platform = x.src.platform;
+                } finally { loaded.sqlDb.close(); }
+            } catch (err) {
+                if (err && err.cancelled) throw err;
+                c.errors.push(x.src.title + ': ' + errText(err));
+            }
+        }
+        c.state = 'ready';
+    }
+    // Namnet i Kontakter för ett nummer eller en adress, eller ''.
+    function contactName(v) {
+        var c = state.comms && state.comms.zip === state.zip && state.comms.contacts ? Comms.lookup(state.comms.contacts.index, v) : null;
+        return c ? c.name : '';
+    }
+    function contactOf(v) {
+        return state.comms && state.comms.zip === state.zip && state.comms.contacts ? Comms.lookup(state.comms.contacts.index, v) : null;
+    }
 
     // ---------- Nycklar (Signal) ----------
 
@@ -446,6 +491,7 @@
                 d.threads = ChatCore.threads(d.src, query(loaded, d.src.roles.threads));
                 d.members = d.src.roles.members ? ChatCore.members(d.src, query(loaded, d.src.roles.members)) : {};
                 ChatCore.applyNames(d.src, d.threads, d.members, state.names[d.src.app]);
+                ChatCore.applyContacts(d.threads, d.members, contactName);
                 d.index = ChatCore.listIndex(d.threads, d.members);
                 d.state = 'ready';
             } catch (err) {
@@ -749,7 +795,7 @@
             job.go(2, '');
             await pause();
             job.check();
-            var model = ChatCore.conversation(d.src, thread, msgRes, attRes, d.members[thread.key] || [], d.hit.db.name, { names: state.names[d.src.app] });
+            var model = ChatCore.conversation(d.src, thread, msgRes, attRes, d.members[thread.key] || [], d.hit.db.name, { names: state.names[d.src.app], nameOf: contactName });
             msgRes = attRes = null;
             job.go(2, many(model.messages.length, 'meddelande', 'meddelanden'), 1);
             var found = await findEntries(model, job);
@@ -1803,7 +1849,7 @@
     // tillbaka till appens lista. on: telefonen är vald; screen: 'home', 'app', 'photos', 'albums', 'settings' eller
     // 'setting'; app: appen i 'app'; page: sidan på hemskärmen; filter: urvalet i Bilder; section: delen i Inställningar.
     // photos: bildbiblioteket och info: hemskärmen och inställningarna, båda lästa första gången telefonen visas.
-    state.device = { on: false, screen: 'home', app: '', page: 0, filter: 'all', section: '', photos: null, info: null, gallery: null, limit: LIST_STEP, note: null, noteFilter: 'all' };
+    state.device = { on: false, screen: 'home', app: '', page: 0, filter: 'all', section: '', photos: null, info: null, gallery: null, limit: LIST_STEP, note: null, noteFilter: 'all', call: null, callFilter: 'all', contact: null };
     var DEVICE_LABEL = 'Rekonstruktion ur databaserna – inte en skärmbild';
     var GLYPH = {
         chat: '<path d="M4 5h16v11H9l-5 4z"/>',
@@ -1812,11 +1858,13 @@
         ghost: '<path d="M6 20c1-1 2 0 3 0s2-1 3-1 2 1 3 1 2-1 3 0V10a6 6 0 0 0-12 0z"/>',
         photo: '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 16l5-5 4 4 3-3 6 6"/>',
         note: '<rect x="5" y="3" width="14" height="18" rx="2"/><path d="M8.5 8h7M8.5 12h7M8.5 16h4"/>',
+        phone: '<path d="M6.6 3.6l3 3.2-1.9 2.4a12.5 12.5 0 0 0 7.1 7.1l2.4-1.9 3.2 3-2.3 3C10.6 20.2 3.8 13.4 3.6 5.9z"/>',
+        person: '<circle cx="12" cy="8.5" r="3.6"/><path d="M4.8 20.2c1-4 4-5.6 7.2-5.6s6.2 1.6 7.2 5.6"/>',
         gear: '<circle cx="12" cy="12" r="3.2"/><path d="M12 2.8v3M12 18.2v3M2.8 12h3M18.2 12h3M5.5 5.5l2.1 2.1M16.4 16.4l2.1 2.1M5.5 18.5l2.1-2.1M16.4 7.6l2.1-2.1"/>',
     };
     // Ikonerna är verktygets egna: appens färg och en enkel symbol, inte appens logga. Andra appar får en färg ur
     // namnet och sin första bokstav.
-    var APP_ICON = { WhatsApp: ['#1fa855', '#fff', 'chat'], Signal: ['#2257d6', '#fff', 'shield'], Telegram: ['#2a9fd8', '#fff', 'plane'], Snapchat: ['#f5d90a', '#16191c', 'ghost'], Bilder: ['#ffffff', '#d6336c', 'photo'], 'Inställningar': ['#8e8e93', '#fff', 'gear'], Anteckningar: ['#ffd52e', '#3d3100', 'note'] };
+    var APP_ICON = { WhatsApp: ['#1fa855', '#fff', 'chat'], Signal: ['#2257d6', '#fff', 'shield'], Telegram: ['#2a9fd8', '#fff', 'plane'], Snapchat: ['#f5d90a', '#16191c', 'ghost'], Bilder: ['#ffffff', '#d6336c', 'photo'], 'Inställningar': ['#8e8e93', '#fff', 'gear'], Anteckningar: ['#ffd52e', '#3d3100', 'note'], Meddelanden: ['#34c759', '#fff', 'chat'], Telefon: ['#34c759', '#fff', 'phone'], Kontakter: ['#9aa0a6', '#fff', 'person'] };
     var ICON_HUES = ['#5b6b8c', '#7a5c99', '#2f7f7a', '#9a5b3c', '#3d6fa8', '#8a4f6b', '#55803f', '#a0673a'];
     var MONTHS = ['januari', 'februari', 'mars', 'april', 'maj', 'juni', 'juli', 'augusti', 'september', 'oktober', 'november', 'december'];
     var PHOTO_SOURCES = window.ProvenanceRoles.collect({ photos: window.PHOTOS_SQLITE_CATALOG || {}, android: window.ANDROID_QUERIES_CATALOG || {} })
@@ -2205,6 +2253,8 @@
         if (P.screen === 'photos' && P.filter !== 'all') return { screen: 'albums', text: 'Album' };
         if (P.screen === 'setting') return { screen: 'settings', text: 'Inställningar' };
         if (P.screen === 'note') return { screen: 'notes', text: 'Anteckningar' };
+        if (P.screen === 'call') return { screen: 'calls', text: 'Samtal' };
+        if (P.screen === 'contact') return { screen: P.contactFrom === 'call' ? 'call' : 'contacts', text: P.contactFrom === 'call' ? 'Samtalet' : 'Kontakter' };
         return { screen: 'home', text: 'Hem' };
     }
 
@@ -2233,6 +2283,10 @@
         else if (P.screen === 'lock') renderLock(body);
         else if (P.screen === 'notes') renderNotes(body);
         else if (P.screen === 'note') renderNote(body);
+        else if (P.screen === 'calls') renderCalls(body);
+        else if (P.screen === 'call') renderCall(body);
+        else if (P.screen === 'contacts') renderContacts(body);
+        else if (P.screen === 'contact') renderContact(body);
         else renderPhotos(body);
     }
 
@@ -2245,9 +2299,13 @@
         else if (role === 'Bilder' && ph && ph.state !== 'none') { badge = badgeHtml(ph.state === 'busy', ph.state === 'error', ph.items.length); label += ', ' + (ph.state === 'ready' ? many(ph.items.length, 'bild', 'bilder') : ph.state === 'busy' ? 'läses' : 'kunde inte läsas'); }
         var memos = role === 'Anteckningar' ? deviceMemos() : null;
         if (memos) { badge = badgeHtml(false, false, memos.notes.length); label += ', ' + many(memos.notes.length, 'anteckning', 'anteckningar'); }
-        var data = chat ? ' data-device-app="' + esc(role) + '"' : role === 'Bilder' ? ' data-device-photos="1"' : role === 'Inställningar' ? ' data-device-settings="1"' : memos ? ' data-device-notes="1"' : ' data-home-app="' + esc(it.id) + '" data-where="' + esc(where) + '"';
+        var cm = deviceComms(), calls = role === 'Telefon' && cm && cm.calls ? cm.calls : null, people = role === 'Kontakter' && cm && cm.contacts ? cm.contacts.list : null;
+        if (calls) { badge = badgeHtml(false, false, calls.length); label += ', ' + many(calls.length, 'samtal', 'samtal'); }
+        if (people) { badge = badgeHtml(false, false, people.length); label += ', ' + many(people.length, 'kontakt', 'kontakter'); }
+        var data = chat ? ' data-device-app="' + esc(role) + '"' : role === 'Bilder' ? ' data-device-photos="1"' : role === 'Inställningar' ? ' data-device-settings="1"' : memos ? ' data-device-notes="1"' :
+            calls ? ' data-device-calls="1"' : people ? ' data-device-contacts="1"' : ' data-home-app="' + esc(it.id) + '" data-where="' + esc(where) + '"';
         return '<button type="button" class="d-app' + (chat || role ? ' has-data' : '') + '"' + data + ' aria-label="' + esc(label) + '" title="' + esc(name + (it.id ? ' · ' + it.id : '')) + '">' +
-            iconHtml(chat || role === 'Bilder' || role === 'Inställningar' || memos ? role : '', badge, name, phoneIcon(it.id)) + '<span class="d-name">' + esc(name) + '</span></button>';
+            iconHtml(chat || role === 'Bilder' || role === 'Inställningar' || memos || calls || people ? role : '', badge, name, phoneIcon(it.id)) + '<span class="d-name">' + esc(name) + '</span></button>';
     }
     function cellHtml(c, apps, ph, where, key) {
         var style = 'grid-column:' + (c.x + 1) + ' / span ' + c.w + ';grid-row:' + (c.y + 1) + ' / span ' + c.h;
@@ -2279,11 +2337,18 @@
         if (ph && ph.state !== 'none' && !onHome.Bilder) extra.push({ kind: 'app', id: '', name: 'Bilder', role: 'Bilder' });
         if (info && info.state === 'ready' && info.platform && !onHome['Inställningar']) extra.push({ kind: 'app', id: '', name: 'Inställningar', role: 'Inställningar' });
         if (deviceMemos() && !onHome.Anteckningar) extra.push({ kind: 'app', id: '', name: 'Anteckningar', role: 'Anteckningar' });
+        var cmx = deviceComms();
+        if (cmx && cmx.calls && !onHome.Telefon) extra.push({ kind: 'app', id: '', name: 'Telefon', role: 'Telefon' });
+        if (cmx && cmx.contacts && !onHome.Kontakter) extra.push({ kind: 'app', id: '', name: 'Kontakter', role: 'Kontakter' });
         var extraCells = extra.map(function (e) {
             var chat = apps.filter(function (a) { return a.app === e.role; })[0];
             if (e.role === 'Bilder') return '<button type="button" class="d-app has-data" data-device-photos="1" aria-label="' + esc('Bilder, ' + (ph.state === 'ready' ? many(ph.items.length, 'bild', 'bilder') : ph.state === 'busy' ? 'läses' : 'kunde inte läsas')) + '">' +
                 iconHtml('Bilder', badgeHtml(ph.state === 'busy', ph.state === 'error', ph.items.length), 'Bilder', phoneIcon('', 'Bilder')) + '<span class="d-name">Bilder</span></button>';
             if (e.role === 'Inställningar') return '<button type="button" class="d-app has-data" data-device-settings="1" aria-label="Inställningar">' + iconHtml('Inställningar', '', 'Inställningar', phoneIcon('', 'Inställningar')) + '<span class="d-name">Inställningar</span></button>';
+            if (e.role === 'Telefon' || e.role === 'Kontakter') {
+                var cn = e.role === 'Telefon' ? cmx.calls.length : cmx.contacts.list.length, cw = e.role === 'Telefon' ? many(cn, 'samtal', 'samtal') : many(cn, 'kontakt', 'kontakter');
+                return '<button type="button" class="d-app has-data" ' + (e.role === 'Telefon' ? 'data-device-calls="1"' : 'data-device-contacts="1"') + ' aria-label="' + esc(e.role + ', ' + cw) + '">' + iconHtml(e.role, badgeHtml(false, false, cn), e.role, phoneIcon('', e.role)) + '<span class="d-name">' + esc(e.role) + '</span></button>';
+            }
             if (e.role === 'Anteckningar') { var mm = deviceMemos(); return '<button type="button" class="d-app has-data" data-device-notes="1" aria-label="' + esc('Anteckningar, ' + many(mm.notes.length, 'anteckning', 'anteckningar')) + '">' + iconHtml('Anteckningar', badgeHtml(false, false, mm.notes.length), 'Anteckningar', phoneIcon('', 'Anteckningar')) + '<span class="d-name">Anteckningar</span></button>'; }
             return '<button type="button" class="d-app has-data" data-device-app="' + esc(e.role) + '" aria-label="' + esc(e.role + ', ' + (chat.busy ? 'läses' : many(chat.count, 'chatt', 'chattar'))) + '">' +
                 iconHtml(e.role, badgeHtml(chat.busy, chat.error, chat.count), e.role, phoneIcon('', e.role)) + '<span class="d-name">' + esc(e.role) + '</span></button>';
@@ -2535,6 +2600,163 @@
         body.innerHTML = '<div class="n-head">' + noteBadges(n) + '</div>' + text + '<div class="d-kvs">' + meta + '</div>';
     }
 
+    // ---------- Samtal och kontakter (queries/comms, Comms) ----------
+
+    function deviceComms() {
+        var c = state.comms;
+        return c && c.zip === state.zip && c.state === 'ready' ? c : null;
+    }
+    function commsWaiting(body, what) {
+        var c = state.comms, busy = c && c.zip === state.zip && (c.state === 'busy' || c.state === 'wait');
+        $('c-device-sub').textContent = '';
+        body.innerHTML = '<p class="d-empty">' + (busy ? '<span class="c-spin" aria-hidden="true"></span> Läser ' + what + '…' : 'Extraktionen har ingen databas med ' + what + (what === 'samtalen' ? ' (CallHistory.storedata eller calllog.db).' : ' (AddressBook.sqlitedb eller contacts2.db).')) + '</p>' +
+            (c && c.errors.length ? '<p class="d-empty warn">' + esc(c.errors.join(' ')) + '</p>' : '');
+    }
+    // Namnet att visa för ett samtal: kontakten i telefonen, annars namnet i loggen, annars numret.
+    function callWho(x) {
+        var k = contactOf(x.number);
+        return k ? k.name : x.name || (x.hidden ? x.hidden.charAt(0).toUpperCase() + x.hidden.slice(1) : '') || x.number || 'Okänt nummer';
+    }
+    var PHONE_APPS = /^(com\.apple\.Telephony|com\.android\.phone|com\.android\.server\.telecom|com\.samsung\.android\.incallui|com\.google\.android\.dialer)$/;
+    function callApp(x) {
+        if (!x.app || PHONE_APPS.test(x.app)) return x.type === 'FaceTime video' || x.type === 'FaceTime ljud' ? x.type : '';
+        if (x.app === 'com.apple.FaceTime') return x.type || 'FaceTime';
+        return nameOfApp(x.app);
+    }
+    var CALL_FILTERS = [['all', 'Alla'], ['missed', 'Missade'], ['apps', 'I appar']];
+    function callKeep(x, flt) {
+        return flt === 'missed' ? /^(missed|rejected|blocked)$/.test(x.direction) : flt === 'apps' ? !!callApp(x) && !/^FaceTime/.test(callApp(x)) : true;
+    }
+    var CALL_ARROW = { in: '↙', out: '↗', missed: '↙', rejected: '↙', blocked: '⊘', voicemail: '↙', elsewhere: '↙', other: '·' };
+    function renderCalls(body) {
+        var P = state.device, f = fmt(), c = deviceComms();
+        body.style.backgroundImage = '';
+        $('c-device-title').textContent = 'Samtal';
+        if (!c || !c.calls) return commsWaiting(body, 'samtalen');
+        var all = c.calls, list = all.filter(function (x) { return callKeep(x, P.callFilter); }), shown = list.slice(0, P.limit);
+        $('c-device-sub').textContent = many(all.length, 'samtal', 'samtal') + ' · ' + baseName(c.files.calls);
+        var chips = '<div class="n-chips" role="group" aria-label="Urval">' + CALL_FILTERS.map(function (x) {
+            return '<button type="button" class="n-chip" data-call-filter="' + x[0] + '" aria-pressed="' + (P.callFilter === x[0]) + '">' + esc(x[1]) + ' <span>' + num(all.filter(function (y) { return callKeep(y, x[0]); }).length) + '</span></button>';
+        }).join('') + '</div>';
+        var day = null;
+        var rows = shown.map(function (x) {
+            var i = all.indexOf(x), who = callWho(x), app = callApp(x), d = x.ms ? f(x.ms).slice(0, 10) : 'Utan tid', head = '';
+            if (d !== day) { day = d; head = '<p class="n-sec">' + esc(d) + '</p>'; }
+            var sub = [CALL_ARROW[x.direction] + ' ' + x.dirText, app, x.duration ? Comms.durationText(x.duration) : ''].filter(Boolean).join(' · ');
+            return head + '<button type="button" class="d-row k-row' + (/^(missed|rejected|blocked)$/.test(x.direction) ? ' missed' : '') + '" data-call-id="' + i + '" title="' + esc(x.number) + '">' +
+                '<span class="c-av p' + ChatCore.hueOf(who) + '" data-initial="' + esc(ChatCore.initialOf(who)) + '" aria-hidden="true"></span><span class="d-row-text">' +
+                '<span class="d-row-top"><b>' + esc(who) + '</b><time>' + esc(x.ms ? f(x.ms).slice(11, 16) : '') + '</time></span><span class="d-row-sub">' + esc(sub) + '</span></span></button>';
+        }).join('');
+        body.innerHTML = chips + (rows || '<p class="d-empty">Inga samtal i urvalet.</p>') +
+            (list.length > shown.length ? '<button type="button" class="c-btn d-more" data-device-more="1">Visa fler (' + num(list.length - shown.length) + ' kvar)</button>' : '') +
+            '<p class="d-note">Ur ' + esc(c.files.calls) + '. Tiderna är när samtalet började, i vald zon. Namnet är kontaktens i telefonen när numret finns i Kontakter, annars det som loggen sparade. Ett raderat samtal finns inte kvar i loggen.</p>';
+    }
+    // Chattar och meddelanden med en motpart: trådar vars nummer eller deltagare har samma nummer.
+    function chatsWith(values) {
+        var keys = {};
+        values.forEach(function (v) { var k = Comms.phoneKey(v); if (k) keys[k] = true; });
+        var out = [];
+        if (!Object.keys(keys).length) return out;
+        state.dbs.forEach(function (d, di) {
+            (d.threads || []).forEach(function (t) {
+                var hit = keys[Comms.phoneKey(t.address)] || (d.members[t.key] || []).some(function (p) { return keys[Comms.phoneKey(p.address)] || keys[Comms.phoneKey(p.id)]; });
+                if (hit) out.push({ db: di, thread: t, app: d.src.app });
+            });
+        });
+        return out;
+    }
+    function threadRows(list) {
+        var f = fmt();
+        return list.slice(0, 20).map(function (x) {
+            var t = x.thread;
+            return '<button type="button" class="d-row" data-db="' + x.db + '" data-thread="' + esc(t.key) + '"><span class="c-av p' + ChatCore.hueOf(t.key) + '" data-initial="' + esc(ChatCore.initialOf(t.name)) + '" aria-hidden="true"></span><span class="d-row-text">' +
+                '<span class="d-row-top"><b>' + esc(t.name) + '</b><time>' + esc(t.lastMs ? f(t.lastMs).slice(0, 10) : '') + '</time></span><span class="d-row-sub">' + esc(x.app + (t.messages !== null ? ' · ' + many(t.messages, 'meddelande', 'meddelanden') : '')) + '</span></span></button>';
+        }).join('');
+    }
+    function renderCall(body) {
+        var P = state.device, f = fmt(), c = deviceComms();
+        body.style.backgroundImage = '';
+        var x = c && c.calls ? c.calls[P.call] : null;
+        if (!x) { openDevice('calls'); return; }
+        var ios = c.platform === 'iOS', k = contactOf(x.number), app = callApp(x);
+        $('c-device-title').textContent = callWho(x);
+        $('c-device-sub').textContent = x.dirText + (x.ms ? ' · ' + f(x.ms) : '');
+        var meta = [
+            kv('Riktning', x.dirText, ios ? 'ZORIGINATED, ZANSWERED' : 'calls.type (' + x.typeRaw + ')'),
+            kv('Började', x.ms ? f(x.ms) : 'Tiden saknas', ios ? 'ZDATE (Cocoa-sekunder: ' + x.raw + ')' : 'calls.date (millisekunder: ' + x.raw + ')'),
+            kv('Längd', x.duration !== null ? Comms.durationText(x.duration) + ' (' + Math.round(x.duration) + ' s)' : '', ios ? 'ZDURATION' : 'calls.duration'),
+            kv(app && !/^FaceTime/.test(app) ? 'Motpart i appen' : 'Nummer', x.number || x.hidden || 'Saknas', ios ? 'ZADDRESS' : 'calls.number', app && !/^FaceTime/.test(app) && !Comms.phoneKey(x.number) ? 'Appens id för motparten, inte ett telefonnummer.' : ''),
+            x.name ? kv('Namn i loggen', x.name, ios ? 'ZNAME' : 'calls.name', ios && app ? 'Namnet som appen gav samtalet.' : 'Kontaktens namn när samtalet loggades.') : '',
+            k ? kv('Kontakt i telefonen', k.name, baseName(c.files.contacts || ''), 'Matchad på numrets sista nio siffror.') : '',
+            kv('Slag', [x.type, app].filter(Boolean).filter(function (v, i, l) { return l.indexOf(v) === i; }).join(' · ') || 'Telefon', ios ? 'ZCALLTYPE, ZSERVICE_PROVIDER' : 'calls.features, subscription_component_name'),
+            x.app ? kv('App-id', x.app) : '',
+            x.others.length ? kv('Fler deltagare', x.others.join(', '), ios ? 'ZHANDLE via Z_2REMOTEPARTICIPANTHANDLES' : '') : '',
+            x.country || x.place ? kv('Land och plats', [x.country, x.place].filter(Boolean).join(' · '), ios ? 'ZISO_COUNTRY_CODE, ZLOCATION' : 'countryiso, geocoded_location') : '',
+            x.account ? kv('Telefonens konto', x.account, 'phone_account_address') : '',
+            x.read !== null ? kv('Läst', x.read ? 'Ja' : 'Nej', ios ? 'ZREAD' : 'is_read') : '',
+            x.cause !== null && ios ? kv('Orsak till slut', String(x.cause), 'ZDISCONNECTED_CAUSE', 'Värdenas betydelse är inte kontrollerad.') : '',
+            x.uid ? kv('Identifierare', x.uid, 'ZUNIQUE_ID') : '',
+            kv('Källa', (ios ? 'ZCALLRECORD rad ' : 'calls rad ') + x.id, c.files.calls),
+        ].join('');
+        var chats = chatsWith([x.number].concat(x.others));
+        body.innerHTML = (k ? '<button type="button" class="c-btn k-open" data-contact-id="' + esc(k.id) + '">Visa kontakten</button>' : '') + '<div class="d-kvs">' + meta + '</div>' +
+            (chats.length ? '<p class="n-sec">Chattar med numret</p>' + threadRows(chats) : '');
+    }
+    function contactBadges(k) {
+        return (k.starred ? '<span class="n-badge">Favorit</span>' : '') + (k.deleted ? '<span class="n-badge del">Raderad</span>' : '');
+    }
+    function renderContacts(body) {
+        var P = state.device, c = deviceComms();
+        body.style.backgroundImage = '';
+        $('c-device-title').textContent = 'Kontakter';
+        if (!c || !c.contacts) return commsWaiting(body, 'kontakterna');
+        var list = c.contacts.list, shown = list.slice(0, P.limit), letter = null;
+        $('c-device-sub').textContent = many(list.length, 'kontakt', 'kontakter') + ' · ' + baseName(c.files.contacts);
+        var rows = shown.map(function (k) {
+            var l = (k.sortName.charAt(0) || '#').toLocaleUpperCase('sv'), head = '';
+            if (!/\p{L}/u.test(l)) l = '#';
+            if (l !== letter) { letter = l; head = '<p class="n-sec">' + esc(l) + '</p>'; }
+            var sub = [k.phones[0] ? k.phones[0].value : k.emails[0] ? k.emails[0].value : '', k.org && k.org !== k.name ? k.org : ''].filter(Boolean).join(' · ');
+            return head + '<button type="button" class="d-row k-row" data-contact-id="' + esc(k.id) + '"><span class="c-av p' + ChatCore.hueOf(k.id) + '" data-initial="' + esc(ChatCore.initialOf(k.name)) + '" aria-hidden="true"></span><span class="d-row-text">' +
+                '<span class="d-row-top"><b>' + esc(k.name) + '</b></span><span class="d-row-sub">' + contactBadges(k) + esc(sub) + '</span></span></button>';
+        }).join('');
+        body.innerHTML = (rows || '<p class="d-empty">Inga kontakter.</p>') +
+            (list.length > shown.length ? '<button type="button" class="c-btn d-more" data-device-more="1">Visa fler (' + num(list.length - shown.length) + ' kvar)</button>' : '') +
+            '<p class="d-note">Ur ' + esc(c.files.contacts) + '. Queries visar också ändrade och raderade kontakter.</p>';
+    }
+    function renderContact(body) {
+        var P = state.device, f = fmt(), c = deviceComms();
+        body.style.backgroundImage = '';
+        var k = c && c.contacts ? c.contacts.list.filter(function (x) { return x.id === P.contact; })[0] : null;
+        if (!k) { openDevice('contacts'); return; }
+        var ios = c.platform === 'iOS';
+        $('c-device-title').textContent = k.name;
+        $('c-device-sub').textContent = [k.org !== k.name ? k.org : '', k.account].filter(Boolean).join(' · ');
+        var points = function (list, word) { return list.map(function (p) { return kv(p.label || word, p.value, p.account && !ios ? 'Konto: ' + p.account : ''); }).join(''); };
+        var meta = [
+            points(k.phones, 'Telefon'), points(k.emails, 'E-post'),
+            k.org ? kv('Företag', k.org + (k.title ? ', ' + k.title : '')) : '',
+            k.nick ? kv('Smeknamn', k.nick) : '',
+            k.birthday ? kv('Födelsedag', k.birthday) : '',
+            k.note ? kv('Anteckning', k.note) : '',
+            k.account ? kv('Konto', k.account, ios ? 'ABStore' : 'accounts.account_type') : '',
+            k.createdMs ? kv('Skapad', f(k.createdMs), 'ABPerson.CreationDate') : '',
+            k.modifiedMs ? kv('Ändrad', f(k.modifiedMs), 'ABPerson.ModificationDate') : '',
+            k.contacted ? kv('Kontaktad', many(k.contacted, 'gång', 'gånger') + (k.lastContactedMs ? ', senast ' + f(k.lastContactedMs) : ''), 'raw_contacts.times_contacted, last_time_contacted') : '',
+            k.deleted ? kv('Raderad', 'Markerad som raderad men inte synkad', 'raw_contacts.deleted') : '',
+            kv('Källa', (ios ? 'ABPerson rad ' : 'contact_id ') + k.id, c.files.contacts),
+        ].join('');
+        var nums = k.phones.concat(k.emails).map(function (p) { return Comms.phoneKey(p.value); }).filter(Boolean);
+        var calls = (c.calls || []).filter(function (x) { return nums.indexOf(Comms.phoneKey(x.number)) >= 0; });
+        var chats = chatsWith(k.phones.concat(k.emails).map(function (p) { return p.value; }));
+        body.innerHTML = '<div class="n-head">' + contactBadges(k) + '</div><div class="d-kvs">' + meta + '</div>' +
+            (calls.length ? '<p class="n-sec">Samtal (' + num(calls.length) + ')</p>' + calls.slice(0, 10).map(function (x) {
+                var app = callApp(x);
+                return '<button type="button" class="d-row k-row' + (/^(missed|rejected|blocked)$/.test(x.direction) ? ' missed' : '') + '" data-call-id="' + c.calls.indexOf(x) + '"><span class="d-row-text"><span class="d-row-top"><b>' + esc(CALL_ARROW[x.direction] + ' ' + x.dirText) + '</b><time>' + esc(x.ms ? f(x.ms).slice(0, 16) : '') + '</time></span><span class="d-row-sub">' + esc([app, x.duration ? Comms.durationText(x.duration) : ''].filter(Boolean).join(' · ')) + '</span></span></button>';
+            }).join('') : '') +
+            (chats.length ? '<p class="n-sec">Chattar</p>' + threadRows(chats) : '');
+    }
+
     // Låsskärmen: notiserna, den senaste först, med en rubrik per dag och telefonens bakgrund för låsskärmen bakom.
     function renderLock(body) {
         var P = state.device, info = P.info, f = fmt();
@@ -2649,6 +2871,11 @@
         if (b.dataset.deviceSettings) return openDevice('settings');
         if (b.dataset.deviceLock) return openDevice('lock');
         if (b.dataset.deviceNotes) return openDevice('notes');
+        if (b.dataset.deviceCalls) return openDevice('calls');
+        if (b.dataset.deviceContacts) return openDevice('contacts');
+        if (b.dataset.callFilter) { state.device.callFilter = b.dataset.callFilter; state.device.limit = LIST_STEP; return renderDevice(); }
+        if (b.dataset.callId !== undefined) { state.device.call = Number(b.dataset.callId); return openDevice('call'); }
+        if (b.dataset.contactId !== undefined) { state.device.contact = b.dataset.contactId; state.device.contactFrom = state.device.screen === 'call' ? 'call' : 'contacts'; return openDevice('contact'); }
         if (b.dataset.noteFilter) { state.device.noteFilter = b.dataset.noteFilter; state.device.limit = LIST_STEP; return renderDevice(); }
         if (b.dataset.noteId !== undefined) { state.device.note = Number(b.dataset.noteId); return openDevice('note'); }
         if (b.dataset.notif !== undefined) return openNotification(Number(b.dataset.notif));
@@ -2768,7 +2995,8 @@
         view: function () { return state.current && state.view ? { from: state.view.from, to: state.view.to, n: state.current.model.messages.length, drawn: $('c-msgs').querySelectorAll('.m').length } : null; },
         device: function () {
             var P = state.device, ph = P.photos, g = P.gallery;
-            return { on: P.on, shown: deviceShown(), screen: P.screen, app: P.app, info: P.info ? { state: P.info.state, notes: P.info.memos ? P.info.memos.notes.length : null } : null, photos: ph ? { state: ph.state, items: ph.items.length, thumbs: Object.keys(ph.thumbs).length, files: Object.keys(ph.files).length, note: ph.note } : null,
+            return { on: P.on, shown: deviceShown(), screen: P.screen, app: P.app, info: P.info ? { state: P.info.state, notes: P.info.memos ? P.info.memos.notes.length : null } : null,
+                comms: state.comms ? { state: state.comms.state, calls: state.comms.calls ? state.comms.calls.length : null, contacts: state.comms.contacts ? state.comms.contacts.list.length : null, errors: state.comms.errors } : null, photos: ph ? { state: ph.state, items: ph.items.length, thumbs: Object.keys(ph.thumbs).length, files: Object.keys(ph.files).length, note: ph.note } : null,
                 gallery: g ? { tiles: $('c-device-body').querySelectorAll('.g-tile').length, shown: $('c-device-body').querySelectorAll('.g-tile.has').length, loads: g.stats.loads, failed: g.stats.failed, urls: g.urls.map.size } : null };
         },
     };

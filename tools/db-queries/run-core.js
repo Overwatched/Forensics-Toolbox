@@ -65,13 +65,14 @@
         return { points: points, skipped: skipped, columns: col };
     }
 
-    // Råa tidsstämplar -> UTC, samma regler som Härkomst (roles.js toMs). epoch: cocoa, unix, unixMs, unixAuto.
+    // Råa tidsstämplar -> UTC, samma regler som Härkomst (roles.js toMs). epoch: cocoa, cocoaAuto, unix, unixMs, unixAuto.
     var COCOA_EPOCH = 978307200;
     function epochMs(value, epoch) {
         if (value === null || value === undefined || value === '') return null;
         var n = Number(value);
         if (!isFinite(n) || n === 0) return null;
         return Math.round(epoch === 'cocoa' ? (n + COCOA_EPOCH) * 1000
+            : epoch === 'cocoaAuto' ? ((n > 100000000000 ? n / 1e9 : n) + COCOA_EPOCH) * 1000
             : epoch === 'unixMs' ? n
                 : epoch === 'unixAuto' ? (n > 1000000000000 ? n : n * 1000)
                     : n * 1000);
