@@ -2187,6 +2187,35 @@ Queries (Meddelanden, samtal och kontakter, beta) och dolda roller som Chattar o
 - **Inte byggt:** Samsung Meddelanden (`message_content.db`), `calls` i `contacts2.db` före Android 7, iOS 15 och äldre
   i Chattar, och redigeringshistoriken i `message_summary_info`.
 
+### Webbhistorik (`queries/web/`, `tools/_shared/web.js`, `Web`)
+
+Byggd 2026-11-20 med queries först: `WEB_CATALOG` har frågorna i Queries (Webbhistorik, beta) och dolda roller
+(`web-visits`, `web-searches`, `web-downloads`, `web-tabs`, `web-cleared`) som Telefonen läser. Generatorn ligger
+inte i repot; katalogen ändras direkt i `catalog.json` och synkas till `catalog.js` med `npm run sync-queries`.
+- **Databaserna:** Safaris `History.db`, `SafariTabs.db` och `Bookmarks.db` (`/private/var/mobile/Library/Safari/`),
+  Chromes `History` (`app_chrome/Default/History`, samma fil i Edge, Brave och andra Chromium-webbläsare), Samsung
+  Internets (`app_sbrowser/Default/History`) och Chrome på iPhone (inte provad). Tabellerna (bara CREATE TABLE) i
+  `tools/db-queries/fixtures/web-schemas.json`: iPhone-labbet (iOS 26.4.1) och Samsung A33 (Android 16).
+- **Provat mot riktiga data:** Safari i en iOS 18.7-extraktion (11 besök, 4 sökningar, 3 flikar med tid), Chrome i en
+  Pixel (14 besök) och i Samsung-labbet, och Samsung Internet i Samsung-labbet (7 besök och en nedladdning).
+- **Safari:** tiderna är Cocoa-sekunder. `history_visits.origin` 0 är den här enheten och 1 ett besök synkat genom
+  iCloud (inte prövat i labbet). `redirect_source`/`redirect_destination` är besökens id. `history_tombstones` är
+  spåren efter rensad historik (spannet, och adressen när en sida togs bort). Söktermerna läses ur adressen (`q=`,
+  Yahoo `p=`); SQL:en avkodar de vanligaste procentkoderna i steg om sex `replace()` (sql.js tål inte djupare
+  nästling), och `Web.decodeTerm` avkodar resten i Telefonen.
+- **Flikarna (`SafariTabs.db`):** flikar är `bookmarks` med `type` 0 och en adress, flikgrupper `type` 1. `windows`
+  säger vilken grupp som är de vanliga (`local_tab_group_id`) och de privata (`private_tab_group_id`). Tiden står i
+  plisten `local_attributes` (`LastVisitTime`), som Telefonen läser med `KC.bplist`.
+- **Chromium:** tiderna är mikrosekunder sedan 1601 och räknas om till Unix-millisekunder i SQL:en (`/ 1000 -
+  11644473600000`), så rollerna har epoken `unixMs`. `transition & 255` är övergången, de höga bitarna tillägg
+  (adressfältet, från en app, bakåt/framåt, omdirigering). `originator_cache_guid` är satt för synkade besök.
+  Nedladdningens adress är den sista i `downloads_url_chains`; på Android står ofta MediaStores adress
+  (`content://media/external/downloads/<id>`) som sökväg, och då tas filnamnet ur adressen.
+- **Telefonen:** `loadWeb` läser databaserna efter samtalen, en post per webbläsare (`Web.browserOf`: paketet i
+  sökvägen på Android, Safari och Chrome på iPhone; användare 0 först). Webbläsaren öppnas från sin ikon på
+  hemskärmen (eller sista sidan) med flikarna Historik, Sökningar, Nedladdningar, Flikar och Rensat, och varje rad
+  har en detalj med fälten och källan.
+
 ### Raderade bilder och Secure Folder (`queries/android/samsung/`, `android-users` i `queries/system-logs/`)
 
 Byggt 2026-11-19 utan rader att kontrollera mot: tabellerna finns i alla tre Samsung-zipparna (A33, tvåtelefonslabbet

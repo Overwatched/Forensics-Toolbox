@@ -589,6 +589,41 @@ function addressBookDb(SQL) {
     return exported(db);
 }
 
+// Safari på iPhone, i labbtelefonens tabeller (web-schemas.json): tre besök (en sökning på Google, en omdirigering)
+// och två flikar, en vanlig och en privat, med tiden i local_attributes.
+const WEB_SCHEMAS = require(path.join(ROOT, 'tools', 'db-queries', 'fixtures', 'web-schemas.json'));
+function webDb(SQL, key) {
+    const db = new SQL.Database();
+    Object.values(WEB_SCHEMAS[key]).forEach((sql) => db.run(sql.replace(/(?<!IS )NOT NULL/gi, '')));
+    return db;
+}
+function plistDate(sec) {
+    const key = Buffer.from('LastVisitTime');
+    const date = Buffer.alloc(9); date[0] = 0x33; date.writeDoubleBE(sec - COCOA, 1);
+    const objects = [Buffer.from([0xd1, 1, 2]), Buffer.concat([Buffer.from([0x50 | key.length]), key]), date];
+    const offsets = []; let at = 8;
+    objects.forEach((o) => { offsets.push(at); at += o.length; });
+    const trailer = Buffer.alloc(32);
+    trailer[6] = 1; trailer[7] = 1;
+    trailer.writeBigUInt64BE(BigInt(objects.length), 8); trailer.writeBigUInt64BE(BigInt(at), 24);
+    return Buffer.concat([Buffer.from('bplist00'), ...objects, Buffer.from(offsets), trailer]);
+}
+function safariHistoryDb(SQL) {
+    const db = webDb(SQL, 'ios-safari-history');
+    db.run("INSERT INTO history_items (id, url, domain_expansion, visit_count) VALUES (1, 'https://www.google.com/search?q=t%C3%A5gtider+g%C3%B6teborg', 'google', 1), (2, 'http://example.org/', NULL, 1), (3, 'https://www.example.org/', NULL, 1)");
+    db.run("INSERT INTO history_visits (id, history_item, visit_time, title, load_successful, origin, redirect_source, redirect_destination) VALUES (1, 1, ?, 'tågtider göteborg - Google Sök', 1, 0, NULL, NULL), (2, 2, ?, NULL, 0, 0, NULL, 3), (3, 3, ?, 'Exempel', 1, 1, 2, NULL)",
+        [T2 + 900 - COCOA, T2 + 960 - COCOA, T2 + 960.5 - COCOA]);
+    return exported(db);
+}
+function safariTabsDb(SQL) {
+    const db = webDb(SQL, 'ios-safari-tabs');
+    db.run("INSERT INTO windows (id, local_tab_group_id, private_tab_group_id, uuid) VALUES (1, 2, 3, 'W1')");
+    db.run("INSERT INTO bookmarks (id, parent, type, title, hidden, subtype) VALUES (2, 0, 1, '', 1, 0), (3, 0, 1, '', 1, 0)");
+    db.run("INSERT INTO bookmarks (id, parent, type, title, url, order_index, local_attributes) VALUES (10, 2, 0, 'Exempel', 'https://www.example.org/', 0, ?), (11, 3, 0, 'Privat sida', 'https://private.example/', 0, ?)",
+        [plistDate(T2 + 960), plistDate(T2 + 1000)]);
+    return exported(db);
+}
+
 function samsungEntries(SQL, jpeg) {
     const other = (tag) => Buffer.concat([jpeg, Buffer.from(tag)]);
     const rtc = (localText, utcText) => localText + ' [RTC] 148911.38 37981.19    ' + utcText + ' ' + Date.parse(utcText.replace(' ', 'T') + 'Z') / 1000;
@@ -812,7 +847,7 @@ async function build() {
             '<string>com.apple.mobileslideshow</string><string>net.whatsapp.WhatsApp</string>' +
             '<dict><key>displayName</key><string>Verktyg</string><key>listType</key><string>folder</string><key>iconLists</key><array><array><string>com.apple.calculator</string><string>ph.telegra.Telegraph</string></array></array></dict>' +
             '</array><array><string>com.apple.Preferences</string><string>org.whispersystems.signal</string><string>com.example.okand</string><string>com.apple.mobilenotes</string><string>com.apple.MobileAddressBook</string></array></array>' +
-            '<key>buttonBar</key><array><string>com.apple.mobilephone</string><string>com.apple.MobileSMS</string></array></dict>') },
+            '<key>buttonBar</key><array><string>com.apple.mobilephone</string><string>com.apple.MobileSMS</string><string>com.apple.mobilesafari</string></array></dict>') },
         { name: 'filesystem1/private/var/preferences/SystemConfiguration/preferences.plist', data: plistXml('<dict><key>System</key><dict><key>System</key><dict><key>ComputerName</key><string>Testtelefon</string></dict></dict></dict>') },
         { name: 'filesystem1/private/var/preferences/com.apple.wifi.known-networks.plist', data: plistXml('<dict><key>wifi.network.ssid.Labbnätet</key><dict><key>SSID</key><data>' + Buffer.from('Labbnätet').toString('base64') + '</data>' +
             '<key>AddedAt</key><date>2024-05-01T10:00:00Z</date><key>JoinedByUserAt</key><date>2024-06-01T08:00:00Z</date><key>SupportedSecurityTypes</key><string>WPA2 Personal</string></dict></dict>') },
@@ -820,6 +855,8 @@ async function build() {
         { name: P + 'Library/SMS/sms.db', data: smsDb(SQL), deflate: true },
         { name: P + 'Library/CallHistoryDB/CallHistory.storedata', data: callHistoryDb(SQL), deflate: true },
         { name: P + 'Library/AddressBook/AddressBook.sqlitedb', data: addressBookDb(SQL), deflate: true },
+        { name: P + 'Library/Safari/History.db', data: safariHistoryDb(SQL), deflate: true },
+        { name: P + 'Library/Safari/SafariTabs.db', data: safariTabsDb(SQL), deflate: true },
         { name: P + 'Library/Biome/streams/restricted/Notification.Usage/local/739000000000000', data: biomeNotifications([{ sec: T2 + 60, app: 'net.whatsapp.WhatsApp', title: 'Kim' }, { sec: T2 + 120, app: 'org.whispersystems.signal', title: 'Lo' }]) },
         { name: 'filesystem1/private/var/containers/Bundle/Application/11111111-2222-3333-4444-555555555555/WhatsApp.app/Info.plist', data: plistXml('<dict><key>CFBundleIdentifier</key><string>net.whatsapp.WhatsApp</string><key>CFBundleDisplayName</key><string>WhatsApp</string><key>CFBundleShortVersionString</key><string>25.1.0</string></dict>') },
     ];

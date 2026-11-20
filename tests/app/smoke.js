@@ -1415,7 +1415,7 @@ const scenarios = [
             apps: [...document.querySelectorAll('#c-device-body .d-screen .d-app')].map(a => a.getAttribute('aria-label')), dock: [...document.querySelectorAll('#c-device-body .d-dock .d-app')].map(a => a.getAttribute('aria-label')),
             dots: document.querySelectorAll('#c-device-body .d-dot').length })`);
         expect(home.tool && home.side === 'none' && home.title === 'Testtelefon' && home.sub === 'iOS · 2 sidor · IconState.plist', 'Telefonen: ' + JSON.stringify(home));
-        expect(home.widget[0] === 'Väder Widget' && home.apps.includes('Bilder, 10 bilder') && home.apps.some((a) => /^WhatsApp, \d+ chattar?$/.test(a)) && home.apps.includes('Mappen Verktyg, 2 appar') && home.dock.join() === 'Telefon, 3 samtal,Meddelanden, 2 chattar' && home.dots === 2,
+        expect(home.widget[0] === 'Väder Widget' && home.apps.includes('Bilder, 10 bilder') && home.apps.some((a) => /^WhatsApp, \d+ chattar?$/.test(a)) && home.apps.includes('Mappen Verktyg, 2 appar') && home.dock.join() === 'Telefon, 3 samtal,Meddelanden, 2 chattar,Safari, 3 besök' && home.dots === 2,
             'Första sidan: ' + JSON.stringify(home));
         // Notiserna: knappen överst öppnar låsskärmen med Biomes notiser, den senaste först.
         await ev(`document.querySelector('[data-device-lock]').click(), 1`);
@@ -1601,7 +1601,7 @@ const scenarios = [
         await ev(`document.getElementById('c-device-open').click(), 1`);
         await c.waitFor(CHAT, `ChatsApp.device().info && ChatsApp.device().info.state === 'ready' && !!document.querySelector('#c-device-body .d-dock [data-device-calls]')`, 60000, 'Telefon i dockan');
         const dock = await ev(`[...document.querySelectorAll('#c-device-body .d-dock .d-app')].map(a => a.getAttribute('aria-label'))`);
-        expect(dock.join('|') === 'Telefon, 3 samtal|Meddelanden, 2 chattar', 'Dockan: ' + JSON.stringify(dock));
+        expect(dock.join('|') === 'Telefon, 3 samtal|Meddelanden, 2 chattar|Safari, 3 besök', 'Dockan: ' + JSON.stringify(dock));
         // Meddelanden: chatten heter som kontakten, texten ur attributedBody och meddelandet i Nyligen raderade.
         await ev(`document.querySelector('#c-device-body .d-dock [data-device-app="Meddelanden"]').click(), 1`);
         const rows = await ev(`[...document.querySelectorAll('#c-device-body .d-row b')].map(b => b.textContent)`);
@@ -1653,6 +1653,50 @@ const scenarios = [
         expect(q.rows.length === 2 && q.rows.some((r) => r[ki] === '+46705550101' && r[ri] === '1') && q.rows.some((r) => r[ki].startsWith('<img')), 'Queries: ' + JSON.stringify(q.rows) + ' ' + q.status);
         await noInjectedScript(c);
         return '2 chattar i Meddelanden, 3 samtal och 1 kontakt i Telefonen; 2 rader i Queries';
+    }],
+
+    ['Webbhistorik: Safari i Telefonen med besöken, söktermen ur adressen och flikarna (också den privata), och Queries', async ({ c }) => {
+        const CHAT = 'chats/index.html';
+        const ev = (e) => c.ev(CHAT, e);
+        await c.nav('Chattar');
+        await c.waitFor(CHAT, `!ChatsApp.busy() && ChatsApp.device().web && ChatsApp.device().web.state === 'ready'`, 60000, 'webbhistoriken');
+        const web = await ev(`ChatsApp.device().web`);
+        expect(JSON.stringify(web.browsers) === JSON.stringify([{ id: 'com.apple.mobilesafari', name: 'Safari', visits: 3, searches: 1, downloads: null, tabs: 2, cleared: 0 }]) && !web.errors.length, 'Webbläsarna: ' + JSON.stringify(web));
+        await ev(`document.getElementById('c-device-open').click(), 1`);
+        await c.waitFor(CHAT, `!!document.querySelector('#c-device-body .d-dock [data-device-web]')`, 60000, 'Safari i dockan');
+        await ev(`document.querySelector('#c-device-body .d-dock [data-device-web]').click(), 1`);
+        const list = await ev(`({ title: document.getElementById('c-device-title').textContent, chips: [...document.querySelectorAll('#c-device-body [data-web-tab]')].map(b => b.textContent),
+            rows: [...document.querySelectorAll('#c-device-body .w-row')].map(r => r.querySelector('b').textContent + ' | ' + r.querySelector('.d-row-sub').textContent) })`);
+        expect(list.title === 'Safari' && list.chips.join('|') === 'Historik 3|Sökningar 1|Flikar 2', 'Safari: ' + JSON.stringify(list));
+        expect(list.rows[0] === 'Exempel | example.org · synkad' && list.rows[1] === 'example.org | example.org · laddades inte', 'Besöken: ' + JSON.stringify(list.rows));
+        await ev(`document.querySelector('#c-device-body .w-row').click(), 1`);
+        const kv = () => ev(`Object.fromEntries([...document.querySelectorAll('#c-device-body .d-kv')].map(k => [k.querySelector('.d-kv-label').textContent, k.querySelector('.d-kv-value').textContent]))`);
+        const visit = await kv();
+        expect(visit['Omdirigerad från'] === 'http://example.org/' && visit.Ursprung === 'Annan enhet (synkad)' && visit.Adress === 'https://www.example.org/', 'Besöket: ' + JSON.stringify(visit));
+        expect(await ev(`document.getElementById('c-device-back-text').textContent`) === 'Safari', 'Tillbaka till Safari');
+        await ev(`document.getElementById('c-device-back').click(), 1`);
+        await ev(`document.querySelector('#c-device-body [data-web-tab="searches"]').click(), 1`);
+        const terms = await ev(`[...document.querySelectorAll('#c-device-body .w-row')].map(r => r.querySelector('b').textContent + ' | ' + r.querySelector('.d-row-sub').textContent)`);
+        expect(terms.join() === 'tågtider göteborg | Google · google.com', 'Sökningarna: ' + JSON.stringify(terms));
+        await ev(`document.querySelector('#c-device-body [data-web-tab="tabs"]').click(), 1`);
+        const tabs = await ev(`({ secs: [...document.querySelectorAll('#c-device-body .n-sec')].map(s => s.textContent), rows: [...document.querySelectorAll('#c-device-body .w-row b')].map(b => b.textContent) })`);
+        expect(tabs.secs.join('|') === 'Flikar|Privata flikar' && tabs.rows.join('|') === 'Exempel|Privat sida', 'Flikarna: ' + JSON.stringify(tabs));
+        await ev(`[...document.querySelectorAll('#c-device-body .w-row')].find(r => r.textContent.includes('Privat sida')).click(), 1`);
+        const tab = await kv();
+        expect(tab.Grupp === 'Privata flikar (privat surfning)' && /^\d{4}-\d\d-\d\d \d\d:\d\d/.test(tab['Senaste besöket']), 'Fliken: ' + JSON.stringify(tab));
+        await ev(`document.getElementById('c-device-back').click(), 1`);
+        await ev(`document.getElementById('c-device-back').click(), 1`);
+        await noInjectedScript(c);
+        // Queries: söktermen ur adressen.
+        await c.nav('Queries');
+        await c.ev(QUER, `(function(){ const b = document.querySelector('.side-db[data-family="ios-safari-history"]'); if (b.getAttribute('aria-expanded') !== 'true') b.click(); return 1; })()`);
+        await c.ev(QUER, `document.querySelector('.side-q[data-db="ios-safari-history"][data-q="safari-searches"]').click(), 1`);
+        await sleep(300);
+        await c.ev(QUER, `document.getElementById('run-button').click(), 1`);
+        await c.waitFor(QUER, `/rad(er)? på/.test(document.getElementById('run-status').textContent) || /run-warn/.test(document.getElementById('run-status').innerHTML)`, 30000, 'körningen');
+        const q = await c.ev(QUER, `({ status: document.getElementById('run-status').innerText, cols: [...document.querySelectorAll('#run-result thead th')].map(t => t.textContent), rows: [...document.querySelectorAll('#run-result tbody tr')].map(tr => [...tr.children].map(td => td.textContent)) })`);
+        expect(q.rows.length === 1 && q.rows[0][q.cols.indexOf('sokterm')] === 'tågtider göteborg' && q.rows[0][q.cols.indexOf('sokmotor')] === 'Google', 'Queries: ' + JSON.stringify(q.rows) + ' ' + q.status);
+        return '3 besök, 1 sökning och 2 flikar i Safari; 1 rad i Queries';
     }],
 
     ['Härkomst: sökning på tid listar filerna, och HTML i namnen körs inte', async ({ c }) => {

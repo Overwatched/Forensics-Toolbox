@@ -1,0 +1,611 @@
+/* Genererad från web/catalog.json — används när fetch() blockeras (file://). */
+window.WEB_CATALOG = {
+  "id": "web",
+  "title": "Webbhistorik",
+  "sourceNote": "Webbläsarnas egna databaser: Safari på iPhone, Chrome och Samsung Internet. Rollerna (dolda) används av Telefonen.",
+  "paramLabels": {},
+  "databases": [
+    {
+      "id": "ios-safari-history",
+      "os": "iOS",
+      "app": "Safari",
+      "label": "iOS — Safari: History.db",
+      "blurb": "Safaris historik: varje besök med tid, sidans titel och adress, om sidan laddades, omdirigeringar och om besöket kom från en annan enhet genom iCloud. Söktermerna läses ur adresserna, och rensad historik står kvar som spår (history_tombstones).",
+      "dbPathHint": "/private/var/mobile/Library/Safari/History.db (+ -wal). Äldre iOS: i Safaris appcontainer, Library/Safari/History.db.",
+      "paths": [
+        "Library/Safari/History.db"
+      ],
+      "source": "Schemat kontrollerat mot två iPhone-extraktioner (iOS 26.4.1 och iOS 18.7); bara den senare hade besök. Tiderna är sekunder sedan 2001-01-01 (UTC). origin 0 är den här enheten och 1 ett besök synkat från en annan enhet; det är inte prövat i labbet. Söktermerna läses ur adressen (q= eller p=), och procentkodningen avkodas för de vanligaste tecknen. Safaris nedladdningar står i Downloads.plist i appens container, inte här.",
+      "queries": [
+        {
+          "id": "safari-visits",
+          "title": "Besök i tidsspann",
+          "recommended": true,
+          "timeEpoch": "cocoa",
+          "params": [
+            "timeStart",
+            "timeEnd"
+          ],
+          "subtitle": "Varje besök: tid, titel, adress, varifrån det kom (den här enheten eller iCloud), om sidan laddades, omdirigering och hur många gånger sidan besökts.",
+          "returns": "tid, titel, adress, ursprung, laddad, omdirigerad från, omdirigerad till, formulär, besök totalt, id, UTC",
+          "sql": "SELECT\n  CASE WHEN v.visit_time > 0 THEN datetime(v.visit_time + 978307200, 'unixepoch', 'localtime') END AS tid_lokal,\n  v.title AS titel,\n  i.url AS adress,\n  CASE v.origin WHEN 0 THEN 'den här enheten' WHEN 1 THEN 'annan enhet (iCloud)' ELSE 'origin ' || v.origin END AS ursprung,\n  CASE WHEN v.load_successful = 1 THEN 'ja' ELSE 'nej' END AS laddad,\n  (SELECT i2.url FROM history_visits v2 JOIN history_items i2 ON i2.id = v2.history_item WHERE v2.id = v.redirect_source) AS omdirigerad_fran,\n  (SELECT i2.url FROM history_visits v2 JOIN history_items i2 ON i2.id = v2.history_item WHERE v2.id = v.redirect_destination) AS omdirigerad_till,\n  CASE WHEN v.http_non_get = 1 THEN 'ja' END AS formular,\n  i.visit_count AS besok_totalt,\n  v.id AS besok_id, i.id AS sida_id, v.synthesized,\n  CASE WHEN v.visit_time > 0 THEN datetime(v.visit_time + 978307200, 'unixepoch') END AS tid_utc\nFROM history_visits v JOIN history_items i ON i.id = v.history_item\nWHERE v.visit_time BETWEEN {{cocoaStart}} AND {{cocoaEnd}}\nORDER BY v.visit_time, v.id;"
+        },
+        {
+          "id": "safari-pages",
+          "title": "Sidorna, mest besökta först",
+          "recommended": true,
+          "params": [],
+          "subtitle": "En rad per adress: antal besök, första och senaste besöket i databasen och den senaste titeln.",
+          "returns": "adress, besök, första, senaste, titel, id",
+          "sql": "SELECT i.url AS adress, i.visit_count AS besok,\n  (SELECT CASE WHEN min(v.visit_time) > 0 THEN datetime(min(v.visit_time) + 978307200, 'unixepoch', 'localtime') END FROM history_visits v WHERE v.history_item = i.id) AS forsta_lokal,\n  (SELECT CASE WHEN max(v.visit_time) > 0 THEN datetime(max(v.visit_time) + 978307200, 'unixepoch', 'localtime') END FROM history_visits v WHERE v.history_item = i.id) AS senaste_lokal,\n  (SELECT v.title FROM history_visits v WHERE v.history_item = i.id ORDER BY v.visit_time DESC LIMIT 1) AS titel,\n  i.id AS sida_id\nFROM history_items i\nORDER BY i.visit_count DESC, i.url;"
+        },
+        {
+          "id": "safari-searches",
+          "title": "Sökningar",
+          "recommended": true,
+          "params": [],
+          "subtitle": "Söktermerna i adresserna till Google, Bing, DuckDuckGo, Ecosia, Brave, Startpage och Yahoo, med tiden för besöket.",
+          "returns": "tid, sökterm, sökmotor, adress, id, UTC",
+          "sql": "WITH adr AS (SELECT v.id, i.url, v.visit_time AS t, v.title FROM history_visits v JOIN history_items i ON i.id = v.history_item),\np AS (SELECT id, url, t, title,\n    CASE WHEN url LIKE '%://search.yahoo.com/%' THEN 'p=' ELSE 'q=' END AS k FROM adr WHERE (url LIKE '%://www.google.%/search?%' OR url LIKE '%://google.%/search?%' OR url LIKE '%://www.bing.com/search?%' OR url LIKE '%://duckduckgo.com/?%' OR url LIKE '%://html.duckduckgo.com/%' OR url LIKE '%://www.ecosia.org/search?%' OR url LIKE '%://search.brave.com/search?%' OR url LIKE '%://www.startpage.com/%' OR url LIKE '%://search.yahoo.com/search%')),\nr AS (SELECT id, url, t, title, CASE WHEN instr(url, '?' || k) > 0 THEN substr(url, instr(url, '?' || k) + 3)\n    WHEN instr(url, '&' || k) > 0 THEN substr(url, instr(url, '&' || k) + 3) END AS rest FROM p),\nd0 AS (SELECT id, url, t, title,\n    CASE WHEN instr(rest, '&') > 0 THEN substr(rest, 1, instr(rest, '&') - 1) WHEN instr(rest, '#') > 0 THEN substr(rest, 1, instr(rest, '#') - 1) ELSE rest END AS term,\n    CASE WHEN url LIKE '%google.%' THEN 'Google' WHEN url LIKE '%bing.com%' THEN 'Bing' WHEN url LIKE '%duckduckgo.com%' THEN 'DuckDuckGo' WHEN url LIKE '%ecosia.org%' THEN 'Ecosia'\n      WHEN url LIKE '%search.brave.com%' THEN 'Brave' WHEN url LIKE '%startpage.com%' THEN 'Startpage' WHEN url LIKE '%yahoo.com%' THEN 'Yahoo' END AS motor\n  FROM r WHERE rest IS NOT NULL AND rest <> '' AND substr(rest, 1, 1) <> '&'),\nd1 AS (SELECT id, url, t, title, motor, replace(replace(replace(replace(replace(replace(term, '+', ' '), '%20', ' '), '%C3%A5', 'å'), '%C3%A4', 'ä'), '%C3%B6', 'ö'), '%C3%85', 'Å') AS term FROM d0),\nd2 AS (SELECT id, url, t, title, motor, replace(replace(replace(replace(replace(replace(term, '%C3%84', 'Ä'), '%C3%96', 'Ö'), '%C3%A9', 'é'), '%C3%BC', 'ü'), '%27', ''''), '%22', '\"') AS term FROM d1),\nd3 AS (SELECT id, url, t, title, motor, replace(replace(replace(replace(replace(replace(term, '%3F', '?'), '%2C', ','), '%3A', ':'), '%2F', '/'), '%26', '&'), '%3D', '=') AS term FROM d2),\nd4 AS (SELECT id, url, t, title, motor, replace(replace(replace(replace(replace(term, '%40', '@'), '%23', '#'), '%21', '!'), '%2B', '+'), '%25', '%') AS term FROM d3),\nsokning AS (SELECT id, url, t, title, trim(term) AS term, motor FROM d4)\nSELECT CASE WHEN t > 0 THEN datetime(t + 978307200, 'unixepoch', 'localtime') END AS tid_lokal, term AS sokterm, motor AS sokmotor, url AS adress, id AS besok_id, CASE WHEN t > 0 THEN datetime(t + 978307200, 'unixepoch') END AS tid_utc\nFROM sokning WHERE term <> '' ORDER BY t, id;"
+        },
+        {
+          "id": "safari-deleted",
+          "title": "Rensad historik",
+          "recommended": true,
+          "params": [],
+          "subtitle": "Spåren efter rensad historik (history_tombstones): tidsspannet som rensades och adressen när en enda sida togs bort. Raderna synkas till andra enheter genom iCloud.",
+          "returns": "från, till, adress, generation, id",
+          "sql": "SELECT CASE WHEN t.start_time > 0 THEN datetime(t.start_time + 978307200, 'unixepoch', 'localtime') END AS fran_lokal, CASE WHEN t.end_time > 0 THEN datetime(t.end_time + 978307200, 'unixepoch', 'localtime') END AS till_lokal,\n  COALESCE(t.url, '(alla adresser i spannet)') AS adress, t.generation, t.id,\n  CASE WHEN t.start_time > 0 THEN datetime(t.start_time + 978307200, 'unixepoch') END AS fran_utc, CASE WHEN t.end_time > 0 THEN datetime(t.end_time + 978307200, 'unixepoch') END AS till_utc\nFROM history_tombstones t ORDER BY t.start_time, t.id;"
+        },
+        {
+          "id": "tables",
+          "group": "Avancerat",
+          "title": "Tabeller i databasen",
+          "subtitle": "Tabellerna i databasen. history_visits är besöken och history_items adresserna.",
+          "returns": "namn",
+          "params": [],
+          "sql": "SELECT name AS tabell FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name;"
+        },
+        {
+          "id": "role-web-visits",
+          "hidden": true,
+          "role": "web-visits",
+          "title": "Telefonen: besöken",
+          "description": "Används av Telefonen. Ett besök per rad.",
+          "params": [],
+          "epoch": "cocoa",
+          "fields": {
+            "id": "visit_id",
+            "time": "visit_time",
+            "url": "url",
+            "title": "title",
+            "origin": "origin",
+            "loaded": "load_successful",
+            "redirectFrom": "redirect_from",
+            "count": "visit_count",
+            "form": "http_non_get"
+          },
+          "sql": "SELECT v.id AS visit_id, v.visit_time, i.url, v.title, CASE v.origin WHEN 0 THEN 'local' WHEN 1 THEN 'synced' ELSE CAST(v.origin AS TEXT) END AS origin,\n  v.load_successful, (SELECT i2.url FROM history_visits v2 JOIN history_items i2 ON i2.id = v2.history_item WHERE v2.id = v.redirect_source) AS redirect_from, i.visit_count, v.http_non_get\nFROM history_visits v JOIN history_items i ON i.id = v.history_item ORDER BY v.visit_time DESC, v.id DESC;"
+        },
+        {
+          "id": "role-web-searches",
+          "hidden": true,
+          "role": "web-searches",
+          "title": "Telefonen: sökningarna",
+          "description": "Används av Telefonen. En sökning per rad, ur adresserna.",
+          "params": [],
+          "epoch": "cocoa",
+          "fields": {
+            "id": "id",
+            "time": "t",
+            "term": "term",
+            "engine": "motor",
+            "url": "url"
+          },
+          "sql": "WITH adr AS (SELECT v.id, i.url, v.visit_time AS t, v.title FROM history_visits v JOIN history_items i ON i.id = v.history_item),\np AS (SELECT id, url, t, title,\n    CASE WHEN url LIKE '%://search.yahoo.com/%' THEN 'p=' ELSE 'q=' END AS k FROM adr WHERE (url LIKE '%://www.google.%/search?%' OR url LIKE '%://google.%/search?%' OR url LIKE '%://www.bing.com/search?%' OR url LIKE '%://duckduckgo.com/?%' OR url LIKE '%://html.duckduckgo.com/%' OR url LIKE '%://www.ecosia.org/search?%' OR url LIKE '%://search.brave.com/search?%' OR url LIKE '%://www.startpage.com/%' OR url LIKE '%://search.yahoo.com/search%')),\nr AS (SELECT id, url, t, title, CASE WHEN instr(url, '?' || k) > 0 THEN substr(url, instr(url, '?' || k) + 3)\n    WHEN instr(url, '&' || k) > 0 THEN substr(url, instr(url, '&' || k) + 3) END AS rest FROM p),\nd0 AS (SELECT id, url, t, title,\n    CASE WHEN instr(rest, '&') > 0 THEN substr(rest, 1, instr(rest, '&') - 1) WHEN instr(rest, '#') > 0 THEN substr(rest, 1, instr(rest, '#') - 1) ELSE rest END AS term,\n    CASE WHEN url LIKE '%google.%' THEN 'Google' WHEN url LIKE '%bing.com%' THEN 'Bing' WHEN url LIKE '%duckduckgo.com%' THEN 'DuckDuckGo' WHEN url LIKE '%ecosia.org%' THEN 'Ecosia'\n      WHEN url LIKE '%search.brave.com%' THEN 'Brave' WHEN url LIKE '%startpage.com%' THEN 'Startpage' WHEN url LIKE '%yahoo.com%' THEN 'Yahoo' END AS motor\n  FROM r WHERE rest IS NOT NULL AND rest <> '' AND substr(rest, 1, 1) <> '&'),\nd1 AS (SELECT id, url, t, title, motor, replace(replace(replace(replace(replace(replace(term, '+', ' '), '%20', ' '), '%C3%A5', 'å'), '%C3%A4', 'ä'), '%C3%B6', 'ö'), '%C3%85', 'Å') AS term FROM d0),\nd2 AS (SELECT id, url, t, title, motor, replace(replace(replace(replace(replace(replace(term, '%C3%84', 'Ä'), '%C3%96', 'Ö'), '%C3%A9', 'é'), '%C3%BC', 'ü'), '%27', ''''), '%22', '\"') AS term FROM d1),\nd3 AS (SELECT id, url, t, title, motor, replace(replace(replace(replace(replace(replace(term, '%3F', '?'), '%2C', ','), '%3A', ':'), '%2F', '/'), '%26', '&'), '%3D', '=') AS term FROM d2),\nd4 AS (SELECT id, url, t, title, motor, replace(replace(replace(replace(replace(term, '%40', '@'), '%23', '#'), '%21', '!'), '%2B', '+'), '%25', '%') AS term FROM d3),\nsokning AS (SELECT id, url, t, title, trim(term) AS term, motor FROM d4)\nSELECT id, t, term, motor, url FROM sokning WHERE term <> '' ORDER BY t DESC, id DESC;"
+        },
+        {
+          "id": "role-web-cleared",
+          "hidden": true,
+          "role": "web-cleared",
+          "title": "Telefonen: rensad historik",
+          "description": "Används av Telefonen.",
+          "params": [],
+          "epoch": "cocoa",
+          "fields": {
+            "id": "id",
+            "start": "start_time",
+            "end": "end_time",
+            "url": "url"
+          },
+          "sql": "SELECT id, start_time, end_time, url FROM history_tombstones ORDER BY start_time DESC;"
+        }
+      ]
+    },
+    {
+      "id": "ios-safari-tabs",
+      "os": "iOS",
+      "app": "Safari",
+      "label": "iOS — Safari: SafariTabs.db (flikar)",
+      "blurb": "Safaris flikar: öppna flikar, privata flikar och flikgrupper, med titel och adress, och stängda fönster. Tiden för flikens senaste besök står i plisten local_attributes (LastVisitTime).",
+      "dbPathHint": "/private/var/mobile/Library/Safari/SafariTabs.db (+ -wal), från iOS 15. Äldre iOS: BrowserState.db.",
+      "paths": [
+        "Library/Safari/SafariTabs.db"
+      ],
+      "source": "Kontrollerat mot två iPhone-extraktioner (iOS 26.4.1 och iOS 18.7). Flikarna är rader i bookmarks med type 0 och en adress; flikgrupperna är type 1. windows säger vilken grupp som är de privata flikarna (private_tab_group_id) och vilken som är de vanliga (local_tab_group_id). Tiden för flikens senaste besök står i plisten local_attributes (LastVisitTime) och visas i Telefonen.",
+      "queries": [
+        {
+          "id": "safari-tabs",
+          "title": "Flikarna",
+          "recommended": true,
+          "params": [],
+          "subtitle": "Varje flik: grupp (vanliga, privata eller en egen flikgrupp), titel, adress och om den är stängd. Tiden står i local_attributes.",
+          "returns": "grupp, privat, titel, adress, stängd, ordning, id, uuid",
+          "sql": "SELECT CASE WHEN b.parent IN (SELECT private_tab_group_id FROM windows) THEN 'Privata flikar' WHEN b.parent IN (SELECT local_tab_group_id FROM windows) THEN 'Flikar'\n    ELSE COALESCE(NULLIF((SELECT g.title FROM bookmarks g WHERE g.id = b.parent), ''), 'grupp ' || b.parent) END AS grupp,\n  CASE WHEN b.parent IN (SELECT private_tab_group_id FROM windows) THEN 'ja' ELSE 'nej' END AS privat,\n  b.title AS titel, b.url AS adress,\n  CASE WHEN b.date_closed > 0 THEN datetime(b.date_closed + 978307200, 'unixepoch', 'localtime') END AS stangd_lokal,\n  b.order_index AS ordning, b.id, b.external_uuid AS uuid, b.local_attributes\nFROM bookmarks b\nWHERE b.type = 0 AND b.url IS NOT NULL AND b.url <> ''\nORDER BY grupp, b.order_index;"
+        },
+        {
+          "id": "safari-tab-groups",
+          "title": "Flikgrupper och fönster",
+          "params": [],
+          "subtitle": "Flikgrupperna med antalet flikar, och vilken grupp som är fönstrets vanliga och privata.",
+          "returns": "grupp, slag, flikar, id",
+          "sql": "SELECT COALESCE(NULLIF(g.title, ''), '(utan namn)') AS grupp,\n  CASE WHEN g.id IN (SELECT private_tab_group_id FROM windows) THEN 'privata flikar' WHEN g.id IN (SELECT local_tab_group_id FROM windows) THEN 'vanliga flikar'\n    WHEN g.subtype = 0 THEN 'flikgrupp' ELSE 'subtype ' || g.subtype END AS slag,\n  (SELECT count(*) FROM bookmarks b WHERE b.parent = g.id AND b.type = 0 AND b.url IS NOT NULL AND b.url <> '') AS flikar,\n  CASE WHEN g.date_closed > 0 THEN datetime(g.date_closed + 978307200, 'unixepoch', 'localtime') END AS stangd_lokal, g.id\nFROM bookmarks g WHERE g.type = 1 AND g.hidden = 0 OR g.id IN (SELECT private_tab_group_id FROM windows) OR g.id IN (SELECT local_tab_group_id FROM windows)\nORDER BY g.id;"
+        },
+        {
+          "id": "tables",
+          "group": "Avancerat",
+          "title": "Tabeller i databasen",
+          "subtitle": "Tabellerna i databasen. Flikarna och grupperna står i bookmarks, fönstren i windows.",
+          "returns": "namn",
+          "params": [],
+          "sql": "SELECT name AS tabell FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name;"
+        },
+        {
+          "id": "role-web-tabs",
+          "hidden": true,
+          "role": "web-tabs",
+          "title": "Telefonen: flikarna",
+          "description": "Används av Telefonen. En flik per rad; tiden ur local_attributes.",
+          "params": [],
+          "epoch": "cocoa",
+          "fields": {
+            "id": "id",
+            "title": "title",
+            "url": "url",
+            "group": "grupp",
+            "private": "private",
+            "closed": "date_closed",
+            "order": "order_index",
+            "attrs": "local_attributes"
+          },
+          "sql": "SELECT b.id, b.title, b.url, CASE WHEN b.parent IN (SELECT private_tab_group_id FROM windows) THEN 'Privata flikar' WHEN b.parent IN (SELECT local_tab_group_id FROM windows) THEN 'Flikar'\n    ELSE COALESCE(NULLIF((SELECT g.title FROM bookmarks g WHERE g.id = b.parent), ''), 'grupp ' || b.parent) END AS grupp,\n  CASE WHEN b.parent IN (SELECT private_tab_group_id FROM windows) THEN 1 ELSE 0 END AS private, b.date_closed, b.order_index, b.local_attributes\nFROM bookmarks b WHERE b.type = 0 AND b.url IS NOT NULL AND b.url <> '' ORDER BY private, grupp, b.order_index;"
+        }
+      ]
+    },
+    {
+      "id": "ios-safari-bookmarks",
+      "os": "iOS",
+      "app": "Safari",
+      "label": "iOS — Safari: Bookmarks.db (bokmärken och läslista)",
+      "blurb": "Safaris bokmärken och läslistan med mapp, titel och adress.",
+      "dbPathHint": "/private/var/mobile/Library/Safari/Bookmarks.db (+ -wal).",
+      "paths": [
+        "Library/Safari/Bookmarks.db"
+      ],
+      "source": "Kontrollerat mot två iPhone-extraktioner (iOS 26.4.1 och iOS 18.7). Läslistan är mappen com.apple.ReadingList; när en sida lades till och lästes står i plisten extra_attributes.",
+      "queries": [
+        {
+          "id": "safari-bookmarks",
+          "title": "Bokmärken och läslista",
+          "recommended": true,
+          "params": [],
+          "subtitle": "Varje bokmärke med mapp, titel och adress. Läslistan står som egen mapp.",
+          "returns": "mapp, titel, adress, läst, id",
+          "sql": "SELECT CASE (SELECT f.title FROM bookmarks f WHERE f.id = b.parent) WHEN 'com.apple.ReadingList' THEN 'Läslista' WHEN 'BookmarksBar' THEN 'Favoriter'\n    WHEN 'BookmarksMenu' THEN 'Bokmärken' ELSE COALESCE((SELECT f.title FROM bookmarks f WHERE f.id = b.parent), '') END AS mapp,\n  b.title AS titel, b.url AS adress, CASE WHEN b.read = 1 THEN 'ja' WHEN b.read = 0 THEN 'nej' END AS last, b.id, b.extra_attributes\nFROM bookmarks b WHERE b.type = 0 AND b.url IS NOT NULL AND b.url <> '' AND b.hidden = 0\nORDER BY mapp, b.order_index;"
+        },
+        {
+          "id": "tables",
+          "group": "Avancerat",
+          "title": "Tabeller i databasen",
+          "subtitle": "Tabellerna i databasen. bookmarks har bokmärkena och mapparna.",
+          "returns": "namn",
+          "params": [],
+          "sql": "SELECT name AS tabell FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name;"
+        }
+      ]
+    },
+    {
+      "id": "android-chrome",
+      "os": "Android",
+      "app": "Chrome",
+      "label": "Android — Chrome: History",
+      "blurb": "Historiken i Chrome: varje besök med tid, titel, adress, hur besöket kom till (länk, skriven adress, sökning, omdirigering) och tiden på sidan, söktermerna, och nedladdningarna med adress, hänvisande sida och var filen sparades.",
+      "dbPathHint": "/data/data/com.android.chrome/app_chrome/Default/History. Samma fil i andra Chromium-webbläsare under app_chrome (Edge, Brave och fler).",
+      "paths": [
+        "app_chrome/Default/History"
+      ],
+      "source": "Kontrollerat mot en Pixel med Android 16 (14 besök) och en Samsung A33 med Android 16. Tiderna är mikrosekunder sedan 1601-01-01 (UTC). transition: de låga åtta bitarna är övergången (0 länk, 1 skriven adress, 5 sökning, 7 formulär, 8 omladdning med flera), de höga bitarna tillägg som omdirigering och bakåt/framåt. visit_duration är tiden på sidan i mikrosekunder. originator_cache_guid är satt när besöket synkats från en annan enhet. Äldre versioner saknar kolumner som opener_visit, originator_cache_guid och app_id.",
+      "queries": [
+        {
+          "id": "chrome-visits",
+          "title": "Besök i tidsspann",
+          "recommended": true,
+          "timeEpoch": "unix-ms",
+          "params": [
+            "timeStart",
+            "timeEnd"
+          ],
+          "subtitle": "Varje besök: tid, titel, adress, övergång (länk, skriven adress, sökning, formulär, omdirigering), tid på sidan, sidan det kom från och om besöket synkats från en annan enhet.",
+          "returns": "tid, titel, adress, övergång, tillägg, sekunder på sidan, från sida, extern hänvisning, öppnad från, ursprung, app, besök, skriven, id, UTC",
+          "sql": "SELECT\n  CASE WHEN v.visit_time > 0 THEN datetime(v.visit_time / 1000000 - 11644473600, 'unixepoch', 'localtime') END AS tid_lokal,\n  u.title AS titel, u.url AS adress,\n  CASE v.transition & 255 WHEN 0 THEN 'länk' WHEN 1 THEN 'skriven adress' WHEN 2 THEN 'förslag eller bokmärke' WHEN 3 THEN 'inbäddad (automatisk)'\n    WHEN 4 THEN 'inbäddad (klick)' WHEN 5 THEN 'sökning i adressfältet' WHEN 6 THEN 'öppnad utifrån' WHEN 7 THEN 'formulär' WHEN 8 THEN 'omladdning'\n    WHEN 9 THEN 'sökmotor' WHEN 10 THEN 'sökmotor (genererad)' ELSE 'typ ' || (v.transition & 255) END AS overgang,\n  trim(CASE WHEN v.transition & 16777216 THEN 'bakåt/framåt ' ELSE '' END || CASE WHEN v.transition & 33554432 THEN 'adressfältet ' ELSE '' END\n    || CASE WHEN v.transition & 67108864 THEN 'startsida ' ELSE '' END || CASE WHEN v.transition & 134217728 THEN 'från en app ' ELSE '' END\n    || CASE WHEN v.transition & 1073741824 THEN 'omdirigering (sidan) ' ELSE '' END || CASE WHEN v.transition & 2147483648 THEN 'omdirigering (servern) ' ELSE '' END) AS tillagg,\n  CASE WHEN v.visit_duration > 0 THEN round(v.visit_duration / 1000000.0, 1) END AS sekunder_pa_sidan,\n  (SELECT u2.url FROM visits v2 JOIN urls u2 ON u2.id = v2.url WHERE v2.id = v.from_visit AND v.from_visit > 0) AS fran_sida,\n  NULLIF(v.external_referrer_url, '') AS extern_hanvisning,\n  (SELECT u2.url FROM visits v2 JOIN urls u2 ON u2.id = v2.url WHERE v2.id = v.opener_visit AND v.opener_visit > 0) AS oppnad_fran,\n  CASE WHEN COALESCE(v.originator_cache_guid, '') <> '' THEN 'annan enhet (synk)' ELSE 'den här enheten' END AS ursprung,\n  NULLIF(v.app_id, '') AS app,\n  u.visit_count AS besok_totalt, u.typed_count AS skriven,\n  v.id AS besok_id, u.id AS url_id, v.transition,\n  CASE WHEN v.visit_time > 0 THEN datetime(v.visit_time / 1000000 - 11644473600, 'unixepoch') END AS tid_utc\nFROM visits v JOIN urls u ON u.id = v.url\nWHERE (v.visit_time / 1000 - 11644473600000) BETWEEN {{unixMsStart}} AND {{unixMsEnd}}\nORDER BY v.visit_time, v.id;"
+        },
+        {
+          "id": "chrome-searches",
+          "title": "Sökningar",
+          "recommended": true,
+          "params": [],
+          "subtitle": "Söktermerna som skrevs i adressfältet (keyword_search_terms), med sökadressen och när den besöktes första och senaste gången.",
+          "returns": "första, senaste, sökterm, normaliserad, adress, besök, id, UTC",
+          "sql": "SELECT (SELECT CASE WHEN min(v.visit_time) > 0 THEN datetime(min(v.visit_time) / 1000000 - 11644473600, 'unixepoch', 'localtime') END FROM visits v WHERE v.url = u.id) AS forsta_lokal,\n  CASE WHEN u.last_visit_time > 0 THEN datetime(u.last_visit_time / 1000000 - 11644473600, 'unixepoch', 'localtime') END AS senaste_lokal,\n  k.term AS sokterm, k.normalized_term AS normaliserad, u.url AS adress, u.visit_count AS besok, u.id AS url_id,\n  CASE WHEN u.last_visit_time > 0 THEN datetime(u.last_visit_time / 1000000 - 11644473600, 'unixepoch') END AS senaste_utc\nFROM keyword_search_terms k JOIN urls u ON u.id = k.url_id\nORDER BY u.last_visit_time;"
+        },
+        {
+          "id": "chrome-downloads",
+          "title": "Nedladdningar",
+          "recommended": true,
+          "params": [],
+          "subtitle": "Varje nedladdning: start och slut, filen (sökväg, typ, storlek), adressen med omdirigeringar, sidan och fliken den kom från, läget och om den öppnades.",
+          "returns": "start, slut, fil, sparad som, typ, byte, läge, öppnad, adress, kedja, hänvisning, sida, flik, flikens hänvisning, fara, avbrott, senast öppnad, etag, ändrad enligt servern, id",
+          "sql": "SELECT CASE WHEN d.start_time > 0 THEN datetime(d.start_time / 1000000 - 11644473600, 'unixepoch', 'localtime') END AS start_lokal, CASE WHEN d.end_time > 0 THEN datetime(d.end_time / 1000000 - 11644473600, 'unixepoch', 'localtime') END AS slut_lokal,\n  d.target_path AS fil, NULLIF(d.current_path, d.target_path) AS sparad_som, d.mime_type AS typ, d.total_bytes AS byte, d.received_bytes AS mottagna_byte,\n  CASE d.state WHEN 0 THEN 'pågår' WHEN 1 THEN 'klar' WHEN 2 THEN 'avbruten' WHEN 3 THEN 'avbruten' WHEN 4 THEN 'avbröts (fel)' ELSE 'state ' || d.state END AS lage, CASE WHEN d.opened = 1 THEN 'ja' ELSE 'nej' END AS oppnad,\n  (SELECT c.url FROM downloads_url_chains c WHERE c.id = d.id ORDER BY c.chain_index DESC LIMIT 1) AS adress, (SELECT group_concat(url, ' → ') FROM (SELECT c.url FROM downloads_url_chains c WHERE c.id = d.id ORDER BY c.chain_index)) AS kedja,\n  NULLIF(d.referrer, '') AS hanvisning, NULLIF(d.site_url, '') AS sida, NULLIF(d.tab_url, '') AS flik, NULLIF(d.tab_referrer_url, '') AS fliken_fran,\n  d.danger_type AS fara, d.interrupt_reason AS avbrott, CASE WHEN d.last_access_time > 0 THEN datetime(d.last_access_time / 1000000 - 11644473600, 'unixepoch', 'localtime') END AS senast_oppnad_lokal,\n  NULLIF(d.etag, '') AS etag, NULLIF(d.last_modified, '') AS andrad_enligt_servern, d.id, d.guid,\n  CASE WHEN d.start_time > 0 THEN datetime(d.start_time / 1000000 - 11644473600, 'unixepoch') END AS start_utc\nFROM downloads d ORDER BY d.start_time, d.id;"
+        },
+        {
+          "id": "chrome-pages",
+          "title": "Sidorna, mest besökta först",
+          "params": [],
+          "subtitle": "En rad per adress: titel, antal besök, hur många gånger adressen skrevs, senaste besöket och om den är dold i historiken.",
+          "returns": "adress, titel, besök, skriven, senaste, dold, id",
+          "sql": "SELECT u.url AS adress, u.title AS titel, u.visit_count AS besok, u.typed_count AS skriven, CASE WHEN u.last_visit_time > 0 THEN datetime(u.last_visit_time / 1000000 - 11644473600, 'unixepoch', 'localtime') END AS senaste_lokal,\n  CASE WHEN u.hidden = 1 THEN 'ja' ELSE 'nej' END AS dold, u.id AS url_id\nFROM urls u ORDER BY u.visit_count DESC, u.last_visit_time DESC;"
+        },
+        {
+          "id": "tables",
+          "group": "Avancerat",
+          "title": "Tabeller i databasen",
+          "subtitle": "Tabellerna i databasen. visits är besöken, urls adresserna, keyword_search_terms söktermerna och downloads nedladdningarna.",
+          "returns": "namn",
+          "params": [],
+          "sql": "SELECT name AS tabell FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name;"
+        },
+        {
+          "id": "role-web-visits",
+          "hidden": true,
+          "role": "web-visits",
+          "title": "Telefonen: besöken",
+          "description": "Används av Telefonen. Ett besök per rad.",
+          "params": [],
+          "epoch": "unixMs",
+          "fields": {
+            "id": "visit_id",
+            "time": "time_ms",
+            "url": "url",
+            "title": "title",
+            "origin": "origin",
+            "transition": "transition_text",
+            "qualifiers": "qualifiers",
+            "durationS": "duration_s",
+            "from": "from_url",
+            "app": "app_id",
+            "count": "visit_count",
+            "typed": "typed_count"
+          },
+          "sql": "SELECT v.id AS visit_id, (v.visit_time / 1000 - 11644473600000) AS time_ms, u.url, u.title,\n  CASE WHEN COALESCE(v.originator_cache_guid, '') <> '' THEN 'synced' ELSE 'local' END AS origin,\n  CASE v.transition & 255 WHEN 0 THEN 'länk' WHEN 1 THEN 'skriven adress' WHEN 2 THEN 'förslag eller bokmärke' WHEN 3 THEN 'inbäddad (automatisk)'\n    WHEN 4 THEN 'inbäddad (klick)' WHEN 5 THEN 'sökning i adressfältet' WHEN 6 THEN 'öppnad utifrån' WHEN 7 THEN 'formulär' WHEN 8 THEN 'omladdning'\n    WHEN 9 THEN 'sökmotor' WHEN 10 THEN 'sökmotor (genererad)' ELSE 'typ ' || (v.transition & 255) END AS transition_text, trim(CASE WHEN v.transition & 16777216 THEN 'bakåt/framåt ' ELSE '' END || CASE WHEN v.transition & 33554432 THEN 'adressfältet ' ELSE '' END\n    || CASE WHEN v.transition & 67108864 THEN 'startsida ' ELSE '' END || CASE WHEN v.transition & 134217728 THEN 'från en app ' ELSE '' END\n    || CASE WHEN v.transition & 1073741824 THEN 'omdirigering (sidan) ' ELSE '' END || CASE WHEN v.transition & 2147483648 THEN 'omdirigering (servern) ' ELSE '' END) AS qualifiers,\n  CASE WHEN v.visit_duration > 0 THEN v.visit_duration / 1000000.0 END AS duration_s, (SELECT u2.url FROM visits v2 JOIN urls u2 ON u2.id = v2.url WHERE v2.id = v.from_visit AND v.from_visit > 0) AS from_url,\n  NULLIF(v.app_id, '') AS app_id, u.visit_count, u.typed_count\nFROM visits v JOIN urls u ON u.id = v.url ORDER BY v.visit_time DESC, v.id DESC;"
+        },
+        {
+          "id": "role-web-searches",
+          "hidden": true,
+          "role": "web-searches",
+          "title": "Telefonen: sökningarna",
+          "description": "Används av Telefonen. En sökterm per rad.",
+          "params": [],
+          "epoch": "unixMs",
+          "fields": {
+            "id": "url_id",
+            "time": "time_ms",
+            "term": "term",
+            "url": "url"
+          },
+          "sql": "SELECT u.id AS url_id, (u.last_visit_time / 1000 - 11644473600000) AS time_ms, k.term, u.url FROM keyword_search_terms k JOIN urls u ON u.id = k.url_id ORDER BY u.last_visit_time DESC;"
+        },
+        {
+          "id": "role-web-downloads",
+          "hidden": true,
+          "role": "web-downloads",
+          "title": "Telefonen: nedladdningarna",
+          "description": "Används av Telefonen och Härkomst. En nedladdning per rad.",
+          "params": [],
+          "epoch": "unixMs",
+          "fields": {
+            "id": "id",
+            "start": "start_ms",
+            "end": "end_ms",
+            "path": "target_path",
+            "current": "current_path",
+            "mime": "mime_type",
+            "size": "total_bytes",
+            "received": "received_bytes",
+            "state": "state_text",
+            "opened": "opened",
+            "url": "url",
+            "chain": "chain",
+            "referrer": "referrer",
+            "site": "site_url",
+            "tab": "tab_url",
+            "tabReferrer": "tab_referrer_url",
+            "lastAccess": "last_access_ms"
+          },
+          "sql": "SELECT d.id, (d.start_time / 1000 - 11644473600000) AS start_ms, CASE WHEN d.end_time > 0 THEN (d.end_time / 1000 - 11644473600000) END AS end_ms, d.target_path, d.current_path, d.mime_type,\n  d.total_bytes, d.received_bytes, CASE d.state WHEN 0 THEN 'pågår' WHEN 1 THEN 'klar' WHEN 2 THEN 'avbruten' WHEN 3 THEN 'avbruten' WHEN 4 THEN 'avbröts (fel)' ELSE 'state ' || d.state END AS state_text, d.opened, (SELECT c.url FROM downloads_url_chains c WHERE c.id = d.id ORDER BY c.chain_index DESC LIMIT 1) AS url, (SELECT group_concat(url, ' → ') FROM (SELECT c.url FROM downloads_url_chains c WHERE c.id = d.id ORDER BY c.chain_index)) AS chain,\n  NULLIF(d.referrer, '') AS referrer, NULLIF(d.site_url, '') AS site_url, NULLIF(d.tab_url, '') AS tab_url, NULLIF(d.tab_referrer_url, '') AS tab_referrer_url,\n  CASE WHEN d.last_access_time > 0 THEN (d.last_access_time / 1000 - 11644473600000) END AS last_access_ms\nFROM downloads d ORDER BY d.start_time DESC;"
+        }
+      ]
+    },
+    {
+      "id": "android-sbrowser",
+      "os": "Android",
+      "app": "Samsung Internet",
+      "label": "Android — Samsung Internet: History",
+      "blurb": "Historiken i Samsung Internet: varje besök med tid, titel, adress, hur besöket kom till (länk, skriven adress, sökning, omdirigering) och tiden på sidan, söktermerna, och nedladdningarna med adress, hänvisande sida och var filen sparades.",
+      "dbPathHint": "/data/data/com.sec.android.app.sbrowser/app_sbrowser/Default/History.",
+      "paths": [
+        "app_sbrowser/Default/History"
+      ],
+      "source": "Kontrollerat mot en Samsung A33 med Android 16 (7 besök och en nedladdning). Samma format som Chrome. Tiderna är mikrosekunder sedan 1601-01-01 (UTC). transition: de låga åtta bitarna är övergången (0 länk, 1 skriven adress, 5 sökning, 7 formulär, 8 omladdning med flera), de höga bitarna tillägg som omdirigering och bakåt/framåt. visit_duration är tiden på sidan i mikrosekunder. originator_cache_guid är satt när besöket synkats från en annan enhet. Äldre versioner saknar kolumner som opener_visit, originator_cache_guid och app_id.",
+      "queries": [
+        {
+          "id": "chrome-visits",
+          "title": "Besök i tidsspann",
+          "recommended": true,
+          "timeEpoch": "unix-ms",
+          "params": [
+            "timeStart",
+            "timeEnd"
+          ],
+          "subtitle": "Varje besök: tid, titel, adress, övergång (länk, skriven adress, sökning, formulär, omdirigering), tid på sidan, sidan det kom från och om besöket synkats från en annan enhet.",
+          "returns": "tid, titel, adress, övergång, tillägg, sekunder på sidan, från sida, extern hänvisning, öppnad från, ursprung, app, besök, skriven, id, UTC",
+          "sql": "SELECT\n  CASE WHEN v.visit_time > 0 THEN datetime(v.visit_time / 1000000 - 11644473600, 'unixepoch', 'localtime') END AS tid_lokal,\n  u.title AS titel, u.url AS adress,\n  CASE v.transition & 255 WHEN 0 THEN 'länk' WHEN 1 THEN 'skriven adress' WHEN 2 THEN 'förslag eller bokmärke' WHEN 3 THEN 'inbäddad (automatisk)'\n    WHEN 4 THEN 'inbäddad (klick)' WHEN 5 THEN 'sökning i adressfältet' WHEN 6 THEN 'öppnad utifrån' WHEN 7 THEN 'formulär' WHEN 8 THEN 'omladdning'\n    WHEN 9 THEN 'sökmotor' WHEN 10 THEN 'sökmotor (genererad)' ELSE 'typ ' || (v.transition & 255) END AS overgang,\n  trim(CASE WHEN v.transition & 16777216 THEN 'bakåt/framåt ' ELSE '' END || CASE WHEN v.transition & 33554432 THEN 'adressfältet ' ELSE '' END\n    || CASE WHEN v.transition & 67108864 THEN 'startsida ' ELSE '' END || CASE WHEN v.transition & 134217728 THEN 'från en app ' ELSE '' END\n    || CASE WHEN v.transition & 1073741824 THEN 'omdirigering (sidan) ' ELSE '' END || CASE WHEN v.transition & 2147483648 THEN 'omdirigering (servern) ' ELSE '' END) AS tillagg,\n  CASE WHEN v.visit_duration > 0 THEN round(v.visit_duration / 1000000.0, 1) END AS sekunder_pa_sidan,\n  (SELECT u2.url FROM visits v2 JOIN urls u2 ON u2.id = v2.url WHERE v2.id = v.from_visit AND v.from_visit > 0) AS fran_sida,\n  NULLIF(v.external_referrer_url, '') AS extern_hanvisning,\n  (SELECT u2.url FROM visits v2 JOIN urls u2 ON u2.id = v2.url WHERE v2.id = v.opener_visit AND v.opener_visit > 0) AS oppnad_fran,\n  CASE WHEN COALESCE(v.originator_cache_guid, '') <> '' THEN 'annan enhet (synk)' ELSE 'den här enheten' END AS ursprung,\n  NULLIF(v.app_id, '') AS app,\n  u.visit_count AS besok_totalt, u.typed_count AS skriven,\n  v.id AS besok_id, u.id AS url_id, v.transition,\n  CASE WHEN v.visit_time > 0 THEN datetime(v.visit_time / 1000000 - 11644473600, 'unixepoch') END AS tid_utc\nFROM visits v JOIN urls u ON u.id = v.url\nWHERE (v.visit_time / 1000 - 11644473600000) BETWEEN {{unixMsStart}} AND {{unixMsEnd}}\nORDER BY v.visit_time, v.id;"
+        },
+        {
+          "id": "chrome-searches",
+          "title": "Sökningar",
+          "recommended": true,
+          "params": [],
+          "subtitle": "Söktermerna som skrevs i adressfältet (keyword_search_terms), med sökadressen och när den besöktes första och senaste gången.",
+          "returns": "första, senaste, sökterm, normaliserad, adress, besök, id, UTC",
+          "sql": "SELECT (SELECT CASE WHEN min(v.visit_time) > 0 THEN datetime(min(v.visit_time) / 1000000 - 11644473600, 'unixepoch', 'localtime') END FROM visits v WHERE v.url = u.id) AS forsta_lokal,\n  CASE WHEN u.last_visit_time > 0 THEN datetime(u.last_visit_time / 1000000 - 11644473600, 'unixepoch', 'localtime') END AS senaste_lokal,\n  k.term AS sokterm, k.normalized_term AS normaliserad, u.url AS adress, u.visit_count AS besok, u.id AS url_id,\n  CASE WHEN u.last_visit_time > 0 THEN datetime(u.last_visit_time / 1000000 - 11644473600, 'unixepoch') END AS senaste_utc\nFROM keyword_search_terms k JOIN urls u ON u.id = k.url_id\nORDER BY u.last_visit_time;"
+        },
+        {
+          "id": "chrome-downloads",
+          "title": "Nedladdningar",
+          "recommended": true,
+          "params": [],
+          "subtitle": "Varje nedladdning: start och slut, filen (sökväg, typ, storlek), adressen med omdirigeringar, sidan och fliken den kom från, läget och om den öppnades.",
+          "returns": "start, slut, fil, sparad som, typ, byte, läge, öppnad, adress, kedja, hänvisning, sida, flik, flikens hänvisning, fara, avbrott, senast öppnad, etag, ändrad enligt servern, id",
+          "sql": "SELECT CASE WHEN d.start_time > 0 THEN datetime(d.start_time / 1000000 - 11644473600, 'unixepoch', 'localtime') END AS start_lokal, CASE WHEN d.end_time > 0 THEN datetime(d.end_time / 1000000 - 11644473600, 'unixepoch', 'localtime') END AS slut_lokal,\n  d.target_path AS fil, NULLIF(d.current_path, d.target_path) AS sparad_som, d.mime_type AS typ, d.total_bytes AS byte, d.received_bytes AS mottagna_byte,\n  CASE d.state WHEN 0 THEN 'pågår' WHEN 1 THEN 'klar' WHEN 2 THEN 'avbruten' WHEN 3 THEN 'avbruten' WHEN 4 THEN 'avbröts (fel)' ELSE 'state ' || d.state END AS lage, CASE WHEN d.opened = 1 THEN 'ja' ELSE 'nej' END AS oppnad,\n  (SELECT c.url FROM downloads_url_chains c WHERE c.id = d.id ORDER BY c.chain_index DESC LIMIT 1) AS adress, (SELECT group_concat(url, ' → ') FROM (SELECT c.url FROM downloads_url_chains c WHERE c.id = d.id ORDER BY c.chain_index)) AS kedja,\n  NULLIF(d.referrer, '') AS hanvisning, NULLIF(d.site_url, '') AS sida, NULLIF(d.tab_url, '') AS flik, NULLIF(d.tab_referrer_url, '') AS fliken_fran,\n  d.danger_type AS fara, d.interrupt_reason AS avbrott, CASE WHEN d.last_access_time > 0 THEN datetime(d.last_access_time / 1000000 - 11644473600, 'unixepoch', 'localtime') END AS senast_oppnad_lokal,\n  NULLIF(d.etag, '') AS etag, NULLIF(d.last_modified, '') AS andrad_enligt_servern, d.id, d.guid,\n  CASE WHEN d.start_time > 0 THEN datetime(d.start_time / 1000000 - 11644473600, 'unixepoch') END AS start_utc\nFROM downloads d ORDER BY d.start_time, d.id;"
+        },
+        {
+          "id": "chrome-pages",
+          "title": "Sidorna, mest besökta först",
+          "params": [],
+          "subtitle": "En rad per adress: titel, antal besök, hur många gånger adressen skrevs, senaste besöket och om den är dold i historiken.",
+          "returns": "adress, titel, besök, skriven, senaste, dold, id",
+          "sql": "SELECT u.url AS adress, u.title AS titel, u.visit_count AS besok, u.typed_count AS skriven, CASE WHEN u.last_visit_time > 0 THEN datetime(u.last_visit_time / 1000000 - 11644473600, 'unixepoch', 'localtime') END AS senaste_lokal,\n  CASE WHEN u.hidden = 1 THEN 'ja' ELSE 'nej' END AS dold, u.id AS url_id\nFROM urls u ORDER BY u.visit_count DESC, u.last_visit_time DESC;"
+        },
+        {
+          "id": "tables",
+          "group": "Avancerat",
+          "title": "Tabeller i databasen",
+          "subtitle": "Tabellerna i databasen. visits är besöken, urls adresserna, keyword_search_terms söktermerna och downloads nedladdningarna.",
+          "returns": "namn",
+          "params": [],
+          "sql": "SELECT name AS tabell FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name;"
+        },
+        {
+          "id": "role-web-visits",
+          "hidden": true,
+          "role": "web-visits",
+          "title": "Telefonen: besöken",
+          "description": "Används av Telefonen. Ett besök per rad.",
+          "params": [],
+          "epoch": "unixMs",
+          "fields": {
+            "id": "visit_id",
+            "time": "time_ms",
+            "url": "url",
+            "title": "title",
+            "origin": "origin",
+            "transition": "transition_text",
+            "qualifiers": "qualifiers",
+            "durationS": "duration_s",
+            "from": "from_url",
+            "app": "app_id",
+            "count": "visit_count",
+            "typed": "typed_count"
+          },
+          "sql": "SELECT v.id AS visit_id, (v.visit_time / 1000 - 11644473600000) AS time_ms, u.url, u.title,\n  CASE WHEN COALESCE(v.originator_cache_guid, '') <> '' THEN 'synced' ELSE 'local' END AS origin,\n  CASE v.transition & 255 WHEN 0 THEN 'länk' WHEN 1 THEN 'skriven adress' WHEN 2 THEN 'förslag eller bokmärke' WHEN 3 THEN 'inbäddad (automatisk)'\n    WHEN 4 THEN 'inbäddad (klick)' WHEN 5 THEN 'sökning i adressfältet' WHEN 6 THEN 'öppnad utifrån' WHEN 7 THEN 'formulär' WHEN 8 THEN 'omladdning'\n    WHEN 9 THEN 'sökmotor' WHEN 10 THEN 'sökmotor (genererad)' ELSE 'typ ' || (v.transition & 255) END AS transition_text, trim(CASE WHEN v.transition & 16777216 THEN 'bakåt/framåt ' ELSE '' END || CASE WHEN v.transition & 33554432 THEN 'adressfältet ' ELSE '' END\n    || CASE WHEN v.transition & 67108864 THEN 'startsida ' ELSE '' END || CASE WHEN v.transition & 134217728 THEN 'från en app ' ELSE '' END\n    || CASE WHEN v.transition & 1073741824 THEN 'omdirigering (sidan) ' ELSE '' END || CASE WHEN v.transition & 2147483648 THEN 'omdirigering (servern) ' ELSE '' END) AS qualifiers,\n  CASE WHEN v.visit_duration > 0 THEN v.visit_duration / 1000000.0 END AS duration_s, (SELECT u2.url FROM visits v2 JOIN urls u2 ON u2.id = v2.url WHERE v2.id = v.from_visit AND v.from_visit > 0) AS from_url,\n  NULLIF(v.app_id, '') AS app_id, u.visit_count, u.typed_count\nFROM visits v JOIN urls u ON u.id = v.url ORDER BY v.visit_time DESC, v.id DESC;"
+        },
+        {
+          "id": "role-web-searches",
+          "hidden": true,
+          "role": "web-searches",
+          "title": "Telefonen: sökningarna",
+          "description": "Används av Telefonen. En sökterm per rad.",
+          "params": [],
+          "epoch": "unixMs",
+          "fields": {
+            "id": "url_id",
+            "time": "time_ms",
+            "term": "term",
+            "url": "url"
+          },
+          "sql": "SELECT u.id AS url_id, (u.last_visit_time / 1000 - 11644473600000) AS time_ms, k.term, u.url FROM keyword_search_terms k JOIN urls u ON u.id = k.url_id ORDER BY u.last_visit_time DESC;"
+        },
+        {
+          "id": "role-web-downloads",
+          "hidden": true,
+          "role": "web-downloads",
+          "title": "Telefonen: nedladdningarna",
+          "description": "Används av Telefonen och Härkomst. En nedladdning per rad.",
+          "params": [],
+          "epoch": "unixMs",
+          "fields": {
+            "id": "id",
+            "start": "start_ms",
+            "end": "end_ms",
+            "path": "target_path",
+            "current": "current_path",
+            "mime": "mime_type",
+            "size": "total_bytes",
+            "received": "received_bytes",
+            "state": "state_text",
+            "opened": "opened",
+            "url": "url",
+            "chain": "chain",
+            "referrer": "referrer",
+            "site": "site_url",
+            "tab": "tab_url",
+            "tabReferrer": "tab_referrer_url",
+            "lastAccess": "last_access_ms"
+          },
+          "sql": "SELECT d.id, (d.start_time / 1000 - 11644473600000) AS start_ms, CASE WHEN d.end_time > 0 THEN (d.end_time / 1000 - 11644473600000) END AS end_ms, d.target_path, d.current_path, d.mime_type,\n  d.total_bytes, d.received_bytes, CASE d.state WHEN 0 THEN 'pågår' WHEN 1 THEN 'klar' WHEN 2 THEN 'avbruten' WHEN 3 THEN 'avbruten' WHEN 4 THEN 'avbröts (fel)' ELSE 'state ' || d.state END AS state_text, d.opened, (SELECT c.url FROM downloads_url_chains c WHERE c.id = d.id ORDER BY c.chain_index DESC LIMIT 1) AS url, (SELECT group_concat(url, ' → ') FROM (SELECT c.url FROM downloads_url_chains c WHERE c.id = d.id ORDER BY c.chain_index)) AS chain,\n  NULLIF(d.referrer, '') AS referrer, NULLIF(d.site_url, '') AS site_url, NULLIF(d.tab_url, '') AS tab_url, NULLIF(d.tab_referrer_url, '') AS tab_referrer_url,\n  CASE WHEN d.last_access_time > 0 THEN (d.last_access_time / 1000 - 11644473600000) END AS last_access_ms\nFROM downloads d ORDER BY d.start_time DESC;"
+        }
+      ]
+    },
+    {
+      "id": "ios-chrome",
+      "os": "iOS",
+      "app": "Chrome",
+      "label": "iOS — Chrome: History",
+      "blurb": "Historiken i Chrome: varje besök med tid, titel, adress, hur besöket kom till (länk, skriven adress, sökning, omdirigering) och tiden på sidan, söktermerna, och nedladdningarna med adress, hänvisande sida och var filen sparades.",
+      "dbPathHint": "/private/var/mobile/Containers/Data/Application/<UUID>/Library/Application Support/Google/Chrome/Default/History.",
+      "paths": [
+        "Library/Application Support/Google/Chrome/Default/History"
+      ],
+      "source": "Inte prövat: ingen av våra iPhone-extraktioner har Chrome. Samma format som Chrome på Android. Tiderna är mikrosekunder sedan 1601-01-01 (UTC). transition: de låga åtta bitarna är övergången (0 länk, 1 skriven adress, 5 sökning, 7 formulär, 8 omladdning med flera), de höga bitarna tillägg som omdirigering och bakåt/framåt. visit_duration är tiden på sidan i mikrosekunder. originator_cache_guid är satt när besöket synkats från en annan enhet. Äldre versioner saknar kolumner som opener_visit, originator_cache_guid och app_id.",
+      "queries": [
+        {
+          "id": "chrome-visits",
+          "title": "Besök i tidsspann",
+          "recommended": true,
+          "timeEpoch": "unix-ms",
+          "params": [
+            "timeStart",
+            "timeEnd"
+          ],
+          "subtitle": "Varje besök: tid, titel, adress, övergång (länk, skriven adress, sökning, formulär, omdirigering), tid på sidan, sidan det kom från och om besöket synkats från en annan enhet.",
+          "returns": "tid, titel, adress, övergång, tillägg, sekunder på sidan, från sida, extern hänvisning, öppnad från, ursprung, app, besök, skriven, id, UTC",
+          "sql": "SELECT\n  CASE WHEN v.visit_time > 0 THEN datetime(v.visit_time / 1000000 - 11644473600, 'unixepoch', 'localtime') END AS tid_lokal,\n  u.title AS titel, u.url AS adress,\n  CASE v.transition & 255 WHEN 0 THEN 'länk' WHEN 1 THEN 'skriven adress' WHEN 2 THEN 'förslag eller bokmärke' WHEN 3 THEN 'inbäddad (automatisk)'\n    WHEN 4 THEN 'inbäddad (klick)' WHEN 5 THEN 'sökning i adressfältet' WHEN 6 THEN 'öppnad utifrån' WHEN 7 THEN 'formulär' WHEN 8 THEN 'omladdning'\n    WHEN 9 THEN 'sökmotor' WHEN 10 THEN 'sökmotor (genererad)' ELSE 'typ ' || (v.transition & 255) END AS overgang,\n  trim(CASE WHEN v.transition & 16777216 THEN 'bakåt/framåt ' ELSE '' END || CASE WHEN v.transition & 33554432 THEN 'adressfältet ' ELSE '' END\n    || CASE WHEN v.transition & 67108864 THEN 'startsida ' ELSE '' END || CASE WHEN v.transition & 134217728 THEN 'från en app ' ELSE '' END\n    || CASE WHEN v.transition & 1073741824 THEN 'omdirigering (sidan) ' ELSE '' END || CASE WHEN v.transition & 2147483648 THEN 'omdirigering (servern) ' ELSE '' END) AS tillagg,\n  CASE WHEN v.visit_duration > 0 THEN round(v.visit_duration / 1000000.0, 1) END AS sekunder_pa_sidan,\n  (SELECT u2.url FROM visits v2 JOIN urls u2 ON u2.id = v2.url WHERE v2.id = v.from_visit AND v.from_visit > 0) AS fran_sida,\n  NULLIF(v.external_referrer_url, '') AS extern_hanvisning,\n  (SELECT u2.url FROM visits v2 JOIN urls u2 ON u2.id = v2.url WHERE v2.id = v.opener_visit AND v.opener_visit > 0) AS oppnad_fran,\n  CASE WHEN COALESCE(v.originator_cache_guid, '') <> '' THEN 'annan enhet (synk)' ELSE 'den här enheten' END AS ursprung,\n  NULLIF(v.app_id, '') AS app,\n  u.visit_count AS besok_totalt, u.typed_count AS skriven,\n  v.id AS besok_id, u.id AS url_id, v.transition,\n  CASE WHEN v.visit_time > 0 THEN datetime(v.visit_time / 1000000 - 11644473600, 'unixepoch') END AS tid_utc\nFROM visits v JOIN urls u ON u.id = v.url\nWHERE (v.visit_time / 1000 - 11644473600000) BETWEEN {{unixMsStart}} AND {{unixMsEnd}}\nORDER BY v.visit_time, v.id;"
+        },
+        {
+          "id": "chrome-searches",
+          "title": "Sökningar",
+          "recommended": true,
+          "params": [],
+          "subtitle": "Söktermerna som skrevs i adressfältet (keyword_search_terms), med sökadressen och när den besöktes första och senaste gången.",
+          "returns": "första, senaste, sökterm, normaliserad, adress, besök, id, UTC",
+          "sql": "SELECT (SELECT CASE WHEN min(v.visit_time) > 0 THEN datetime(min(v.visit_time) / 1000000 - 11644473600, 'unixepoch', 'localtime') END FROM visits v WHERE v.url = u.id) AS forsta_lokal,\n  CASE WHEN u.last_visit_time > 0 THEN datetime(u.last_visit_time / 1000000 - 11644473600, 'unixepoch', 'localtime') END AS senaste_lokal,\n  k.term AS sokterm, k.normalized_term AS normaliserad, u.url AS adress, u.visit_count AS besok, u.id AS url_id,\n  CASE WHEN u.last_visit_time > 0 THEN datetime(u.last_visit_time / 1000000 - 11644473600, 'unixepoch') END AS senaste_utc\nFROM keyword_search_terms k JOIN urls u ON u.id = k.url_id\nORDER BY u.last_visit_time;"
+        },
+        {
+          "id": "chrome-downloads",
+          "title": "Nedladdningar",
+          "recommended": true,
+          "params": [],
+          "subtitle": "Varje nedladdning: start och slut, filen (sökväg, typ, storlek), adressen med omdirigeringar, sidan och fliken den kom från, läget och om den öppnades.",
+          "returns": "start, slut, fil, sparad som, typ, byte, läge, öppnad, adress, kedja, hänvisning, sida, flik, flikens hänvisning, fara, avbrott, senast öppnad, etag, ändrad enligt servern, id",
+          "sql": "SELECT CASE WHEN d.start_time > 0 THEN datetime(d.start_time / 1000000 - 11644473600, 'unixepoch', 'localtime') END AS start_lokal, CASE WHEN d.end_time > 0 THEN datetime(d.end_time / 1000000 - 11644473600, 'unixepoch', 'localtime') END AS slut_lokal,\n  d.target_path AS fil, NULLIF(d.current_path, d.target_path) AS sparad_som, d.mime_type AS typ, d.total_bytes AS byte, d.received_bytes AS mottagna_byte,\n  CASE d.state WHEN 0 THEN 'pågår' WHEN 1 THEN 'klar' WHEN 2 THEN 'avbruten' WHEN 3 THEN 'avbruten' WHEN 4 THEN 'avbröts (fel)' ELSE 'state ' || d.state END AS lage, CASE WHEN d.opened = 1 THEN 'ja' ELSE 'nej' END AS oppnad,\n  (SELECT c.url FROM downloads_url_chains c WHERE c.id = d.id ORDER BY c.chain_index DESC LIMIT 1) AS adress, (SELECT group_concat(url, ' → ') FROM (SELECT c.url FROM downloads_url_chains c WHERE c.id = d.id ORDER BY c.chain_index)) AS kedja,\n  NULLIF(d.referrer, '') AS hanvisning, NULLIF(d.site_url, '') AS sida, NULLIF(d.tab_url, '') AS flik, NULLIF(d.tab_referrer_url, '') AS fliken_fran,\n  d.danger_type AS fara, d.interrupt_reason AS avbrott, CASE WHEN d.last_access_time > 0 THEN datetime(d.last_access_time / 1000000 - 11644473600, 'unixepoch', 'localtime') END AS senast_oppnad_lokal,\n  NULLIF(d.etag, '') AS etag, NULLIF(d.last_modified, '') AS andrad_enligt_servern, d.id, d.guid,\n  CASE WHEN d.start_time > 0 THEN datetime(d.start_time / 1000000 - 11644473600, 'unixepoch') END AS start_utc\nFROM downloads d ORDER BY d.start_time, d.id;"
+        },
+        {
+          "id": "chrome-pages",
+          "title": "Sidorna, mest besökta först",
+          "params": [],
+          "subtitle": "En rad per adress: titel, antal besök, hur många gånger adressen skrevs, senaste besöket och om den är dold i historiken.",
+          "returns": "adress, titel, besök, skriven, senaste, dold, id",
+          "sql": "SELECT u.url AS adress, u.title AS titel, u.visit_count AS besok, u.typed_count AS skriven, CASE WHEN u.last_visit_time > 0 THEN datetime(u.last_visit_time / 1000000 - 11644473600, 'unixepoch', 'localtime') END AS senaste_lokal,\n  CASE WHEN u.hidden = 1 THEN 'ja' ELSE 'nej' END AS dold, u.id AS url_id\nFROM urls u ORDER BY u.visit_count DESC, u.last_visit_time DESC;"
+        },
+        {
+          "id": "tables",
+          "group": "Avancerat",
+          "title": "Tabeller i databasen",
+          "subtitle": "Tabellerna i databasen. visits är besöken, urls adresserna, keyword_search_terms söktermerna och downloads nedladdningarna.",
+          "returns": "namn",
+          "params": [],
+          "sql": "SELECT name AS tabell FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name;"
+        },
+        {
+          "id": "role-web-visits",
+          "hidden": true,
+          "role": "web-visits",
+          "title": "Telefonen: besöken",
+          "description": "Används av Telefonen. Ett besök per rad.",
+          "params": [],
+          "epoch": "unixMs",
+          "fields": {
+            "id": "visit_id",
+            "time": "time_ms",
+            "url": "url",
+            "title": "title",
+            "origin": "origin",
+            "transition": "transition_text",
+            "qualifiers": "qualifiers",
+            "durationS": "duration_s",
+            "from": "from_url",
+            "app": "app_id",
+            "count": "visit_count",
+            "typed": "typed_count"
+          },
+          "sql": "SELECT v.id AS visit_id, (v.visit_time / 1000 - 11644473600000) AS time_ms, u.url, u.title,\n  CASE WHEN COALESCE(v.originator_cache_guid, '') <> '' THEN 'synced' ELSE 'local' END AS origin,\n  CASE v.transition & 255 WHEN 0 THEN 'länk' WHEN 1 THEN 'skriven adress' WHEN 2 THEN 'förslag eller bokmärke' WHEN 3 THEN 'inbäddad (automatisk)'\n    WHEN 4 THEN 'inbäddad (klick)' WHEN 5 THEN 'sökning i adressfältet' WHEN 6 THEN 'öppnad utifrån' WHEN 7 THEN 'formulär' WHEN 8 THEN 'omladdning'\n    WHEN 9 THEN 'sökmotor' WHEN 10 THEN 'sökmotor (genererad)' ELSE 'typ ' || (v.transition & 255) END AS transition_text, trim(CASE WHEN v.transition & 16777216 THEN 'bakåt/framåt ' ELSE '' END || CASE WHEN v.transition & 33554432 THEN 'adressfältet ' ELSE '' END\n    || CASE WHEN v.transition & 67108864 THEN 'startsida ' ELSE '' END || CASE WHEN v.transition & 134217728 THEN 'från en app ' ELSE '' END\n    || CASE WHEN v.transition & 1073741824 THEN 'omdirigering (sidan) ' ELSE '' END || CASE WHEN v.transition & 2147483648 THEN 'omdirigering (servern) ' ELSE '' END) AS qualifiers,\n  CASE WHEN v.visit_duration > 0 THEN v.visit_duration / 1000000.0 END AS duration_s, (SELECT u2.url FROM visits v2 JOIN urls u2 ON u2.id = v2.url WHERE v2.id = v.from_visit AND v.from_visit > 0) AS from_url,\n  NULLIF(v.app_id, '') AS app_id, u.visit_count, u.typed_count\nFROM visits v JOIN urls u ON u.id = v.url ORDER BY v.visit_time DESC, v.id DESC;"
+        },
+        {
+          "id": "role-web-searches",
+          "hidden": true,
+          "role": "web-searches",
+          "title": "Telefonen: sökningarna",
+          "description": "Används av Telefonen. En sökterm per rad.",
+          "params": [],
+          "epoch": "unixMs",
+          "fields": {
+            "id": "url_id",
+            "time": "time_ms",
+            "term": "term",
+            "url": "url"
+          },
+          "sql": "SELECT u.id AS url_id, (u.last_visit_time / 1000 - 11644473600000) AS time_ms, k.term, u.url FROM keyword_search_terms k JOIN urls u ON u.id = k.url_id ORDER BY u.last_visit_time DESC;"
+        },
+        {
+          "id": "role-web-downloads",
+          "hidden": true,
+          "role": "web-downloads",
+          "title": "Telefonen: nedladdningarna",
+          "description": "Används av Telefonen och Härkomst. En nedladdning per rad.",
+          "params": [],
+          "epoch": "unixMs",
+          "fields": {
+            "id": "id",
+            "start": "start_ms",
+            "end": "end_ms",
+            "path": "target_path",
+            "current": "current_path",
+            "mime": "mime_type",
+            "size": "total_bytes",
+            "received": "received_bytes",
+            "state": "state_text",
+            "opened": "opened",
+            "url": "url",
+            "chain": "chain",
+            "referrer": "referrer",
+            "site": "site_url",
+            "tab": "tab_url",
+            "tabReferrer": "tab_referrer_url",
+            "lastAccess": "last_access_ms"
+          },
+          "sql": "SELECT d.id, (d.start_time / 1000 - 11644473600000) AS start_ms, CASE WHEN d.end_time > 0 THEN (d.end_time / 1000 - 11644473600000) END AS end_ms, d.target_path, d.current_path, d.mime_type,\n  d.total_bytes, d.received_bytes, CASE d.state WHEN 0 THEN 'pågår' WHEN 1 THEN 'klar' WHEN 2 THEN 'avbruten' WHEN 3 THEN 'avbruten' WHEN 4 THEN 'avbröts (fel)' ELSE 'state ' || d.state END AS state_text, d.opened, (SELECT c.url FROM downloads_url_chains c WHERE c.id = d.id ORDER BY c.chain_index DESC LIMIT 1) AS url, (SELECT group_concat(url, ' → ') FROM (SELECT c.url FROM downloads_url_chains c WHERE c.id = d.id ORDER BY c.chain_index)) AS chain,\n  NULLIF(d.referrer, '') AS referrer, NULLIF(d.site_url, '') AS site_url, NULLIF(d.tab_url, '') AS tab_url, NULLIF(d.tab_referrer_url, '') AS tab_referrer_url,\n  CASE WHEN d.last_access_time > 0 THEN (d.last_access_time / 1000 - 11644473600000) END AS last_access_ms\nFROM downloads d ORDER BY d.start_time DESC;"
+        }
+      ]
+    }
+  ]
+};

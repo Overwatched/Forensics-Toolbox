@@ -25,6 +25,7 @@ const CATALOGS = [
     { dir: 'queries/ios/telegram', global: 'TELEGRAM_IOS_CATALOG', name: 'ios/telegram/catalog.json' },
     { dir: 'queries/notes', global: 'NOTES_CATALOG', name: 'notes/catalog.json' },
     { dir: 'queries/comms', global: 'COMMS_CATALOG', name: 'comms/catalog.json' },
+    { dir: 'queries/web', global: 'WEB_CATALOG', name: 'web/catalog.json' },
     { dir: 'queries/system-logs', global: 'SYSTEM_LOGS_CATALOG', name: 'system-logs/catalog.json' },
 ];
 

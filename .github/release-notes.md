@@ -3,6 +3,7 @@ Automatiskt byggd från commit `{{SHA}}`.
 ## Nytt i 1.79
 
 - **Telefonen är större** och ryms alltid hel: storleken följer fönstrets höjd. Ett större rutnät på hemskärmen, som på en stor Samsung, ritas så att hela sidan och dockan syns utan att rulla.
+- **Webbhistorik** i Telefonen och Queries: Safari (besöken, söktermerna, flikarna, också de privata, rensad historik och bokmärken), Chrome och Samsung Internet (besöken med hur de kom till och tiden på sidan, söktermerna och nedladdningarna med adress och hänvisande sida). Varje rad säger vilken fil och vilket fält den kommer ur.
 - **Laboration** har ett nytt färdigt flöde, SMS, samtal och kontakter: SMS och MMS åt båda håll, samtal som besvaras, missas och avvisas, och kontakter som läggs till, ändras och raderas.
 
 ## Nytt i 1.78

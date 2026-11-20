@@ -16,7 +16,9 @@
     // Samtalen och kontakterna (queries/comms): hittas med chattdatabaserna och läses före dem, så att kontakternas
     // namn finns när konversationerna läses.
     var COMM_SOURCES = window.Comms ? Comms.sources(window.COMMS_CATALOG) : [];
-    var TARGETS = ExtractionCore.targets(ChatCore.databases(SOURCES).concat(window.Comms ? Comms.databases(COMM_SOURCES) : []));
+    // Webbhistoriken (queries/web): Safari, Chrome och Samsung Internet, läst efter samtalen.
+    var WEB_SOURCES = window.Web ? Web.sources(window.WEB_CATALOG) : [];
+    var TARGETS = ExtractionCore.targets(ChatCore.databases(SOURCES).concat(window.Comms ? Comms.databases(COMM_SOURCES) : []).concat(window.Web ? Web.databases(WEB_SOURCES) : []));
     // En bilaga större än så läses först när undersökaren ber om det.
     var MAX_AUTO = 80 * 1024 * 1024;
     // Bilder större än så bäddas inte in i en export.
@@ -270,6 +272,7 @@
             }
             var zip = state.zip;
             state.comms = { zip: zip, state: 'wait', hits: found.found.filter(function (h) { return commOf(h.key); }), contacts: null, calls: null, files: {}, errors: [] };
+            state.web = { zip: zip, state: 'wait', hits: found.found.filter(function (h) { return webOf(h.key); }), browsers: [], errors: [] };
             var all = found.found.map(function (hit) {
                 return { hit: hit, src: sourceOf(hit.key), zip: zip, loaded: null, threads: [], members: {}, index: null, error: null, state: 'wait', note: '', loading: null, collapsed: false, limit: LIST_STEP };
             }).filter(function (d) { return d.src; });
@@ -289,6 +292,11 @@
                 await loadComms(state.comms);
                 if (deviceShown()) renderDevice();
             } else state.comms.state = 'none';
+            if (state.web.hits.length) {
+                progress(o, 'Läser webbhistoriken…', null);
+                await loadWeb(state.web);
+                if (deviceShown()) renderDevice();
+            } else state.web.state = 'none';
             if (!state.dbs.length) {
                 setStatus('ex-status', esc(file.name) + ': ingen databas för ' + esc(SOURCES.map(function (s) { return s.app; }).filter(function (a, i, l) { return l.indexOf(a) === i; }).join(', ')) + ' hittades i ' + Z() + '.');
                 return;
@@ -329,6 +337,39 @@
 
     function sourceOf(key) { return SOURCES.find(function (s) { return s.key === key; }) || null; }
     function commOf(key) { return COMM_SOURCES.find(function (s) { return s.key === key; }) || null; }
+    function webOf(key) { return WEB_SOURCES.find(function (s) { return s.key === key; }) || null; }
+
+    // Webbhistoriken: en post per webbläsare (Safari, Chrome, Samsung Internet, Edge …) med besöken, sökningarna,
+    // nedladdningarna, flikarna och den rensade historiken. Användare 0 före andra användare; en fil per slag.
+    async function loadWeb(w) {
+        w.state = 'busy';
+        var hits = w.hits.slice().sort(function (a, b) { return (/\/user(?:_de)?\/(?!0\/)\d+\//.test(a.db.name) ? 1 : 0) - (/\/user(?:_de)?\/(?!0\/)\d+\//.test(b.db.name) ? 1 : 0); });
+        var parse = window.KC && KC.bplist ? KC.bplist.parse : null;
+        for (var i = 0; i < hits.length; i++) {
+            var h = hits[i], src = webOf(h.key), who = Web.browserOf(src, h.db.name);
+            var b = w.browsers.filter(function (x) { return x.id === who.id; })[0];
+            if (!b) { b = { id: who.id, name: who.name, platform: who.platform, files: {}, visits: null, searches: null, downloads: null, tabs: null, cleared: null }; w.browsers.push(b); }
+            var kinds = Object.keys(src.roles).filter(function (k) { return !b.files[k]; });
+            if (!kinds.length) continue;
+            var d = { hit: h, src: { app: who.name, cipher: null, derive: null }, zip: w.zip, loaded: null };
+            try {
+                var loaded = await loadDb(d);
+                try {
+                    kinds.forEach(function (k) {
+                        try {
+                            b[k] = Web[k](src, query(loaded, src.roles[k]), parse);
+                            b.files[k] = h.db.name;
+                        } catch (err) { w.errors.push(who.name + ' (' + baseName(h.db.name) + '): ' + errText(err)); }
+                    });
+                } finally { loaded.sqlDb.close(); }
+            } catch (err) {
+                if (err && err.cancelled) throw err;
+                w.errors.push(who.name + ' (' + baseName(h.db.name) + '): ' + errText(err));
+            }
+        }
+        w.browsers = w.browsers.filter(function (b) { return Object.keys(b.files).length; });
+        w.state = 'ready';
+    }
 
     // Kontakterna och samtalen, med katalogens roller contacts, contact-points och calls. Den första databasen av
     // varje slag läses (användare 0 före andra användare).
@@ -1849,9 +1890,10 @@
     // tillbaka till appens lista. on: telefonen är vald; screen: 'home', 'app', 'photos', 'albums', 'settings' eller
     // 'setting'; app: appen i 'app'; page: sidan på hemskärmen; filter: urvalet i Bilder; section: delen i Inställningar.
     // photos: bildbiblioteket och info: hemskärmen och inställningarna, båda lästa första gången telefonen visas.
-    state.device = { on: false, screen: 'home', app: '', page: 0, filter: 'all', section: '', photos: null, info: null, gallery: null, limit: LIST_STEP, note: null, noteFilter: 'all', call: null, callFilter: 'all', contact: null };
+    state.device = { on: false, screen: 'home', app: '', page: 0, filter: 'all', section: '', photos: null, info: null, gallery: null, limit: LIST_STEP, note: null, noteFilter: 'all', call: null, callFilter: 'all', contact: null, web: '', webTab: 'visits', webItem: null };
     var DEVICE_LABEL = 'Rekonstruktion ur databaserna – inte en skärmbild';
     var GLYPH = {
+        globe: '<circle cx="12" cy="12" r="8.5"/><path d="M3.5 12h17M12 3.5c2.6 2.4 3.6 5.2 3.6 8.5s-1 6.1-3.6 8.5c-2.6-2.4-3.6-5.2-3.6-8.5s1-6.1 3.6-8.5z"/>',
         chat: '<path d="M4 5h16v11H9l-5 4z"/>',
         shield: '<path d="M12 3l8 3v6c0 4.5-3.4 8-8 9-4.6-1-8-4.5-8-9V6z"/>',
         plane: '<path d="M3 11l18-7-6 17-3-7z"/>',
@@ -1864,7 +1906,7 @@
     };
     // Ikonerna är verktygets egna: appens färg och en enkel symbol, inte appens logga. Andra appar får en färg ur
     // namnet och sin första bokstav.
-    var APP_ICON = { WhatsApp: ['#1fa855', '#fff', 'chat'], Signal: ['#2257d6', '#fff', 'shield'], Telegram: ['#2a9fd8', '#fff', 'plane'], Snapchat: ['#f5d90a', '#16191c', 'ghost'], Bilder: ['#ffffff', '#d6336c', 'photo'], 'Inställningar': ['#8e8e93', '#fff', 'gear'], Anteckningar: ['#ffd52e', '#3d3100', 'note'], Meddelanden: ['#34c759', '#fff', 'chat'], Telefon: ['#34c759', '#fff', 'phone'], Kontakter: ['#9aa0a6', '#fff', 'person'] };
+    var APP_ICON = { WhatsApp: ['#1fa855', '#fff', 'chat'], Signal: ['#2257d6', '#fff', 'shield'], Telegram: ['#2a9fd8', '#fff', 'plane'], Snapchat: ['#f5d90a', '#16191c', 'ghost'], Bilder: ['#ffffff', '#d6336c', 'photo'], 'Inställningar': ['#8e8e93', '#fff', 'gear'], Anteckningar: ['#ffd52e', '#3d3100', 'note'], Meddelanden: ['#34c759', '#fff', 'chat'], Telefon: ['#34c759', '#fff', 'phone'], Kontakter: ['#9aa0a6', '#fff', 'person'], Safari: ['#1a8cff', '#fff', 'globe'], Webbläsare: ['#4285f4', '#fff', 'globe'] };
     var ICON_HUES = ['#5b6b8c', '#7a5c99', '#2f7f7a', '#9a5b3c', '#3d6fa8', '#8a4f6b', '#55803f', '#a0673a'];
     var MONTHS = ['januari', 'februari', 'mars', 'april', 'maj', 'juni', 'juli', 'augusti', 'september', 'oktober', 'november', 'december'];
     var PHOTO_SOURCES = window.ProvenanceRoles.collect({ photos: window.PHOTOS_SQLITE_CATALOG || {}, android: window.ANDROID_QUERIES_CATALOG || {} })
@@ -2254,6 +2296,7 @@
         if (P.screen === 'setting') return { screen: 'settings', text: 'Inställningar' };
         if (P.screen === 'note') return { screen: 'notes', text: 'Anteckningar' };
         if (P.screen === 'call') return { screen: 'calls', text: 'Samtal' };
+        if (P.screen === 'webItem') { var wbB = webBrowser(P.web); return { screen: 'web', text: wbB ? wbB.name : 'Tillbaka' }; }
         if (P.screen === 'contact') return { screen: P.contactFrom === 'call' ? 'call' : 'contacts', text: P.contactFrom === 'call' ? 'Samtalet' : 'Kontakter' };
         return { screen: 'home', text: 'Hem' };
     }
@@ -2287,12 +2330,16 @@
         else if (P.screen === 'call') renderCall(body);
         else if (P.screen === 'contacts') renderContacts(body);
         else if (P.screen === 'contact') renderContact(body);
+        else if (P.screen === 'web') renderWeb(body);
+        else if (P.screen === 'webItem') renderWebItem(body);
         else renderPhotos(body);
     }
 
     // Ikonen för en app på hemskärmen. Apparna med data i Chattar, Bilder och Inställningar går att öppna; de andra
     // visar ett ark med vad som är känt om dem.
     function homeAppHtml(it, apps, ph, where) {
+        var br = webBrowser(it.id);
+        if (br) return webAppHtml(br, it.name || nameOfApp(it.id) || br.name, it.id);
         var role = DeviceInfo.roleOf(it.id), name = it.name || nameOfApp(it.id), badge = '', label = name;
         var chat = apps.filter(function (a) { return a.app === role; })[0];
         if (chat) { badge = badgeHtml(chat.busy, chat.error, chat.count); label += ', ' + (chat.busy ? 'läses' : many(chat.count, 'chatt', 'chattar')); }
@@ -2340,7 +2387,12 @@
         var cmx = deviceComms();
         if (cmx && cmx.calls && !onHome.Telefon) extra.push({ kind: 'app', id: '', name: 'Telefon', role: 'Telefon' });
         if (cmx && cmx.contacts && !onHome.Kontakter) extra.push({ kind: 'app', id: '', name: 'Kontakter', role: 'Kontakter' });
+        var homeIds = {};
+        if (home) DeviceInfo.homeAppIds(home).forEach(function (x) { homeIds[x.id] = true; });
+        var wb = deviceWeb();
+        if (wb) wb.browsers.forEach(function (b) { if (!homeIds[b.id]) extra.push({ kind: 'web', id: b.id, name: b.name, role: '' }); });
         var extraCells = extra.map(function (e) {
+            if (e.kind === 'web') return webAppHtml(webBrowser(e.id), e.name, e.id);
             var chat = apps.filter(function (a) { return a.app === e.role; })[0];
             if (e.role === 'Bilder') return '<button type="button" class="d-app has-data" data-device-photos="1" aria-label="' + esc('Bilder, ' + (ph.state === 'ready' ? many(ph.items.length, 'bild', 'bilder') : ph.state === 'busy' ? 'läses' : 'kunde inte läsas')) + '">' +
                 iconHtml('Bilder', badgeHtml(ph.state === 'busy', ph.state === 'error', ph.items.length), 'Bilder', phoneIcon('', 'Bilder')) + '<span class="d-name">Bilder</span></button>';
@@ -2611,6 +2663,122 @@
             n.uuid ? kv('Identifierare', n.uuid) : '',
         ].join('');
         body.innerHTML = '<div class="n-head">' + noteBadges(n) + '</div>' + text + '<div class="d-kvs">' + meta + '</div>';
+    }
+
+    // ---------- Webbhistorik (queries/web, Web) ----------
+
+    function deviceWeb() {
+        var w = state.web;
+        return w && w.zip === state.zip && w.state === 'ready' && w.browsers.length ? w : null;
+    }
+    function webBrowser(id) {
+        var w = deviceWeb();
+        return w && id ? w.browsers.filter(function (b) { return b.id === id; })[0] || null : null;
+    }
+    // Ikonen för en webbläsare med data: telefonens egen ikon, annars en jordglob. Siffran är antalet besök.
+    function webAppHtml(b, name, id) {
+        var n = b.visits ? b.visits.length : b.tabs ? b.tabs.length : 0, what = b.visits ? many(n, 'besök', 'besök') : many(n, 'flik', 'flikar');
+        var url = phoneIcon(id || b.id);
+        return '<button type="button" class="d-app has-data" data-device-web="' + esc(b.id) + '" aria-label="' + esc(name + ', ' + what) + '" title="' + esc(name + ' · ' + b.id) + '">' +
+            iconHtml(name === 'Safari' ? 'Safari' : 'Webbläsare', badgeHtml(false, false, n), name, url) + '<span class="d-name">' + esc(name) + '</span></button>';
+    }
+    var WEB_TABS = [['visits', 'Historik'], ['searches', 'Sökningar'], ['downloads', 'Nedladdningar'], ['tabs', 'Flikar'], ['cleared', 'Rensat']];
+    function webTabsOf(b) { return WEB_TABS.filter(function (t) { return b[t[0]] && (b[t[0]].length || t[0] === 'visits'); }); }
+    function webList(b, tab) { return b[tab] || []; }
+    function renderWeb(body) {
+        var P = state.device, f = fmt(), b = webBrowser(P.web);
+        body.style.backgroundImage = '';
+        if (!b) { openDevice('home'); return; }
+        var tabs = webTabsOf(b);
+        if (!tabs.some(function (t) { return t[0] === P.webTab; })) P.webTab = tabs.length ? tabs[0][0] : 'visits';
+        var all = webList(b, P.webTab), shown = all.slice(0, P.limit);
+        $('c-device-title').textContent = b.name;
+        $('c-device-sub').textContent = (b.visits ? many(b.visits.length, 'besök', 'besök') + ' · ' : '') + baseName(b.files[P.webTab] || b.files.visits || '');
+        var chips = '<div class="n-chips" role="group" aria-label="Urval">' + tabs.map(function (t) {
+            return '<button type="button" class="n-chip" data-web-tab="' + t[0] + '" aria-pressed="' + (P.webTab === t[0]) + '">' + esc(t[1]) + ' <span>' + num(b[t[0]].length) + '</span></button>';
+        }).join('') + '</div>';
+        var day = null;
+        var rows = shown.map(function (x) {
+            var i = all.indexOf(x), d = x.ms ? f(x.ms).slice(0, 10) : 'Utan tid', head = '', top, sub, cls = '';
+            if (P.webTab !== 'tabs' && d !== day) { day = d; head = '<p class="n-sec">' + esc(d) + '</p>'; }
+            if (P.webTab === 'visits') {
+                top = x.title || x.host || x.url;
+                sub = [x.host, x.transition || (x.loaded === 0 ? 'laddades inte' : ''), x.origin === 'synced' ? 'synkad' : ''].filter(Boolean).join(' · ');
+                if (x.origin === 'synced') cls = ' w-synced';
+            } else if (P.webTab === 'searches') {
+                top = x.term; sub = [x.engine, x.host].filter(Boolean).join(' · ');
+            } else if (P.webTab === 'downloads') {
+                top = x.name; sub = [x.host, x.state, Web.sizeText(x.size)].filter(Boolean).join(' · ');
+            } else if (P.webTab === 'tabs') {
+                if (x.group !== day) { day = x.group; head = '<p class="n-sec">' + esc(x.group) + '</p>'; }
+                top = x.title || x.host || x.url; sub = [x.host, x.closedMs ? 'stängd' : ''].filter(Boolean).join(' · ');
+            } else {
+                top = x.url ? x.host || x.url : 'Allt i spannet'; sub = (x.startMs ? f(x.startMs).slice(0, 16) : '') + ' – ' + (x.endMs ? f(x.endMs).slice(0, 16) : '');
+            }
+            var time = P.webTab === 'tabs' ? (x.ms ? f(x.ms).slice(0, 16) : '') : x.ms ? f(x.ms).slice(11, 16) : '';
+            return head + '<button type="button" class="d-row w-row' + cls + '" data-web-id="' + i + '" title="' + esc(x.url || '') + '"><span class="d-row-text">' +
+                '<span class="d-row-top"><b>' + esc(top) + '</b><time>' + esc(time) + '</time></span><span class="d-row-sub">' + esc(sub) + '</span></span></button>';
+        }).join('');
+        var notes = {
+            visits: 'Tiderna i vald zon. ' + (b.platform === 'iOS' ? 'Ett besök synkat från en annan enhet (iCloud) märks. Raderade besök finns inte kvar; rensad historik lämnar spår under Rensat.' : 'Övergången säger hur besöket kom till: länk, skriven adress, sökning, omladdning. Ett besök synkat från en annan enhet märks.'),
+            searches: b.platform === 'iOS' ? 'Söktermerna läses ur adresserna (Google, Bing, DuckDuckGo, Ecosia, Brave, Startpage, Yahoo). Tiden är besöket.' : 'Söktermerna som skrevs i adressfältet, med tiden för det senaste besöket på sökadressen.',
+            downloads: 'Nedladdningarna med adressen, sidan de kom från och var filen sparades. Filen kan finnas kvar i zippen under sin sökväg.',
+            tabs: 'Flikarna när extraktionen gjordes, också de privata. Tiden är flikens senaste besök (LastVisitTime).',
+            cleared: 'Spåren efter rensad historik: tidsspannet som rensades, eller adressen när en enda sida togs bort.',
+        };
+        body.innerHTML = chips + (rows || '<p class="d-empty">Inget i ' + esc((WEB_TABS.filter(function (t) { return t[0] === P.webTab; })[0] || ['', 'urvalet'])[1].toLowerCase()) + '.</p>') +
+            (all.length > shown.length ? '<button type="button" class="c-btn d-more" data-device-more="1">Visa fler (' + num(all.length - shown.length) + ' kvar)</button>' : '') +
+            '<p class="d-note">Ur ' + esc(b.files[P.webTab] || '') + '. ' + esc(notes[P.webTab] || '') + '</p>' +
+            (state.web.errors.length ? '<p class="d-empty warn">' + esc(state.web.errors.join(' ')) + '</p>' : '');
+    }
+    function renderWebItem(body) {
+        var P = state.device, f = fmt(), b = webBrowser(P.web);
+        body.style.backgroundImage = '';
+        var x = b ? webList(b, P.webTab)[P.webItem] : null;
+        if (!x) { openDevice('web'); return; }
+        var ios = b.platform === 'iOS', t = function (ms) { return ms ? f(ms) : ''; }, rows = [];
+        if (P.webTab === 'visits') {
+            $('c-device-title').textContent = x.title || x.host || 'Besök';
+            rows = [
+                kv('Tid', t(x.ms), ios ? 'history_visits.visit_time (Cocoa-sekunder: ' + x.raw + ')' : 'visits.visit_time (mikrosekunder sedan 1601)'),
+                kv('Adress', x.url, ios ? 'history_items.url' : 'urls.url'),
+                x.title ? kv('Titel', x.title, ios ? 'history_visits.title' : 'urls.title') : '',
+                x.originText ? kv('Ursprung', x.originText, ios ? 'history_visits.origin' : 'visits.originator_cache_guid') : '',
+                x.transition ? kv('Övergång', x.transition + (x.qualifiers ? ' (' + x.qualifiers + ')' : ''), 'visits.transition') : '',
+                x.durationS ? kv('Tid på sidan', Comms.durationText(x.durationS) + ' (' + x.durationS + ' s)', 'visits.visit_duration') : '',
+                x.from ? kv('Från sidan', x.from, 'visits.from_visit') : '',
+                x.redirectFrom ? kv('Omdirigerad från', x.redirectFrom, 'history_visits.redirect_source') : '',
+                ios && x.loaded !== null ? kv('Laddades', x.loaded ? 'Ja' : 'Nej', 'history_visits.load_successful') : '',
+                x.form ? kv('Formulär', 'Ja, inte en vanlig hämtning (POST)', 'history_visits.http_non_get') : '',
+                x.app ? kv('App', nameOfApp(x.app) + ' (' + x.app + ')', 'visits.app_id') : '',
+                x.count !== null ? kv('Besök på adressen', String(x.count) + (x.typed ? ', ' + x.typed + ' skrivna' : ''), ios ? 'history_items.visit_count' : 'urls.visit_count, typed_count') : '',
+                kv('Källa', (ios ? 'history_visits rad ' : 'visits rad ') + x.id, b.files.visits),
+            ];
+        } else if (P.webTab === 'searches') {
+            $('c-device-title').textContent = x.term;
+            rows = [kv('Sökterm', x.term, ios ? 'ur adressen (q= eller p=)' : 'keyword_search_terms.term'), kv('Tid', t(x.ms), ios ? 'history_visits.visit_time' : 'urls.last_visit_time (senaste besöket)'),
+                x.engine ? kv('Sökmotor', x.engine) : '', kv('Adress', x.url), kv('Källa', (ios ? 'history_visits rad ' : 'urls rad ') + x.id, b.files.searches)];
+        } else if (P.webTab === 'downloads') {
+            $('c-device-title').textContent = x.name;
+            rows = [kv('Fil', x.path, 'downloads.target_path', x.mediaStore ? 'En post i MediaStore (_id ' + x.mediaStore + '), som säger var filen ligger.' : ''), x.current && x.current !== x.path ? kv('Sparad som', x.current, 'downloads.current_path') : '',
+                kv('Började', t(x.ms), 'downloads.start_time'), x.endMs ? kv('Klar', t(x.endMs), 'downloads.end_time') : '', kv('Läge', x.state + (x.opened ? ', öppnad' : ''), 'downloads.state, opened'),
+                x.size !== null ? kv('Storlek', Web.sizeText(x.size) + ' (' + num(x.size) + ' byte)' + (x.received !== null && x.received !== x.size ? ', ' + num(x.received) + ' mottagna' : ''), 'downloads.total_bytes, received_bytes') : '',
+                x.mime ? kv('Typ', x.mime, 'downloads.mime_type') : '', kv('Adress', x.url, 'downloads_url_chains (sista)'),
+                x.chain && x.chain !== x.url ? kv('Omdirigeringar', x.chain, 'downloads_url_chains') : '', x.referrer ? kv('Hänvisning', x.referrer, 'downloads.referrer') : '',
+                x.tab ? kv('Fliken', x.tab, 'downloads.tab_url') : '', x.tabReferrer ? kv('Flikens hänvisning', x.tabReferrer, 'downloads.tab_referrer_url') : '',
+                x.lastAccessMs ? kv('Senast öppnad', t(x.lastAccessMs), 'downloads.last_access_time') : '', kv('Källa', 'downloads rad ' + x.id, b.files.downloads)];
+        } else if (P.webTab === 'tabs') {
+            $('c-device-title').textContent = x.title || x.host || 'Flik';
+            rows = [kv('Adress', x.url, 'bookmarks.url'), x.title ? kv('Titel', x.title, 'bookmarks.title') : '', kv('Grupp', x.group + (x.private ? ' (privat surfning)' : ''), 'bookmarks.parent, windows'),
+                kv('Senaste besöket', x.ms ? t(x.ms) : 'Saknas', 'local_attributes · LastVisitTime'), x.closedMs ? kv('Stängd', t(x.closedMs), 'bookmarks.date_closed') : '',
+                kv('Källa', 'bookmarks rad ' + x.id, b.files.tabs)];
+        } else {
+            $('c-device-title').textContent = 'Rensad historik';
+            rows = [kv('Från', t(x.startMs), 'history_tombstones.start_time'), kv('Till', t(x.endMs), 'history_tombstones.end_time'), kv('Adress', x.url || 'Alla adresser i spannet', 'history_tombstones.url'),
+                kv('Källa', 'history_tombstones rad ' + x.id, b.files.cleared)];
+        }
+        $('c-device-sub').textContent = b.name + (x.ms ? ' · ' + f(x.ms) : '');
+        body.innerHTML = '<div class="d-kvs">' + rows.join('') + '</div>';
     }
 
     // ---------- Samtal och kontakter (queries/comms, Comms) ----------
@@ -2886,6 +3054,9 @@
         if (b.dataset.deviceNotes) return openDevice('notes');
         if (b.dataset.deviceCalls) return openDevice('calls');
         if (b.dataset.deviceContacts) return openDevice('contacts');
+        if (b.dataset.deviceWeb) { if (state.device.web !== b.dataset.deviceWeb) state.device.webTab = ''; state.device.web = b.dataset.deviceWeb; return openDevice('web'); }
+        if (b.dataset.webTab) { state.device.webTab = b.dataset.webTab; state.device.limit = LIST_STEP; renderDevice(); $('c-device-body').scrollTop = 0; return; }
+        if (b.dataset.webId !== undefined) { state.device.webItem = Number(b.dataset.webId); return openDevice('webItem'); }
         if (b.dataset.callFilter) { state.device.callFilter = b.dataset.callFilter; state.device.limit = LIST_STEP; return renderDevice(); }
         if (b.dataset.callId !== undefined) { state.device.call = Number(b.dataset.callId); return openDevice('call'); }
         if (b.dataset.contactId !== undefined) { state.device.contact = b.dataset.contactId; state.device.contactFrom = state.device.screen === 'call' ? 'call' : 'contacts'; return openDevice('contact'); }
@@ -3010,6 +3181,7 @@
         device: function () {
             var P = state.device, ph = P.photos, g = P.gallery;
             return { on: P.on, shown: deviceShown(), screen: P.screen, app: P.app, info: P.info ? { state: P.info.state, notes: P.info.memos ? P.info.memos.notes.length : null } : null,
+                web: state.web ? { state: state.web.state, errors: state.web.errors, browsers: state.web.browsers.map(function (b) { return { id: b.id, name: b.name, visits: b.visits ? b.visits.length : null, searches: b.searches ? b.searches.length : null, downloads: b.downloads ? b.downloads.length : null, tabs: b.tabs ? b.tabs.length : null, cleared: b.cleared ? b.cleared.length : null }; }) } : null,
                 comms: state.comms ? { state: state.comms.state, calls: state.comms.calls ? state.comms.calls.length : null, contacts: state.comms.contacts ? state.comms.contacts.list.length : null, errors: state.comms.errors } : null, photos: ph ? { state: ph.state, items: ph.items.length, thumbs: Object.keys(ph.thumbs).length, files: Object.keys(ph.files).length, note: ph.note } : null,
                 gallery: g ? { tiles: $('c-device-body').querySelectorAll('.g-tile').length, shown: $('c-device-body').querySelectorAll('.g-tile.has').length, loads: g.stats.loads, failed: g.stats.failed, urls: g.urls.map.size } : null };
         },
