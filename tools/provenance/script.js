@@ -1491,9 +1491,10 @@
             var why = pv ? pv.note : meta.sampleNote ? 'Testdatan har ingen bildfil att visa.' : meta.fileMissingReason || 'Ingen bild.';
             mediaHtml = '<div class="file-placeholder">' + escapeHtml(why) + '</div>';
         }
-        var canShow = !!(pv && pv.url);
+        var canShow = !!(pv && pv.url), toExif = !!(state.zip && meta.mediaEntry);
         $('file-card').innerHTML = '<div class="file-card"><div class="file-media">' + mediaHtml +
-            (canShow ? '<div class="button-row"><button type="button" class="secondary" id="toggle-media">' + (state.showMedia ? 'Dölj bilden' : 'Visa bilden') + '</button></div>' : '') + '</div>' +
+            (canShow || toExif ? '<div class="button-row">' + (canShow ? '<button type="button" class="secondary" id="toggle-media">' + (state.showMedia ? 'Dölj bilden' : 'Visa bilden') + '</button>' : '') +
+                (toExif ? '<button type="button" class="secondary hub-only" id="file-to-exif" title="Alla EXIF-taggar och positionen på kartan">Visa i EXIF &amp; karta</button>' : '') + '</div>' : '') + '</div>' +
             '<div class="file-facts">' + groups.map(function (g) {
                 return (g.title ? '<div class="file-facts-title">' + escapeHtml(g.title) + (g.note ? ' <span class="file-facts-note">' + escapeHtml(g.note) + '</span>' : '') + '</div>' : '') +
                     '<dl' + (g.times ? ' class="file-times"' : '') + '>' + g.rows.map(function (r) { return '<dt>' + escapeHtml(r[0]) + '</dt><dd' + (MONO_ROWS[r[0]] ? ' class="mono"' : '') + '>' + escapeHtml(r[1]) + '</dd>'; }).join('') + '</dl>';
@@ -6670,6 +6671,7 @@
     $('zone').addEventListener('change', redoShown);
     $('window').addEventListener('change', redoShown);
     $('file-card').addEventListener('click', function (e) {
+        if (e.target.closest('#file-to-exif')) { handOver('exif').catch(function (err) { console.warn(err); }); return; }
         if (!e.target.closest('#toggle-media')) return;
         state.showMedia = !state.showMedia;
         renderFileCard();

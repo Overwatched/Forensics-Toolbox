@@ -324,8 +324,9 @@ const scenarios = [
         notAtT(old, ' filen skapades i filsystemet');
         expect(old.texts.includes('Filen skapades i filsystemet') && old.texts.includes('731 dygn efter T'), 'Filens rad: ' + old.texts.join(' | '));
         expect(/Källa: Zippen → filens skapandetid \(UT-fältet, fjärde tiden\)/.test(old.note), 'Raden: ' + old.note);
-        // Samma fil i EXIF & karta: varje tid ur zippen säger i klartext vad den är, med fältet inom parentes.
-        await c.ev(null, `document.querySelector('#cb-file [data-to="exif"]').click(), 1`);
+        // Samma fil i EXIF & karta, med knappen under bilden: varje tid ur zippen säger i klartext vad den är, med fältet inom parentes.
+        expect(await c.ev(PROV, `(function(){ const b = document.getElementById('file-to-exif'); return !!b && b.offsetParent !== null; })()`), 'Knappen Visa i EXIF & karta syns inte vid filen');
+        await c.ev(PROV, `document.getElementById('file-to-exif').click(), 1`);
         await c.waitFor('exif-viewer/index.html', `document.getElementById('detail-name').textContent === 'gammal.jpg' && !document.getElementById('detail').classList.contains('display-none')`, 20000, 'filen öppnad i EXIF & karta');
         const notes = await c.ev('exif-viewer/index.html', `[...document.querySelectorAll('#detail-summary dt')].filter(d => d.nextElementSibling.querySelector('.src') && /filsystemet|ctime/.test(d.textContent)).map(d => d.textContent + ': ' + d.nextElementSibling.querySelector('.src').textContent)`);
         expect(JSON.stringify(notes) === JSON.stringify(['Skapad i filsystemet: zippen, filens skapandetid (UT-fältet, fjärde tiden)', 'Ändrad i filsystemet: zippen, filens ändringstid (UT-fältet)',
