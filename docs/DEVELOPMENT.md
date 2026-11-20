@@ -1619,6 +1619,30 @@ senare.
     `ChatCore.conversation` och sparas på databasen (`d.textIndex`, `threadText`); träffarna fylls på medan chattarna
     läses, den senaste först. En träff öppnar chatten vid meddelandet med ordet i chattens sökfält. Escape tömmer ett
     sökfält och går annars tillbaka ett steg.
+  - **Appinställningar** (`app-settings.js`, `AppSettings`; `loadAppSettings`, `renderAppInfo`): vad WhatsApp, Signal
+    och Snapchat sparat om kontot, sekretessen, meddelandena, säkerhetskopian och länkade enheter. Nås från appens
+    lista (Inställningar i appen), Inställningar → Appar och sökningen. Varje rad har fil och fält och är märkt
+    **✓ Labb** (kontrollerad i en labb: inställningen ändrades eller händelsen gjordes vid en loggad tid och syntes i
+    filen) eller **Ej verifierad** (värdet står i filen, men vad det betyder är inte prövat). Kontrollerat i labb:
+    Snapchats Spara till (Android och iOS), Signals länkade enheter på iOS (tabellen `Device`: enhet 1 är telefonen; en
+    macOS-dator länkad 2026-11-03, meddelanden från den 2026-11-05) och Signals registreringstid på Android
+    (`account.registered_at`, 18:46 inom labbens 18:38–18:47).
+    - WhatsApp Android: `com.whatsapp_preferences_light.xml` (läskvitton, `privacy_*` 0 Alla / 1 Mina kontakter / 2 Ingen,
+      registrering och senaste inloggning (sekunder), platsdelning, `md_messaging_enabled`), `disappearing_mode_prefs.xml`
+      och `backup_prefs.xml`. shared_prefs läses som text eller ABX (`sharedPrefs`).
+    - WhatsApp iOS: `group.net.whatsapp.WhatsApp.shared.plist` (`FullUserName`, `OwnPhoneNumber`, `ReadReceiptsOff`,
+      `lastAutoBackupDate`, `RestoreBackupDone`). De flesta nycklarna har förkortade namn och läses inte.
+    - Signal Android: `signal-key-value.db` (SQLCipher med chattarnas nyckel, `cipherFor`): `settings.*`,
+      `phoneNumberPrivacy.*`, `account.registered_at`, `account.has_linked_devices`, `misc.last_foreground_time`.
+    - Signal iOS: `keyvalue` i `signal.sqlite` (kolumnerna heter `KEY` och `VALUE` i versaler, så frågorna har alias;
+      värdena är NSKeyedArchiver, tal eller text, `keyedValue`) och `Device` (createdAt, lastSeenAt i sekunder; lastSeenAt
+      avrundad till dygnet; namnet i klartext för macOS i labbet).
+    - Snapchat: Spara till (core.db och primary.docobjects, samma som Härkomst), användar-id
+      (`user_session_shared_pref.xml`) och första installationen (`com.toyopagroup.picaboo.plist`).
+  - **Kontrollcenter** (Snabbinställningar på Android; `renderControl`, `controlTiles`): Lägen som rutor, på eller av,
+    med raden i Inställningar → Lägen bakom varje ruta. Nås med statusraden överst på hemskärmen och låsskärmen
+    (`statusBarHtml`: ikonerna för lägena) eller med ett drag nedåt från överkanten: från högra halvan på iPhone (vänstra
+    ger notiserna), överallt på Android. Android-lägena har också Mörkt läge (`ui_night_mode`) och Stör ej (`zen_mode`).
   - **En app** visar sina chattar, den senaste först (`appThreads`), 200 i taget. En chatt öppnas i telefonvyn med
     knappen tillbaka (`#c-phone-back`) till appens lista. Att byta till Lista lämnar inte telefonen: där står knappen
     i chattens huvud (`#c-list-back`, `backButtons`). En chatt som öppnas ur listan till vänster medan en chatt visas

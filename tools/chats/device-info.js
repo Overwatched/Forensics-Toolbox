@@ -668,6 +668,8 @@
         add('Mobildata', global, 'settings_global.xml', 'mobile_data');
         add('Dataroaming', global, 'settings_global.xml', 'data_roaming');
         add('Plats', secure, 'settings_secure.xml', 'location_mode', function (v) { return v === '0' ? 'Av' : v === '3' ? 'På (hög noggrannhet)' : v === '1' ? 'På (bara GPS)' : v === '2' ? 'På (sparar batteri)' : v; });
+        add('Mörkt läge', secure, 'settings_secure.xml', 'ui_night_mode', function (v) { return v === '2' ? 'På' : v === '1' ? 'Av' : v === '0' ? 'Automatiskt' : v; });
+        add('Stör ej', global, 'settings_global.xml', 'zen_mode', function (v) { return v === '0' ? 'Av' : v === '1' ? 'På (bara prioriterade)' : v === '2' ? 'På (total tystnad)' : v === '3' ? 'På (bara alarm)' : v; });
         add('Automatisk tid', global, 'settings_global.xml', 'auto_time');
         add('Automatisk tidszon', global, 'settings_global.xml', 'auto_time_zone');
         add('Utvecklaralternativ', global, 'settings_global.xml', 'development_settings_enabled');

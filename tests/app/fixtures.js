@@ -138,6 +138,12 @@ function routinedDb(SQL) {
 function signalDb(SQL, imageSha) {
     const db = emptyDb(SQL, 80);
     Object.values(chatSchemas['signal-ios']).forEach((sql) => db.run(sql));
+    // Appinställningarna: keyvalue med kolumnerna i versaler, som i Signal, och en länkad dator i Device.
+    db.run('CREATE TABLE keyvalue (KEY TEXT NOT NULL, collection TEXT NOT NULL, VALUE BLOB NOT NULL, PRIMARY KEY (KEY, collection))');
+    db.run('INSERT INTO keyvalue VALUES (?, ?, ?)', ['TSAccountManager_IsDiscoverableByPhoneNumber', 'TSStorageUserAccountCollection', 0]);
+    db.run('INSERT INTO keyvalue VALUES (?, ?, ?)', ['TSAccountManager_RegistrationDateKey', 'TSStorageUserAccountCollection', T2 - 3600]);
+    db.run('CREATE TABLE Device (id INTEGER PRIMARY KEY, deviceId INTEGER NOT NULL, createdAt DOUBLE NOT NULL, lastSeenAt DOUBLE NOT NULL, name TEXT)');
+    db.run('INSERT INTO Device (deviceId, createdAt, lastSeenAt, name) VALUES (1, ?, ?, NULL), (2, ?, ?, ?)', [T2 - 3600, T2, T2 - 1800, T2 - 86400 + 0, 'macOS']);
     const ms = (sec) => Math.round((T2 + sec) * 1000);
     insert(db, 'model_TSThread', { id: 1, recordType: 27, uniqueId: 'tråd-1', contactUUID: 'aci-kim', shouldThreadBeVisible: 1, creationDate: T2 - 600,
         conversationColorName: 'blue', isArchived: 0, lastInteractionRowId: 1, isMarkedUnread: 0, lastVisibleSortIdOnScreenPercentage: 0, lastVisibleSortId: 0, mentionNotificationMode: 0, mutedUntilTimestamp: 0 });
@@ -899,6 +905,7 @@ async function build() {
         { name: P + 'Containers/Data/Application/24242424-3535-4646-5757-686868686868/Library/Application Support/PRBPosterExtensionDataStore/61/Extensions/com.apple.MercuryPoster/configurations/' + POSTER + '/versions/1/RuntimeSnapshot-home.atx',
             data: atxFile(64, 128, () => [255, 0, 0, 255]), deflate: true },
         { name: 'filesystem1/private/var/preferences/SystemConfiguration/com.apple.radios.plist', data: plistXml('<dict><key>AirplaneMode</key><true/></dict>') },
+        { name: P + 'Containers/Shared/' + GROUP_WA + 'Library/Preferences/group.net.whatsapp.WhatsApp.shared.plist', data: plistXml('<dict><key>ReadReceiptsOff</key><true/><key>lastAutoBackupDate</key><date>2024-05-30T10:00:00Z</date><key>NumberOfLaunches</key><integer>7</integer></dict>') },
         { name: P + 'Library/Preferences/com.apple.BTServer.plist', data: plistXml('<dict><key>defaultPoweredState</key><string>on</string><key>defaultAirplaneModePowerState</key><string>off</string></dict>') },
         { name: P + 'Library/Preferences/com.apple.uikitservices.userInterfaceStyleMode.plist', data: plistXml('<dict><key>UserInterfaceStyleMode</key><integer>2</integer></dict>') },
         { name: P + 'Library/Safari/SafariTabs.db', data: safariTabsDb(SQL), deflate: true },

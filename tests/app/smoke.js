@@ -1481,6 +1481,17 @@ const scenarios = [
         await c.waitFor(PH, `[...document.querySelectorAll('#c-device-body .d-walls img')].some(i => i.naturalWidth > 0)`, 10000, 'bakgrunden i Inställningar');
         const wall = await ev(`({ text: document.getElementById('c-device-body').innerText, img: [...document.querySelectorAll('#c-device-body .d-walls img')].map(i => i.naturalWidth) })`);
         expect(/Vald bakgrund\s+Apples standardbakgrund/.test(wall.text) && /versions\/2\/RuntimeSnapshot-home\.atx/.test(wall.text) && /Sparade bakgrunder\s+2 posters/.test(wall.text) && wall.img[0] === 64, 'Bakgrunden: ' + JSON.stringify(wall));
+        // Appinställningarna under Inställningar → Appar: WhatsApp med läskvitton av (ej verifierat) och Signal med den
+        // länkade datorn (kontrollerad i labb).
+        await ev(`document.getElementById('c-device-back').click(), 1`);
+        await c.waitFor(PH, `!!document.querySelector('#d-set-list [data-app-info="Signal"]')`, 20000, 'apparna i Inställningar');
+        await ev(`document.querySelector('#d-set-list [data-app-info="WhatsApp"]').click(), 1`);
+        const wa = await ev(`[...document.querySelectorAll('.d-appset')].map(r => r.querySelector('.d-kv-label').textContent + '=' + r.querySelector('.d-kv-value').textContent + (r.querySelector('.d-unverified') ? ' ?' : '') + (r.querySelector('.d-check') ? ' ✓' : ''))`);
+        expect(wa.includes('Läskvitton=Av ?') && wa.includes('Antal starter=7 ?') && wa.some((x) => /^Senaste automatiska säkerhetskopiering \(iCloud\)=2024-05-30/.test(x)), 'WhatsApp: ' + JSON.stringify(wa));
+        await ev(`document.getElementById('c-device-back').click(), 1`);
+        await ev(`document.querySelector('#d-set-list [data-app-info="Signal"]').click(), 1`);
+        const sig = await ev(`[...document.querySelectorAll('.d-appset')].map(r => r.querySelector('.d-kv-label').textContent + '=' + r.querySelector('.d-kv-value').textContent + (r.querySelector('.d-check') ? ' ✓' : ''))`);
+        expect(sig.includes('Länkade enheter=1 ✓') && sig.some((x) => /^macOS=länkad \d{4}-\d\d-\d\d \d\d:\d\d:\d\d · senast sedd \d{4}-\d\d-\d\d ✓$/.test(x)) && sig.includes('Kan hittas med numret=Av'), 'Signal: ' + JSON.stringify(sig));
         // Sök i inställningarna: raderna i alla delar.
         await ev(`document.getElementById('c-device-back').click(), 1`);
         const typeIn = async (id, v) => { await ev(`(function(){ const i = document.getElementById(${JSON.stringify(id)}); i.value = ${JSON.stringify(v)}; i.dispatchEvent(new Event('input', { bubbles: true })); return 1; })()`); await sleep(400); };
@@ -1488,6 +1499,14 @@ const scenarios = [
         const setHits = await ev(`[...document.querySelectorAll('#d-set-list .d-row')].map(r => r.innerText.replace(/\\n/g, ' | '))`);
         expect(setHits.length === 1 && setHits[0] === 'Flygplansläge | Lägen · På', 'Sök i inställningarna: ' + JSON.stringify(setHits));
         await typeIn('d-set-q', '');
+        await ev(`document.getElementById('c-device-back').click(), 1`);
+        // Kontrollcentret: statusraden överst på hemskärmen öppnar lägena som rutor, och en ruta leder till raden.
+        await ev(`document.querySelector('#c-device-body .d-statusbar').click(), 1`);
+        const tiles = await ev(`({ screen: ChatsApp.device().screen, tiles: [...document.querySelectorAll('#c-device-body .d-tile')].map(t => t.getAttribute('aria-label')) })`);
+        expect(tiles.screen === 'control' && tiles.tiles.join(' | ') === 'Flygplansläge, på, På | Bluetooth, på, På | Mörkt läge, på, Mörkt', 'Kontrollcentret: ' + JSON.stringify(tiles));
+        await ev(`document.querySelector('#c-device-body .d-tile').click(), 1`);
+        expect(await ev(`ChatsApp.device().screen === 'setting' && document.getElementById('c-device-back-text').textContent === 'Kontrollcenter'`), 'Rutan ledde inte till Lägen med vägen tillbaka');
+        await ev(`document.getElementById('c-device-back').click(), 1`);
         await ev(`document.getElementById('c-device-back').click(), 1`);
         // Hemskärmen har iPhonens bakgrund och sökknappen. Att skriva där öppnar sökningen: apparna och konversationerna.
         expect(await ev(`ChatsApp.device().screen === 'home' && document.getElementById('c-device-body').classList.contains('has-wall') && !!document.querySelector('#c-device-body .d-search-pill')`), 'Hemskärmen med bakgrund och sökknapp');
