@@ -1583,7 +1583,9 @@ senare.
       telefonens namn och adress, och en del per parkopplad enhet), Konton (`accounts_ce.db`) och Bakgrund.
     - Bara det som står i filen visas. En del vars fil saknas står som Inte läst.
   - **En app** visar sina chattar, den senaste först (`appThreads`), 200 i taget. En chatt öppnas i telefonvyn med
-    knappen tillbaka (`#c-phone-back`) till appens lista. Lista över chatten lämnar telefonen.
+    knappen tillbaka (`#c-phone-back`) till appens lista. Att byta till Lista lämnar inte telefonen: där står knappen
+    i chattens huvud (`#c-list-back`, `backButtons`). En chatt som öppnas ur listan till vänster medan en chatt visas
+    lämnar telefonen (`openThread` ser om telefonen visades när chatten valdes).
   - **Bilder** läser bildbiblioteket med rollen `gallery` (alla rader, med favorit, dold, papperskorgen, slag och
     appen): Photos.sqlite på iOS (bandet efter schemat, `photosBandFromSchema`; iOS 10–13 saknar `ZKIND` och
     `ZKINDSUBTYPE` i schemat från iLEAPP) och MediaStore på Android (`media_type` 1 och 3, med
@@ -1599,6 +1601,9 @@ senare.
     (dolda och Nyligen raderade, rödmarkerade). `galleryGroups`, `filterItems`. Alla urval utom Nyligen raderade
     lämnar papperskorgen utanför, som telefonen; Bibliotek visar allt, med papperskorgen rödmarkerad och de dolda
     märkta Dold. Omslaget är den senaste bilden i urvalet. Ett urval öppnas som galleri med knappen tillbaka till Album.
+  - **En bild** öppnas i ett ark med tiderna och källan, och knapparna Visa i EXIF & karta och Bedöm i Härkomst.
+    `toExif` skickar filen ur zippen (en krypterad bilaga dekrypterad) med zippens tider som `file-for`, som Härkomst
+    gör; förstoringen i en chatt har samma knapp.
   - **Galleriet** (`ChatPhone.Gallery`) ritar bara raderna som syns och en skärm åt varje håll, med en rubrik per
     månad (`layout`, `rowsBetween`). Bilderna läses när rullningen har stannat i 120 ms, högst sex åt gången, och
     högst 400 hålls som blob-adresser (`UrlCache`, aldrig en som syns). Med 20 300 bilder: biblioteket läst på

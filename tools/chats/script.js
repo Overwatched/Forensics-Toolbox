@@ -723,6 +723,8 @@
     async function openThread(d, key, focus) {
         var thread = d.threads.find(function (t) { return t.key === String(key); });
         if (!thread) throw new Error('Konversationen ' + key + ' finns inte i ' + d.hit.db.name + '.');
+        // Öppnad från telefonen: chatten visas i telefonvyn, med knappen tillbaka. Från listan till vänster lämnas telefonen.
+        var fromDevice = deviceShown();
         if (state.job) state.job.cancel();
         var job = new Job($('c-busy'), 'Öppnar ' + thread.name + ' · ' + d.src.app, [
             { text: 'Meddelandena', weight: 6 }, { text: 'Bilagorna', weight: 1 }, { text: 'Konversationen', weight: 2 },
@@ -763,7 +765,8 @@
             $('c-empty').classList.add('display-none');
             $('c-view').classList.remove('display-none');
             // Från telefonen öppnas chatten i telefonvyn, med knappen tillbaka till appens lista.
-            if (state.device.on) { hideDevice(); setLook('phone'); }
+            state.device.on = fromDevice;
+            if (fromDevice) { hideDevice(); setLook('phone'); }
             renderHead();
             dateLimits();
             var at = focus === null || focus === undefined ? undefined : byKey[String(focus)];
@@ -819,8 +822,8 @@
         $('c-phone-name').textContent = ph.name;
         $('c-phone-sub').textContent = ph.sub;
         $('c-phone-foot').textContent = ph.label;
-        $('c-phone-back').classList.toggle('display-none', !state.device.on);
-        $('c-phone-back-text').textContent = c.db.src.app;
+        $('c-phone-back-text').textContent = $('c-list-back-text').textContent = c.db.src.app;
+        backButtons();
         var people = m.members;
         $('c-people-toggle').textContent = 'Deltagare (' + (people.length + 1) + ')';
         $('c-people').innerHTML = '<ul>' + people.map(function (p) {
@@ -1024,6 +1027,7 @@
         $('c-stage').classList.toggle('phone', look === 'phone');
         $('c-look-list').setAttribute('aria-pressed', String(look === 'list'));
         $('c-look-phone').setAttribute('aria-pressed', String(look === 'phone'));
+        backButtons();
         var el = a ? msgEl(a.i) : null;
         if (atEnd) box.scrollTop = box.scrollHeight;
         else if (el) {
@@ -1032,8 +1036,14 @@
         }
         fill();
     }
-    // Listvyn lämnar telefonen: nästa chatt öppnas som lista.
-    $('c-look-list').addEventListener('click', function () { state.device.on = false; $('c-phone-back').classList.add('display-none'); setLook('list'); });
+    // En chatt som öppnades från telefonen har knappen tillbaka till appen i båda vyerna: i telefonens ram, och i
+    // listvyn i chattens huvud. Att byta vy lämnar inte telefonen.
+    function backButtons() {
+        var on = !!(state.device.on && state.current);
+        $('c-phone-back').classList.toggle('display-none', !on);
+        $('c-list-back').classList.toggle('display-none', !on || state.look !== 'list');
+    }
+    $('c-look-list').addEventListener('click', function () { setLook('list'); });
     $('c-look-phone').addEventListener('click', function () { setLook('phone'); });
 
     // Nästa block ritas när kanten närmar sig, och block långt bort tas bort, så att sidan aldrig har fler än MAX_DRAWN.
@@ -1326,6 +1336,7 @@
         $('c-lb-img').src = await mediaUrl(it.path, it.a.mime, ChatCore.heicFile(it.a));
         $('c-lb-img').alt = it.a.name || baseName(it.a.entry);
         $('c-lb-cap').textContent = (it.doc ? 'Dokument (skickad som fil) · ' : '') + ChatCore.senderText(it.m) + ' · ' + (it.m.sortMs !== null ? fmt()(it.m.sortMs) : '') + ' · ' + it.path + (it.a.sha256 ? ' · SHA-256 ' + it.a.sha256 : '');
+        $('c-lb-exif').classList.toggle('display-none', !inHub || !entryOf(it.path));
         $('c-lb-prev').disabled = i === 0;
         $('c-lb-next').disabled = i === lightbox.list.length - 1;
     }
@@ -1339,6 +1350,12 @@
     }
     function closeLightbox() { $('c-lightbox').classList.add('display-none'); $('c-lb-img').removeAttribute('src'); }
     $('c-lb-close').addEventListener('click', closeLightbox);
+    $('c-lb-exif').addEventListener('click', function () {
+        var it = lightbox.list[lightbox.i], e = it && entryOf(it.path);
+        if (!e) return;
+        mediaBytes(it.path).then(function (got) { return toExif(e, got.bytes, 'Chattar'); }).catch(showError);
+        closeLightbox();
+    });
     $('c-lb-prev').addEventListener('click', function () { showImage(lightbox.i - 1).catch(showError); });
     $('c-lb-next').addEventListener('click', function () { showImage(lightbox.i + 1).catch(showError); });
     $('c-lightbox').addEventListener('click', function (e) { if (e.target === this) closeLightbox(); });
@@ -1419,6 +1436,17 @@
             e.preventDefault();
         }
     });
+
+    // En bild till EXIF & karta: filen som den ligger i extraktionen (en krypterad bilaga dekrypterad), med
+    // filsystemets tider ur zippen, som när Härkomst skickar den.
+    async function toExif(entry, bytes, how) {
+        var zt = ExtractionCore.entryTimes(entry), sources = {};
+        ['modified', 'created', 'changed', 'third', 'accessed'].forEach(function (w) { sources[w] = zt.field || (w === 'modified' ? 'DOS-tid' : ''); });
+        if (!bytes) bytes = (await ExtractionCore.readEntry(state.zip.read, entry)).bytes;
+        var file = new File([bytes], baseName(entry.name), { lastModified: zt.modifiedMs || 0 });
+        toHub({ type: 'file-for', to: 'exif', from: how, files: [{ file: file, path: state.zip.file.name + ' › ' + entry.name,
+            times: { modified: zt.modified, created: zt.created, changed: zt.changed, third: zt.third, accessed: zt.accessed, field: zt.field, sources: sources } }] });
+    }
 
     async function saveFile(path, name) {
         var url = await mediaUrl(path, 'application/octet-stream');
@@ -2567,7 +2595,8 @@
         var table = /\bFROM\s+(\w+)/i.exec(q.sql || '');
         rows.push(['Källa', esc(baseName(ph.db)) + (table ? ' · ' + esc(table[1]) : '')]);
         showSheet(esc(it.name), (url ? '<img src="' + esc(url) + '" alt="">' : '') + '<table>' + rows.map(function (r) { return '<tr><th>' + r[0] + '</th><td>' + r[1] + '</td></tr>'; }).join('') + '</table>',
-            inHub ? '<button type="button" class="c-btn c-primary" data-sheet-assess="1">Bedöm i Härkomst</button>' : '', it.name);
+            inHub ? (file ? '<button type="button" class="c-btn" data-sheet-exif="' + esc(it.key) + '">Visa i EXIF &amp; karta</button>' : '') +
+                '<button type="button" class="c-btn c-primary" data-sheet-assess="1">Bedöm i Härkomst</button>' : '', it.name);
     }
     // Ett ark i telefonen: rubriken (HTML), innehållet och knapparna före Stäng.
     function showSheet(titleHtml, inner, actions, name) {
@@ -2607,6 +2636,7 @@
     $('c-device-open').addEventListener('click', function () { openDevice('home'); });
     $('c-device-back').addEventListener('click', function () { var b = backOf(state.device); openDevice(b.screen, '', b.screen === 'albums' ? { filter: 'all' } : null); });
     $('c-phone-back').addEventListener('click', function () { if (state.current) openDevice('app', state.current.db.src.app); });
+    $('c-list-back').addEventListener('click', function () { if (state.current) openDevice('app', state.current.db.src.app); });
     $('c-device-tabs').addEventListener('click', function (e) {
         var b = e.target.closest('[data-device-tab]');
         if (b) openDevice(b.dataset.deviceTab === 'albums' ? 'albums' : 'photos', '', { filter: 'all' });
@@ -2689,6 +2719,13 @@
     deviceBody.addEventListener('click', function (e) { if (deviceBody.dataset.dragged) { e.stopPropagation(); e.preventDefault(); } }, true);
     $('c-device-sheet').addEventListener('click', function (e) {
         if (e.target === this || e.target.closest('[data-sheet-close]')) return closeSheet();
+        var ex = e.target.closest('[data-sheet-exif]');
+        if (ex) {
+            var f = state.device.photos && state.device.photos.files[ex.dataset.sheetExif];
+            if (f) toExif(f, null, 'Telefonen').catch(showError);
+            closeSheet();
+            return;
+        }
         if (e.target.closest('[data-sheet-assess]')) {
             toHub({ type: 'names-for', to: 'provenance', names: [this.dataset.name], zipName: state.zip ? state.zip.file.name : '' });
             closeSheet();

@@ -1364,6 +1364,13 @@ const scenarios = [
         expect(sheet.shown && /\(ZDATECREATED\)$/.test(sheet.rows.Skapad) && /Media\/DCIM\/100APPLE\/IMG_0002\.JPG/.test(sheet.rows['I zippen']) && sheet.assess, 'Arket med bilden: ' + JSON.stringify(sheet));
         await ev(`document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })), 1`);
         expect(await ev(`document.getElementById('c-device-sheet').classList.contains('display-none')`), 'Esc stängde inte arket');
+        // Visa i EXIF & karta: filen ur zippen öppnas där, med zippens tider.
+        await ev(`[...document.querySelectorAll('#c-device-body .g-tile')].find(t => t.getAttribute('aria-label') === 'IMG_0002.JPG').click(), 1`);
+        await ev(`document.querySelector('#c-device-sheet [data-sheet-exif]').click(), 1`);
+        await c.waitFor('exif-viewer/index.html', `document.getElementById('detail-name').textContent === 'IMG_0002.JPG' && !document.getElementById('detail').classList.contains('display-none')`, 20000, 'bilden ur Telefonen i EXIF & karta');
+        expect(await c.ev('exif-viewer/index.html', `[...document.querySelectorAll('#detail-summary dt')].some(d => d.textContent === 'Ändrad i filsystemet' && /^zippen/.test(d.nextElementSibling.querySelector('.src') ? d.nextElementSibling.querySelector('.src').textContent : ''))`), 'EXIF & karta fick inte zippens tid');
+        await c.ev('exif-viewer/index.html', `document.getElementById('clear').click(), 1`);
+        await c.nav('Chattar');
         // Bedöm i Härkomst: namnet skickas dit och bedöms i samma extraktion.
         await ev(`document.querySelector('#c-device-body .g-tile').click(), 1`);
         const name = await ev(`document.getElementById('c-sheet-title').textContent`);
@@ -1371,12 +1378,28 @@ const scenarios = [
         await c.waitFor(PROV, `document.getElementById('filename').value === ${JSON.stringify(name)}`, 15000, 'namnet i Härkomst').catch(async () => {
             throw new Error('Härkomst fick ' + await c.ev(PROV, `document.getElementById('filename').value`) + ', inte ' + name);
         });
-        // Listvyn lämnar telefonen: nästa chatt öppnas som lista, utan knappen tillbaka.
+        // Att byta vy lämnar inte telefonen: knappen tillbaka finns i listvyns huvud och i telefonvyn.
         await c.nav('Chattar');
         await ev(`[...document.querySelectorAll('.c-item')].find(b => b.innerText.includes('Långa chatten')).click(), 1`);
         await c.waitFor(CHAT, `!ChatsApp.busy() && ChatsApp.view() && ChatsApp.view().n > 100`, 30000, 'den långa chatten');
+        const shownBack = `({ look: ChatsApp.look(), on: ChatsApp.device().on, phone: !document.getElementById('c-phone-back').classList.contains('display-none'), list: !document.getElementById('c-list-back').classList.contains('display-none') })`;
         await ev(`document.getElementById('c-look-list').click(), 1`);
-        expect(await ev(`ChatsApp.look() === 'list' && !ChatsApp.device().on && document.getElementById('c-phone-back').classList.contains('display-none')`), 'Listvyn lämnade inte telefonen');
+        const inList = await ev(shownBack);
+        expect(inList.look === 'list' && inList.on && inList.list, 'Listvyn: ' + JSON.stringify(inList));
+        await ev(`document.getElementById('c-look-phone').click(), 1`);
+        const inPhone = await ev(shownBack);
+        expect(inPhone.look === 'phone' && inPhone.phone && !inPhone.list, 'Tillbaka i telefonvyn: ' + JSON.stringify(inPhone));
+        await ev(`document.getElementById('c-look-list').click(), 1`);
+        await ev(`document.getElementById('c-list-back').click(), 1`);
+        expect(await ev(`ChatsApp.device().shown && ChatsApp.device().screen === 'app'`), 'Knappen i listvyn ledde inte till appen i telefonen');
+        // En chatt ur listan till vänster, när en chatt redan visas, lämnar telefonen: ingen knapp tillbaka.
+        await ev(`[...document.querySelectorAll('.c-item')].find(b => b.innerText.includes('Långa chatten')).click(), 1`);
+        await c.waitFor(CHAT, `!ChatsApp.busy() && ChatsApp.view() && ChatsApp.view().n > 100`, 30000, 'den långa chatten');
+        await ev(`[...document.querySelectorAll('.c-item')].find(b => !b.innerText.includes('Långa chatten') && !/\b0 meddelanden/.test(b.innerText)).click(), 1`);
+        await c.waitFor(CHAT, `!ChatsApp.busy() && ChatsApp.view() && ChatsApp.view().n < 100`, 30000, 'en annan chatt');
+        const left = await ev(shownBack);
+        expect(!left.on && !left.phone && !left.list, 'Chatten ur listan: ' + JSON.stringify(left));
+        await ev(`document.getElementById('c-look-list').click(), 1`);
         await noInjectedScript(c);
         return home.apps.join(', ') + '; ' + g.drawn + ' av 10 bilder ritade, ' + g.months.length + ' månader';
     }],
@@ -1512,7 +1535,11 @@ const scenarios = [
         await c.waitFor(CHAT, `document.getElementById('c-lb-img').naturalWidth === 64`, 15000, 'förstoringen');
         const cap = await ev(`document.getElementById('c-lb-cap').textContent`);
         expect(/^Dokument \(skickad som fil\) · /.test(cap), 'Förstoringens text: ' + cap);
-        await ev(`document.getElementById('c-lb-close').click(), 1`);
+        // Bilden i förstoringen till EXIF & karta.
+        await ev(`document.getElementById('c-lb-exif').click(), 1`);
+        await c.waitFor('exif-viewer/index.html', `document.getElementById('detail-name').textContent === 'IMG_0042.HEIC' && !document.getElementById('detail').classList.contains('display-none')`, 20000, 'dokumentet i EXIF & karta');
+        await c.ev('exif-viewer/index.html', `document.getElementById('clear').click(), 1`);
+        expect(await ev(`document.getElementById('c-lightbox').classList.contains('display-none')`), 'Förstoringen stängdes inte');
         return r.tag;
     }],
 

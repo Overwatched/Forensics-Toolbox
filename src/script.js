@@ -610,7 +610,7 @@ function initToolNav() {
         // filer att leta upp i extraktionen.
         if (data.type === 'file-for' && TOOL_PATH[data.to] && Array.isArray(data.files)) {
             deliver(data.to, data.to === 'exif'
-                ? { source: 'forensics-toolbox', type: 'exif-files', files: data.files, open: data.files.length === 1 }
+                ? { source: 'forensics-toolbox', type: 'exif-files', files: data.files, open: data.files.length === 1, from: typeof data.from === 'string' ? data.from : '' }
                 : { source: 'forensics-toolbox', type: 'provenance-files', files: data.files });
             return;
         }

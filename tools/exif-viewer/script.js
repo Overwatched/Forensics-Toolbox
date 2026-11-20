@@ -1492,7 +1492,8 @@
         if (data.type === 'exif-files' && Array.isArray(data.files)) {
             var got = addFiles(data.files.filter(function (f) { return f && (f.file || (f.ref && f.name)); }));
             if (got && got.length) {
-                showToast(got.length === 1 ? got[0].name + ' från Härkomst' : got.length + ' filer från Härkomst');
+                var from = data.from || 'Härkomst';
+                showToast(got.length === 1 ? got[0].name + ' från ' + from : got.length + ' filer från ' + from);
                 if (data.open && got.length === 1) openDetail(got[0]);
             }
             return;

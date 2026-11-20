@@ -195,6 +195,7 @@ body {
 /* Namnet behåller minst 320 px: får knapparna inte plats bredvid går de ned på en egen rad. */
 .c-head-text { min-width: 0; flex: 1 1 320px; }
 .c-eyebrow { font-size: 11.5px; color: var(--text-muted); text-transform: uppercase; letter-spacing: .04em; }
+.c-list-back { margin: 0 0 .3em -.35em; }
 .c-head h1 { font-size: 18px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .c-sub { font-size: 12.5px; color: var(--text-muted); }
 .c-tools { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
@@ -488,6 +489,7 @@ body {
 .c-lightbox figure { max-width: 90vw; max-height: 92vh; display: flex; flex-direction: column; align-items: center; gap: 8px; }
 .c-lightbox img { max-width: 90vw; max-height: 84vh; object-fit: contain; }
 .c-lightbox figcaption { color: #ddd; font-size: 12.5px; text-align: center; word-break: break-all; }
+.c-lightbox figcaption .link-btn { color: #fff; text-decoration: underline; font-size: inherit; }
 .c-lb-close { position: absolute; top: 12px; right: 18px; font-size: 32px; background: none; border: none; color: #fff; cursor: pointer; }
 .c-lb-nav { position: absolute; top: 50%; transform: translateY(-50%); font-size: 44px; background: none; border: none; color: #fff; cursor: pointer; padding: 10px; }
 .c-lb-prev { left: 10px; }
