@@ -1001,6 +1001,20 @@
             el.timeLegend.append(bar, labels);
         }
 
+        // Texten för en orimligt snabb sträcka: avståndet, tiden och hastigheten, och punkterna i båda ändar.
+        function badInfo(prev, cur) {
+            var leg = cur.fromPrev || {};
+            var label = function (p) {
+                var t = p.taken ? p.taken.text : '', n = p.name || '';
+                return n && t.indexOf(n) !== 0 ? n + (t ? ' (' + t + ')' : '') : t || n;
+            };
+            return formatLeg(leg) + ' · från ' + label(prev.point) + ' till ' + label(cur.point);
+        }
+        function formatLeg(leg) {
+            return root.MapCore.formatDistance(leg.meters || 0) + ' på ' + root.MapCore.formatDuration(leg.seconds || 0) +
+                (leg.seconds > 0 && isFinite(leg.kmh) ? ' (' + Math.round(leg.kmh) + ' km/h)' : ' (samma tid)');
+        }
+
         function routeGeojson() {
             var features = [];
             var routes = shownRoutes();
@@ -1015,7 +1029,7 @@
                         features.push({
                             type: 'Feature',
                             geometry: { type: 'LineString', coordinates: [[st[i - 1].point.lon, st[i - 1].point.lat], [st[i].point.lon, st[i].point.lat]] },
-                            properties: { color: bad ? '#ff453a' : rampColor((span.rank(st[i - 1].at) + span.rank(st[i].at)) / 2), implausible: bad ? 1 : 0 },
+                            properties: { color: bad ? '#ff453a' : rampColor((span.rank(st[i - 1].at) + span.rank(st[i].at)) / 2), implausible: bad ? 1 : 0, info: bad ? badInfo(st[i - 1], st[i]) : '' },
                         });
                     }
                 });
@@ -1034,13 +1048,16 @@
                         properties: { color: line.color, implausible: 0 },
                     });
                 });
-                drawn.bad.forEach(function (coords) {
+                // De orimligt snabba sträckorna, med texten som visas när man klickar på dem.
+                var st = r.steps || [];
+                for (var i = 1; i < st.length; i++) {
+                    if (!(st[i].fromPrev && st[i].fromPrev.implausible)) continue;
                     features.push({
                         type: 'Feature',
-                        geometry: { type: 'LineString', coordinates: coords },
-                        properties: { color: '#ff453a', implausible: 1 },
+                        geometry: { type: 'LineString', coordinates: [[st[i - 1].point.lon, st[i - 1].point.lat], [st[i].point.lon, st[i].point.lat]] },
+                        properties: { color: '#ff453a', implausible: 1, info: badInfo(st[i - 1], st[i]) },
                     });
-                });
+                }
             });
             return { type: 'FeatureCollection', features: features };
         }
@@ -1910,7 +1927,18 @@
             ['points', 'pins', 'point-badge', 'point-step', 'pin-step'].forEach(function (layer) {
                 map.on('click', layer, onPointClick);
             });
-            ['clusters', 'points', 'pins', 'point-badge', 'pin-step'].forEach(function (layer) {
+            // En orimligt snabb sträcka säger varför den är röd.
+            map.on('click', 'route-bad', function (e) {
+                var f = e.features && e.features[0];
+                if (!f || !f.properties.info) return;
+                var box = make('div', 'map-popup');
+                box.append(make('div', 'map-popup-name', 'Orimligt snabb förflyttning'));
+                box.append(make('p', 'map-note', f.properties.info));
+                box.append(make('p', 'map-note', 'Över 250 km/h och mer än 200 m. Kontrollera tiden eller positionen i någon av punkterna: en tid i fel zon eller en grov position ger ett sådant hopp.'));
+                closePopup();
+                showPopup(e.lngLat, box);
+            });
+            ['clusters', 'points', 'pins', 'point-badge', 'pin-step', 'route-bad'].forEach(function (layer) {
                 map.on('mouseenter', layer, function () { map.getCanvas().style.cursor = 'pointer'; });
                 map.on('mouseleave', layer, function () { map.getCanvas().style.cursor = ''; });
             });

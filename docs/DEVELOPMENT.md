@@ -2678,7 +2678,8 @@ inklistrade koordinater. EXIF kan skicka synliga positioner dit via hubben.
   vyn (`viewMode`).
 - **Färg efter tid** (Rutt): rutten ritas sträcka för sträcka i en skala från mörkblå till gul (plasma) efter ordningen i
   tiden (rangen, inte den absoluta tiden, så att en enstaka gammal punkt inte gör resten enfärgad), med en skala under valet.
-  Orimligt snabba sträckor är röda och streckade som förut (`MapCore.routeLines`, över 250 km/h och 200 m).
+  Orimligt snabba sträckor är röda och streckade som förut (över 250 km/h och 200 m); ett klick på en sådan sträcka
+  visar avståndet, tiden, hastigheten och punkterna i båda ändar (`badInfo`, lagret `route-bad`).
 - **Samtal och meddelanden på kartan** (knappen i Källor): Positioner skickar ett tidsfönster på ±30 min runt varje
   position med tid och zon (ihopslagna, högst två månader sammanlagt) som `phone-events`. Queries kör katalogernas
   rollqueryer för samtal (`calls`: CallHistory.storedata, calllog.db) och meddelanden (`messages`: Signal, WhatsApp,
