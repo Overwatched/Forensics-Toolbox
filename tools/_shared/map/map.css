@@ -353,3 +353,23 @@
 .map-toast-spin { display: none; width: 14px; height: 14px; flex: none; border-radius: 50%; border: 2px solid var(--border); border-top-color: var(--accent); animation: map-spin 0.8s linear infinite; }
 .map-toast[data-kind="busy"] .map-toast-spin { display: inline-block; }
 @keyframes map-spin { to { transform: rotate(360deg); } }
+
+/* Färg efter tid: skalan under valet. */
+.map-time-legend { display: flex; flex-direction: column; gap: 3px; margin: 2px 0 4px 24px; }
+.map-time-ramp { height: 8px; border-radius: 4px; }
+.map-time-ramp-labels { display: flex; justify-content: space-between; gap: 8px; font-size: 10px; color: var(--text-muted); }
+
+/* Tidslinjen ovanför raden längst ner. */
+.map-timeline {
+    position: absolute; left: 10px; right: 54px; bottom: 62px; z-index: 3; max-height: 40%; overflow: auto;
+    background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 4px 0;
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.25);
+}
+.map-wrap.map-with-list .map-timeline { right: calc(340px + 54px); }
+.map-timeline-canvas { display: block; width: 100%; }
+.map-timeline-tip {
+    position: absolute; z-index: 1; max-width: 220px; pointer-events: none; font-size: 11px; line-height: 1.35;
+    color: var(--text); background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 3px 6px;
+}
+.map-time .map-timeline-btn { box-shadow: none; padding: 4px 8px; }
+.map-time .map-timeline-btn.active { border-color: var(--accent); color: var(--accent); }

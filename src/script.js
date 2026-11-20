@@ -622,8 +622,8 @@ function initToolNav() {
         }
         // Positioner frågar var telefonen var runt en tidpunkt. Queries kör rollqueryerna för positioner mot extraktionen
         // i bakgrunden (ramen skapas utan att visas) och skickar positionerna som en vanlig källa. Svaret går tillbaka.
-        if (data.type === 'phone-positions' && typeof data.atMs === 'number') {
-            const reply = (text) => postToFrame(frames.get('tools/positions/index.html'), { source: 'forensics-toolbox', type: 'phone-positions-done', text: text, ok: false, atMs: data.atMs });
+        if ((data.type === 'phone-positions' && typeof data.atMs === 'number') || (data.type === 'phone-events' && typeof data.fromMs === 'number')) {
+            const reply = (text) => postToFrame(frames.get('tools/positions/index.html'), { source: 'forensics-toolbox', type: data.type + '-done', text: text, ok: false, atMs: data.atMs, events: [] });
             if (!extraction.file) { reply('Ingen extraktion är öppen. Öppna den i raden högst upp, så letar Queries upp telefonens positioner.'); return; }
             const path = TOOL_PATH.queries;
             let frame = frames.get(path);
@@ -631,13 +631,15 @@ function initToolNav() {
                 const item = document.querySelector('.nav-item[data-type="frame"][data-src="' + path + '"]');
                 frame = createFrame(path, path, item && item.querySelector('.nav-item-title') ? item.querySelector('.nav-item-title').textContent.trim() : 'Queries');
             }
-            const send = () => postToFrame(frame, { source: 'forensics-toolbox', type: 'phone-positions', file: extraction.file, atMs: data.atMs, minutes: data.minutes, title: data.title || '',
-                marks: Array.isArray(data.marks) ? data.marks : null, label: data.label || '', key: data.key || '' });
+            const send = () => postToFrame(frame, data.type === 'phone-events'
+                ? { source: 'forensics-toolbox', type: 'phone-events', file: extraction.file, fromMs: data.fromMs, toMs: data.toMs, windows: Array.isArray(data.windows) ? data.windows : null }
+                : { source: 'forensics-toolbox', type: 'phone-positions', file: extraction.file, atMs: data.atMs, minutes: data.minutes, title: data.title || '',
+                    marks: Array.isArray(data.marks) ? data.marks : null, label: data.label || '', key: data.key || '' });
             if (frame.dataset.ready) send();
             else frame.addEventListener('load', send, { once: true });
             return;
         }
-        if (data.type === 'phone-positions-done') {
+        if (data.type === 'phone-positions-done' || data.type === 'phone-events-done') {
             postToFrame(frames.get('tools/positions/index.html'), data);
             return;
         }

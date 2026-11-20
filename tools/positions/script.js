@@ -48,14 +48,15 @@
     // punkt utan tid visas alltid. thinMinutes 0 = alla.
     var thinMinutes = 0;
     var thinned = { shown: 0, total: 0 };
-    function isFilePoint(p) { return p.exifId != null || !!p.path || !!p.file; }
+    // En fil (en bild) och en händelse (samtal, meddelande) visas alltid för sig: de glesas inte ut och blir inga vistelser.
+    function isFilePoint(p) { return p.exifId != null || !!p.path || !!p.file || !!p.event; }
     function pointMs(p) { return p.taken && p.taken.sort ? MapCore.instant(p.taken.sort, p.taken.zone || '') : null; }
     function thin(list) {
         thinned = { shown: list.length, total: list.length };
         if (!thinMinutes) return list;
         var size = thinMinutes * 60000, best = {}, out = [];
         list.forEach(function (p, i) {
-            var ms = isFilePoint(p) ? null : pointMs(p);
+            var ms = isFilePoint(p) || p.stay ? null : pointMs(p);
             if (ms === null) { out.push({ p: p, i: i }); return; }
             var key = p.layerId + ':' + Math.floor(ms / size);
             var have = best[key];
@@ -68,13 +69,52 @@
         return kept;
     }
 
+    // Vistelser: positioner i följd inom 100 m under minst 5 minuter blir en ring (MapCore.summarizeTrack, samma gräns
+    // som Härkomst), med ankomst, avfärd och varaktighet. Förflyttningarna emellan står kvar som punkter. En fil (en
+    // bild), ett besök och en punkt utan tid visas alltid. viewMode 'all' visar alla punkter.
+    var viewMode = 'all';
+    var stayIds = {};
+    var nextStayId = 1000000000;
+    function durationText(ms) {
+        var m = Math.round(ms / 60000);
+        return m < 60 ? m + ' min' : Math.floor(m / 60) + ' h' + (m % 60 ? ' ' + (m % 60) + ' min' : '');
+    }
+    function stayPoint(x) {
+        var first = x.members[0].p, last = x.members[x.members.length - 1].p;
+        var key = first.layerId + ':' + x.from;
+        var id = stayIds[key] || (stayIds[key] = nextStayId++);
+        var dur = durationText(x.to - x.from);
+        return {
+            id: id, stay: true, visit: true, name: 'Vistelse ' + dur, path: '', lat: x.lat, lon: x.lon,
+            taken: first.taken, until: last.taken, accuracy: Math.max(25, Math.round(x.radius)),
+            layer: first.layer, layerId: first.layerId, color: first.color, type: 'Vistelse', device: first.device || '', source: first.source,
+            stayLabel: dur, extra: [['Positioner', String(x.count)], ['Område', 'inom ' + Math.max(1, Math.round(x.radius)) + ' m från mitten']],
+        };
+    }
+    function staysOf(list) {
+        if (viewMode !== 'stays') return list;
+        var byLayer = {}, out = [];
+        list.forEach(function (p) {
+            var ms = isFilePoint(p) || p.visit ? null : pointMs(p);
+            if (ms === null) { out.push(p); return; }
+            (byLayer[p.layerId] = byLayer[p.layerId] || []).push({ at: ms, lat: p.lat, lon: p.lon, p: p });
+        });
+        Object.keys(byLayer).forEach(function (id) {
+            MapCore.summarizeTrack(byLayer[id], { stepM: 0, stepMs: 0 }).forEach(function (x) {
+                if (x.kind === 'stay') out.push(stayPoint(x));
+                else if (!x.inStay) out.push(x.item.p);
+            });
+        });
+        return out;
+    }
+
     function visiblePoints() {
         var out = [];
         layers.forEach(function (layer) {
             if (!layer.visible) return;
             layer.points.forEach(function (p) { if (inRange(p)) out.push(p); });
         });
-        return thin(out);
+        return thin(staysOf(out));
     }
 
     function currentRoute(points) {
@@ -118,7 +158,8 @@
         var points = visiblePoints();
         var shownLayers = layers.filter(function (l) { return l.visible; }).length;
         var note = points.length + (points.length === 1 ? ' punkt' : ' punkter') + ' i ' + shownLayers + (shownLayers === 1 ? ' källa.' : ' källor.') +
-            (thinned.shown < thinned.total ? ' ' + (thinned.total - thinned.shown) + ' täta positioner dolda (en per ' + thinMinutes + ' min).' : '');
+            (thinned.shown < thinned.total ? ' ' + (thinned.total - thinned.shown) + ' täta positioner dolda (en per ' + thinMinutes + ' min).' : '') +
+            (viewMode === 'stays' ? (function (n) { return ' ' + n + (n === 1 ? ' vistelse.' : ' vistelser.'); })(points.filter(function (p) { return p.stay; }).length) : '');
         if (mapView) mapView.setPoints(points, note);
         fillRouteSpan();
     }
@@ -210,6 +251,77 @@
             list.append(row);
         });
     }
+
+    // ---------- Samtal och meddelanden på kartan ----------
+    // Queries läser samtalen och meddelandena i tidsspannet för punkterna som visas, och här läggs varje händelse där
+    // telefonen var vid tiden: mellan positionerna närmast före och efter (högst 30 minuter bort), eller vid den närmaste.
+    var EVENT_GAP = 30 * 60000;
+    function realMs(p) {
+        return p.taken && MapCore.zoneMinutes(p.taken.zone) !== null ? MapCore.instant(p.taken.sort, p.taken.zone) : null;
+    }
+    function eventRefs() {
+        var out = [];
+        layers.forEach(function (l) {
+            if (!l.visible || l.key === 'events') return;
+            l.points.forEach(function (p) { var ms = realMs(p); if (ms !== null && !p.event) out.push({ ms: ms, p: p }); });
+        });
+        return out.sort(function (a, b) { return a.ms - b.ms; });
+    }
+    function gapText(ms) {
+        var s = Math.round(Math.abs(ms) / 1000);
+        return s < 60 ? s + ' s' : s < 3600 ? Math.round(s / 60) + ' min' : (s / 3600).toFixed(1).replace('.', ',') + ' h';
+    }
+    function placeEvents(events) {
+        var refs = eventRefs(), pts = [], skipped = 0;
+        var dirWord = { ut: 'utgående', in: 'inkommande', missat: 'missat' };
+        events.forEach(function (e) {
+            var lo = 0, hi = refs.length;
+            while (lo < hi) { var mid = (lo + hi) >> 1; if (refs[mid].ms <= e.ms) lo = mid + 1; else hi = mid; }
+            var b = lo > 0 && e.ms - refs[lo - 1].ms <= EVENT_GAP ? refs[lo - 1] : null;
+            var a = lo < refs.length && refs[lo].ms - e.ms <= EVENT_GAP ? refs[lo] : null;
+            if (!b && !a) { skipped++; return; }
+            var lat, lon, acc, how;
+            if (b && a && a.ms > b.ms) {
+                var f = (e.ms - b.ms) / (a.ms - b.ms), d = MapCore.haversine(b.p, a.p);
+                lat = b.p.lat + (a.p.lat - b.p.lat) * f;
+                lon = b.p.lon + (a.p.lon - b.p.lon) * f;
+                acc = Math.max(b.p.accuracy || 0, a.p.accuracy || 0, d / 2) || null;
+                how = 'Mellan ' + b.p.name + ' (' + gapText(e.ms - b.ms) + ' före) och ' + a.p.name + ' (' + gapText(a.ms - e.ms) + ' efter), ' + MapCore.formatDistance(d) + ' isär';
+            } else {
+                var n = b || a;
+                lat = n.p.lat; lon = n.p.lon; acc = n.p.accuracy || null;
+                how = 'Vid ' + n.p.name + ', ' + gapText(e.ms - n.ms) + (n === b ? ' före' : ' efter');
+            }
+            var t = new Date(e.ms).toISOString().slice(0, 19).replace('T', ' ');
+            var who = e.who ? (e.dir === 'ut' ? ' till ' : ' från ') + e.who : '';
+            var name = e.kind === 'call' ? (e.dir === 'missat' ? 'Missat samtal' : 'Samtal') + who : 'Meddelande' + who;
+            pts.push({
+                id: pts.length + 1, event: e.kind, name: name, path: '', lat: lat, lon: lon,
+                taken: { sort: t, zone: 'UTC', text: t + ' UTC', kind: 'Tid', source: 'import' }, accuracy: acc,
+                type: e.kind === 'call' ? 'Samtal' : 'Meddelande', app: e.app || '', device: '', software: '', mime: '',
+                extra: [['Riktning', dirWord[e.dir] || e.dir || ''], e.duration ? ['Varaktighet', gapText(e.duration * 1000)] : null, ['App', e.app || ''],
+                    ['Var telefonen var', how], ['Ur databasen', e.source || '']].filter(function (x) { return x && x[1]; }),
+            });
+        });
+        if (pts.length) receivePositions({ layerKey: 'events', layerName: 'Samtal och meddelanden', points: pts, noun: ['händelse', 'händelser'], route: false, color: '#ff375f' });
+        return { placed: pts.length, skipped: skipped };
+    }
+    $('events-add').addEventListener('click', function () {
+        var refs = eventRefs();
+        if (!refs.length) { setStatus('Lägg först till positioner eller bilder med tid och zon. Händelserna placeras där telefonen var vid tiden.', 'error'); return; }
+        // Ett fönster runt varje position, ihopslaget där fönstren går omlott: bara tiderna där det finns en position att
+        // lägga händelsen vid läses.
+        var wins = [];
+        refs.forEach(function (r) {
+            var last = wins[wins.length - 1];
+            if (last && r.ms - EVENT_GAP <= last.endMs) last.endMs = Math.max(last.endMs, r.ms + EVENT_GAP);
+            else wins.push({ startMs: r.ms - EVENT_GAP, endMs: r.ms + EVENT_GAP });
+        });
+        var total = wins.reduce(function (n, w) { return n + w.endMs - w.startMs; }, 0);
+        if (total > 62 * 86400000) { setStatus('Positionerna täcker mer än två månader. Välj ett kortare tidsspann längst ner.', 'error'); return; }
+        setStatus('Läser samtal och meddelanden kring ' + refs.length + (refs.length === 1 ? ' position' : ' positioner') + ' (' + wins.length + (wins.length === 1 ? ' tidsfönster' : ' tidsfönster') + ')…', 'busy');
+        window.parent.postMessage({ source: 'forensics-toolbox', type: 'phone-events', fromMs: wins[0].startMs, toMs: wins[wins.length - 1].endMs, windows: wins }, '*');
+    });
 
     // Bilderna i en källa med en verklig tidpunkt (tid med zon): { atMs, title }.
     function phoneMarks(layer) {
@@ -378,6 +490,7 @@
                 }),
                 thumbs: thumbs,
                 thin: thinMinutes,
+                viewMode: viewMode,
                 routes: namedRoutes,
                 map: mapView ? mapView.getState() : null,
             };
@@ -425,6 +538,8 @@
         ensureMap().setTimeSpan(timeSpanText());
         thinMinutes = [0, 1, 5, 10, 30, 60].indexOf(Number(data.thin)) >= 0 ? Number(data.thin) : 0;
         if ($('thin')) $('thin').value = String(thinMinutes);
+        viewMode = data.viewMode === 'stays' ? 'stays' : 'all';
+        if ($('view-mode')) $('view-mode').value = viewMode;
         loadRoutes(data);
         refresh();
         ensureMap().setState(data.map);
@@ -494,6 +609,20 @@
         });
         // Tidsspannet står i kartans rad längst ner, och de namngivna rutterna under Rutt.
         mapView.addToMenu('time', $('time-block'));
+        var viewBox = make('div', 'side-block');
+        viewBox.append(make('h2', '', 'Visa positionerna'));
+        var viewSel = make('select');
+        viewSel.id = 'view-mode';
+        viewSel.setAttribute('aria-label', 'Visa positionerna');
+        [['all', 'Alla punkter'], ['stays', 'Vistelser och förflyttningar']].forEach(function (o) {
+            var opt = make('option', '', o[1]);
+            opt.value = o[0];
+            viewSel.append(opt);
+        });
+        viewSel.value = viewMode;
+        viewSel.addEventListener('change', function () { viewMode = viewSel.value === 'stays' ? 'stays' : 'all'; redraw(); });
+        viewBox.append(viewSel, make('p', 'zone-note', 'En vistelse: positioner inom 100 m under minst 5 minuter, som en ring med ankomst, avfärd och tid. Bilder och punkter utan tid visas alltid.'));
+        mapView.addToMenu('points', viewBox);
         var thinBox = make('div', 'side-block');
         thinBox.append(make('h2', '', 'Täta positioner'));
         var thinSel = make('select');
@@ -682,6 +811,8 @@
             layers.push(layer);
         }
         layer.name = name;
+        if (created && data.route === false) layer.route = false;
+        if (created && /^#[0-9a-f]{6}$/i.test(data.color || '')) layer.color = data.color;
         var kept = {};
         layer.points.forEach(function (p) { if (p.exifId != null) kept[p.exifId] = p.id; });
         layer.points = data.points.map(function (src) { return placeOnLayer(layer, src, kept); });
@@ -835,6 +966,12 @@
     window.addEventListener('message', function (e) {
         var data = e.data;
         if (data && data.source === 'forensics-toolbox' && data.type === 'phone-positions-done') { setStatus(data.text || '', data.ok ? 'ok' : 'error'); return; }
+        if (data && data.source === 'forensics-toolbox' && data.type === 'phone-events-done') {
+            var r = data.ok && Array.isArray(data.events) && data.events.length ? placeEvents(data.events) : null;
+            if (r && !r.placed) { setStatus((data.text || '') + ' Ingen av dem ligger inom 30 minuter från en position med tid och zon.', 'error'); return; }
+            setStatus((data.text || '') + (r && r.skipped ? ' ' + r.skipped + ' av dem ligger mer än 30 minuter från en position och visas inte.' : ''), data.ok ? 'ok' : 'error');
+            return;
+        }
         if (!data || data.source !== 'forensics-toolbox' || data.type !== 'positions' || !Array.isArray(data.points)) return;
         receivePositions(data);
     });

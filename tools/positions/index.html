@@ -20,6 +20,7 @@
                 <section class="side-block sources">
                     <h2>Källor</h2>
                     <button type="button" id="pick" class="primary-btn">Lägg till källa…</button>
+                    <button type="button" id="events-add" class="secondary-btn" title="Samtal och meddelanden ur extraktionen som är öppen, på kartan där telefonen var vid tiden. Platsen räknas fram ur positionerna närmast före och efter.">Samtal och meddelanden på kartan</button>
                     <input type="file" id="file" multiple hidden>
                     <section id="columns" class="columns display-none"></section>
                     <p id="status" class="status"></p>
@@ -95,6 +96,7 @@
     <script src="../_shared/map/import-core.js"></script>
     <script src="../_shared/map/vendor/maps/maplibre.js"></script>
     <script src="../_shared/map/vendor/maps/map-assets.js"></script>
+    <script src="../_shared/map/timeline.js"></script>
     <script src="../_shared/map/map-view.js"></script>
     <script src="script.js"></script>
 </body>

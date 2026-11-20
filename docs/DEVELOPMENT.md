@@ -2671,6 +2671,26 @@ inklistrade koordinater. EXIF kan skicka synliga positioner dit via hubben.
   provat med en iPhone-MOV ur labbet). Queries tar telefonens egen miniatyr av en video på iPhone
   (`PhotoData/Thumbnails/V2/<mapp>/<fil>/5005.JPG`, den största), annars en bildruta ur videon (högst 300 MB). Memories
   på kartan får en bildruta ur den dekrypterade videon. Cachens poster med firstframe gäller reklam, inte Memories.
+- **Vistelser** (Punkter → Visa positionerna → Vistelser och förflyttningar): positioner i följd inom 100 m under minst
+  5 minuter blir en ring per källa (`MapCore.summarizeTrack`, samma gräns som Härkomst), som en punkt med `stay: true`,
+  `visit: true`, ankomst och avfärd, och tiden utskriven vid ringens överkant (lagret `visit-label`). Förflyttningarna
+  emellan står kvar. Bilder, händelser och punkter utan tid blir aldrig vistelser. Alla punkter är standard och sparas i
+  vyn (`viewMode`).
+- **Färg efter tid** (Rutt): rutten ritas sträcka för sträcka i en skala från mörkblå till gul (plasma) efter ordningen i
+  tiden (rangen, inte den absoluta tiden, så att en enstaka gammal punkt inte gör resten enfärgad), med en skala under valet.
+  Orimligt snabba sträckor är röda och streckade som förut (`MapCore.routeLines`, över 250 km/h och 200 m).
+- **Samtal och meddelanden på kartan** (knappen i Källor): Positioner skickar ett tidsfönster på ±30 min runt varje
+  position med tid och zon (ihopslagna, högst två månader sammanlagt) som `phone-events`. Queries kör katalogernas
+  rollqueryer för samtal (`calls`: CallHistory.storedata, calllog.db) och meddelanden (`messages`: Signal, WhatsApp,
+  Telegram, Snapchat; `events-messages`: sms.db och mmssms.db, nya dolda queryer i comms-katalogen) och skickar tillbaka
+  tid, riktning, vem och app (inte texten). Varje händelse läggs där telefonen var: interpolerad mellan positionerna
+  närmast före och efter (högst 30 min bort), annars vid den närmaste, och rutan säger vilka positioner och hur långt
+  isär. Händelserna är en egen källa utan rutt (rosa). Provat på iPhone-labbet 2026-11-19: 12 samtal och 107 meddelanden
+  ur sex appar. Telegrams tabeller skapas innan databasen skrivskyddas, som i Queries.
+- **Tidslinjen** (`timeline.js`, `MapTimeline`; knappen Tidslinje längst ner): ett band per källa med bilder och
+  positioner som streck, händelser som romber och vistelser som staplar. Uppehåll längre än max(2 h, 1/40 av spannet)
+  trycks ihop till ett brott med uppehållets längd (`MapTimeline.scale`). Klick öppnar punkten, ett drag markerar
+  punkterna i spannet och zoomar dit, och uppspelningens markör står i tidslinjen. Tiderna på axeln är UTC.
 - **Täta positioner** (Punkter → Täta positioner): en per källa och intervall (1, 5, 10, 30 eller 60 min), den med bäst
   noggrannhet. Bilder och punkter utan tid visas alltid, och antalet dolda står i raden överst. Sparas i vyn (`thin`).
 - **Återkopplingen** står som en ruta mitt överst på kartan (`notify(text, 'busy' | 'ok' | 'error')`): busy med snurra,

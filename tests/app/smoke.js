@@ -471,22 +471,30 @@ const scenarios = [
         expect(bar.menus.join(',') === 'Bakgrund,Punkter,Rutt,Bubblor,Tidsspann' && bar.open && bar.cluster === false && bar.after === true && /Gruppera/.test(bar.label) && bar.closed, 'Kartans meny: ' + JSON.stringify(bar));
         // Tidsspannet och de namngivna rutterna står i kartan, inte i sidopanelen.
         expect(await c.ev('positions/index.html', `!!document.querySelector('.map-pop #time-from-date') && !!document.querySelector('.map-pop #route-add') && !document.querySelector('.side #route-add')`), 'Tidsspannet eller rutterna står inte i kartan');
-        // Var var telefonen: en punkt med tid frågar Queries, som kör Cache.sqlite för fönstret och skickar positionerna som en källa.
-        // En klickad punkt har sina val i popupen; raden för markerade punkter syns inte.
+        // En klickad punkt har sina val i popupen, och raden för markerade punkter syns inte. Telefonens egna positioner
+        // (Cache.sqlite) är inga filer och har ingen knapp Var var telefonen? (den finns för bilder).
         const phone = await c.ev('positions/index.html', `(async function(){ const ps = PositionsApp.points().filter(p => p.exifId == null); PositionsApp.open(ps[0].id); await new Promise(r => setTimeout(r, 900));
-            const b = [...document.querySelectorAll('.maplibregl-popup button, .map-popup button')].find(x => /Var var telefonen/.test(x.textContent));
-            const r = { button: !!b, disabled: b && b.disabled, pickbar: !document.querySelector('.map-pickbar').classList.contains('display-none') };
-            if (b && !b.disabled) b.click(); return r; })()`);
-        if (phone.button) {
-            expect(!phone.disabled && !phone.pickbar, 'Popupen: ' + JSON.stringify(phone));
-            const said = await c.waitFor('positions/index.html', `(function(){ const t = document.getElementById('status').textContent; return /ur Cache\.sqlite|Inga positioner|ingen databas|kunde inte/.test(t) && t; })()`, 30000, 'telefonens positioner');
-            expect(/positioner? \d+ min före och efter .* ur Cache\.sqlite/.test(said), 'Var var telefonen: ' + said);
-            expect(await c.ev('positions/index.html', `[...document.querySelectorAll('#layer-list .layer span')].some(s => /^Telefonen kring/.test(s.textContent))`), 'Telefonens positioner blev ingen källa');
-            expect(await c.ev(null, `document.querySelector('.tool-frame.is-active').dataset.tool`) === 'tools/positions/index.html', 'Vyn byttes från Positioner');
-        }
-        void active;
+            const box = document.querySelector('.maplibregl-popup');
+            return { popup: !!box, phoneBtn: !![...document.querySelectorAll('.maplibregl-popup button')].find(x => /Var var telefonen/.test(x.textContent)),
+                actions: !![...document.querySelectorAll('.maplibregl-popup button')].find(x => /Anpassa bubblan/.test(x.textContent)), pickbar: !document.querySelector('.map-pickbar').classList.contains('display-none') }; })()`);
+        if (phone.popup) expect(!phone.phoneBtn && phone.actions && !phone.pickbar, 'Popupen för en position: ' + JSON.stringify(phone));
+        // Samtal och meddelanden på kartan: Queries läser samtalen och SMS:en kring positionerna, och de läggs där
+        // telefonen var. Fixturens händelser ligger nära positionerna i Cache.sqlite eller inte; svaret ska komma i båda fallen.
+        await c.ev('positions/index.html', `document.getElementById('status').textContent = '', document.getElementById('events-add').click(), 1`);
+        const ev = await c.waitFor('positions/index.html', `(function(){ const t = document.getElementById('status').textContent; return /samtal och \d+ meddelanden? ur|Inga samtal|Ingen av dem|ingen databas/.test(t) && t; })()`, 60000, 'samtal och meddelanden');
+        expect(!/kunde inte/.test(ev), 'Samtal och meddelanden: ' + ev);
+        const evLayer = await c.ev('positions/index.html', `[...document.querySelectorAll('#layer-list .layer span')].some(s => /^Samtal och meddelanden/.test(s.textContent))`);
+        if (/samtal och \d+ meddelanden? ur/.test(ev) && !/Ingen av dem/.test(ev)) expect(evLayer, 'Händelserna blev ingen källa: ' + ev);
+        // Vistelser och tidslinjen.
+        const stays = await c.ev('positions/index.html', `(function(){ const s = document.getElementById('view-mode'); s.value = 'stays'; s.dispatchEvent(new Event('change'));
+            const r = document.querySelector('.map-bar-count').textContent; s.value = 'all'; s.dispatchEvent(new Event('change')); return r; })()`);
+        expect(/vistels/.test(stays), 'Vistelser: ' + stays);
+        const tl = await c.ev('positions/index.html', `(async function(){ document.querySelector('.map-timeline-btn').click(); await new Promise(r => setTimeout(r, 300));
+            const r = { shown: !document.querySelector('.map-timeline').classList.contains('display-none'), h: document.querySelector('.map-timeline-canvas').clientHeight };
+            document.querySelector('.map-timeline-btn').click(); return r; })()`);
+        expect(tl.shown && tl.h > 30, 'Tidslinjen: ' + JSON.stringify(tl));
         await c.nav('Queries');
-        return after.rows + ' positioner i Positioner' + (phone.button ? ', telefonens positioner runt en punkt' : ', utan karta (WebGL2)');
+        return after.rows + ' positioner i Positioner' + (phone.popup ? ', popupen utan Var var telefonen?' : ', utan karta (WebGL2)') + ', ' + (evLayer ? 'händelser på kartan' : 'inga händelser nära') + ', vistelser och tidslinjen';
     }],
 
     ['Queries: en inläst databas läses inte om, och en query som skriver påverkar inte nästa', async ({ c }) => {

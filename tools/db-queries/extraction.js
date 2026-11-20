@@ -834,6 +834,96 @@
     }
     window.QueriesExtraction.phonePositions = phonePositions;
 
+    // Samtal och meddelanden i ett tidsfönster, för kartan: katalogernas rollqueryer för samtal (calls) och meddelanden
+    // (messages, events-messages) körs mot databaserna i extraktionen, och händelserna går tillbaka till Positioner,
+    // som lägger dem på rutten vid rätt tid. Bara uppgifter om händelsen, inte meddelandets text. msg: { file, fromMs, toMs }.
+    var EVENT_TIME = ['time', 'date', 'sent', 'created', 'received', 'server'];
+    var EVENT_WHO = ['chatName', 'threadName', 'chatSubject', 'name', 'who', 'sender', 'number', 'authorPhone', 'threadRecipient', 'conversation', 'peerId', 'chatId', 'threadId'];
+    function eventOf(kind, q, r, label) {
+        var tk = EVENT_TIME.filter(function (k) { return q.fields[k]; })[0];
+        var ms = tk ? r[tk + 'Ms'] : null;
+        if (ms == null) return null;
+        var dir = '';
+        if (kind === 'call') dir = r.direction === 'out' ? 'ut' : r.direction === 'in' ? 'in' : r.direction === 'missed' ? 'missat' : String(r.direction || '');
+        else if (r.fromMe !== undefined && r.fromMe !== null) dir = Number(r.fromMe) === 1 || r.fromMe === true ? 'ut' : 'in';
+        else if (r.out !== undefined && r.out !== null) dir = Number(r.out) === 1 ? 'ut' : 'in';
+        else if (r.incoming !== undefined && r.incoming !== null) dir = Number(r.incoming) === 1 ? 'in' : 'ut';
+        var whoKey = EVENT_WHO.filter(function (k) { return r[k] !== undefined && r[k] !== null && r[k] !== ''; })[0];
+        var app = kind === 'call' ? (r.app && !/telephony/i.test(String(r.app)) ? String(r.app) : r.type && /facetime/i.test(String(r.type)) ? 'FaceTime' : 'Telefon') : (r.service ? String(r.service) : label);
+        return {
+            ms: ms, kind: kind, app: app, dir: dir, who: whoKey ? String(r[whoKey]).slice(0, 80) : '',
+            duration: kind === 'call' && Number(r.duration) > 0 ? Math.round(Number(r.duration)) : null,
+            source: label + ' · ' + q.fields[tk],
+        };
+    }
+    async function phoneEvents(msg) {
+        var reply = function (text, ok, events) {
+            window.parent.postMessage({ source: 'forensics-toolbox', type: 'phone-events-done', text: text, ok: !!ok, events: events || [] }, '*');
+        };
+        try {
+            if (msg.file) await ensure(msg.file);
+            if (!current) { reply('Ingen extraktion är öppen. Öppna den i raden högst upp.'); return; }
+            var from = current;
+            var wins = (Array.isArray(msg.windows) && msg.windows.length ? msg.windows : [{ startMs: msg.fromMs, endMs: msg.toMs }])
+                .map(function (w) { return { startMs: Math.floor(w.startMs), endMs: Math.ceil(w.endMs) }; })
+                .filter(function (w) { return w.endMs > w.startMs; });
+            if (!wins.length) { reply('Tidsspannet är tomt.'); return; }
+            var inWin = function (ms) { return wins.some(function (w) { return ms >= w.startMs && ms <= w.endMs; }); };
+            var jobs = [];
+            from.found.forEach(function (f) {
+                var db = describe(f).db;
+                if (db && db.eventQueries && db.eventQueries.length && !jobs.some(function (j) { return j.db.family === db.family; })) jobs.push({ f: f, db: db });
+            });
+            if (!jobs.length) { reply('Extraktionen har ingen databas med samtal eller meddelanden som verktyget läser.'); return; }
+            var events = [], notes = [], used = [];
+            for (var k = 0; k < jobs.length; k++) {
+                var j = jobs[k];
+                try {
+                    var cipher = cipherFor(j.db) || { profile: null, passphrase: null, source: null };
+                    if (j.db.cipher && !cipher.passphrase) { notes.push(j.db.label + ': nyckeln saknas.'); continue; }
+                    var o = await window.QueriesRun.load({
+                        db: ExtractionCore.zipSource(from.read, j.f.db, ['Extraktion: ' + from.file.name]),
+                        wal: j.f.wal ? ExtractionCore.zipSource(from.read, j.f.wal) : null,
+                        zipFile: from.file,
+                    }, cipher);
+                    var db = new o.SQL.Database(ExtractionCore.noCopy(o.bytes));
+                    var before = events.length;
+                    try {
+                        // Telegrams tabeller skapas i minnet först, som i Queries (attachDerived), och sedan skrivskyddas databasen.
+                        if (window.TelegramPostbox) { try { window.TelegramPostbox.attach(db, {}); } catch (e) { notes.push(j.db.label + ': Telegrams format kunde inte avkodas.'); } }
+                        db.run('PRAGMA query_only = ON');
+                        j.db.eventQueries.forEach(function (q) {
+                            var kind = q.role === 'calls' ? 'call' : 'message';
+                            var tk = EVENT_TIME.filter(function (x) { return q.fields[x]; })[0];
+                            // En query utan tidsfönster (samtalen) körs en gång; de andra en gång per fönster.
+                            var windowed = /\{\{(cocoa|unix|unixMs)(Start|End)\}\}/.test(q.sql);
+                            (windowed ? wins : [wins[0]]).forEach(function (win) {
+                                var res;
+                                try { res = db.exec(ProvenanceRoles.fill(q.sql, { window: win }))[0]; } catch (e) { notes.push(j.db.label + ': ' + (e && e.message ? e.message : String(e))); return; }
+                                ProvenanceRoles.mapRows(q, res, tk ? [tk] : [], { raw: false }).forEach(function (r) {
+                                    var ev = eventOf(kind, q, r, j.db.familyTitle || j.db.label);
+                                    if (ev && inWin(ev.ms)) events.push(ev);
+                                });
+                            });
+                        });
+                    } finally { db.close(); }
+                    if (events.length > before) used.push(j.db.familyTitle || j.db.label);
+                } catch (err) {
+                    notes.push(j.db.label + ': ' + (err && err.message ? err.message : String(err)));
+                }
+            }
+            events.sort(function (a, b) { return a.ms - b.ms; });
+            notes = notes.filter(function (n, i) { return notes.indexOf(n) === i; });
+            if (events.length > 3000) { notes.push('Bara de första 3 000 händelserna visas.'); events = events.slice(0, 3000); }
+            var calls = events.filter(function (e) { return e.kind === 'call'; }).length;
+            reply(events.length ? calls + (calls === 1 ? ' samtal' : ' samtal') + ' och ' + (events.length - calls) + ((events.length - calls) === 1 ? ' meddelande' : ' meddelanden') + ' ur ' + used.join(', ') + '.' + (notes.length ? ' ' + notes.join(' ') : '')
+                : 'Inga samtal eller meddelanden i tidsspannet.' + (notes.length ? ' ' + notes.join(' ') : ''), true, events);
+        } catch (err) {
+            reply('Samtalen och meddelandena kunde inte läsas: ' + (err && err.message ? err.message : String(err)));
+        }
+    }
+    window.QueriesExtraction.phoneEvents = phoneEvents;
+
     window.QueriesApp.ready.then(layout);
     document.addEventListener('queries:db-change', function () {
         if (current && !window.QueriesApp.fromExtraction()) current.chosen = -1;

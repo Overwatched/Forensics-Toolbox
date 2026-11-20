@@ -478,6 +478,9 @@
         var route = labeledToggle('Rutt i tidsordning');
         if (opts.routeOn) route.input.checked = true;
         var perDevice = labeledToggle('Per enhet');
+        var timeColor = labeledToggle('Färg efter tid');
+        timeColor.label.title = 'Rutten tonar från mörkblå (tidigt) till gul (sent), så att ordningen syns utan siffror.';
+        var timeLegend = make('div', 'map-time-legend display-none');
         var cluster = labeledToggle('Gruppera närliggande punkter');
         cluster.input.checked = false;
         cluster.label.title = 'Punkter nära varandra visas som en ring med antalet tills du zoomar in. Utan gruppering ritas varje punkt för sig.';
@@ -519,7 +522,7 @@
         markerSection.append(markerRow, markerNote, markerStack, note);
         var routeSection = make('div', 'map-section');
         var routeStack = make('div', 'map-stack');
-        routeStack.append(route.label, perDevice.label);
+        routeStack.append(route.label, perDevice.label, timeColor.label, timeLegend);
         var routeNote = make('p', 'map-note');
         routeSection.append(routeStack, routeNote);
         var measureNote = make('p', 'map-chip');
@@ -581,7 +584,13 @@
         timeSpanBtn.title = 'Visa bara punkterna inom ett tidsspann';
         var timeControls = make('div', 'map-time-controls');
         timeControls.append(play, speed, timeInput, timeLabel);
-        timeBar.append(timeSpanBtn, timeControls);
+        // Tidslinjen (MapTimeline): ett band per källa ovanför raden.
+        var timelineBtn = make('button', 'map-bar-btn map-timeline-btn', 'Tidslinje');
+        timelineBtn.type = 'button';
+        timelineBtn.title = 'Ett band per källa med punkterna i tidsordning. Klicka på en punkt, eller dra över ett spann för att markera det på kartan.';
+        timelineBtn.setAttribute('aria-pressed', 'false');
+        var timelinePanel = make('div', 'map-timeline display-none');
+        timeBar.append(timelineBtn, timeSpanBtn, timeControls);
         var baseSection = make('div', 'map-section');
         var basemapRow = make('div', 'map-segment');
         basemapRow.setAttribute('role', 'radiogroup');
@@ -692,10 +701,10 @@
         toast.append(make('span', 'map-toast-spin'), toastText, toastClose);
         host.append(mapEl, list, bar, measureNote, alert, toast);
         Object.keys(pops).forEach(function (k) { host.append(pops[k]); });
-        host.append(timeBar, consent, editor, pickBar);
+        host.append(timelinePanel, timeBar, consent, editor, pickBar);
         return {
             editor: editor, pickBar: pickBar, bubbleCustom: bubbleCustom, bubbleReset: bubbleReset,
-            wrap: host, map: mapEl, status: status, route: route.input, perDevice: perDevice.input, cluster: cluster.input, count: count, bar: bar, openPop: openPop, alert: alert, pops: pops, timeSpanBtn: timeSpanBtn, timeControls: timeControls, toast: toast, toastText: toastText, toastClose: toastClose,
+            wrap: host, map: mapEl, status: status, route: route.input, perDevice: perDevice.input, cluster: cluster.input, timeColor: timeColor.input, timeLegend: timeLegend, count: count, bar: bar, openPop: openPop, alert: alert, pops: pops, timeSpanBtn: timeSpanBtn, timeControls: timeControls, timelineBtn: timelineBtn, timelinePanel: timelinePanel, toast: toast, toastText: toastText, toastClose: toastClose,
             online: online.input, fit: fit, measureBtn: measureBtn, saveBtn: saveBtn, measureNote: measureNote,
             listBtn: listBtn, list: list, numbers: numbers,
             bubbleStandard: bubbleStandard,
@@ -955,9 +964,64 @@
         // Tidsreglaget: null betyder hela rutten. Annars ritas rutten fram till den tiden.
         var timeCursor = null;
 
+        // Färg efter tid: från mörkblå till gul (plasma), samma skala för alla rutter som visas.
+        var TIME_RAMP = ['#0d0887', '#5b02a3', '#9a179b', '#cb4678', '#eb7852', '#fbb32f', '#f0f921'];
+        function rampColor(f) {
+            f = Math.max(0, Math.min(1, f));
+            var x = f * (TIME_RAMP.length - 1), i = Math.min(TIME_RAMP.length - 2, Math.floor(x)), t = x - i;
+            var a = TIME_RAMP[i], b = TIME_RAMP[i + 1];
+            var ch = function (h, k) { return parseInt(h.slice(1 + 2 * k, 3 + 2 * k), 16); };
+            var mix = function (k) { return Math.round(ch(a, k) + (ch(b, k) - ch(a, k)) * t).toString(16).padStart(2, '0'); };
+            return '#' + mix(0) + mix(1) + mix(2);
+        }
+        // Färgen följer ordningen i tiden (rangen), inte den absoluta tiden: en enstaka gammal punkt ska inte göra resten
+        // av rutten enfärgad. rank(ms) ger 0–1.
+        function timeSpanOf(routes) {
+            var all = [];
+            routes.forEach(function (r) { (r.steps || []).forEach(function (st) { all.push(st.at); }); });
+            all.sort(function (a, b) { return a - b; });
+            if (all.length < 2 || all[all.length - 1] <= all[0]) return null;
+            var rank = function (ms) {
+                var lo = 0, hi = all.length;
+                while (lo < hi) { var mid = (lo + hi) >> 1; if (all[mid] < ms) lo = mid + 1; else hi = mid; }
+                return lo / (all.length - 1);
+            };
+            return { from: all[0], to: all[all.length - 1], rank: rank };
+        }
+        function updateTimeLegend(span) {
+            var on = el.timeColor.checked && !!span;
+            el.timeLegend.classList.toggle('display-none', !on);
+            if (!on) return;
+            var t = function (ms) { return new Date(ms).toISOString().slice(0, 16).replace('T', ' '); };
+            el.timeLegend.innerHTML = '';
+            var bar = make('div', 'map-time-ramp');
+            bar.style.background = 'linear-gradient(90deg, ' + TIME_RAMP.join(', ') + ')';
+            var labels = make('div', 'map-time-ramp-labels');
+            labels.append(make('span', '', t(span.from) + ' UTC'), make('span', '', t(span.to)));
+            el.timeLegend.append(bar, labels);
+        }
+
         function routeGeojson() {
             var features = [];
-            shownRoutes().forEach(function (r, group) {
+            var routes = shownRoutes();
+            var span = el.timeColor.checked ? timeSpanOf(routes) : null;
+            updateTimeLegend(span);
+            if (span) {
+                routes.forEach(function (r) {
+                    if (timeCursor !== null && root.MapCore.routeUntil) r = root.MapCore.routeUntil(r, timeCursor);
+                    var st = r.steps || [];
+                    for (var i = 1; i < st.length; i++) {
+                        var bad = st[i].fromPrev && st[i].fromPrev.implausible;
+                        features.push({
+                            type: 'Feature',
+                            geometry: { type: 'LineString', coordinates: [[st[i - 1].point.lon, st[i - 1].point.lat], [st[i].point.lon, st[i].point.lat]] },
+                            properties: { color: bad ? '#ff453a' : rampColor((span.rank(st[i - 1].at) + span.rank(st[i].at)) / 2), implausible: bad ? 1 : 0 },
+                        });
+                    }
+                });
+                return { type: 'FeatureCollection', features: features };
+            }
+            routes.forEach(function (r, group) {
                 var colorAt = r.colorIndex != null ? r.colorIndex : group;
                 if (timeCursor !== null && root.MapCore.routeUntil) r = root.MapCore.routeUntil(r, timeCursor);
                 var drawn = root.MapCore.routeLines(r, TRIP_COLORS[colorAt % TRIP_COLORS.length]);
@@ -990,7 +1054,13 @@
                     features.push({
                         type: 'Feature',
                         geometry: { type: 'Polygon', coordinates: [root.MapCore.circlePolygon(p.lon, p.lat, p.accuracy)] },
-                        properties: { color: p.visit && p.color ? p.color : '#0a84ff', visit: p.visit ? 1 : 0 },
+                        properties: { color: p.visit && p.color ? p.color : '#0a84ff', visit: p.visit ? 1 : 0, label: '' },
+                    });
+                    // En vistelses tid står vid ringens överkant.
+                    if (p.stayLabel) features.push({
+                        type: 'Feature',
+                        geometry: { type: 'Point', coordinates: [p.lon, p.lat + p.accuracy / 111320] },
+                        properties: { color: p.color || '#0a84ff', visit: 1, label: p.stayLabel },
                     });
                 });
             }
@@ -1059,18 +1129,25 @@
                 type: 'geojson', data: geojson(), cluster: clustering, clusterRadius: 42, clusterMaxZoom: 16,
             });
             map.addLayer({
-                id: 'accuracy-fill', type: 'fill', source: 'accuracy',
+                id: 'accuracy-fill', type: 'fill', source: 'accuracy', filter: ['==', ['geometry-type'], 'Polygon'],
                 paint: { 'fill-color': ['get', 'color'], 'fill-opacity': ['case', ['==', ['get', 'visit'], 1], 0.22, 0.15] },
             });
             map.addLayer({
                 id: 'accuracy-line', type: 'line', source: 'accuracy',
-                filter: ['!=', ['get', 'visit'], 1],
+                filter: ['all', ['==', ['geometry-type'], 'Polygon'], ['!=', ['get', 'visit'], 1]],
                 paint: { 'line-color': ['get', 'color'], 'line-width': 1.5, 'line-opacity': 0.85 },
             });
             map.addLayer({
                 id: 'visit-line', type: 'line', source: 'accuracy',
-                filter: ['==', ['get', 'visit'], 1],
+                filter: ['all', ['==', ['geometry-type'], 'Polygon'], ['==', ['get', 'visit'], 1]],
                 paint: { 'line-color': ['get', 'color'], 'line-width': 2, 'line-opacity': 0.9, 'line-dasharray': [2, 1] },
+            });
+            // En vistelse har sin tid utskriven vid ringen.
+            map.addLayer({
+                id: 'visit-label', type: 'symbol', source: 'accuracy',
+                filter: ['all', ['==', ['geometry-type'], 'Point'], ['!=', ['get', 'label'], '']],
+                layout: { 'text-field': ['get', 'label'], 'text-size': 12, 'text-font': FONT, 'text-anchor': 'bottom', 'text-offset': [0, -0.2], 'text-allow-overlap': true, 'text-ignore-placement': true },
+                paint: { 'text-color': '#ffffff', 'text-halo-color': ['get', 'color'], 'text-halo-width': 2 },
             });
             map.addLayer({
                 id: 'measure-line', type: 'line', source: 'measure',
@@ -1608,7 +1685,7 @@
             row('Typ', p.type);
             row('Källa', p.layer);
             row('Position', p.lat + ', ' + p.lon);
-            if (p.accuracy > 0) row(p.visit ? 'Osäkerhet' : 'Horisontell noggrannhet', Math.round(p.accuracy) + ' m');
+            if (p.accuracy > 0 && !p.stay) row(p.visit ? 'Osäkerhet' : 'Horisontell noggrannhet', Math.round(p.accuracy) + ' m');
             row('Händelse', notes[p.id] || p.note);
             // Övriga kolumner ur raden, för en punkt från Queries.
             (p.extra || []).forEach(function (x) { row(x[0], String(x[1])); });
@@ -2028,6 +2105,71 @@
             if (src && src.setClusterOptions) src.setClusterOptions({ cluster: clustering, clusterRadius: 42, clusterMaxZoom: 16 });
         }
 
+        // ---------- Tidslinjen ----------
+        var timeline = null;
+        var timelineOn = false;
+        function pointMs(t) { return t && t.sort ? root.MapCore.instant(t.sort, t.zone || '') : null; }
+        function timelineLanes() {
+            var lanes = [], byName = {};
+            drawnPoints().forEach(function (p) {
+                var ms = pointMs(p.taken);
+                if (ms === null) return;
+                var name = p.layer || root.MapCore.sourceOf(p) || 'Punkter';
+                var lane = byName[name];
+                if (!lane) { lane = byName[name] = { name: name, color: p.color || '#0a84ff', items: [] }; lanes.push(lane); }
+                var until = pointMs(p.until);
+                lane.items.push({ ms: ms, until: until, kind: p.event ? 'event' : (p.stay || (p.visit && until)) ? 'stay' : 'point', color: p.color, title: p.name + ' · ' + p.taken.text, ref: p.id });
+            });
+            return lanes;
+        }
+        function drawTimeline() {
+            // Raden för markerade punkter står ovanför tidslinjen när den visas.
+            el.pickBar.style.bottom = timelineOn ? (el.timelinePanel.offsetHeight + 70) + 'px' : '';
+            if (!timelineOn || !timeline) return;
+            timeline.draw(timelineLanes(), timeCursor);
+            el.pickBar.style.bottom = (el.timelinePanel.offsetHeight + 70) + 'px';
+        }
+        // Ett drag över tidslinjen markerar punkterna i spannet och visar dem på kartan.
+        function brushTime(from, to) {
+            var ids = drawnPoints().filter(function (p) {
+                var ms = pointMs(p.taken);
+                if (ms === null) return false;
+                var until = pointMs(p.until) || ms;
+                return ms <= to && until >= from;
+            }).map(function (p) { return p.id; });
+            picked = {};
+            ids.forEach(function (id) { picked[id] = true; });
+            applyPick(listOpen);
+            var t = function (ms) { return new Date(ms).toISOString().slice(0, 16).replace('T', ' '); };
+            notify(ids.length + (ids.length === 1 ? ' punkt' : ' punkter') + ' mellan ' + t(from) + ' och ' + t(to).slice(11) + ' UTC är markerade.', 'ok');
+            if (ids.length && map) {
+                var b = new root.maplibregl.LngLatBounds();
+                ids.forEach(function (id) { b.extend([byId[id].lon, byId[id].lat]); });
+                map.fitBounds(b, { padding: 80, maxZoom: 17, duration: 300 });
+            }
+        }
+        function setTimeline(on) {
+            timelineOn = !!on && !!root.MapTimeline;
+            el.timelinePanel.classList.toggle('display-none', !timelineOn);
+            el.timelineBtn.classList.toggle('active', timelineOn);
+            el.timelineBtn.setAttribute('aria-pressed', String(timelineOn));
+            if (!timelineOn) el.pickBar.style.bottom = '';
+            if (timelineOn && !timeline) {
+                timeline = root.MapTimeline.create(el.timelinePanel, {
+                    onPick: function (id) {
+                        var p = byId[id];
+                        if (!p) return;
+                        if (map) map.easeTo({ center: [p.lon, p.lat], duration: 300 });
+                        openPoint(p);
+                    },
+                    onBrush: brushTime,
+                });
+            }
+            drawTimeline();
+        }
+        el.timelineBtn.addEventListener('click', function () { setTimeline(!timelineOn); });
+        window.addEventListener('resize', function () { if (timelineOn) drawTimeline(); });
+
         function setPoints(list, noteText) {
             points = list;
             byId = {};
@@ -2043,6 +2185,7 @@
             el.count.textContent = noteText || '';
             if (popup && selectedId !== null && !byId[selectedId]) closePopup();
             refreshData();
+            drawTimeline();
         }
 
         // Redigeringen visas direkt på kartan. Avbryt lägger tillbaka det som gällde innan.
@@ -2695,6 +2838,7 @@
                 el.timeLabel.textContent = label;
                 el.timeLabel.title = label;
             }
+            drawTimeline();
             if (!map || !map.getSource('route')) return;
             map.getSource('route').setData(routeGeojson());
             map.getSource('time-marker').setData(timeMarkerGeojson());
@@ -2724,6 +2868,7 @@
         });
         el.perDevice.addEventListener('change', refreshData);
         el.cluster.addEventListener('change', function () { setClustering(el.cluster.checked); });
+        el.timeColor.addEventListener('change', refreshData);
         el.timeInput.addEventListener('input', function () { showTime(Number(el.timeInput.value)); });
         el.play.addEventListener('click', function () {
             if (playTimer) { stopPlay(); return; }
@@ -2999,7 +3144,7 @@
             useChosenFiles(snapshot);
         });
 
-        var TOGGLES = ['route', 'perDevice', 'cluster'];
+        var TOGGLES = ['route', 'perDevice', 'cluster', 'timeColor'];
 
         function standardFromLegacy(toggles) {
             toggles = toggles || {};

@@ -212,6 +212,26 @@
             "name": "transfer_name"
           },
           "sql": "SELECT j.message_id, a.ROWID AS attachment_id,\n  CASE WHEN a.filename LIKE '~/%' THEN substr(a.filename, 3)\n    WHEN a.filename LIKE '/private/var/mobile/%' THEN substr(a.filename, 21)\n    WHEN a.filename LIKE '/var/mobile/%' THEN substr(a.filename, 13) END AS file_path,\n  a.mime_type, a.total_bytes, a.transfer_name\nFROM message_attachment_join j JOIN attachment a ON a.ROWID = j.attachment_id\nWHERE j.message_id IN (SELECT message_id FROM chat_message_join WHERE chat_id = '{{threadId}}' UNION SELECT message_id FROM chat_recoverable_message_join WHERE chat_id = '{{threadId}}')\nORDER BY j.message_id, a.ROWID;"
+        },
+        {
+          "id": "role-events",
+          "hidden": true,
+          "role": "events-messages",
+          "title": "Kartan: meddelanden i tidsfönstret",
+          "params": [
+            "timeStart",
+            "timeEnd"
+          ],
+          "epoch": "cocoaAuto",
+          "fields": {
+            "id": "message_id",
+            "time": "date",
+            "fromMe": "is_from_me",
+            "who": "address",
+            "service": "service",
+            "chatName": "chat_name"
+          },
+          "sql": "SELECT m.ROWID AS message_id, m.date, m.is_from_me, h.id AS address, m.service, c.display_name AS chat_name\nFROM message m\nLEFT JOIN handle h ON h.ROWID = m.handle_id\nLEFT JOIN chat_message_join j ON j.message_id = m.ROWID\nLEFT JOIN chat c ON c.ROWID = j.chat_id\nWHERE (CASE WHEN m.date > 100000000000 THEN m.date / 1000000000 ELSE m.date END) BETWEEN {{cocoaStart}} AND {{cocoaEnd}}\nORDER BY m.date;"
         }
       ]
     },
@@ -375,6 +395,25 @@
             "name": "name"
           },
           "sql": "SELECT 'm' || pt.mid AS message_id, pt._id AS part_id,\n  CASE WHEN pt._data IS NOT NULL THEN 'app_parts/' || replace(pt._data, rtrim(pt._data, replace(pt._data, '/', '')), '') END AS file_path,\n  pt.ct, COALESCE(pt.fn, pt.name, pt.cl) AS name\nFROM part pt JOIN pdu p ON p._id = pt.mid\nWHERE p.thread_id = '{{threadId}}' AND pt.ct NOT IN ('text/plain', 'application/smil')\nORDER BY pt.mid, pt.seq;"
+        },
+        {
+          "id": "role-events",
+          "hidden": true,
+          "role": "events-messages",
+          "title": "Kartan: meddelanden i tidsfönstret",
+          "params": [
+            "timeStart",
+            "timeEnd"
+          ],
+          "epoch": "unixMs",
+          "fields": {
+            "id": "message_id",
+            "time": "date_ms",
+            "fromMe": "from_me",
+            "who": "address",
+            "service": "proto"
+          },
+          "sql": "SELECT 's' || s._id AS message_id, s.date AS date_ms, CASE WHEN s.type = 1 THEN 0 ELSE 1 END AS from_me, s.address, 'SMS' AS proto\nFROM sms s WHERE s.date BETWEEN {{unixMsStart}} AND {{unixMsEnd}}\nUNION ALL\nSELECT 'm' || p._id, p.date * 1000, CASE WHEN p.msg_box = 1 THEN 0 ELSE 1 END,\n  (SELECT ad.address FROM addr ad WHERE ad.msg_id = p._id AND ad.type = CASE WHEN p.msg_box = 1 THEN 137 ELSE 151 END LIMIT 1), 'MMS'\nFROM pdu p WHERE p.date * 1000 BETWEEN {{unixMsStart}} AND {{unixMsEnd}}\nORDER BY 2;"
         }
       ]
     },
