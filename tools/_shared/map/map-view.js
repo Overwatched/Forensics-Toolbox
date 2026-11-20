@@ -835,10 +835,16 @@
             return cfg;
         }
 
+        // Filen som kan visas som miniatyr. Filens egen typ avgör, eftersom en HEIC-bild kommer som en liten JPEG-bild.
+        function drawableFile(p) {
+            var file = opts.getFile ? opts.getFile(p.id) : null;
+            return file && THUMB_MIME.test(file.type || p.mime || '') ? file : null;
+        }
+
         function bubbleContent(p) {
             var parts = root.MapCore.bubbleParts(p, bubbleOf(p), notes[p.id] || p.note || '');
             var wantsThumb = parts.some(function (x) { return x.thumb; });
-            var file = wantsThumb && opts.getFile && THUMB_MIME.test(p.mime || '') ? opts.getFile(p.id) : null;
+            var file = wantsThumb ? drawableFile(p) : null;
             return parts.filter(function (x) { return !x.thumb || file; }).map(function (x) {
                 return x.thumb ? { thumb: file } : x;
             });
@@ -1498,7 +1504,7 @@
 
         function popupContent(p) {
             var box = make('div', 'map-popup');
-            var file = THUMB_MIME.test(p.mime) && opts.getFile ? opts.getFile(p.id) : null;
+            var file = drawableFile(p);
             if (file) {
                 thumbUrl = URL.createObjectURL(file);
                 var img = make('img', 'map-thumb');

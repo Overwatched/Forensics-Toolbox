@@ -567,6 +567,7 @@
     // Samma nyckel uppdaterar källan i stället för att lägga till en kopia. Bildernas id
     // behålls, så att ruttval och bubblor ligger kvar när filtren i EXIF ändras.
     function receivePositions(data) {
+        if (data.update === 'files') { receiveFiles(data); return; }
         if (!data.layerKey) { addChunked('EXIF & karta', data.points); return; }
         var name = String(data.layerName || 'EXIF-bilder');
         var layer = layers.filter(function (l) { return l.key === data.layerKey; })[0];
@@ -594,6 +595,19 @@
             var hit = layer.points.filter(function (p) { return p.exifId === data.focusExifId; })[0];
             if (hit) ensureMap().focus(hit.id);
         }
+    }
+
+    // Miniatyrerna som EXIF & karta gör efter att bilderna skickats, per bild i EXIF (exifId).
+    function receiveFiles(data) {
+        var layer = layers.filter(function (l) { return l.key === data.layerKey; })[0];
+        var files = data.files || {};
+        if (!layer) return;
+        var changed = false;
+        layer.points.forEach(function (p) {
+            var f = p.exifId != null ? files[p.exifId] : null;
+            if (f && f !== p.file) { p.file = f; changed = true; }
+        });
+        if (changed) redraw();
     }
 
     var namedRoutes = [];

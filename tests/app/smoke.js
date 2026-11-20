@@ -1736,6 +1736,13 @@ const scenarios = [
         expect(detail.labels.includes('Filsystemets tider för filen på den här datorn'), 'Filsystemets tider: ' + detail.labels);
         expect(!detail.labels.includes('Skapad'), 'En rad heter bara Skapad: ' + detail.labels);
         await c.ev('exif-viewer/index.html', `(function(){ const b = [...document.querySelectorAll('button')].find(x => x.textContent.trim() === 'Stäng' && x.offsetParent); if (b) b.click(); return 1; })()`);
+        // Bilderna till Positioner med miniatyrer i bubblorna: varje bild med position får sin miniatyr.
+        await c.waitFor('exif-viewer/index.html', `![...document.querySelectorAll('table.files tbody tr')].some(tr => tr.classList.contains('pending'))`, 60000, 'alla rader i EXIF');
+        await c.ev('exif-viewer/index.html', `document.getElementById('to-positions').click(), 1`);
+        await c.waitFor('positions/index.html', `/lades till som källan EXIF-bilder/.test(document.body.innerText)`, 15000, 'bilderna i Positioner');
+        await c.ev('positions/index.html', `(function(){ [...document.querySelectorAll('button')].find(x => /Anpassa standard/.test(x.textContent)).click(); const r = document.querySelector('.map-editor-row[data-key=thumb] input'); if (!r.checked) r.click(); [...document.querySelectorAll('.map-editor button')].find(x => x.textContent.trim() === 'Klar').click(); return 1; })()`);
+        const thumbs = await c.waitFor('positions/index.html', `(function(){ const n = Number((/(\\d+) bilder lades till/.exec(document.body.innerText) || [])[1]); const im = [...document.querySelectorAll('.ft-bubble-thumb')].filter(i => i.complete && i.naturalWidth > 0); return n && im.length === n && { n, drawn: im.length }; })()`, 20000, 'miniatyrerna i bubblorna');
+        expect(thumbs.n >= 20, 'Miniatyrer: ' + JSON.stringify(thumbs));
         await c.nav('Positioner');
         await c.ev('positions/index.html', `document.getElementById('fill-sample').click(), 1`);
         await sleep(1500);

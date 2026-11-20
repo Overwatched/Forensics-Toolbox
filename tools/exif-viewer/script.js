@@ -490,6 +490,8 @@
             storeTags(row, tags, unknown);
             publish(row);
             if (held && showMedia && !row.thumb && mediaKind(row) === 'image') keepThumb(row, held);
+            // En lokal HEIC-fil får en liten JPEG-bild åt kartan, som inte kan rita HEIC.
+            else if (row.file && !row.thumb && row.summary && row.summary.position && !DRAWABLE.test(row.file.type || '') && mediaKind(row) === 'image') keepThumb(row, row.file);
             noteParse(row, from);
             updateProgress();
             scheduleRender();
@@ -1018,7 +1020,7 @@
             },
             getFile: function (id) {
                 var row = rows.filter(function (r) { return r.id === id; })[0];
-                return row ? row.file || row.thumb || null : null;
+                return row ? mapImage(row, true) : null;
             },
             copy: copyText,
             openExternal: openExternal,
@@ -1444,14 +1446,14 @@
         var done = visibleRows().filter(function (r) { return r.status === 'done'; });
         var pts = MapCore.points(done);
         if (!pts.length) { showToast('Inga positioner att skicka'); return; }
+        // Kartan får en bild den kan rita: den lilla JPEG-bilden om den finns (också för HEIC), annars filen själv
+        // för högst FILE_CAP bilder. Resten görs efteråt och skickas när de är klara (mapThumbs).
         var FILE_CAP = 50;
-        var withFiles = pts.length <= FILE_CAP;
-        if (withFiles) {
-            var files = {};
-            done.forEach(function (r) { files[r.id] = r.file || r.thumb; });
-            pts.forEach(function (p) { if (files[p.id]) p.file = files[p.id]; });
-        }
+        var byId = {};
+        done.forEach(function (r) { byId[r.id] = r; });
         pts.forEach(function (p) {
+            var img = mapImage(byId[p.id], pts.length <= FILE_CAP);
+            if (img) p.file = img;
             p.exifId = p.id;
             p.detail = 'Visa i EXIF';
         });
@@ -1459,9 +1461,46 @@
             source: 'forensics-toolbox', type: 'positions', layerKey: 'exif', layerName: 'EXIF-bilder',
             points: pts, focusExifId: focusExifId,
         }, '*');
+        var missing = pts.filter(function (p) { return !p.file && mediaKind(byId[p.id]) === 'image'; }).map(function (p) { return byId[p.id]; });
         var text = pts.length + (pts.length === 1 ? ' bild öppnades' : ' bilder öppnades') + ' i Positioner';
-        if (!withFiles) text += '. Miniatyrer följer med för högst ' + FILE_CAP + ' bilder, så filtrera listan om du vill se dem.';
+        if (missing.length) text += '. Miniatyrerna kommer efter hand.';
         showToast(text);
+        mapThumbs(missing.slice(0, MAP_THUMB_MAX));
+    }
+
+    // En bild som kartan kan rita: webbläsaren ritar inte HEIC, och en hel fil är tung när de är många.
+    var DRAWABLE = /^image\/(jpeg|png|gif|webp|bmp|avif)$/i;
+    function mapImage(row, fullOk) {
+        if (!row) return null;
+        if (row.thumb) return row.thumb;
+        return fullOk && row.file && DRAWABLE.test(row.file.type || '') ? row.file : null;
+    }
+
+    // Miniatyrerna som saknades när bilderna skickades till Positioner: de görs en i taget (också för filer ur
+    // extraktionen, som läses via Härkomst) och skickas i omgångar, så att kartan fylls på medan resten görs.
+    var MAP_THUMB_MAX = 2000;
+    var mapThumbSeq = 0;
+    function mapThumbs(list) {
+        if (!list.length) return;
+        var seq = ++mapThumbSeq, batch = {}, count = 0, last = Date.now();
+        var flush = function () {
+            if (!count) return;
+            window.parent.postMessage({ source: 'forensics-toolbox', type: 'positions', update: 'files', layerKey: 'exif', points: [], files: batch }, '*');
+            batch = {};
+            count = 0;
+            last = Date.now();
+        };
+        list.forEach(function (row) {
+            thumbChain = thumbChain.then(function () {
+                if (seq !== mapThumbSeq || rows.indexOf(row) < 0) return null;
+                var ready = row.thumb ? Promise.resolve() : content(row).then(function (file) { return keepThumb(row, file); });
+                return ready.then(function () {
+                    if (row.thumb) { batch[row.id] = row.thumb; count++; }
+                    if (count >= 25 || Date.now() - last > 1500) flush();
+                }, function () {});
+            });
+        });
+        thumbChain = thumbChain.then(function () { if (seq === mapThumbSeq) flush(); });
     }
 
     $('to-positions').addEventListener('click', function () { sendToPositions(); });

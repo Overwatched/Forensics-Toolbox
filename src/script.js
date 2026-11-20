@@ -531,6 +531,12 @@ function initToolNav() {
         if (!data || (data.source !== 'forensics-toolbox' && data.source !== 'verktygslada')) return;
         if (dbShare && dbShare.handle(frameOf(event.source), data)) return;
         if (data.type === 'positions' && Array.isArray(data.points)) {
+            // Miniatyrer som kommer efter hand byter inte vy, och går bara fram om Positioner redan är öppet.
+            if (data.update === 'files') {
+                const open = frames.get('tools/positions/index.html');
+                if (open && open.dataset.ready) postToFrame(open, { source: 'forensics-toolbox', type: 'positions', update: 'files', layerKey: data.layerKey, points: [], files: data.files });
+                return;
+            }
             openTool('tools/positions/index.html');
             const frame = frames.get('tools/positions/index.html');
             const send = () => postToFrame(frame, {
