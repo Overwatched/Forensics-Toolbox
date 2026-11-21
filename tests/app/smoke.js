@@ -478,6 +478,17 @@ const scenarios = [
             return { popup: !!box, phoneBtn: !![...document.querySelectorAll('.maplibregl-popup button')].find(x => /Var var telefonen/.test(x.textContent)),
                 actions: !![...document.querySelectorAll('.maplibregl-popup button')].find(x => /Anpassa bubblan/.test(x.textContent)), pickbar: !document.querySelector('.map-pickbar').classList.contains('display-none') }; })()`);
         if (phone.popup) expect(!phone.phoneBtn && phone.actions && !phone.pickbar, 'Popupen för en position: ' + JSON.stringify(phone));
+        // Källan i popupen öppnar raden i Queries, med samma SQL och raden markerad.
+        let srcHit = null;
+        if (phone.popup) {
+            const link = await c.ev('positions/index.html', `(function(){ const b = document.querySelector('.maplibregl-popup .map-source-link'); const around = !![...document.querySelectorAll('.maplibregl-popup button')].find(x => /Allt runt tiden/.test(x.textContent)); if (b) b.click(); return { link: !!b, around: around }; })()`);
+            expect(link.link && link.around, 'Popupen saknar länken till källan eller Allt runt tiden: ' + JSON.stringify(link));
+            srcHit = await c.waitFor(QUER, `(function(){ const n = document.getElementById('run-hit'); const rows = document.querySelectorAll('#run-result tr.row-hit').length;
+                return n && !n.classList.contains('display-none') && rows === 1 && n.innerText; })()`, 20000, 'raden i Queries');
+            expect(/Rad 1 av \d+ är markerad/.test(srcHit), 'Raden i Queries: ' + srcHit);
+            await c.ev(QUER, `document.getElementById('run-hit').classList.add('display-none'), 1`);
+            await c.nav('Positioner');
+        }
         // Samtal och meddelanden på kartan: Queries läser samtalen och SMS:en kring positionerna, och de läggs där
         // telefonen var. Fixturens händelser ligger nära positionerna i Cache.sqlite eller inte; svaret ska komma i båda fallen.
         await c.ev('positions/index.html', `document.getElementById('status').textContent = '', document.getElementById('events-add').click(), 1`);
@@ -487,14 +498,16 @@ const scenarios = [
         if (/samtal och \d+ meddelanden? ur/.test(ev) && !/Ingen av dem/.test(ev)) expect(evLayer, 'Händelserna blev ingen källa: ' + ev);
         // Vistelser och tidslinjen.
         const stays = await c.ev('positions/index.html', `(function(){ const s = document.getElementById('view-mode'); s.value = 'stays'; s.dispatchEvent(new Event('change'));
-            const r = document.querySelector('.map-bar-count').textContent; s.value = 'all'; s.dispatchEvent(new Event('change')); return r; })()`);
-        expect(/vistels/.test(stays), 'Vistelser: ' + stays);
-        const tl = await c.ev('positions/index.html', `(async function(){ document.querySelector('.map-timeline-btn').click(); await new Promise(r => setTimeout(r, 300));
-            const r = { shown: !document.querySelector('.map-timeline').classList.contains('display-none'), h: document.querySelector('.map-timeline-canvas').clientHeight };
-            document.querySelector('.map-timeline-btn').click(); return r; })()`);
+            const r = { count: document.querySelector('.map-bar-count').textContent, chips: [...document.querySelectorAll('.map-active-chip')].map(x => x.textContent) };
+            s.value = 'all'; s.dispatchEvent(new Event('change')); r.after = document.querySelectorAll('.map-active-chip').length; return r; })()`);
+        expect(/vistels/.test(stays.count) && stays.chips.some((t) => /^Vistelser/.test(t)) && stays.after === 0, 'Vistelser: ' + JSON.stringify(stays));
+        // Tidslinjen visas utan att man klickar, när det finns punkter med tid.
+        const tl = await c.ev('positions/index.html', `(async function(){ await new Promise(r => setTimeout(r, 300));
+            const canvas = document.querySelector('.map-timeline-canvas');
+            return { shown: !document.querySelector('.map-timeline').classList.contains('display-none'), h: canvas ? canvas.clientHeight : 0 }; })()`);
         expect(tl.shown && tl.h > 30, 'Tidslinjen: ' + JSON.stringify(tl));
         await c.nav('Queries');
-        return after.rows + ' positioner i Positioner' + (phone.popup ? ', popupen utan Var var telefonen?' : ', utan karta (WebGL2)') + ', ' + (evLayer ? 'händelser på kartan' : 'inga händelser nära') + ', vistelser och tidslinjen';
+        return after.rows + ' positioner i Positioner' + (phone.popup ? ', popupen utan Var var telefonen?' : ', utan karta (WebGL2)') + ', ' + (evLayer ? 'händelser på kartan' : 'inga händelser nära') + ', vistelser och tidslinjen' + (srcHit ? ', källan öppnar raden i Queries' : '');
     }],
 
     ['Queries: en inläst databas läses inte om, och en query som skriver påverkar inte nästa', async ({ c }) => {

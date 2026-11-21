@@ -651,7 +651,9 @@
         });
         [fit, measureBtn, saveBtn].forEach(function (b) { b.className = 'map-bar-btn'; bar.append(b); });
         var count = make('span', 'map-bar-count');
-        bar.append(count);
+        // Inställningarna som ändrar vad som ritas (vistelser, utglesning, gruppering, dolda): en rad etiketter.
+        var activeRow = make('div', 'map-active');
+        bar.append(count, activeRow);
         function openPop(key) {
             Object.keys(pops).forEach(function (k) {
                 pops[k].classList.toggle('display-none', k !== key);
@@ -704,7 +706,7 @@
         host.append(timelinePanel, timeBar, consent, editor, pickBar);
         return {
             editor: editor, pickBar: pickBar, bubbleCustom: bubbleCustom, bubbleReset: bubbleReset,
-            wrap: host, map: mapEl, status: status, route: route.input, perDevice: perDevice.input, cluster: cluster.input, timeColor: timeColor.input, timeLegend: timeLegend, count: count, bar: bar, openPop: openPop, alert: alert, pops: pops, timeSpanBtn: timeSpanBtn, timeControls: timeControls, timelineBtn: timelineBtn, timelinePanel: timelinePanel, toast: toast, toastText: toastText, toastClose: toastClose,
+            wrap: host, map: mapEl, status: status, route: route.input, perDevice: perDevice.input, cluster: cluster.input, timeColor: timeColor.input, timeLegend: timeLegend, count: count, activeRow: activeRow, bar: bar, openPop: openPop, alert: alert, pops: pops, timeSpanBtn: timeSpanBtn, timeControls: timeControls, timelineBtn: timelineBtn, timelinePanel: timelinePanel, toast: toast, toastText: toastText, toastClose: toastClose,
             online: online.input, fit: fit, measureBtn: measureBtn, saveBtn: saveBtn, measureNote: measureNote,
             listBtn: listBtn, list: list, numbers: numbers,
             bubbleStandard: bubbleStandard,
@@ -1315,6 +1317,67 @@
                     'circle-opacity': ['case', ['==', ['get', 'interpolated'], 1], 0.55, 1],
                 },
             });
+            // Punkter som ligger på varandra (inom några pixlar) får antalet i en bricka. Ett klick listar dem per slag.
+            map.addSource('stacks', { type: 'geojson', data: stacksGeojson() });
+            map.addLayer({
+                id: 'stack-circle', type: 'circle', source: 'stacks',
+                paint: {
+                    'circle-radius': ['case', ['>=', ['get', 'n'], 100], 13, ['>=', ['get', 'n'], 10], 11, 9],
+                    'circle-color': '#1c1c1e', 'circle-stroke-color': '#ffffff', 'circle-stroke-width': 2,
+                    'circle-translate': stackOffset(),
+                },
+            });
+            map.addLayer({
+                id: 'stack-count', type: 'symbol', source: 'stacks',
+                layout: { 'text-field': ['to-string', ['get', 'n']], 'text-font': FONT, 'text-size': 11, 'text-allow-overlap': true, 'text-ignore-placement': true },
+                paint: { 'text-color': '#ffffff', 'text-translate': stackOffset() },
+            });
+        }
+
+        // Punkterna som ritas inom STACK_PX från varandra, i skärmens pixlar. Bara utan gruppering.
+        var STACK_PX = 14;
+        var stackById = {};
+        function stacksGeojson() {
+            stackById = {};
+            var features = [];
+            if (!map || clustering) return { type: 'FeatureCollection', features: features };
+            var cells = {}, stacks = [];
+            drawnPoints().forEach(function (p) {
+                var c = map.project([p.lon, p.lat]);
+                var gx = Math.floor(c.x / STACK_PX), gy = Math.floor(c.y / STACK_PX), hit = null;
+                for (var dx = -1; dx <= 1 && !hit; dx++) for (var dy = -1; dy <= 1 && !hit; dy++) {
+                    (cells[(gx + dx) + ':' + (gy + dy)] || []).some(function (st) {
+                        var ddx = st.x - c.x, ddy = st.y - c.y;
+                        if (ddx * ddx + ddy * ddy <= STACK_PX * STACK_PX) { hit = st; return true; }
+                        return false;
+                    });
+                }
+                if (hit) { hit.ids.push(p.id); return; }
+                var st = { x: c.x, y: c.y, lon: p.lon, lat: p.lat, ids: [p.id], pin: bubbleOf(p).pin ? 1 : 0 };
+                (cells[gx + ':' + gy] = cells[gx + ':' + gy] || []).push(st);
+                stacks.push(st);
+            });
+            stacks.forEach(function (st, i) {
+                if (st.ids.length < 2) return;
+                stackById[i] = st.ids;
+                features.push({ type: 'Feature', geometry: { type: 'Point', coordinates: [st.lon, st.lat] }, properties: { sid: i, n: st.ids.length, pin: st.pin } });
+            });
+            return { type: 'FeatureCollection', features: features };
+        }
+        // Brickan sitter snett ovanför nålens huvud, eller pricken. Förskjutningen kan inte bero på punkten, så den
+        // följer standarden (nål eller prick) och nålens storlek vid zoomen.
+        function stackOffset() {
+            var pin = !!standardCfg.pin;
+            if (!pin || !map) return [10, -10];
+            var k = pinScale(map.getZoom());
+            return [Math.round(PIN.r * k + 2), Math.round(-(PIN.tip - PIN.cy) * k - PIN.r * k)];
+        }
+        function refreshStacks() {
+            if (!map || !map.getSource('stacks')) return;
+            map.getSource('stacks').setData(stacksGeojson());
+            var off = stackOffset();
+            map.setPaintProperty('stack-circle', 'circle-translate', off);
+            map.setPaintProperty('stack-count', 'text-translate', off);
         }
 
         var bubbleMarkers = [];
@@ -1575,6 +1638,7 @@
             paintStates();
             if (map.getSource('accuracy')) map.getSource('accuracy').setData(accuracyGeojson());
             refreshMeasure();
+            refreshStacks();
             syncBubbles();
         }
 
@@ -1682,6 +1746,18 @@
             box.append(make('div', 'map-popup-name', p.name));
             var dir = p.path.slice(0, Math.max(0, p.path.length - p.name.length)).replace(/\/$/, '');
             if (dir) box.append(make('div', 'map-popup-dir', dir));
+            // Adressen: ur källan när den har en (Photos, Snapchat), annars närmaste gata och ort i kartan.
+            var where = make('div', 'map-popup-address');
+            if (p.address) {
+                where.append(make('span', '', p.address));
+                where.append(make('span', 'muted', ' · ur ' + (p.addressFrom || 'källan')));
+                box.append(where);
+            } else {
+                box.append(where);
+                fillNearby(where, p);
+            }
+            var at = p.taken && root.MapCore.instant && root.MapCore.zoneMinutes ? (root.MapCore.zoneMinutes(p.taken.zone) === null ? null : root.MapCore.instant(p.taken.sort, p.taken.zone)) : null;
+            box.append(aroundSection(p, at));
             var dl = make('dl');
             function row(label, value) {
                 if (!value) return;
@@ -1695,12 +1771,26 @@
                     var minutes = root.MapCore.visitMinutes(p.taken, p.until);
                     if (minutes != null) row('Varaktighet', minutes + ' min');
                 }
+                if (p.count) row('Positioner', String(p.count));
             } else {
                 row(p.taken ? p.taken.kind : 'Tid', p.taken ? p.taken.text : (p.exifId != null || p.mime ? 'Ingen tid i filen' : 'Ingen tid'));
             }
             row('Enhet', p.device);
             row('Typ', p.type);
-            row('Källa', p.layer);
+            if (p.layer) {
+                dl.append(make('dt', '', 'Källa'));
+                var src = make('dd');
+                src.append(make('span', '', p.layer));
+                if (p.origin && opts.openSource) {
+                    var go = make('button', 'link-btn map-source-link', p.visit ? 'Raderna i Queries' : 'Raden i Queries');
+                    go.type = 'button';
+                    go.title = 'Öppnar databasen i Queries med samma SQL och ' + (p.visit ? 'raderna' : 'raden') + ' markerad' + (p.visit ? 'e' : '') + (p.origin.path ? ': ' + p.origin.path : '');
+                    go.addEventListener('click', function (e) { e.stopPropagation(); opts.openSource(p); });
+                    src.append(document.createTextNode(' '), go);
+                }
+                dl.append(src);
+            }
+            if (p.origin && p.origin.table) row('Tabell', p.origin.table);
             row('Position', p.lat + ', ' + p.lon);
             if (p.accuracy > 0 && !p.stay) row(p.visit ? 'Osäkerhet' : 'Horisontell noggrannhet', Math.round(p.accuracy) + ' m');
             row('Händelse', notes[p.id] || p.note);
@@ -1727,7 +1817,7 @@
             });
             var copy = make('button', 'link-btn', 'Kopiera koordinater');
             copy.type = 'button';
-            copy.addEventListener('click', function () { opts.copy(p.lat + ', ' + p.lon); });
+            copy.addEventListener('click', function () { opts.copy(p.lat + ', ' + p.lon + (p.address ? ' (' + p.address + ')' : '')); });
             actions.append(more, copy);
             var act = function (text, fn) {
                 var b = make('button', 'link-btn', text);
@@ -1739,30 +1829,90 @@
             act(excluded[p.id] ? 'Med i rutten' : 'Ur rutten', function () { setInRoute([p.id], !!excluded[p.id]); openPoint(p); });
             act('Dölj', function () { closePopup(); setHidden([p.id], true); });
             box.append(actions);
-            // Var var telefonen när bilden skapades: positionerna runt punktens tid, ur extraktionen.
+            return box;
+        }
+
+        // Runt punktens tid, ur extraktionen som är öppen: var telefonen var (för en fil, som en bild) och allt runt
+        // tiden (positioner, samtal och meddelanden), som markeras i tidslinjen.
+        function aroundSection(p, at) {
+            var sec = make('div', 'map-popup-phone');
+            if (!opts.phoneAround && !opts.aroundTime) return sec;
+            var head = make('div', 'map-popup-phone-head');
+            head.append(make('span', '', at === null ? (p.taken ? 'Tiden saknar zon' : 'Ingen tid') : 'Runt ' + (p.taken.text || '')));
+            var span = make('select');
+            span.setAttribute('aria-label', 'Tid före och efter');
+            [5, 15, 60].forEach(function (m) { var o = make('option', '', '±' + m + ' min'); o.value = String(m); span.append(o); });
+            span.value = String(phoneMinutes);
+            span.addEventListener('change', function () { phoneMinutes = Number(span.value); });
+            head.append(span);
+            sec.append(head);
+            var buttons = make('div', 'map-popup-phone-btns');
+            var add = function (text, cls, title, fn) {
+                var b = make('button', cls, text);
+                b.type = 'button';
+                if (at === null) { b.disabled = true; b.title = p.taken ? 'Tiden saknar tidszon, så den verkliga tidpunkten är okänd.' : 'Punkten har ingen tid.'; }
+                else { b.title = title; b.addEventListener('click', function (e) { e.stopPropagation(); fn(); }); }
+                buttons.append(b);
+            };
             // Bara för en fil (en bild ur EXIF eller en rad med filnamn), inte för telefonens egna positioner.
             if (opts.phoneAround && (p.exifId != null || p.path)) {
-                var at = p.taken && root.MapCore.instant && root.MapCore.zoneMinutes ? (root.MapCore.zoneMinutes(p.taken.zone) === null ? null : root.MapCore.instant(p.taken.sort, p.taken.zone)) : null;
-                var phone = make('div', 'map-popup-phone');
-                var ask = make('button', 'secondary-btn', 'Var var telefonen?');
-                ask.type = 'button';
-                var span = make('select');
-                span.setAttribute('aria-label', 'Tid före och efter');
-                [5, 15, 60].forEach(function (m) { var o = make('option', '', '±' + m + ' min'); o.value = String(m); span.append(o); });
-                span.value = String(phoneMinutes);
-                span.addEventListener('change', function () { phoneMinutes = Number(span.value); });
-                if (at === null) {
-                    ask.disabled = true;
-                    span.disabled = true;
-                    ask.title = p.taken ? 'Tiden saknar tidszon, så den verkliga tidpunkten är okänd.' : 'Punkten har ingen tid.';
-                } else {
-                    ask.title = 'Telefonens positioner runt ' + p.taken.text + ' ur extraktionen som är öppen (Cache.sqlite, Rubin), som en egen källa.';
-                    ask.addEventListener('click', function () { opts.phoneAround(p, at, phoneMinutes); });
-                }
-                phone.append(ask, span);
-                box.append(phone);
+                add('Var var telefonen?', 'primary-btn', 'Telefonens positioner runt tiden ur extraktionen som är öppen (Cache.sqlite, Rubin), som en egen källa.', function () { opts.phoneAround(p, at, phoneMinutes); });
             }
-            return box;
+            if (opts.aroundTime) {
+                add('Allt runt tiden', 'secondary-btn', 'Positioner, samtal och meddelanden runt tiden ur extraktionen. De markeras i tidslinjen.', function () { opts.aroundTime(p, at, phoneMinutes); });
+            }
+            if (sec.childNodes.length && buttons.childNodes.length) sec.append(buttons);
+            else sec.textContent = '';
+            return sec;
+        }
+
+        // Närmaste gata och ort i kartan som visas (offline eller online), inte ur någon tjänst: ett ungefärligt läge.
+        var OWN_SOURCES = { files: 1, route: 1, accuracy: 1, measure: 1, 'time-marker': 1, stacks: 1 };
+        var PLACE_KIND = /^(locality|neighbourhood|macrohood|city|town|village|suburb|hamlet|quarter|isolated_dwelling)$/;
+        function featureName(props) { return props && (props['name:sv'] || props.name || props['name:latin'] || props.name_en) || ''; }
+        function nearbyText(p) {
+            if (!map) return '';
+            var c = map.project([p.lon, p.lat]), feats;
+            try { feats = map.queryRenderedFeatures(); } catch (e) { return ''; }
+            var cos = Math.cos(p.lat * Math.PI / 180), M = 111320;
+            var dist = function (lon, lat) { var dx = (lon - p.lon) * cos * M, dy = (lat - p.lat) * M; return Math.sqrt(dx * dx + dy * dy); };
+            var segDist = function (a, b) {
+                var ax = (a[0] - p.lon) * cos * M, ay = (a[1] - p.lat) * M, bx = (b[0] - p.lon) * cos * M, by = (b[1] - p.lat) * M;
+                var dx = bx - ax, dy = by - ay, l = dx * dx + dy * dy, t = l ? Math.max(0, Math.min(1, -(ax * dx + ay * dy) / l)) : 0;
+                var x = ax + t * dx, y = ay + t * dy;
+                return Math.sqrt(x * x + y * y);
+            };
+            var road = null, roadD = 120, place = null, placeD = Infinity;
+            feats.forEach(function (f) {
+                if (OWN_SOURCES[f.source]) return;
+                var name = featureName(f.properties);
+                if (!name || !f.geometry) return;
+                var g = f.geometry, kind = String(f.properties.kind || f.properties.class || f.properties.pmap_kind || '');
+                var where = (f.sourceLayer || '') + ' ' + (f.layer && f.layer.id || '');
+                if ((g.type === 'LineString' || g.type === 'MultiLineString') && /road|transportation|street|highway/i.test(where) && !/rail|ferry|aerialway|runway|taxiway/i.test(where + ' ' + kind)) {
+                    (g.type === 'LineString' ? [g.coordinates] : g.coordinates).forEach(function (line) {
+                        for (var i = 1; i < line.length; i++) { var d = segDist(line[i - 1], line[i]); if (d < roadD) { roadD = d; road = name; } }
+                    });
+                } else if (g.type === 'Point' && PLACE_KIND.test(kind)) {
+                    var d = dist(g.coordinates[0], g.coordinates[1]);
+                    if (d < placeD && d < 15000) { placeD = d; place = name; }
+                }
+            });
+            if (c.x < 0 || c.y < 0) return '';
+            return [road, place && place !== road ? place : ''].filter(Boolean).join(', ');
+        }
+        function fillNearby(node, p) {
+            var put = function () {
+                var text = nearbyText(p);
+                node.textContent = '';
+                if (!text) return false;
+                node.append(make('span', '', 'Nära ' + text));
+                node.append(make('span', 'muted', ' · ungefärligt, ur kartan'));
+                node.title = 'Närmaste namngivna väg (inom 120 m) och ort i kartan som visas. Ingen adress hämtas utifrån.';
+                return true;
+            };
+            if (put() || !map) return;
+            map.once('idle', function () { if (node.isConnected) put(); });
         }
 
         // En nål sticker upp ovanför punkten. Popupen ska inte täcka huvudet.
@@ -1826,9 +1976,20 @@
             if (listOpen) renderList();
         }
 
-        function clusterList(leaves, lngLat) {
+        // Slaget en punkt hör till i listan för en klunga: samtal, meddelanden per app, bilder, vistelser, positioner.
+        function groupOf(p) {
+            if (p.event === 'call') return 'Samtal';
+            if (p.event) return 'Meddelanden' + (p.app ? ' · ' + p.app : '');
+            if (p.stay) return 'Vistelser';
+            if (p.exifId != null || p.path || p.mime) return 'Filer';
+            return p.type ? 'Positioner · ' + p.type : 'Positioner';
+        }
+
+        // Många punkter på samma ställe: antalet per slag, var och en går att fälla ut, och alla kan markeras eller
+        // visas i tidslinjen.
+        function groupedList(ids, lngLat) {
             var seen = {};
-            var items = leaves.map(function (f) { return byId[f.properties.id]; }).filter(function (p) {
+            var items = ids.map(function (id) { return byId[id]; }).filter(function (p) {
                 if (!p || seen[p.id]) return false;
                 seen[p.id] = true;
                 return true;
@@ -1840,19 +2001,65 @@
             if (!items.length) return;
             var same = items.every(function (p) { return p.lat === items[0].lat && p.lon === items[0].lon; });
             var box = make('div', 'map-popup');
-            box.append(make('div', 'map-popup-name', items.length + (same ? ' filer på samma plats' : ' filer')));
-            var list = make('div', 'map-popup-list');
+            box.append(make('div', 'map-popup-name', items.length + (same ? ' punkter på samma plats' : ' punkter här')));
+            var times = items.map(function (p) { return pointMs(p.taken); }).filter(function (ms) { return ms !== null; });
+            if (times.length) {
+                var t = function (ms) { return new Date(ms).toISOString().slice(0, 16).replace('T', ' '); };
+                var lo = Math.min.apply(null, times), hi = Math.max.apply(null, times);
+                box.append(make('div', 'map-popup-dir', t(lo) + (hi - lo >= 60000 ? ' – ' + (t(hi).slice(0, 10) === t(lo).slice(0, 10) ? t(hi).slice(11) : t(hi)) : '') + ' UTC'));
+            }
+            var groups = [], byGroup = {};
             items.forEach(function (p) {
-                var b = make('button', 'map-popup-item');
-                b.type = 'button';
-                b.append(make('span', '', p.name));
-                b.append(make('span', 'muted', p.taken ? p.taken.text : ''));
-                b.addEventListener('click', function () { openPoint(p); });
-                list.append(b);
+                var g = groupOf(p);
+                if (!byGroup[g]) { byGroup[g] = []; groups.push(g); }
+                byGroup[g].push(p);
+            });
+            var rank = function (g) { return /^Samtal/.test(g) ? 0 : /^Meddelanden/.test(g) ? 1 : /^Filer/.test(g) ? 2 : /^Vistelser/.test(g) ? 3 : 4; };
+            groups.sort(function (a, b) { return rank(a) - rank(b) || byGroup[b].length - byGroup[a].length; });
+            var list = make('div', 'map-popup-groups');
+            groups.forEach(function (g) {
+                var d = make('details', 'map-popup-group');
+                if (groups.length === 1) d.open = true;
+                var sum = make('summary');
+                sum.append(make('span', '', g), make('b', '', String(byGroup[g].length)));
+                d.append(sum);
+                var inner = make('div', 'map-popup-list');
+                byGroup[g].slice(0, 200).forEach(function (p) {
+                    var b = make('button', 'map-popup-item');
+                    b.type = 'button';
+                    b.append(make('span', '', p.name));
+                    b.append(make('span', 'muted', p.taken ? p.taken.text : ''));
+                    b.addEventListener('click', function () { openPoint(p); });
+                    inner.append(b);
+                });
+                if (byGroup[g].length > 200) inner.append(make('p', 'map-note', 'De första 200 visas. Markera alla för att se resten i listan.'));
+                d.append(inner);
+                list.append(d);
             });
             box.append(list);
+            var actions = make('div', 'map-popup-actions');
+            var markAll = make('button', 'link-btn', 'Markera alla');
+            markAll.type = 'button';
+            markAll.addEventListener('click', function () { markPoints(items.map(function (p) { return p.id; })); });
+            actions.append(markAll);
+            if (times.length && root.MapTimeline) {
+                var inTime = make('button', 'link-btn', 'Visa i tidslinjen');
+                inTime.type = 'button';
+                inTime.addEventListener('click', function () {
+                    timeFocus = { from: Math.min.apply(null, times) - 30000, to: Math.max.apply(null, times) + 30000 };
+                    if (!timelineOn) setTimeline(true);
+                    drawTimeline();
+                    updateActive();
+                });
+                actions.append(inTime);
+            }
+            box.append(actions);
             closePopup();
             showPopup(lngLat, box);
+        }
+
+        function clusterList(leaves, lngLat) {
+            groupedList(leaves.map(function (f) { return f.properties.id; }), lngLat);
         }
 
         function bindEvents() {
@@ -1871,6 +2078,7 @@
                 });
                 map.on('resize', updateLeaders);
                 map.on('moveend', function () {
+                    refreshStacks();
                     if (candidateCount > BUBBLE_CAP) syncBubbles();
                     if (listInView && listOpen) renderList();
                 });
@@ -1924,6 +2132,19 @@
                 }
                 openPoint(p);
             }
+            ['stack-circle', 'stack-count'].forEach(function (layer) {
+                map.on('click', layer, function (e) {
+                    if (e.originalEvent) {
+                        e.originalEvent._ftPick = true;
+                        if (e.originalEvent._ftPickHandled) return;
+                        e.originalEvent._ftPickHandled = true;
+                    }
+                    if (measuring) { addMeasure(e.lngLat, e); return; }
+                    var f = e.features && e.features[0];
+                    var ids = f ? stackById[f.properties.sid] : null;
+                    if (ids) groupedList(ids, f.geometry.coordinates);
+                });
+            });
             ['points', 'pins', 'point-badge', 'point-step', 'pin-step'].forEach(function (layer) {
                 map.on('click', layer, onPointClick);
             });
@@ -1938,7 +2159,7 @@
                 closePopup();
                 showPopup(e.lngLat, box);
             });
-            ['clusters', 'points', 'pins', 'point-badge', 'pin-step', 'route-bad'].forEach(function (layer) {
+            ['clusters', 'points', 'pins', 'point-badge', 'pin-step', 'route-bad', 'stack-circle'].forEach(function (layer) {
                 map.on('mouseenter', layer, function () { map.getCanvas().style.cursor = 'pointer'; });
                 map.on('mouseleave', layer, function () { map.getCanvas().style.cursor = ''; });
             });
@@ -2124,6 +2345,42 @@
                 else delete hidden[id];
             });
             routeChanged();
+            updateActive();
+        }
+
+        // Etiketterna för det som påverkar vilka punkter som syns och hur. Verktygets egna (vistelser, utglesning) läggs
+        // till med setActive. En etikett öppnar sin ruta i menyn; × tar bort det den står för, när det går.
+        var extActive = {};
+        function updateActive() {
+            var chips = [];
+            Object.keys(extActive).forEach(function (k) { if (extActive[k] && extActive[k].text) chips.push(extActive[k]); });
+            if (el.cluster.checked) chips.push({ text: 'Grupperade', pop: 'points', clear: function () { setClustering(false); } });
+            if (el.timeColor.checked) chips.push({ text: 'Färg efter tid', pop: 'route', clear: function () { el.timeColor.checked = false; refreshData(); } });
+            if (el.perDevice.checked) chips.push({ text: 'Rutt per enhet', pop: 'route', clear: function () { el.perDevice.checked = false; refreshData(); } });
+            var nHidden = Object.keys(hidden).filter(function (id) { return byId[id]; }).length;
+            if (nHidden) chips.push({ text: nHidden + (nHidden === 1 ? ' dold' : ' dolda'), title: 'Dolda punkter. × visar dem igen.', clear: function () { setHidden(Object.keys(hidden).filter(function (id) { return byId[id]; }).map(function (id) { return byId[id].id; }), false); } });
+            if (timeFocus) {
+                var t = function (ms) { return new Date(ms).toISOString().slice(11, 16); };
+                chips.push({ text: 'Runt ' + t((timeFocus.from + timeFocus.to) / 2) + ' ±' + Math.round((timeFocus.to - timeFocus.from) / 120000) + ' min (UTC)', title: 'Fönstret är markerat i tidslinjen.', clear: function () { timeFocus = null; drawTimeline(); updateActive(); } });
+            }
+            var row = el.activeRow;
+            row.textContent = '';
+            chips.forEach(function (c) {
+                var chip = make('span', 'map-active-chip');
+                var b = make('button', '', c.text);
+                b.type = 'button';
+                b.title = c.title || 'Ändra i menyn';
+                if (c.pop) b.addEventListener('click', function (e) { e.stopPropagation(); el.openPop(c.pop); });
+                chip.append(b);
+                if (c.clear) {
+                    var x = make('button', 'map-active-x', '×');
+                    x.type = 'button';
+                    x.setAttribute('aria-label', 'Ta bort ' + c.text);
+                    x.addEventListener('click', function (e) { e.stopPropagation(); c.clear(); updateActive(); });
+                    chip.append(x);
+                }
+                row.append(chip);
+            });
         }
 
         function setClustering(on) {
@@ -2131,18 +2388,22 @@
             el.cluster.checked = clustering;
             var src = map && map.getSource('files');
             if (src && src.setClusterOptions) src.setClusterOptions({ cluster: clustering, clusterRadius: 42, clusterMaxZoom: 16 });
+            refreshStacks();
         }
 
         // ---------- Tidslinjen ----------
         var timeline = null;
         var timelineOn = false;
+        // Ett tidsfönster som markeras i tidslinjen (Allt runt tiden): { from, to } i UTC-ms.
+        var timeFocus = null;
         function pointMs(t) { return t && t.sort ? root.MapCore.instant(t.sort, t.zone || '') : null; }
         function timelineLanes() {
             var lanes = [], byName = {};
             drawnPoints().forEach(function (p) {
                 var ms = pointMs(p.taken);
                 if (ms === null) return;
-                var name = p.layer || root.MapCore.sourceOf(p) || 'Punkter';
+                // Samtal och meddelanden får ett band per app, så att täta händelser går att skilja åt.
+                var name = p.event ? (p.event === 'call' ? 'Samtal' : p.app || 'Meddelanden') : p.layer || root.MapCore.sourceOf(p) || 'Punkter';
                 var lane = byName[name];
                 if (!lane) { lane = byName[name] = { name: name, color: p.color || '#0a84ff', items: [] }; lanes.push(lane); }
                 var until = pointMs(p.until);
@@ -2154,7 +2415,7 @@
             // Raden för markerade punkter står ovanför tidslinjen när den visas.
             el.pickBar.style.bottom = timelineOn ? (el.timelinePanel.offsetHeight + 70) + 'px' : '';
             if (!timelineOn || !timeline) return;
-            timeline.draw(timelineLanes(), timeCursor);
+            timeline.draw(timelineLanes(), timeCursor, timeFocus);
             el.pickBar.style.bottom = (el.timelinePanel.offsetHeight + 70) + 'px';
         }
         // Ett drag över tidslinjen markerar punkterna i spannet och visar dem på kartan.
@@ -2195,7 +2456,9 @@
             }
             drawTimeline();
         }
-        el.timelineBtn.addEventListener('click', function () { setTimeline(!timelineOn); });
+        // Tidslinjen visas när det finns punkter med tid, tills den stängs.
+        var timelineChosen = false;
+        el.timelineBtn.addEventListener('click', function () { timelineChosen = true; setTimeline(!timelineOn); });
         window.addEventListener('resize', function () { if (timelineOn) drawTimeline(); });
 
         function setPoints(list, noteText) {
@@ -2213,7 +2476,9 @@
             el.count.textContent = noteText || '';
             if (popup && selectedId !== null && !byId[selectedId]) closePopup();
             refreshData();
-            drawTimeline();
+            if (!timelineChosen && !timelineOn && list.some(function (p) { return pointMs(p.taken) !== null; })) setTimeline(true);
+            else drawTimeline();
+            updateActive();
         }
 
         // Redigeringen visas direkt på kartan. Avbryt lägger tillbaka det som gällde innan.
@@ -2526,6 +2791,7 @@
         listSearch.setAttribute('aria-label', 'Sök i listan');
         listSearch.addEventListener('input', function () {
             listQuery = listSearch.value;
+            listLimit = LIST_PAGE;
             renderList();
         });
         listSearch.addEventListener('keydown', function (e) {
@@ -2535,8 +2801,13 @@
             renderList();
         });
 
+        // Källan som listan visar ('' = alla) och hur många rader som ritas; fler ritas när man rullar nedåt.
+        var listSource = '';
+        var LIST_PAGE = 250;
+        var listLimit = LIST_PAGE;
         function listMatches(p) {
             if (listInView && !pointInView(p)) return false;
+            if (listSource && root.MapCore.sourceOf(p) !== listSource) return false;
             var terms = listQuery.toLowerCase().split(/\s+/).filter(Boolean);
             if (!terms.length) return true;
             var text = [p.name, p.path, p.taken && p.taken.text, p.device, p.app, root.MapCore.sourceOf(p), notes[p.id] || p.note]
@@ -2572,8 +2843,9 @@
             tools.append(all, none);
             if (sources.length > 1) {
                 var bySource = make('select');
-                bySource.title = 'Markera alla punkter från en källa';
-                var blank = make('option', '', 'Källa…');
+                bySource.title = 'Visa bara punkterna från en källa. Markera Alla markerar dem.';
+                bySource.setAttribute('aria-label', 'Källa');
+                var blank = make('option', '', 'Alla källor');
                 blank.value = '';
                 bySource.append(blank);
                 sources.forEach(function (s) {
@@ -2581,12 +2853,12 @@
                     o.value = s;
                     bySource.append(o);
                 });
+                bySource.value = sources.indexOf(listSource) >= 0 ? listSource : '';
                 bySource.addEventListener('change', function () {
-                    var want = bySource.value;
-                    if (!want) return;
-                    picked = {};
-                    points.forEach(function (p) { if (root.MapCore.sourceOf(p) === want) picked[p.id] = true; });
-                    applyPick(true);
+                    listSource = bySource.value;
+                    listLimit = LIST_PAGE;
+                    el.list.scrollTop = 0;
+                    renderList();
                 });
                 tools.append(bySource);
             }
@@ -2680,18 +2952,19 @@
                 if (s && sources.indexOf(s) < 0) sources.push(s);
             });
             head.append(listTools(sources));
-            head.append(make('p', 'map-note map-list-hint', 'Skift+klick markerar alla rader emellan. Anpassa finns i listen längst ned.'));
+            head.append(make('p', 'map-note map-list-hint', 'Skift+klick markerar raderna emellan. Anpassa finns i raden längst ned.'));
+            if (listSource && sources.indexOf(listSource) < 0) listSource = '';
             var matched = rows.filter(function (row) { return listMatches(row.point); });
-            var LIST_CAP = 300;
+            var LIST_CAP = listLimit;
             var pin = ensureId != null ? String(ensureId) : activeId;
-            var shown = matched.slice(0, LIST_CAP);
+            // Raden som ska synas ritas, och raderna före den, så att ordningen står kvar.
             if (pin) {
-                var pinned = matched.filter(function (row) { return String(row.point.id) === pin; })[0];
-                if (pinned && shown.indexOf(pinned) < 0) shown.unshift(pinned);
+                var at = -1;
+                matched.some(function (row, i) { if (String(row.point.id) === pin) { at = i; return true; } return false; });
+                if (at >= LIST_CAP) LIST_CAP = listLimit = at + 50;
             }
-            if (listQuery.trim() || listInView) listCount.textContent = matched.length + ' av ' + rows.length;
-            else if (matched.length > LIST_CAP) listCount.textContent = 'Visar ' + LIST_CAP + ' av ' + matched.length;
-            else listCount.textContent = '';
+            var shown = matched.slice(0, LIST_CAP);
+            listCount.textContent = listQuery.trim() || listInView || listSource ? matched.length + ' av ' + rows.length : '';
             shown.forEach(function (row) {
                 var p = row.point;
                 var item = make('div', 'map-list-row' + (String(p.id) === activeId ? ' active' : '') +
@@ -2760,10 +3033,17 @@
             });
             el.list.append(make('p', 'map-note map-list-nohit' + (matched.length ? ' display-none' : ''), 'Inga träffar.'));
             if (matched.length > shown.length) {
-                el.list.append(make('p', 'map-note map-list-more', 'Sök för att se de övriga punkterna.'));
+                el.list.append(make('p', 'map-note map-list-more', (matched.length - shown.length) + ' till. Rulla vidare.'));
             }
             el.list.scrollTop = scroll;
         }
+
+        el.list.addEventListener('scroll', function () {
+            if (!el.list.querySelector('.map-list-more')) return;
+            if (el.list.scrollTop + el.list.clientHeight < el.list.scrollHeight - 400) return;
+            listLimit += LIST_PAGE;
+            renderList();
+        });
 
         function setList(open) {
             listOpen = open;
@@ -2894,9 +3174,9 @@
             bubbleScale = Math.min(2, Math.round(bubbleScale * 1.18 * 100) / 100);
             syncBubbles();
         });
-        el.perDevice.addEventListener('change', refreshData);
-        el.cluster.addEventListener('change', function () { setClustering(el.cluster.checked); });
-        el.timeColor.addEventListener('change', refreshData);
+        el.perDevice.addEventListener('change', function () { refreshData(); updateActive(); });
+        el.cluster.addEventListener('change', function () { setClustering(el.cluster.checked); updateActive(); });
+        el.timeColor.addEventListener('change', function () { refreshData(); updateActive(); });
         el.timeInput.addEventListener('input', function () { showTime(Number(el.timeInput.value)); });
         el.play.addEventListener('click', function () {
             if (playTimer) { stopPlay(); return; }
@@ -3332,6 +3612,16 @@
                 if (!el.pops[key]) return;
                 el.pops[key].append(node);
                 if (key === 'time') { el.timeSpanBtn.classList.remove('display-none'); setupTime(); }
+            },
+            // En etikett för ett av verktygets val, t.ex. setActive('view', { text: 'Vistelser', pop: 'points', clear }). null tar bort den.
+            setActive: function (key, chip) { extActive[key] = chip || null; updateActive(); },
+            // Markerar ett tidsfönster i tidslinjen och punkterna i det på kartan: { from, to } i UTC-ms.
+            focusTime: function (from, to, mark) {
+                timeFocus = { from: from, to: to };
+                if (!timelineOn) setTimeline(true);
+                drawTimeline();
+                updateActive();
+                if (mark) brushTime(from, to);
             },
             // Texten på knappen Tidsspann, t.ex. "2024-06-01 14:00 – 16:00". Tom: inget spann valt.
             setTimeSpan: function (text) {

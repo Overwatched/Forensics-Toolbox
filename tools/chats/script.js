@@ -3102,7 +3102,7 @@
                 id: points.length + 1, name: 'Memory ' + (t ? t.slice(0, 16) : m.id.slice(0, 8)), path: 'Snapchat Memories/' + m.id, lat: m.lat, lon: m.lon,
                 source: 'gallery.encrypteddb', taken: t ? { sort: t, zone: 'UTC', text: t + ' UTC', kind: 'Tagen (ZCAPTURETIMEUTC)', source: 'import' } : null,
                 type: m.meo ? 'My Eyes Only' : m.kind, device: '', app: 'Snapchat', software: '', mime: '', file: file,
-                extra: [m.address ? ['Plats', m.address] : null, ['Snap-id', m.id]].filter(Boolean),
+                address: m.address || '', addressFrom: 'snap_address_title', extra: [['Snap-id', m.id]],
             });
         }
         toHub({ type: 'positions', layerKey: 'snapchat-memories', layerName: 'Snapchat Memories', points: points, noun: ['minne', 'minnen'] });

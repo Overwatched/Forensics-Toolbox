@@ -2692,9 +2692,32 @@ inklistrade koordinater. EXIF kan skicka synliga positioner dit via hubben.
   positioner som streck, händelser som romber och vistelser som staplar. Uppehåll längre än max(2 h, 1/40 av spannet)
   trycks ihop till ett brott med uppehållets längd (`MapTimeline.scale`). Klick öppnar punkten, ett drag markerar
   punkterna i spannet och zoomar dit, och uppspelningens markör står i tidslinjen. Tiderna på axeln är UTC.
+- **Popupen** (2026-11-21): adressen överst, ur källan när raden har en (`address`, t.ex. Snapchats snap_address_title
+  eller en kolumn address/adress i Queries, `QueryRunCore.toPoints`), annars närmaste namngivna väg (inom 120 m) och ort
+  i kartan som visas (`nearbyText`, ur de ritade kartrutorna, ingen tjänst frågas; järnväg och färjor räknas inte).
+  Rutan Runt <tid> (±5/15/60 min) har Var var telefonen? (bara för filer) och Allt runt tiden, som hämtar positioner
+  och sedan samtal och meddelanden (±max(N, 30) min, så att de har positioner att läggas vid) och markerar fönstret i
+  tidslinjen (`focusTime`, etiketten Runt …). Händelser från ett tidigare fönster står kvar (`evKey`).
+- **Källan i Queries:** varje punkt ur Queries eller rollqueryerna har `origin` (zippens sökväg till databasen, -wal,
+  queryns id och titel, SQL:en som kördes med tidsfönstret ifyllt, radernas nummer och huvudtabellen
+  `QueryRunCore.mainTable`). Raden/Raderna i Queries i popupen skickar `open-source`; huvudfönstret gör om den till
+  `open-query` med zippen (punktens egen eller programmets extraktion), och Queries kör samma SQL och markerar raderna
+  (`mark.rows`). En vistelse tar raderna ur den SQL som flest av dess positioner kom ur. Provat på labbet Två telefoner
+  (iOS): ett samtal öppnade CallHistory-raden, "Rad 12 av 22 är markerad".
+- **Många punkter på samma ställe:** utan gruppering får punkter inom 14 px från varandra en bricka med antalet
+  (`stacks`, räknas om när kartan flyttas). Ett klick, och en klunga med gruppering, listar dem per slag (samtal,
+  meddelanden per app, filer, vistelser, positioner per typ) med Markera alla och Visa i tidslinjen. Tidslinjen har ett
+  band per app för händelserna. Provat med 11 samtal och 39 meddelanden på samma plats (labbet Två telefoner).
+- **Aktiva val** står som etiketter i menyraden (`setActive` för verktygets egna, t.ex. Vistelser och En per 10 min;
+  kartans egna: Grupperade, Färg efter tid, Rutt per enhet, dolda, Runt …). Etiketten öppnar sin ruta, × tar bort valet.
+- **Tidslinjen** visas från början när det finns punkter med tid, tills den stängs med knappen.
+- **Vistelsens bubbla:** fälten Ankomst, Avfärd, Varaktighet, Antal positioner, Adress och Källa (databas · tabell) finns i
+  Anpassa bubblan, och knappen Ankomst, avfärd och tid i bubblor (under Vistelser) slår på dem för alla vistelser.
+- **Listan** har källan som filter (Alla källor), och ritar 250 rader åt gången och fler när man rullar nedåt. Den
+  gamla `content-visibility` gjorde att rullningslisten hoppade.
 - **Täta positioner** (Punkter → Täta positioner): en per källa och intervall (1, 5, 10, 30 eller 60 min), den med bäst
   noggrannhet. Bilder och punkter utan tid visas alltid, och antalet dolda står i raden överst. Sparas i vyn (`thin`).
-- **Återkopplingen** står som en ruta mitt överst på kartan (`notify(text, 'busy' | 'ok' | 'error')`): busy med snurra,
+- **Återkopplingen** står som en ruta överst till vänster på kartan, under menyraden (`notify(text, 'busy' | 'ok' | 'error')`): busy med snurra,
   ok försvinner efter 9 s, error står kvar tills den stängs. Positioners `setStatus` skriver dit också.
 - **Standard:** nålar och ingen gruppering (2026-11-20). Testdataknappen i Positioner är dold (röktestet använder den).
 - **Tidsspannet och de namngivna rutterna** står i kartan: tidsspannet i raden längst ner bredvid Spela

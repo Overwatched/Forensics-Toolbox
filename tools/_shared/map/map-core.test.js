@@ -213,10 +213,21 @@ const BUBBLE_POINT = {
 
 test('standardbubblan följer panelens kryssrutor och har miniatyren först', () => {
     const cfg = map.defaultBubble({ thumb: true, time: true, name: true });
-    assert.deepStrictEqual(cfg.items.map((i) => i.key), ['thumb', 'time', 'name', 'device', 'app', 'type', 'pos', 'accuracy', 'note']);
+    assert.deepStrictEqual(cfg.items.map((i) => i.key), ['thumb', 'time', 'name', 'device', 'app', 'type', 'pos', 'accuracy', 'note', 'arrival', 'departure', 'duration', 'count', 'address', 'source']);
     assert.deepStrictEqual(map.bubbleParts(BUBBLE_POINT, cfg, ''), [
         { thumb: true }, { text: '2024-06-01 14:30' }, { text: 'IMG_4101.JPG' },
     ]);
+});
+
+test('en vistelse har ankomst, avfärd, varaktighet, antal och källa i bubblan', () => {
+    const stay = {
+        visit: true, lat: 1, lon: 2, count: 14, layer: 'Telefonen',
+        taken: { sort: '2026-11-03 10:57:00', zone: 'UTC', text: '2026-11-03 10:57:00 UTC' },
+        until: { sort: '2026-11-03 12:12:00', zone: 'UTC', text: '2026-11-03 12:12:00 UTC' },
+        origin: { path: 'private/var/mobile/Library/Caches/com.apple.routined/Cache.sqlite', table: 'ZRTCLLOCATIONMO' },
+    };
+    const parts = map.bubbleParts(stay, map.defaultBubble({ arrival: true, departure: true, duration: true, count: true, source: true }), '');
+    assert.deepStrictEqual(parts.map((p) => p.text), ['2026-11-03 10:57:00 UTC', '2026-11-03 12:12:00 UTC', '1 h 15 min', '14', 'Cache.sqlite · ZRTCLLOCATIONMO']);
 });
 
 test('bubblans ordning, egna titlar och egna rader', () => {

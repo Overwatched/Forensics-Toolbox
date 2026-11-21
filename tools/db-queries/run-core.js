@@ -100,6 +100,7 @@
         var makeCol = headers.findIndex(function (h) { return MAKE_COLUMN.test(h); });
         var modelCol = headers.findIndex(function (h) { return MODEL_COLUMN.test(h); });
         var typeCol = headers.findIndex(function (h) { return TYPE_COLUMN.test(h); });
+        var addrCol = headers.findIndex(function (h) { return /^(z?address(_?title|_?string|_?line)?|adress|formatted_?address|plats(namn)?|place_?name)$/i.test(h); });
         var nameCol = headers.findIndex(function (h) { return FILE_NAME_COLUMN.test(h); });
         var dirCol = nameCol >= 0 ? headers.findIndex(function (h) { return FILE_DIR_COLUMN.test(h); }) : -1;
         // Tiden säger vilken kolumn den kom ur, eftersom en databas har flera.
@@ -117,7 +118,7 @@
             return t;
         };
         // Radens övriga kolumner står i punktens ruta på kartan.
-        var shownOnMap = [col.lat, col.lon, col.time, col.end, col.accuracy, typeCol, nameCol, dirCol];
+        var shownOnMap = [col.lat, col.lon, col.time, col.end, col.accuracy, typeCol, nameCol, dirCol, addrCol];
         var points = [];
         var skipped = 0;
         rows.forEach(function (row, n) {
@@ -145,6 +146,8 @@
                 type: kind, software: '', mime: '',
                 device: deviceText(makeCol >= 0 ? row[makeCol] : null, modelCol >= 0 ? row[modelCol] : null),
                 app: appCol >= 0 && row[appCol] != null ? String(row[appCol]) : '',
+                address: addrCol >= 0 && row[addrCol] != null && String(row[addrCol]).trim() ? String(row[addrCol]).trim().slice(0, 200) : '',
+                addressFrom: addrCol >= 0 ? 'kolumnen ' + headers[addrCol] : '',
                 extra: headers.map(function (h, i) { return shownOnMap.indexOf(i) < 0 && row[i] !== null && row[i] !== '' ? [h, cellText(row[i]).slice(0, 200)] : null; }).filter(Boolean).slice(0, 12),
             });
         });
@@ -192,6 +195,17 @@
         return narrow.length ? narrow : hits;
     }
 
+    // Tabellen i den första FROM som inte är en underfråga, t.ex. ZASSET: källan i kartans bubbla.
+    function mainTable(sql) {
+        var text = String(sql == null ? '' : sql).replace(/--[^\n]*/g, ' ').replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/'(?:[^']|'')*'/g, "''");
+        var re = /\bfrom\s+("?)([A-Za-z_][\w$]*(?:\.[A-Za-z_][\w$]*)?)\1/gi, m;
+        while ((m = re.exec(text))) {
+            var name = m[2];
+            if (!/^(select|json_each|json_tree|pragma_\w+)$/i.test(name)) return name.replace(/^main\./i, '');
+        }
+        return '';
+    }
+
     // Vilka rader som visas när bara max får plats: de första, eller en bit runt den första markerade raden.
     function rowWindow(total, hits, max) {
         if (total <= max || !hits || !hits.length || hits[0] < max) return { start: 0, end: Math.min(total, max) };
@@ -231,7 +245,7 @@
 
     var api = {
         toCsv: toCsv, cellText: cellText, toPoints: toPoints, localColumns: localColumns, localZone: localZone, epochMs: epochMs, epochText: epochText, withUtcColumns: withUtcColumns,
-        findRows: findRows, rowWindow: rowWindow, readsOnly: readsOnly,
+        findRows: findRows, rowWindow: rowWindow, readsOnly: readsOnly, mainTable: mainTable,
     };
     if (typeof module !== 'undefined' && module.exports) module.exports = api;
     else root.QueryRunCore = api;

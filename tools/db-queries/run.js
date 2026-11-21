@@ -490,7 +490,9 @@
     function applyMark(mark) {
         if (!last) return false;
         var specs = window.QueriesApp.timeColumns ? window.QueriesApp.timeColumns() : null;
-        var hits = QueryRunCore.findRows(last.columns, last.rows, specs, mark);
+        // Från kartan: radernas nummer i resultatet av samma SQL.
+        var hits = Array.isArray(mark.rows) ? mark.rows.filter(function (n) { return n >= 0 && n < last.rows.length; }).sort(function (a, b) { return a - b; })
+            : QueryRunCore.findRows(last.columns, last.rows, specs, mark);
         var fromStart = false;
         if (!hits.length && mark.startMs !== undefined && mark.startMs !== null) {
             hits = QueryRunCore.findRows(last.columns, last.rows, specs, { ms: [mark.startMs], values: mark.values });
@@ -611,6 +613,14 @@
             return;
         }
         var layerKey = 'query-' + (db ? db.id : '') + '-' + (q ? q.id : '');
+        // Var raden finns: databasen i zippen och SQL:en som kördes, så att kartan kan öppna raden här igen.
+        var at = window.QueriesExtraction && window.QueriesExtraction.currentPaths ? window.QueriesExtraction.currentPaths() : null;
+        if (at) {
+            var table = QueryRunCore.mainTable(last.sql);
+            out.points.forEach(function (p) {
+                p.origin = { file: files.zipFile || null, path: at.path, walPath: at.walPath, queryId: q ? q.id : '', title: q ? q.title : '', db: db ? db.id : '', sql: last.sql, rows: [p.row - 1], table: table };
+            });
+        }
         // En rad med filnamn får en miniatyr när filen finns i extraktionen. Den görs efteråt (extraction.js).
         var named = out.points.filter(function (p) { return p.path; });
         named.forEach(function (p) { p.fileKey = 'r' + p.row; });

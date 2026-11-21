@@ -527,7 +527,7 @@ function initToolNav() {
 
     window.addEventListener('message', (event) => {
         if (!fromToolFrame(event)) return;
-        const data = event.data;
+        let data = event.data;
         if (!data || (data.source !== 'forensics-toolbox' && data.source !== 'verktygslada')) return;
         if (dbShare && dbShare.handle(frameOf(event.source), data)) return;
         if (data.type === 'positions' && Array.isArray(data.points)) {
@@ -660,6 +660,19 @@ function initToolNav() {
         if (data.type === 'names-for' && data.to === 'provenance' && Array.isArray(data.names)) {
             deliver('provenance', { source: 'forensics-toolbox', type: 'provenance-names', names: data.names, zipName: data.zipName || '' });
             return;
+        }
+        // Positioner → Queries: punktens rad i databasen (origin: sökväg, SQL och radnummer), i zippen den kom ur eller
+        // i programmets extraktion.
+        if (data.type === 'open-source' && data.origin && typeof data.origin.sql === 'string') {
+            const o = data.origin;
+            const isFile = (f) => !!f && typeof f.name === 'string' && typeof f.size === 'number' && typeof f.slice === 'function';
+            const file = isFile(o.file) ? o.file : extraction.file;
+            if (!file) {
+                postToFrame(frames.get('tools/positions/index.html'), { source: 'forensics-toolbox', type: 'phone-positions-done', ok: false, text: 'Extraktionen som punkten kom ur är inte öppen. Öppna den i raden högst upp.' });
+                return;
+            }
+            data = { type: 'open-query', file: file, path: o.path, walPath: o.walPath || null, queryId: o.queryId || '', title: o.title || '', db: o.db || '', sql: o.sql,
+                from: 'Positioner', mark: { rows: Array.isArray(o.rows) ? o.rows : [], text: data.text || '', time: data.time || '' } };
         }
         // Härkomst → Queries: zippen (File), databasens sökväg, exakt den SQL som kördes och händelsen som klickades på.
         if (data.type === 'open-query' && data.file && typeof data.sql === 'string') {

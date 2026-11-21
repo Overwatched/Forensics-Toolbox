@@ -84,11 +84,21 @@
         var key = first.layerId + ':' + x.from;
         var id = stayIds[key] || (stayIds[key] = nextStayId++);
         var dur = durationText(x.to - x.from);
+        // Raderna i databasen som vistelsen är gjord av: den SQL som flest av positionerna kom ur.
+        var bySql = {}, origin = null;
+        x.members.forEach(function (m) {
+            var o = m.p.origin;
+            if (!o || !o.sql) return;
+            var g = bySql[o.sql] || (bySql[o.sql] = Object.assign({}, o, { rows: [] }));
+            (o.rows || []).forEach(function (r) { if (g.rows.indexOf(r) < 0) g.rows.push(r); });
+            if (!origin || g.rows.length > origin.rows.length) origin = g;
+        });
+        var dbCol = (first.extra || []).filter(function (e) { return e[0] === 'Databas'; })[0];
         return {
             id: id, stay: true, visit: true, name: 'Vistelse ' + dur, path: '', lat: x.lat, lon: x.lon,
-            taken: first.taken, until: last.taken, accuracy: Math.max(25, Math.round(x.radius)),
+            taken: first.taken, until: last.taken, accuracy: Math.max(25, Math.round(x.radius)), count: x.count, origin: origin,
             layer: first.layer, layerId: first.layerId, color: first.color, type: 'Vistelse', device: first.device || '', source: first.source,
-            stayLabel: dur, extra: [['Positioner', String(x.count)], ['Område', 'inom ' + Math.max(1, Math.round(x.radius)) + ' m från mitten']],
+            stayLabel: dur, extra: [['Område', 'inom ' + Math.max(1, Math.round(x.radius)) + ' m från mitten'], dbCol || null, origin && origin.title ? ['Urval', origin.title] : null].filter(Boolean),
         };
     }
     function staysOf(list) {
@@ -296,15 +306,23 @@
             var who = e.who ? (e.dir === 'ut' ? ' till ' : ' från ') + e.who : '';
             var name = e.kind === 'call' ? (e.dir === 'missat' ? 'Missat samtal' : 'Samtal') + who : 'Meddelande' + who;
             pts.push({
-                id: pts.length + 1, event: e.kind, name: name, path: '', lat: lat, lon: lon,
+                id: pts.length + 1, event: e.kind, evKey: [e.kind, e.ms, e.app, e.who, e.dir].join('|'), origin: e.origin || null, name: name, path: '', lat: lat, lon: lon,
                 taken: { sort: t, zone: 'UTC', text: t + ' UTC', kind: 'Tid', source: 'import' }, accuracy: acc,
                 type: e.kind === 'call' ? 'Samtal' : 'Meddelande', app: e.app || '', device: '', software: '', mime: '',
                 extra: [['Riktning', dirWord[e.dir] || e.dir || ''], e.duration ? ['Varaktighet', gapText(e.duration * 1000)] : null, ['App', e.app || ''],
                     ['Var telefonen var', how], ['Ur databasen', e.source || '']].filter(function (x) { return x && x[1]; }),
             });
         });
+        // Händelser som redan visas (från ett annat tidsfönster) står kvar.
+        var placed = pts.length;
+        var old = layers.filter(function (l) { return l.key === 'events'; })[0];
+        if (old && pts.length) {
+            var have = {};
+            pts.forEach(function (p) { have[p.evKey] = true; });
+            old.points.forEach(function (p) { if (p.evKey && !have[p.evKey]) pts.push(Object.assign({}, p)); });
+        }
         if (pts.length) receivePositions({ layerKey: 'events', layerName: 'Samtal och meddelanden', points: pts, noun: ['händelse', 'händelser'], route: false, color: '#ff375f' });
-        return { placed: pts.length, skipped: skipped };
+        return { placed: placed, skipped: skipped };
     }
     $('events-add').addEventListener('click', function () {
         var refs = eventRefs();
@@ -601,6 +619,17 @@
                 setStatus('Letar efter telefonens positioner ±' + minutes + ' min kring ' + (p.taken ? p.taken.text : '') + '…', 'busy');
                 window.parent.postMessage({ source: 'forensics-toolbox', type: 'phone-positions', atMs: atMs, minutes: minutes, title: p.name }, '*');
             },
+            // Allt runt tiden: telefonens positioner först, sedan samtalen och meddelandena (de läggs där telefonen var).
+            aroundTime: function (p, atMs, minutes) {
+                around = { atMs: atMs, minutes: minutes, step: 'positions' };
+                setStatus('Läser positioner, samtal och meddelanden ±' + minutes + ' min kring ' + (p.taken ? p.taken.text : '') + '…', 'busy');
+                window.parent.postMessage({ source: 'forensics-toolbox', type: 'phone-positions', atMs: atMs, minutes: minutes, title: p.name, key: 'around' + atMs }, '*');
+            },
+            // Källan: databasen i Queries med samma SQL och raden markerad.
+            openSource: function (p) {
+                if (!p.origin) return;
+                window.parent.postMessage({ source: 'forensics-toolbox', type: 'open-source', origin: p.origin, text: p.name, time: p.taken ? p.taken.text : '' }, '*');
+            },
             onContext: function (pos) {
                 clickAt = pos;
                 $('manual').classList.remove('display-none');
@@ -620,8 +649,29 @@
             viewSel.append(opt);
         });
         viewSel.value = viewMode;
-        viewSel.addEventListener('change', function () { viewMode = viewSel.value === 'stays' ? 'stays' : 'all'; redraw(); });
-        viewBox.append(viewSel, make('p', 'zone-note', 'En vistelse: positioner inom 100 m under minst 5 minuter, som en ring med ankomst, avfärd och tid. Bilder och punkter utan tid visas alltid.'));
+        var stayBubbles = make('button', 'secondary-btn display-none', 'Ankomst, avfärd och tid i bubblor');
+        stayBubbles.type = 'button';
+        stayBubbles.title = 'En bubbla per vistelse med ankomst, avfärd, varaktighet, antal positioner och källa. Anpassa bubblan ändrar den.';
+        stayBubbles.addEventListener('click', function () {
+            var cfgs = {};
+            visiblePoints().filter(function (p) { return p.stay; }).forEach(function (p) {
+                var cfg = MapCore.defaultBubble({ arrival: true, departure: true, duration: true, count: true, source: true });
+                cfg.titles = true;
+                cfg.leader = true;
+                cfgs[p.id] = cfg;
+            });
+            if (!Object.keys(cfgs).length) { setStatus('Inga vistelser visas.', 'error'); return; }
+            ensureMap().setBubbles(null, cfgs);
+        });
+        var setView = function (mode) {
+            viewMode = mode === 'stays' ? 'stays' : 'all';
+            viewSel.value = viewMode;
+            stayBubbles.classList.toggle('display-none', viewMode !== 'stays');
+            mapView.setActive('view', viewMode === 'stays' ? { text: 'Vistelser', pop: 'points', title: 'Täta positioner visas som vistelser. × visar alla punkter.', clear: function () { setView('all'); } } : null);
+            redraw();
+        };
+        viewSel.addEventListener('change', function () { setView(viewSel.value); });
+        viewBox.append(viewSel, make('p', 'zone-note', 'En vistelse: positioner inom 100 m under minst 5 minuter, som en ring med ankomst, avfärd och tid. Bilder och punkter utan tid visas alltid.'), stayBubbles);
         mapView.addToMenu('points', viewBox);
         var thinBox = make('div', 'side-block');
         thinBox.append(make('h2', '', 'Täta positioner'));
@@ -634,7 +684,13 @@
             thinSel.append(opt);
         });
         thinSel.value = String(thinMinutes);
-        thinSel.addEventListener('change', function () { thinMinutes = Number(thinSel.value) || 0; redraw(); });
+        var setThin = function (m) {
+            thinMinutes = Number(m) || 0;
+            thinSel.value = String(thinMinutes);
+            mapView.setActive('thin', thinMinutes ? { text: thinMinutes === 60 ? 'En per timme' : 'En per ' + thinMinutes + ' min', pop: 'points', title: 'Täta positioner glesas ut. × visar alla.', clear: function () { setThin(0); } } : null);
+            redraw();
+        };
+        thinSel.addEventListener('change', function () { setThin(thinSel.value); });
         thinBox.append(thinSel, make('p', 'zone-note', 'En position per källa och intervall, den med bäst noggrannhet. Bilder och punkter utan tid visas alltid.'));
         mapView.addToMenu('points', thinBox);
         mapView.addToMenu('route', $('routes-block'));
@@ -963,9 +1019,33 @@
         });
     });
 
+    // Allt runt tiden pågår: { atMs, minutes, step }.
+    var around = null;
+    function aroundDone(text, ok) {
+        var a = around;
+        around = null;
+        var from = a.atMs - a.minutes * 60000, to = a.atMs + a.minutes * 60000;
+        ensureMap().focusTime(from, to, true);
+        setStatus(text, ok ? 'ok' : 'error');
+    }
     window.addEventListener('message', function (e) {
         var data = e.data;
-        if (data && data.source === 'forensics-toolbox' && data.type === 'phone-positions-done') { setStatus(data.text || '', data.ok ? 'ok' : 'error'); return; }
+        if (data && data.source === 'forensics-toolbox' && data.type === 'phone-positions-done') {
+            if (around && around.step === 'positions') {
+                around.step = 'events';
+                around.posText = data.text || '';
+                var w = { startMs: around.atMs - Math.max(around.minutes, 30) * 60000, endMs: around.atMs + Math.max(around.minutes, 30) * 60000 };
+                window.parent.postMessage({ source: 'forensics-toolbox', type: 'phone-events', fromMs: w.startMs, toMs: w.endMs, windows: [w] }, '*');
+                return;
+            }
+            setStatus(data.text || '', data.ok ? 'ok' : 'error');
+            return;
+        }
+        if (data && data.source === 'forensics-toolbox' && data.type === 'phone-events-done' && around && around.step === 'events') {
+            var placed = data.ok && Array.isArray(data.events) && data.events.length ? placeEvents(data.events) : null;
+            aroundDone(around.posText + ' ' + (data.text || '') + (placed && placed.skipped ? ' ' + placed.skipped + ' av händelserna ligger mer än 30 minuter från en position och visas inte.' : ''), data.ok);
+            return;
+        }
         if (data && data.source === 'forensics-toolbox' && data.type === 'phone-events-done') {
             var r = data.ok && Array.isArray(data.events) && data.events.length ? placeEvents(data.events) : null;
             if (r && !r.placed) { setStatus((data.text || '') + ' Ingen av dem ligger inom 30 minuter från en position med tid och zon.', 'error'); return; }

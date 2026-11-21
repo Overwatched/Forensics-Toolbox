@@ -577,6 +577,13 @@
     }
 
     // Databasen på exakt den sökvägen i zippen. false om Queries inte hittade den.
+    // Databasen som visas: sökvägen i zippen och -wal bredvid.
+    function currentPaths() {
+        if (!current || current.chosen == null || current.chosen < 0 || !current.found[current.chosen] || !window.QueriesApp.fromExtraction()) return null;
+        var f = current.found[current.chosen];
+        return { path: f.db.name, walPath: f.wal ? f.wal.name : null };
+    }
+
     function useByPath(path) {
         if (!current) return false;
         var i = current.found.findIndex(function (f) { return f.db.name === path; });
@@ -594,6 +601,7 @@
         adoptShared: adoptShared,
         fresh: fresh,
         useByPath: useByPath,
+        currentPaths: currentPaths,
         openPicked: openPicked,
         useKeyFiles: useKeyFiles,
         keyFileErrors: keyFileErrors,
@@ -747,6 +755,10 @@
     // Var telefonen var runt en tidpunkt: katalogernas rollqueryer för positioner (Härkomsts role: location, Cache.sqlite
     // på iPhone och Samsungs Rubin) körs mot databaserna i extraktionen för fönstret, och positionerna skickas till
     // Positioner som en egen källa. Inget byts i Queries vy. msg: { file, atMs, minutes, title }.
+    // Raden som en punkt kom ur, så att kartan kan öppna den i Queries: databasen, SQL:en med tidsfönstret ifyllt och raden.
+    function originOf(j, sql, row) {
+        return { path: j.f.db.name, walPath: j.f.wal ? j.f.wal.name : null, queryId: j.q.id || '', title: j.q.title || j.db.label, db: j.db.id, sql: sql, rows: [row], table: QueryRunCore.mainTable(sql) };
+    }
     function fmtUtc(ms) { return new Date(ms).toISOString().slice(0, 19).replace('T', ' '); }
     async function phonePositions(msg) {
         var reply = function (text, ok) {
@@ -797,7 +809,10 @@
                     var rows = [];
                     try {
                         db.run('PRAGMA query_only = ON');
-                        wins.forEach(function (win) { rows = rows.concat(ProvenanceRoles.mapRows(j.q, db.exec(ProvenanceRoles.fill(j.q.sql, { window: win }))[0], ['time'], { raw: false })); });
+                        wins.forEach(function (win) {
+                            var sql = ProvenanceRoles.fill(j.q.sql, { window: win });
+                            ProvenanceRoles.mapRows(j.q, db.exec(sql)[0], ['time'], { raw: false }).forEach(function (r, n) { r._sql = sql; r._row = n; rows.push(r); });
+                        });
                     } finally { db.close(); }
                     rows.forEach(function (r) {
                         var lat = Number(r.latitude), lon = Number(r.longitude);
@@ -807,6 +822,7 @@
                         points.push({
                             id: points.length + 1, name: (type || 'Position') + ' ' + t.slice(11), path: '', lat: lat, lon: lon,
                             source: j.f.db.name, taken: { sort: t, zone: 'UTC', text: t + ' UTC', kind: 'Tid (' + j.q.fields.time + ')', source: 'import' },
+                            origin: originOf(j, r._sql, r._row),
                             accuracy: Number(r.accuracy) > 0 ? Number(r.accuracy) : null, type: type, device: '', software: '', mime: '',
                             extra: (function () {
                                 var near = nearest(r.timeMs);
@@ -849,7 +865,9 @@
         else if (r.out !== undefined && r.out !== null) dir = Number(r.out) === 1 ? 'ut' : 'in';
         else if (r.incoming !== undefined && r.incoming !== null) dir = Number(r.incoming) === 1 ? 'in' : 'ut';
         var whoKey = EVENT_WHO.filter(function (k) { return r[k] !== undefined && r[k] !== null && r[k] !== ''; })[0];
-        var app = kind === 'call' ? (r.app && !/telephony/i.test(String(r.app)) ? String(r.app) : r.type && /facetime/i.test(String(r.type)) ? 'FaceTime' : 'Telefon') : (r.service ? String(r.service) : label);
+        // Appen: tjänsten i raden (SMS, iMessage), annars namnet inom parentes i databasens titel, "signal.sqlite (Signal)".
+        var named = /\(([^)]+)\)\s*$/.exec(label);
+        var app = kind === 'call' ? (r.app && !/telephony/i.test(String(r.app)) ? String(r.app) : r.type && /facetime/i.test(String(r.type)) ? 'FaceTime' : 'Telefon') : (r.service ? String(r.service) : named ? named[1] : label);
         return {
             ms: ms, kind: kind, app: app, dir: dir, who: whoKey ? String(r[whoKey]).slice(0, 80) : '',
             duration: kind === 'call' && Number(r.duration) > 0 ? Math.round(Number(r.duration)) : null,
@@ -898,11 +916,11 @@
                             // En query utan tidsfönster (samtalen) körs en gång; de andra en gång per fönster.
                             var windowed = /\{\{(cocoa|unix|unixMs)(Start|End)\}\}/.test(q.sql);
                             (windowed ? wins : [wins[0]]).forEach(function (win) {
-                                var res;
-                                try { res = db.exec(ProvenanceRoles.fill(q.sql, { window: win }))[0]; } catch (e) { notes.push(j.db.label + ': ' + (e && e.message ? e.message : String(e))); return; }
-                                ProvenanceRoles.mapRows(q, res, tk ? [tk] : [], { raw: false }).forEach(function (r) {
+                                var res, sql = ProvenanceRoles.fill(q.sql, { window: win });
+                                try { res = db.exec(sql)[0]; } catch (e) { notes.push(j.db.label + ': ' + (e && e.message ? e.message : String(e))); return; }
+                                ProvenanceRoles.mapRows(q, res, tk ? [tk] : [], { raw: false }).forEach(function (r, n) {
                                     var ev = eventOf(kind, q, r, j.db.familyTitle || j.db.label);
-                                    if (ev && inWin(ev.ms)) events.push(ev);
+                                    if (ev && inWin(ev.ms)) { ev.origin = originOf({ f: j.f, db: j.db, q: q }, sql, n); events.push(ev); }
                                 });
                             });
                         });

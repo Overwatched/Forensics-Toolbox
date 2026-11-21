@@ -164,3 +164,12 @@ test('positioner: standardqueryn i Photos.sqlite får tid, app och enhet', () =>
     assert.strictEqual(out.points[1].device, 'Apple iPhone 12', 'modellen som redan börjar med tillverkaren');
     assert.ok(!p.extra.some((x) => x[0] === 'ZFILENAME' || x[0] === 'ZDATECREATED'));
 });
+
+test('huvudtabellen ur SQL:en och adresskolumnen till kartan', () => {
+    assert.strictEqual(run.mainTable('SELECT a FROM (SELECT * FROM x) JOIN ZASSET'), 'x');
+    assert.strictEqual(run.mainTable("-- FROM kommentar\nSELECT 'from y' FROM main.ZRTCLLOCATIONMO l"), 'ZRTCLLOCATIONMO');
+    assert.strictEqual(run.mainTable('SELECT 1'), '');
+    const out = run.toPoints(['lat', 'lon', 'address_title'], [[59.3, 18.1, 'Drottninggatan 1, Stockholm']], { importer: imp });
+    assert.strictEqual(out.points[0].address, 'Drottninggatan 1, Stockholm');
+    assert.ok(!out.points[0].extra.some((x) => x[0] === 'address_title'));
+});

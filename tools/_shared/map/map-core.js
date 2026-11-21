@@ -522,6 +522,13 @@
         { key: 'pos', label: 'Longitud/latitud' },
         { key: 'accuracy', label: 'Noggrannhet' },
         { key: 'note', label: 'Händelse' },
+        // För en vistelse (ett besök med ankomst och avfärd).
+        { key: 'arrival', label: 'Ankomst' },
+        { key: 'departure', label: 'Avfärd' },
+        { key: 'duration', label: 'Varaktighet' },
+        { key: 'count', label: 'Antal positioner' },
+        { key: 'address', label: 'Adress' },
+        { key: 'source', label: 'Källa' },
     ];
 
     // Fält ur raden i en databas (Queries) heter col:kolumnen och visar radens värde.
@@ -554,6 +561,19 @@
         if (key === 'pos') return p.lon.toFixed(5) + ', ' + p.lat.toFixed(5);
         if (key === 'accuracy') return p.accuracy > 0 ? Math.round(p.accuracy) + ' m' : '';
         if (key === 'note') return str(note);
+        if (key === 'arrival') return p.visit && p.taken ? p.taken.text : '';
+        if (key === 'departure') return p.visit && p.until ? p.until.text : '';
+        if (key === 'duration') {
+            var min = p.visit && p.taken && p.until ? visitMinutes(p.taken, p.until) : null;
+            return min === null || min === undefined ? '' : min < 60 ? min + ' min' : Math.floor(min / 60) + ' h' + (min % 60 ? ' ' + (min % 60) + ' min' : '');
+        }
+        if (key === 'count') return p.count ? String(p.count) : '';
+        if (key === 'address') return str(p.address);
+        if (key === 'source') {
+            var o = p.origin || {};
+            var db = o.path ? String(o.path).slice(String(o.path).lastIndexOf('/') + 1) : '';
+            return [db, o.table || o.title || ''].filter(Boolean).join(' · ') || str(p.layer);
+        }
         return '';
     }
 

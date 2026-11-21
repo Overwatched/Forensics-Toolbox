@@ -82,9 +82,11 @@
             return { text: v('--text', '#e8e8ed'), muted: v('--text-muted', '#98989f'), border: v('--border', '#3a3a40'), accent: v('--accent', '#0a84ff'), band: v('--surface-hover', '#323238') };
         }
 
-        function draw(lanes, cursor) {
+        // focus: { from, to } som markeras som ett fält (fönstret runt en tid), eller null.
+        function draw(lanes, cursor, focus) {
             if (lanes !== undefined) state.lanes = lanes || [];
             if (cursor !== undefined) state.cursor = cursor;
+            if (focus !== undefined) state.focus = focus || null;
             var w = host.clientWidth, dpr = window.devicePixelRatio || 1;
             var h = AXIS + Math.max(1, state.lanes.length) * LANE + 4;
             canvas.style.height = h + 'px';
@@ -96,6 +98,7 @@
             var c = colors();
             var times = [];
             state.lanes.forEach(function (l) { l.items.forEach(function (it) { times.push(it.ms); if (it.until) times.push(it.until); }); });
+            if (state.focus && times.length) times.push(state.focus.from, state.focus.to);
             var plotW = Math.max(60, w - LABEL - 12);
             var sc = state.sc = scale(times, plotW);
             state.hits = [];
@@ -142,6 +145,16 @@
                 ctx.fillText(g, gx, h - 7);
                 freeGap = gx + gw + 6;
             });
+            if (state.focus) {
+                var f0 = X(Math.max(state.focus.from, sc.segments[0].from)), f1 = X(Math.min(state.focus.to, sc.segments[sc.segments.length - 1].to));
+                if (f1 > f0) {
+                    ctx.fillStyle = c.accent; ctx.globalAlpha = 0.1;
+                    ctx.fillRect(f0, AXIS, f1 - f0, h - AXIS);
+                    ctx.globalAlpha = 0.6; ctx.strokeStyle = c.accent;
+                    ctx.strokeRect(f0 + 0.5, AXIS + 0.5, f1 - f0 - 1, h - AXIS - 1);
+                    ctx.globalAlpha = 1;
+                }
+            }
             // Punkterna.
             state.lanes.forEach(function (l, i) {
                 var y = AXIS + i * LANE, mid = y + LANE / 2;
