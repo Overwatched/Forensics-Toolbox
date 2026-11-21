@@ -17,5 +17,7 @@ if (location.protocol === 'file:') {
         times: function (filePath) { return ipcRenderer.invoke('media-times', filePath); },
         // Nyckelfilerna bredvid en vald extraktion. Andra filer i mappen läses inte.
         keysBeside: function (filePath) { return ipcRenderer.invoke('keys-beside', filePath); },
+        // Brotli packas upp i appen (Node), eftersom webbläsaren saknar avkodaren. null om det inte går.
+        brotli: function (bytes) { return ipcRenderer.invoke('brotli', bytes); },
     });
 }

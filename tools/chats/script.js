@@ -3548,7 +3548,12 @@
         if (!body) throw new Error('Innehållet saknas i posten.');
         var enc = item.encoding;
         if (!enc || enc === 'identity') return body;
-        if (enc === 'br') throw new Error('Innehållet är packat med brotli, som programmet inte kan packa upp än. Rubrikerna och adressen står här.');
+        if (enc === 'br') {
+            // Brotli: skrivbordsappen packar upp (Node). I HTML-mappen finns ingen avkodare.
+            var out = window.forensicsMedia && window.forensicsMedia.brotli ? await window.forensicsMedia.brotli(body) : null;
+            if (out) return out;
+            throw new Error(window.forensicsMedia ? 'Innehållet är packat med brotli och kunde inte packas upp.' : 'Innehållet är packat med brotli, som bara skrivbordsappen kan packa upp. Rubrikerna och adressen står här.');
+        }
         if (enc !== 'gzip' && enc !== 'deflate') throw new Error('Innehållet är packat med ' + enc + '.');
         var ds = new DecompressionStream(enc === 'gzip' ? 'gzip' : 'deflate');
         return new Uint8Array(await new Response(new Blob([body]).stream().pipeThrough(ds)).arrayBuffer());

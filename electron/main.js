@@ -1,6 +1,7 @@
 const { app, BrowserWindow, shell, Menu, session, dialog, ipcMain } = require('electron');
 const path = require('node:path');
 const fs = require('node:fs');
+const zlib = require('node:zlib');
 const maps = require('./map-protocol');
 const media = require('./media-protocol');
 const keyFiles = require('./key-files');
@@ -183,6 +184,12 @@ app.whenReady().then(() => {
     });
     ipcMain.handle('media-times', function (event, filePath) {
         return fromAppPage(event) ? media.times(filePath) : null;
+    });
+    // Brotli (webbläsarnas cache på Android): renderaren saknar avkodaren, så Node packar upp, högst 64 MB.
+    ipcMain.handle('brotli', function (event, bytes) {
+        if (!fromAppPage(event) || !(bytes instanceof Uint8Array) || bytes.length > 64 * 1048576) return null;
+        try { return new Uint8Array(zlib.brotliDecompressSync(Buffer.from(bytes), { maxOutputLength: 64 * 1048576 })); }
+        catch (err) { return null; }
     });
     // Bara huvudfönstret frågar, åt verktygen. Verktygens ramar, också de med tredjepartskod, får inget svar.
     ipcMain.handle('keys-beside', function (event, filePath) {

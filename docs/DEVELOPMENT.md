@@ -2964,10 +2964,12 @@ påhittade poster ur `tests/app/webcache-builder.js`):
 - **Chromium** (Chrome och Samsung Internet på Android): `…/cache/Cache/Cache_Data/<hash>_0`. Huvudet är 24 byte (magi,
   version, nyckelns längd och hash, utfyllnad), nyckeln är `1/0/_dk_<plats> <ram> <adress>`, ström 1 (innehållet) går
   fram till sitt slut, och ström 0 (HttpResponseInfo) har tiderna (mikrosekunder sedan 1601) och rubrikerna med noll
-  mellan raderna. Innehållet sparas som det kom: gzip och deflate packas upp (`DecompressionStream`), brotli går inte i
-  Electron 44 och sidan säger det.
+  mellan raderna. Innehållet sparas som det kom: gzip och deflate packas upp (`DecompressionStream`), brotli i
+  skrivbordsappen genom Node (`forensicsMedia.brotli`, IPC `brotli` i electron/main.js, högst 64 MB); i HTML-mappen säger
+  sidan att den inte går att packa upp.
 - **Visa sidan:** skript, ramar, omdirigeringar och formulär tas bort, länkarna tappar sin adress (den står i title),
   bilder och stilmallar ur samma cache läggs in som data-adresser, och sidan visas i en ram med `sandbox=""` och en CSP
   som bara tillåter data:. Inget hämtas från nätet. Källkoden går att visa som text.
 
-Provat 2026-11-21 på labbet Två telefoner: Safari på iPhone (1 011 poster, 14 sidor) och Chrome på Samsung.
+Provat 2026-11-21 på labbet Två telefoner: Safari på iPhone (718 poster, 10 sidor, alla visas) och Chrome på Samsung
+(63 poster, 4 sidor, 3 av dem brotli, alla visas i skrivbordsappen).

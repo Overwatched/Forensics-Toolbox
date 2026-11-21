@@ -30,6 +30,7 @@ app.whenReady().then(() => {
     ipcMain.handle('media-revoke', (_event, filePath) => media.revoke(filePath));
     ipcMain.handle('media-times', (_event, filePath) => media.times(filePath));
     ipcMain.handle('keys-beside', (_event, filePath) => keyFiles.beside(filePath));
+    ipcMain.handle('brotli', (_event, bytes) => { try { return new Uint8Array(require('node:zlib').brotliDecompressSync(Buffer.from(bytes))); } catch (e) { return null; } });
     const win = new BrowserWindow({
         width: 1600, height: 1000, show: false,
         webPreferences: {
