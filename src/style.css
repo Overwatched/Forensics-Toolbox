@@ -661,6 +661,7 @@ body {
 .start-app-what { font-size: 11px; color: var(--text-muted); line-height: 1.25; }
 
 .start-settings { text-align: left; }
+.start-note { font-size: 12.5px; line-height: 1.45; color: var(--text-muted); margin: 0; }
 .start-settings h3 { font-size: 22px; font-weight: 700; color: var(--text); margin: 8px 0 12px; }
 .start-back { font: inherit; font-size: 14px; color: var(--accent); background: none; border: 0; padding: 0; cursor: pointer; }
 .start-rows { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; margin-bottom: 12px; }

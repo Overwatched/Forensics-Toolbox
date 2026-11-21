@@ -469,6 +469,10 @@ const scenarios = [
         const text = await c.ev('positions/index.html', `document.body.innerText`);
         expect(new RegExp(after.rows + ' position').test(text), 'Positioner säger inte ' + after.rows + ' positioner');
         expect(/Cache\.sqlite/.test(text), 'Lagret saknar källan');
+        // Från början visas täta positioner som vistelser, med ankomst, avfärd och tid i bubblan.
+        const def = await c.ev('positions/index.html', `({ mode: document.getElementById('view-mode').value, bubbles: document.getElementById('stay-bubbles').checked, chip: [...document.querySelectorAll('.map-active-chip')].some(x => /^Vistelser/.test(x.textContent)) })`);
+        expect(def.mode === 'stays' && def.bubbles && def.chip, 'Vistelser som standard: ' + JSON.stringify(def));
+        await c.ev('positions/index.html', `(function(){ const s = document.getElementById('view-mode'); s.value = 'all'; s.dispatchEvent(new Event('change')); return 1; })()`);
         // Punkterna heter efter typen (GNSS, Wi-Fi) och radens nummer, har tiden ur raden och ingen påhittad enhet.
         const qp = await c.ev('positions/index.html', `PositionsApp.points().filter(p => p.exifId == null)`);
         expect(qp.length === after.rows && qp.every((p) => /^\S+ \d+$/.test(p.name) && !/Platser|Cache/.test(p.name) && p.time && p.type && !p.device), 'Punkterna från Queries: ' + JSON.stringify(qp.slice(0, 3)));
@@ -1432,6 +1436,13 @@ const scenarios = [
         expect(sheet.shown && /\(ZDATECREATED\)$/.test(sheet.rows.Skapad) && /Media\/DCIM\/100APPLE\/IMG_0002\.JPG/.test(sheet.rows['I zippen']) && sheet.assess, 'Arket med bilden: ' + JSON.stringify(sheet));
         await ev(`document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })), 1`);
         expect(await ev(`document.getElementById('c-device-sheet').classList.contains('display-none')`), 'Esc stängde inte arket');
+        // Visa i helskärm: originalet ur zippen över hela verktyget, och Esc stänger utan att lämna Bilder.
+        await ev(`[...document.querySelectorAll('#c-device-body .g-tile')].find(t => t.getAttribute('aria-label') === 'IMG_0002.JPG').click(), 1`);
+        await ev(`document.querySelector('#c-device-sheet button[data-sheet-view].c-btn').click(), 1`);
+        const big = await c.waitFor(CHAT, `(function(){ const w = document.querySelector('#c-viewer-stage .warn'); if (w) return { error: w.textContent }; const i = document.querySelector('#c-viewer-stage img'); return i && i.naturalWidth > 0 && { w: i.naturalWidth, cap: document.getElementById('c-viewer-cap').textContent, allow: window.frameElement ? window.frameElement.getAttribute('allow') : 'fristående' }; })()`, 20000, 'bilden i full storlek');
+        expect(big.w > 0 && /^IMG_0002\.JPG/.test(big.cap) && big.allow === 'fullscreen *', 'Bilden i full storlek: ' + JSON.stringify(big));
+        await ev(`document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })), 1`);
+        expect(await ev(`document.getElementById('c-viewer').classList.contains('display-none') && ChatsApp.device().screen === 'photos'`), 'Esc stängde inte bilden, eller lämnade Bilder');
         // Visa i EXIF: filen ur zippen öppnas där, med zippens tider.
         await ev(`[...document.querySelectorAll('#c-device-body .g-tile')].find(t => t.getAttribute('aria-label') === 'IMG_0002.JPG').click(), 1`);
         await ev(`document.querySelector('#c-device-sheet [data-sheet-exif]').click(), 1`);
@@ -1884,6 +1895,8 @@ const scenarios = [
         await c.waitFor('exif-viewer/index.html', `![...document.querySelectorAll('table.files tbody tr')].some(tr => tr.classList.contains('pending'))`, 60000, 'alla rader i EXIF');
         await c.ev('exif-viewer/index.html', `document.getElementById('to-positions').click(), 1`);
         await c.waitFor('positions/index.html', `/lades till som källan EXIF-bilder/.test(document.body.innerText)`, 15000, 'bilderna i Positioner');
+        // Vistelsernas egna bubblor (ankomst och avfärd) har ingen miniatyr: alla punkter visas här.
+        await c.ev('positions/index.html', `(function(){ const s = document.getElementById('view-mode'); s.value = 'all'; s.dispatchEvent(new Event('change')); return 1; })()`);
         await c.ev('positions/index.html', `(function(){ [...document.querySelectorAll('button')].find(x => /Anpassa standard/.test(x.textContent)).click(); const r = document.querySelector('.map-editor-row[data-key=thumb] input'); if (!r.checked) r.click(); [...document.querySelectorAll('.map-editor button')].find(x => x.textContent.trim() === 'Klar').click(); return 1; })()`);
         // Varje bild från EXIF har en fil som kan visas (JPEG); andra källor i Positioner räknas inte. Bubblorna ritas bara där kartan kan ritas (WebGL2, inte i CI).
         const pts = await c.waitFor('positions/index.html', `(function(){ const p = PositionsApp.points().filter(x => x.exifId !== undefined && x.exifId !== null); return p.length >= 20 && p.every(x => /^image\\/(jpeg|png)$/.test(x.file)) && p; })()`, 20000, 'miniatyrerna på punkterna').catch(async (err) => {

@@ -3130,6 +3130,9 @@
             if (!view || state.device.memory !== m.id) return;
             var media = /^video\//.test(r[0].mime) ? '<video src="' + esc(r[0].url) + '" controls playsinline></video>' : '<img src="' + esc(r[0].url) + '" alt="">';
             view.innerHTML = '<div class="m-stack">' + media + (r[1] ? '<img class="m-overlay" src="' + esc(r[1].url) + '" alt="" title="Text och ritning ovanpå snapen (snap-overlay)">' : '') + '</div>';
+            // Ett klick på bilden visar den i full storlek (videon har sin egen helskärmsknapp).
+            var shown = view.querySelector('.m-stack > img:first-child');
+            if (shown) shown.addEventListener('click', function () { openViewer([{ caption: 'Memory ' + m.id + (m.captureMs ? ' · ' + f(m.captureMs) : ''), load: function () { return Promise.resolve({ url: r[0].url }); } }], 0); });
         }).catch(function (err) { var view = $('m-view'); if (view) view.innerHTML = '<p class="d-empty warn">' + esc(errText(err)) + '</p>'; });
     }
     async function memoryFile(m) {
@@ -3252,6 +3255,7 @@
         $('c-device-sub').textContent = many(items.length, 'bild', 'bilder') + ' · ' + baseName(ph.db) + (thumbs ? ' · ' + num(thumbs) + ' med telefonens tumnagel' : '');
         if (!items.length) { body.innerHTML = '<p class="d-empty">' + (P.filter === 'all' ? 'Bildbiblioteket har inga bilder.' : 'Inga bilder i urvalet.') + '</p>'; return; }
         if (P.gallery) return;
+        P.galleryItems = items;
         P.gallery = new ChatPhone.Gallery({ box: body, items: items, url: photoUrl, open: openPhoto, monthOf: monthOf, cols: 4 });
     }
 
@@ -3965,9 +3969,103 @@
         if (it.importer) rows.push(['App enligt databasen', esc(nameOfApp(it.importer)) + ' <small>(' + esc(it.importer) + ', ' + esc(Roles().fieldSpec(q, 'importer').col) + ')</small>']);
         var table = /\bFROM\s+(\w+)/i.exec(q.sql || '');
         rows.push(['Källa', esc(baseName(ph.db)) + (table ? ' · ' + esc(table[1]) : '')]);
-        showSheet(esc(it.name), (url ? '<img src="' + esc(url) + '" alt="">' : '') + '<table>' + rows.map(function (r) { return '<tr><th>' + r[0] + '</th><td>' + r[1] + '</td></tr>'; }).join('') + '</table>',
-            inHub ? (file ? '<button type="button" class="c-btn" data-sheet-exif="' + esc(it.key) + '">Visa i EXIF</button>' : '') +
-                '<button type="button" class="c-btn c-primary" data-sheet-assess="1">Bedöm i Härkomst</button>' : '', it.name);
+        var canView = !!file && (it.video || it.drawable || it.heif);
+        showSheet(esc(it.name), (url ? (canView ? '<button type="button" class="c-sheet-img" data-sheet-view="' + esc(it.key) + '" title="Visa i full storlek"><img src="' + esc(url) + '" alt=""></button>' : '<img src="' + esc(url) + '" alt="">') : '') + '<table>' + rows.map(function (r) { return '<tr><th>' + r[0] + '</th><td>' + r[1] + '</td></tr>'; }).join('') + '</table>',
+            (canView ? '<button type="button" class="c-btn c-primary" data-sheet-view="' + esc(it.key) + '">' + (it.video ? 'Spela upp' : 'Visa i helskärm') + '</button>' : '') +
+            (inHub ? (file ? '<button type="button" class="c-btn" data-sheet-exif="' + esc(it.key) + '">Visa i EXIF</button>' : '') +
+                '<button type="button" class="c-btn" data-sheet-assess="1">Bedöm i Härkomst</button>' : ''), it.name);
+    }
+
+    // ---------- Bilden eller videon i full storlek ----------
+    // Originalet ur zippen över hela verktyget, med föregående och nästa i samma urval. Helskärm tar hela skärmen
+    // (Fullscreen API; ramen har allow="fullscreen"). Escape stänger.
+    var MAX_VIEW = 1536 * 1024 * 1024;
+    var viewer = { list: [], i: 0, url: null, seq: 0 };
+    var VIDEO_TYPE = { mov: 'video/mp4', mp4: 'video/mp4', m4v: 'video/mp4', '3gp': 'video/3gpp', webm: 'video/webm', mkv: 'video/x-matroska' };
+    var IMAGE_TYPE = { jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', gif: 'image/gif', webp: 'image/webp', bmp: 'image/bmp' };
+    function viewerOpen() { return !$('c-viewer').classList.contains('display-none'); }
+    // list: [{ caption, load: async () => ({ url, video, own }) }]. own: verktyget släpper adressen när bilden byts.
+    function openViewer(list, i) {
+        viewer.list = list;
+        $('c-viewer').classList.remove('display-none');
+        showViewer(i);
+        $('c-viewer-close').focus();
+    }
+    function dropViewerUrl() {
+        if (viewer.url) URL.revokeObjectURL(viewer.url);
+        viewer.url = null;
+    }
+    async function showViewer(i) {
+        var it = viewer.list[i];
+        if (!it) return;
+        viewer.i = i;
+        var seq = ++viewer.seq, stage = $('c-viewer-stage');
+        dropViewerUrl();
+        stage.innerHTML = '<p class="d-empty"><span class="c-spin" aria-hidden="true"></span> Läser filen…</p>';
+        $('c-viewer-cap').textContent = it.caption || '';
+        $('c-viewer-prev').disabled = i === 0;
+        $('c-viewer-next').disabled = i === viewer.list.length - 1;
+        $('c-viewer-prev').hidden = $('c-viewer-next').hidden = viewer.list.length < 2;
+        try {
+            var got = await it.load();
+            if (seq !== viewer.seq || !viewerOpen()) { if (got && got.own) URL.revokeObjectURL(got.url); return; }
+            if (got.own) viewer.url = got.url;
+            stage.innerHTML = got.video ? '<video src="' + esc(got.url) + '" controls autoplay playsinline></video>' : '<img src="' + esc(got.url) + '" alt="">';
+            var v = stage.querySelector('video');
+            if (v) v.onerror = function () { stage.innerHTML = '<p class="d-empty warn">Videon går inte att spela här (formatet stöds inte, t.ex. HEVC). Spara filen och öppna den i en annan spelare.</p>'; };
+        } catch (err) {
+            if (seq === viewer.seq) stage.innerHTML = '<p class="d-empty warn">' + esc(errText(err)) + '</p>';
+        }
+    }
+    function closeViewer() {
+        if (document.fullscreenElement) document.exitFullscreen().catch(function () {});
+        viewer.seq++;
+        $('c-viewer').classList.add('display-none');
+        $('c-viewer-stage').innerHTML = '';
+        dropViewerUrl();
+    }
+    function toggleFullscreen() {
+        var box = $('c-viewer');
+        if (document.fullscreenElement) document.exitFullscreen().catch(function () {});
+        else if (box.requestFullscreen) box.requestFullscreen().catch(function () { toast('Helskärm gick inte här. Bilden visas så stort det går i verktyget.'); });
+    }
+    document.addEventListener('fullscreenchange', function () { $('c-viewer-full').textContent = document.fullscreenElement ? 'Avsluta helskärm' : 'Helskärm'; });
+    $('c-viewer-close').addEventListener('click', closeViewer);
+    $('c-viewer-full').addEventListener('click', toggleFullscreen);
+    $('c-viewer-prev').addEventListener('click', function () { showViewer(viewer.i - 1); });
+    $('c-viewer-next').addEventListener('click', function () { showViewer(viewer.i + 1); });
+    $('c-viewer-stage').addEventListener('dblclick', function (e) { if (e.target.tagName === 'IMG') toggleFullscreen(); });
+    document.addEventListener('keydown', function (e) {
+        if (!viewerOpen()) return;
+        if (e.key === 'Escape') { e.preventDefault(); e.stopImmediatePropagation(); if (!document.fullscreenElement) closeViewer(); return; }
+        if (e.key === 'ArrowLeft' && viewer.i > 0) { e.preventDefault(); showViewer(viewer.i - 1); }
+        if (e.key === 'ArrowRight' && viewer.i < viewer.list.length - 1) { e.preventDefault(); showViewer(viewer.i + 1); }
+    }, true);
+    // En bild eller video i Bilder: originalfilen ur zippen. HEIC avkodas, en video spelas som den är.
+    function photoViewItem(it) {
+        var ph = state.device.photos, f = fmt();
+        return {
+            caption: it.name + (it.ms !== null ? ' · ' + f(it.ms) : '') + (ph.files[it.key] ? ' · ' + ph.files[it.key].name : ''),
+            load: async function () {
+                var file = ph.files[it.key];
+                if (!file) throw new Error('Filen finns inte i ' + Z() + '.');
+                if (file.size > MAX_VIEW) throw new Error('Filen är för stor att visa här (' + ChatCore.sizeText(file.size) + ').');
+                var bytes = (await ExtractionCore.readEntry(ph.zip.read, file)).bytes;
+                var ext = (/\.([a-z0-9]+)$/i.exec(file.name) || [])[1] || '';
+                ext = ext.toLowerCase();
+                if (it.video) return { url: URL.createObjectURL(new Blob([bytes], { type: VIDEO_TYPE[ext] || 'video/mp4' })), video: true, own: true };
+                if (window.Heic && Heic.is(bytes)) return { url: await Heic.url(bytes, { maxSide: 4096 }), own: true };
+                return { url: URL.createObjectURL(new Blob([bytes], { type: IMAGE_TYPE[ext] || 'image/jpeg' })), own: true };
+            },
+        };
+    }
+    function viewPhoto(key) {
+        var ph = state.device.photos;
+        if (!ph) return;
+        var items = (state.device.galleryItems || ph.items).filter(function (x) { return ph.files[x.key] && (x.video || x.drawable || x.heif); });
+        var i = items.findIndex(function (x) { return x.key === key; });
+        if (i < 0) return;
+        openViewer(items.map(photoViewItem), i);
     }
     // Ett ark i telefonen: rubriken (HTML), innehållet och knapparna före Stäng.
     function showSheet(titleHtml, inner, actions, name) {
@@ -4154,6 +4252,8 @@
     deviceBody.addEventListener('click', function (e) { if (deviceBody.dataset.dragged) { e.stopPropagation(); e.preventDefault(); } }, true);
     $('c-device-sheet').addEventListener('click', function (e) {
         if (e.target === this || e.target.closest('[data-sheet-close]')) return closeSheet();
+        var vw = e.target.closest('[data-sheet-view]');
+        if (vw) { closeSheet(); viewPhoto(vw.dataset.sheetView); return; }
         var ex = e.target.closest('[data-sheet-exif]');
         if (ex) {
             var f = state.device.photos && state.device.photos.files[ex.dataset.sheetExif];

@@ -177,6 +177,18 @@
         <button type="button" class="c-lb-nav c-lb-next" id="c-lb-next" aria-label="Nästa bild">›</button>
     </div>
 
+    <!-- Telefonens bild eller video i full storlek (Bilder och Memories): originalet ur zippen, med Helskärm för hela skärmen. -->
+    <div id="c-viewer" class="c-viewer display-none" role="dialog" aria-modal="true" aria-label="Bilden eller videon i full storlek">
+        <div class="c-viewer-bar">
+            <span class="c-viewer-cap" id="c-viewer-cap"></span>
+            <button type="button" class="c-viewer-btn" id="c-viewer-full">Helskärm</button>
+            <button type="button" class="c-viewer-btn" id="c-viewer-close" aria-label="Stäng">×</button>
+        </div>
+        <div class="c-viewer-stage" id="c-viewer-stage"></div>
+        <button type="button" class="c-lb-nav c-lb-prev" id="c-viewer-prev" aria-label="Föregående">‹</button>
+        <button type="button" class="c-lb-nav c-lb-next" id="c-viewer-next" aria-label="Nästa">›</button>
+    </div>
+
     <!-- Tiderna för ett meddelande. -->
     <div id="c-pop" class="c-pop display-none" role="dialog" aria-label="Meddelandets tider och källa"></div>
 

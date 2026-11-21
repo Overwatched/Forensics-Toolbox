@@ -2718,7 +2718,10 @@ inklistrade koordinater. EXIF kan skicka synliga positioner dit via hubben.
   kartans egna: Grupperade, Färg efter tid, Rutt per enhet, dolda, spannet i tidslinjen). Etiketten öppnar sin ruta, × tar bort valet.
 - **Tidslinjen** visas från början när det finns punkter med tid, tills den stängs med knappen.
 - **Vistelsens bubbla:** fälten Ankomst, Avfärd, Varaktighet, Antal positioner, Adress och Källa (databas · tabell) finns i
-  Anpassa bubblan, och knappen Ankomst, avfärd och tid i bubblor (under Vistelser) slår på dem för alla vistelser.
+  Anpassa bubblan. Sedan 2026-11-21 visar Positioner Vistelser och förflyttningar från början (`viewMode = 'stays'`), och
+  rutan Ankomst, avfärd och tid i bubblor är ikryssad: varje vistelse får de fälten en gång (`applyStayBubbles`,
+  `autoBubbled`), så att en anpassad bubbla står kvar. Avkryssad, eller Alla punkter, tar bort dem. En sparad vy utan
+  `viewMode` öppnas med alla punkter.
 - **Listan** har källan som filter (Alla källor), och ritar 250 rader åt gången och fler när man rullar nedåt. Den
   gamla `content-visibility` gjorde att rullningslisten hoppade.
 - **Täta positioner** (Punkter → Täta positioner): en per källa och intervall (1, 5, 10, 30 eller 60 min), den med bäst
@@ -2947,8 +2950,20 @@ i webbläsaren.
 Telefonen och väljer zippen med `#cb-input`) och åtta appar (`START_APPS` i src/script.js: Telefonen, Härkomst, Queries,
 Positioner, Chattar, EXIF, App-ID och Laboration, plus Inställningar). Ikonen kopieras från verktygets rad i listan
 och har samma färg (`--app` per verktyg i src/style.css), och ett tryck klickar på raden. Inställningar visas i telefonen
-(`#start-settings`: mörkt läge och verktygslistan, som knapparna högst upp i listan, version och nätverk). Hem överst i
+(`#start-settings`: mörkt läge och verktygslistan, som knapparna högst upp i listan, version, och Nätverk: Används inte, med
+en mening om att bara onlinekartan använder nätet och bara när man själv slår på den). Märket Online i listan har samma
+förklaring som title. Hem överst i
 listan, och programmets namn, visar startsidan igen (`showHome`); verktygen står kvar i sina ramar.
+
+### Bilder och videor i full storlek (2026-11-21)
+
+I Bilder har arket för en bild knappen Visa i helskärm (Spela upp för en video), och bilden i arket är klickbar. `#c-viewer`
+i tools/chats/index.html visar originalet ur zippen över hela verktyget (`openViewer(list, i)`, `photoViewItem`): HEIC
+avkodas (högst 4096 px), en video spelas som den är (HEVC går ofta inte, och då står det), högst 1,5 GB. Föregående och
+nästa går i samma urval (`galleryItems`), Escape stänger, och Helskärm (eller dubbelklick) tar hela skärmen med
+Fullscreen API. Ramarna har `allow="fullscreen *"` (src/script.js): file:-sidor har ingen egen origin, så standardvärdet
+'src' räcker inte. Samma gäller videornas egen helskärmsknapp i Chattar och Memories. Provat 2026-11-21 på labbet
+iPhone - Snapchat Memories: en video spelades (720 px, 6 s) och Helskärm gick.
 
 ### Profilbilder i Chattar och Telefonen (2026-11-21)
 

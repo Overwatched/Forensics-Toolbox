@@ -1,5 +1,19 @@
 Automatiskt byggd från commit `{{SHA}}`.
 
+## Nytt i 1.84
+
+**Startsidan är en telefon, kartan visar var och när, och Telefonen visar mer av telefonen.**
+
+- **Startsidan:** Vad vill du göra? med de viktigaste verktygen som appar, i samma färger som i listan. Hem överst i listan tar dig tillbaka. Appen Inställningar har mörkt läge och verktygslistan, och säger att programmet inte använder nätet (utom onlinekartan, när du själv slår på den).
+- **Kartan:** vistelser och förflyttningar visas från början, med ankomst, avfärd, tid, antal positioner och källa i bubblan. Popupen visar adressen och har Var var telefonen? och Allt runt tiden. Källan öppnar raden i Queries med raden markerad. Punkter på samma ställe får en bricka med antalet, och aktiva val står som etiketter.
+- **Tidslinjen under kartan:** ett band per källa och app. Dra över ett spann så visar kartan bara det som hände då; en tratt visar att filtret är på, och Rensa tar bort det. Samtal och meddelanden har ingen egen position och ritas inte på kartan: de står i tidslinjen och i en lista med positionen närmast i tid.
+- **Bilder och videor i full storlek** i Telefonen: originalet ur zippen, med föregående och nästa och knappen Helskärm. Videor spelas upp, och videor i galleriet har en miniatyr.
+- **Sparade sidor** i Safari och Chrome: sidorna ur webbläsarens cache visas direkt, helt offline, utan skript och med bilderna och stilmallarna som finns på telefonen.
+- **Profilbilder** i WhatsApp på iPhone, i chattlistan och chattens huvud.
+- **Appars hemligheter:** Signals PIN, koden till Snapchats My Eyes Only och Snapchat Memories på iPhone med bilderna dekrypterade.
+- **Härkomst** visar databaserna hopfällda, och **App-ID** har fler appar och appgrupper.
+- **EXIF & karta heter EXIF.**
+
 ## Nytt i 1.83
 
 - **Kontrollerat på en labbtelefon (Android):** flygplansläge, Wi-Fi, Bluetooth, plats, mörkt läge och Stör ej, och i Signal läskvitton, skrivindikator, länkförhandsvisning, skärmskydd, inkognitotangentbord, stories, försvinnande meddelanden som standard och vem som ser och hittar numret. Raderna är märkta ✓ Labb. Bluetooth som sparats på under flygplansläge visas som det, och försvinnande meddelanden i veckor visas i ord.

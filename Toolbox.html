@@ -31,7 +31,7 @@
                 <div class="sidebar-header-text">
                     <h1>Forensics Toolbox</h1>
                     <div class="version-row">
-                        <p>Version 1.83</p>
+                        <p>Version 1.84</p>
                         <div id="net-status" class="net-status">
                             <span id="net-status-text"></span>
                         </div>
@@ -432,9 +432,11 @@
                             <label class="start-row"><span>Mörkt läge</span><input type="checkbox" id="start-dark" role="switch"></label>
                             <label class="start-row"><span>Verktygslistan</span><input type="checkbox" id="start-sidebar" role="switch"></label>
                             <div class="start-row"><span>Version</span><span class="muted" id="start-version"></span></div>
-                            <div class="start-row"><span>Nätverk</span><span class="muted" id="start-net"></span></div>
+                            <div class="start-row"><span>Nätverk</span><span class="muted">Används inte</span></div>
                         </div>
-                        <p class="start-sub">Allt körs lokalt. Inget skickas från verktygen.</p>
+                        <p class="start-note">Programmet hämtar och skickar ingenting över nätet. Enda undantaget är onlinekartan i
+                            Positioner, och den slås bara på om du själv väljer det (då hämtas kartrutor, inga filer eller data skickas).
+                            Datorn är just nu <span id="start-net"></span>.</p>
                     </div>
                 </div>
 

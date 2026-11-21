@@ -3,6 +3,8 @@ function updateNetStatus() {
     const text = document.getElementById('net-status-text');
     if (!el || !text) return;
 
+    // Märket säger bara om datorn är ansluten. Programmet använder inte nätet, utom onlinekartan när man själv slår på den.
+    el.title = 'Om datorn är ansluten till nätet. Programmet hämtar och skickar ingenting, utom kartrutor när du själv slår på onlinekartan i Positioner.';
     if (navigator.onLine) {
         text.textContent = 'Online';
         el.classList.remove('offline');
@@ -113,7 +115,7 @@ function initStart() {
         dark.checked = document.documentElement.getAttribute('data-theme') !== 'light';
         side.checked = !document.querySelector('.app').classList.contains('sidebar-collapsed');
         document.getElementById('start-version').textContent = ((document.querySelector('.version-row p') || {}).textContent || '').replace(/^Version\s+/, '');
-        document.getElementById('start-net').textContent = navigator.onLine ? 'Online' : 'Offline';
+        document.getElementById('start-net').textContent = navigator.onLine ? 'ansluten (online)' : 'inte ansluten (offline)';
     }
     if (settings) {
         document.getElementById('start-back').addEventListener('click', () => showSettings(false));
@@ -521,6 +523,10 @@ function initToolNav() {
     function createFrame(path, src, title) {
         const frame = document.createElement('iframe');
         frame.className = 'tool-frame';
+        // Bilder och videor i Telefonen och Chattar kan visas i helskärm.
+        // file:-sidor har ingen egen origin, så 'src' räcker inte: *.
+        frame.setAttribute('allow', 'fullscreen *');
+        frame.allowFullscreen = true;
         frame.title = title || 'Verktyg';
         frame.setAttribute('data-tool', path);
         frame.dataset.src = src;

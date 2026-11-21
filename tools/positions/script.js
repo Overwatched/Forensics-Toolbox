@@ -72,7 +72,10 @@
     // Vistelser: positioner i följd inom 100 m under minst 5 minuter blir en ring (MapCore.summarizeTrack, samma gräns
     // som Härkomst), med ankomst, avfärd och varaktighet. Förflyttningarna emellan står kvar som punkter. En fil (en
     // bild), ett besök och en punkt utan tid visas alltid. viewMode 'all' visar alla punkter.
-    var viewMode = 'all';
+    // Från början visas täta positioner som vistelser, med ankomst, avfärd och tid i bubblan (2026-11-21).
+    var viewMode = 'stays';
+    var stayBubblesOn = true;
+    var autoBubbled = {};
     var stayIds = {};
     var nextStayId = 1000000000;
     function durationText(ms) {
@@ -170,8 +173,31 @@
         var note = points.length + (points.length === 1 ? ' punkt' : ' punkter') + ' i ' + shownLayers + (shownLayers === 1 ? ' källa.' : ' källor.') +
             (thinned.shown < thinned.total ? ' ' + (thinned.total - thinned.shown) + ' täta positioner dolda (en per ' + thinMinutes + ' min).' : '') +
             (viewMode === 'stays' ? (function (n) { return ' ' + n + (n === 1 ? ' vistelse.' : ' vistelser.'); })(points.filter(function (p) { return p.stay; }).length) : '');
-        if (mapView) mapView.setPoints(points, note);
+        if (mapView) { applyStayBubbles(points); mapView.setPoints(points, note); }
         fillRouteSpan();
+    }
+
+    // Vistelsernas bubblor: ankomst, avfärd, varaktighet, antal positioner och källa. En vistelse får dem en gång, så att
+    // en bubbla som anpassats står kvar. Avslaget tar bort dem.
+    function stayBubbleCfg() {
+        var cfg = MapCore.defaultBubble({ arrival: true, departure: true, duration: true, count: true, source: true });
+        cfg.titles = true;
+        cfg.leader = true;
+        return cfg;
+    }
+    function applyStayBubbles(points) {
+        if (!mapView) return;
+        var cfgs = {}, n = 0;
+        if (stayBubblesOn && viewMode === 'stays') {
+            points.forEach(function (p) { if (p.stay && !autoBubbled[p.id]) { autoBubbled[p.id] = true; cfgs[p.id] = stayBubbleCfg(); n++; } });
+        }
+        if (n) mapView.setBubbles(null, cfgs);
+    }
+    function clearStayBubbles() {
+        var cfgs = {};
+        Object.keys(autoBubbled).forEach(function (id) { cfgs[id] = MapCore.defaultBubble({}); });
+        autoBubbled = {};
+        if (mapView && Object.keys(cfgs).length) mapView.setBubbles(null, cfgs);
     }
 
     var routeDefaults = { from: '', to: '' };
@@ -616,30 +642,30 @@
             viewSel.append(opt);
         });
         viewSel.value = viewMode;
-        var stayBubbles = make('button', 'secondary-btn display-none', 'Ankomst, avfärd och tid i bubblor');
-        stayBubbles.type = 'button';
+        var stayBubbles = make('label', 'toggle');
         stayBubbles.title = 'En bubbla per vistelse med ankomst, avfärd, varaktighet, antal positioner och källa. Anpassa bubblan ändrar den.';
-        stayBubbles.addEventListener('click', function () {
-            var cfgs = {};
-            visiblePoints().filter(function (p) { return p.stay; }).forEach(function (p) {
-                var cfg = MapCore.defaultBubble({ arrival: true, departure: true, duration: true, count: true, source: true });
-                cfg.titles = true;
-                cfg.leader = true;
-                cfgs[p.id] = cfg;
-            });
-            if (!Object.keys(cfgs).length) { setStatus('Inga vistelser visas.', 'error'); return; }
-            ensureMap().setBubbles(null, cfgs);
+        var stayBubblesBox = make('input');
+        stayBubblesBox.type = 'checkbox';
+        stayBubblesBox.id = 'stay-bubbles';
+        stayBubblesBox.checked = stayBubblesOn;
+        stayBubbles.append(stayBubblesBox, make('span', '', 'Ankomst, avfärd och tid i bubblor'));
+        stayBubblesBox.addEventListener('change', function () {
+            stayBubblesOn = stayBubblesBox.checked;
+            if (!stayBubblesOn) clearStayBubbles();
+            redraw();
         });
         var setView = function (mode) {
             viewMode = mode === 'stays' ? 'stays' : 'all';
             viewSel.value = viewMode;
             stayBubbles.classList.toggle('display-none', viewMode !== 'stays');
             mapView.setActive('view', viewMode === 'stays' ? { text: 'Vistelser', pop: 'points', title: 'Täta positioner visas som vistelser. × visar alla punkter.', clear: function () { setView('all'); } } : null);
+            if (viewMode !== 'stays') clearStayBubbles();
             redraw();
         };
         viewSel.addEventListener('change', function () { setView(viewSel.value); });
         viewBox.append(viewSel, make('p', 'zone-note', 'En vistelse: positioner inom 100 m under minst 5 minuter, som en ring med ankomst, avfärd och tid. Bilder och punkter utan tid visas alltid.'), stayBubbles);
         mapView.addToMenu('points', viewBox);
+        setView(viewMode);
         var thinBox = make('div', 'side-block');
         thinBox.append(make('h2', '', 'Täta positioner'));
         var thinSel = make('select');
