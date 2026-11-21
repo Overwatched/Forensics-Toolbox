@@ -71,7 +71,7 @@ async function load(threadId) {
 test('källorna: WhatsApp på iOS har alla fyra chattroller och blir en databas att leta efter i extraktionen', () => {
     const list = core.sources([whatsapp, { id: 'x', databases: [{ id: 'utan', label: 'iOS — x', queries: [] }] }]);
     assert.deepStrictEqual(list.map((s) => [s.key, s.app, s.platform, s.title]), [['whatsapp-ios-chat', 'WhatsApp', 'iOS', 'ChatStorage.sqlite (WhatsApp)']]);
-    assert.deepStrictEqual(Object.keys(list[0].roles).sort(), ['attachments', 'members', 'messages', 'threads']);
+    assert.deepStrictEqual(Object.keys(list[0].roles).sort(), ['attachments', 'avatars', 'members', 'messages', 'threads']);
     assert.deepStrictEqual(core.databases(list)[0], { id: 'whatsapp-ios-chat', family: 'whatsapp-ios-chat', familyTitle: 'ChatStorage.sqlite (WhatsApp)', label: 'ChatStorage.sqlite (WhatsApp)', paths: ['ChatStorage.sqlite'], ios: null, cipher: null, derive: null });
 });
 

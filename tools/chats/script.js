@@ -42,7 +42,7 @@
     var SQL = null;
     var state = {
         zip: null, dbs: [], keyFiles: [], current: null, zone: 'local', f: ChatCore.formatter('local'), picked: {}, selecting: false,
-        urls: {}, entries: {}, checks: {}, attByPath: {}, names: {}, ready: Promise.resolve(), opened: Promise.resolve(),
+        urls: {}, entries: {}, checks: {}, attByPath: {}, names: {}, avatars: {}, ready: Promise.resolve(), opened: Promise.resolve(),
         opening: null, job: null, exporting: null, view: null, find: null, observer: null,
         // Urvalet i listan: app och slag ('' är alla), ordningen och Dölj tomma. shown är listan som den visas.
         list: { app: '', kind: '', sort: 'recent', hideEmpty: false }, shown: null,
@@ -278,6 +278,8 @@
             }).filter(function (d) { return d.src; });
             state.dbs = all.filter(function (d) { return !d.src.namesOnly; });
             state.names = {};
+            Object.keys(state.avatars).forEach(function (k) { URL.revokeObjectURL(state.avatars[k].url); });
+            state.avatars = {};
             // Listan visar databaserna direkt, och var och en fylls i när den är läst.
             renderList();
             opened();
@@ -534,7 +536,12 @@
                 ChatCore.applyNames(d.src, d.threads, d.members, state.names[d.src.app]);
                 ChatCore.applyContacts(d.threads, d.members, contactName);
                 d.index = ChatCore.listIndex(d.threads, d.members);
+                // Profilbilderna (chat-avatars): sökvägen per adress, filerna läses efteråt.
+                if (d.src.roles.avatars) {
+                    try { d.avatarRows = Roles().mapRows(d.src.roles.avatars, query(loaded, d.src.roles.avatars), [], { raw: false }); } catch (e) { d.avatarRows = null; }
+                }
                 d.state = 'ready';
+                if (d.avatarRows && d.avatarRows.length) loadAvatars(d);
             } catch (err) {
                 d.error = errText(err);
                 d.state = 'error';
@@ -543,6 +550,54 @@
             }
         })();
         return d.loading;
+    }
+
+    // ---------- Profilbilder ----------
+    // En profilbild per adress (WhatsApps JID): sökvägen i rollen chat-avatars är relativ till mappen där databasen ligger
+    // (appgruppen), och filen har ofta .jpg eller .thumb efter namnet. Bilderna står i state.avatars och ritas där
+    // adressen står i data-av.
+    async function loadAvatars(d) {
+        var z = state.zip;
+        if (!z) return;
+        var dir = d.hit.db.name.slice(0, d.hit.db.name.lastIndexOf('/') + 1);
+        var want = {};
+        d.avatarRows.forEach(function (r) { if (r.address && r.path) want[(dir + String(r.path).replace(/^\/+/, '')).toLowerCase()] = String(r.address); });
+        var keys = Object.keys(want);
+        if (!keys.length) return;
+        var hits;
+        try {
+            hits = await ExtractionCore.find(z.read, z.file.size, function (name) {
+                var n = String(name).toLowerCase().replace(/\.(jpg|jpeg|thumb|png)$/, '');
+                return want[n] !== undefined;
+            });
+        } catch (err) { return; }
+        // En .jpg går före .thumb (den större bilden).
+        hits.sort(function (a, b) { return (/\.thumb$/i.test(a.name) ? 1 : 0) - (/\.thumb$/i.test(b.name) ? 1 : 0); });
+        for (var i = 0; i < hits.length; i++) {
+            var addr = want[String(hits[i].name).toLowerCase().replace(/\.(jpg|jpeg|thumb|png)$/, '')];
+            if (!addr || state.avatars[addr] || z !== state.zip) continue;
+            try {
+                var bytes = (await ExtractionCore.readEntry(z.read, hits[i])).bytes;
+                state.avatars[addr] = { url: URL.createObjectURL(new Blob([bytes], { type: 'image/jpeg' })), path: hits[i].name };
+            } catch (err) { /* en fil som inte går att läsa ger ingen bild */ }
+        }
+        paintAvatars();
+    }
+    // Rutorna med data-av får sin bild när den finns.
+    function paintAvatars(root) {
+        (root || document).querySelectorAll('[data-av]').forEach(function (el) {
+            var a = state.avatars[el.getAttribute('data-av')];
+            if (!a || el.classList.contains('has-img')) return;
+            el.style.backgroundImage = 'url("' + a.url + '")';
+            el.classList.add('has-img');
+            el.title = 'Profilbild: ' + a.path;
+        });
+    }
+    // Rutan för en konversation: initialen, och adressen så att profilbilden kan läggas på.
+    function threadAv(t, extra) {
+        var a = t.address && state.avatars[t.address];
+        return '<span class="c-av p' + ChatCore.hueOf(t.key) + (a ? ' has-img' : '') + (extra || '') + '" data-initial="' + esc(ChatCore.initialOf(t.name)) + '"' +
+            (t.address ? ' data-av="' + esc(t.address) + '"' : '') + (a ? ' style="background-image:url(&quot;' + a.url + '&quot;)" title="' + esc('Profilbild: ' + a.path) + '"' : '') + ' aria-hidden="true"></span>';
     }
 
     // ---------- Listan med konversationer ----------
@@ -592,7 +647,7 @@
         var cur = state.current && state.current.db === d && state.current.thread.key === t.key;
         var sub = [t.messages !== null ? many(t.messages, 'meddelande', 'meddelanden') : '', t.lastMs ? 'senast ' + f(t.lastMs).slice(0, 10) : ''].filter(Boolean).join(' · ');
         return '<button type="button" class="c-item" data-db="' + di + '" data-thread="' + esc(t.key) + '"' + (cur ? ' aria-current="true"' : '') + ' title="' + esc(t.address || t.name) + '">' +
-            '<span class="c-av p' + ChatCore.hueOf(t.key) + '" data-initial="' + esc(ChatCore.initialOf(t.name)) + '" aria-hidden="true"></span><span class="c-item-text">' +
+            threadAv(t) + '<span class="c-item-text">' +
             '<span class="c-item-name"><span>' + esc(t.name) + '</span><span class="c-kind">' + esc(t.kindText) + '</span></span>' +
             '<span class="c-item-sub">' + esc(sub) + '</span>' +
             // Sökningen träffade en deltagare och inte konversationens eget namn.
@@ -906,6 +961,10 @@
         var ph = ChatExport.phone(m);
         $('c-phone').dataset.frame = ph.frame;
         $('c-phone-avatar').textContent = ph.initial;
+        var av = t.address && state.avatars[t.address];
+        $('c-phone-avatar').classList.toggle('has-img', !!av);
+        $('c-phone-avatar').style.backgroundImage = av ? 'url("' + av.url + '")' : '';
+        $('c-phone-avatar').title = av ? 'Profilbild: ' + av.path : '';
         $('c-phone-name').textContent = ph.name;
         $('c-phone-sub').textContent = ph.sub;
         $('c-phone-foot').textContent = ph.label;
@@ -2587,7 +2646,7 @@
             var t = x.thread;
             var sub = [t.kindText, t.messages !== null ? many(t.messages, 'meddelande', 'meddelanden') : ''].filter(Boolean).join(' · ');
             return '<button type="button" class="d-row" data-db="' + x.db + '" data-thread="' + esc(t.key) + '" title="' + esc(t.address || t.name) + '">' +
-                '<span class="c-av p' + ChatCore.hueOf(t.key) + '" data-initial="' + esc(ChatCore.initialOf(t.name)) + '" aria-hidden="true"></span><span class="d-row-text">' +
+                threadAv(t) + '<span class="d-row-text">' +
                 '<span class="d-row-top"><b>' + (q ? hitMark(t.name, q) : esc(t.name)) + '</b><time>' + esc(t.lastMs ? f(t.lastMs).slice(0, 10) : '') + '</time></span><span class="d-row-sub">' + esc(sub) + '</span></span></button>';
         }).join('');
         var note = a.busy ? '<p class="d-empty">Databaserna läses fortfarande. Listan fylls på när de är klara.</p>' : !list.length && !q ? '<p class="d-empty">Databasen har inga konversationer.</p>' : '';
@@ -2667,7 +2726,7 @@
             hits.sort(function (x, y) { return (y.m.ms || 0) - (x.m.ms || 0); });
             var rows = hits.slice(0, token.limit || MSG_HITS).map(function (h) {
                 var t = h.thread;
-                return '<button type="button" class="d-row m-hit" data-db="' + h.db + '" data-thread="' + esc(t.key) + '" data-msg="' + esc(h.m.key) + '"><span class="c-av p' + ChatCore.hueOf(t.key) + '" data-initial="' + esc(ChatCore.initialOf(t.name)) + '" aria-hidden="true"></span><span class="d-row-text">' +
+                return '<button type="button" class="d-row m-hit" data-db="' + h.db + '" data-thread="' + esc(t.key) + '" data-msg="' + esc(h.m.key) + '">' + threadAv(t) + '<span class="d-row-text">' +
                     '<span class="d-row-top"><b>' + esc(t.name) + '</b><time>' + esc(h.m.ms ? f(h.m.ms).slice(0, 16) : '') + '</time></span><span class="d-row-sub m-snip">' + (h.m.sender ? esc(h.m.sender) + ': ' : '') + hitMark(snippet(h.m.text, q), q) + '</span></span></button>';
             }).join('');
             var state2 = finished ? (hits.length ? '' : '<p class="d-empty">Ingen text i meddelandena innehåller ”' + esc(q) + '”.</p>') : '<p class="d-empty"><span class="c-spin" aria-hidden="true"></span> Söker i meddelandena… ' + num(done) + ' av ' + num(threads.length) + ' chattar</p>';
@@ -2760,7 +2819,7 @@
         view.groups.forEach(function (g, di) {
             g.items.forEach(function (it) {
                 var t = it.thread;
-                conv.push({ ms: t.lastMs || 0, html: '<button type="button" class="d-row" data-db="' + di + '" data-thread="' + esc(t.key) + '"><span class="c-av p' + ChatCore.hueOf(t.key) + '" data-initial="' + esc(ChatCore.initialOf(t.name)) + '" aria-hidden="true"></span><span class="d-row-text"><span class="d-row-top"><b>' + hitMark(t.name, raw) + '</b><time>' + esc(t.lastMs ? f(t.lastMs).slice(0, 10) : '') + '</time></span><span class="d-row-sub">' + esc([state.dbs[di].src.app, t.kindText].filter(Boolean).join(' · ')) + '</span></span></button>' });
+                conv.push({ ms: t.lastMs || 0, html: '<button type="button" class="d-row" data-db="' + di + '" data-thread="' + esc(t.key) + '">' + threadAv(t) + '<span class="d-row-text"><span class="d-row-top"><b>' + hitMark(t.name, raw) + '</b><time>' + esc(t.lastMs ? f(t.lastMs).slice(0, 10) : '') + '</time></span><span class="d-row-sub">' + esc([state.dbs[di].src.app, t.kindText].filter(Boolean).join(' · ')) + '</span></span></button>' });
             });
         });
         group('Konversationer', conv.sort(function (x, y) { return y.ms - x.ms; }).map(function (x) { return x.html; }));
@@ -3583,7 +3642,7 @@
         var f = fmt();
         return list.slice(0, 20).map(function (x) {
             var t = x.thread;
-            return '<button type="button" class="d-row" data-db="' + x.db + '" data-thread="' + esc(t.key) + '"><span class="c-av p' + ChatCore.hueOf(t.key) + '" data-initial="' + esc(ChatCore.initialOf(t.name)) + '" aria-hidden="true"></span><span class="d-row-text">' +
+            return '<button type="button" class="d-row" data-db="' + x.db + '" data-thread="' + esc(t.key) + '">' + threadAv(t) + '<span class="d-row-text">' +
                 '<span class="d-row-top"><b>' + esc(t.name) + '</b><time>' + esc(t.lastMs ? f(t.lastMs).slice(0, 10) : '') + '</time></span><span class="d-row-sub">' + esc(x.app + (t.messages !== null ? ' · ' + many(t.messages, 'meddelande', 'meddelanden') : '')) + '</span></span></button>';
         }).join('');
     }

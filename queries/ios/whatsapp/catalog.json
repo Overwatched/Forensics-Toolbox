@@ -199,6 +199,20 @@
           "sql": "SELECT\n  s.Z_PK AS chat_id,\n  COALESCE(NULLIF(s.ZPARTNERNAME, ''), s.ZCONTACTJID, '#' || s.Z_PK) AS chat_name,\n  CASE WHEN s.ZCONTACTJID LIKE '%@g.us' THEN 'group' WHEN s.ZCONTACTJID LIKE '%@newsletter' THEN 'channel'\n    WHEN s.ZCONTACTJID LIKE '%@broadcast' OR s.ZCONTACTJID LIKE '%@status' THEN 'status'\n    WHEN s.ZSESSIONTYPE = 1 THEN 'group' WHEN s.ZSESSIONTYPE = 0 THEN 'person' ELSE 'other' END AS chat_kind,\n  s.ZCONTACTJID, s.ZSESSIONTYPE,\n  (SELECT count(*) FROM ZWAMESSAGE m WHERE m.ZCHATSESSION = s.Z_PK) AS message_count,\n  (SELECT min(m.ZMESSAGEDATE) FROM ZWAMESSAGE m WHERE m.ZCHATSESSION = s.Z_PK) AS first_date,\n  (SELECT max(m.ZMESSAGEDATE) FROM ZWAMESSAGE m WHERE m.ZCHATSESSION = s.Z_PK) AS last_date,\n  s.ZARCHIVED, s.ZREMOVED\nFROM ZWACHATSESSION s\nORDER BY last_date DESC, s.Z_PK;"
         },
         {
+          "id": "chat-avatars",
+          "hidden": true,
+          "role": "chat-avatars",
+          "title": "Chattar: profilbilder",
+          "description": "Används av Chattar. Profilbilden per JID: sökvägen i appgruppen (Media/Profile/…; filen har .jpg eller .thumb efter namnet). Kontrollerad på iPhone-labbet 2026-11-11.",
+          "params": [],
+          "epoch": "cocoa",
+          "fields": {
+            "address": "ZJID",
+            "path": "ZPATH"
+          },
+          "sql": "SELECT ZJID, ZPATH\nFROM ZWAPROFILEPICTUREITEM\nWHERE ZPATH LIKE 'Media/Profile/%';"
+        },
+        {
           "id": "chat-members",
           "hidden": true,
           "role": "chat-members",

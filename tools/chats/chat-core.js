@@ -7,7 +7,7 @@
 
     var Roles = typeof module !== 'undefined' && module.exports ? require('../provenance/roles.js') : root.ProvenanceRoles;
 
-    var ROLES = { threads: 'chat-threads', members: 'chat-members', messages: 'chat-messages', attachments: 'chat-attachments', names: 'chat-names' };
+    var ROLES = { threads: 'chat-threads', members: 'chat-members', messages: 'chat-messages', attachments: 'chat-attachments', names: 'chat-names', avatars: 'chat-avatars' };
     var THREAD_KIND = { person: 'Enskild chatt', group: 'Grupp', status: 'Status', channel: 'Kanal', self: 'Till mig själv', other: 'Annan chatt' };
     var KIND_TEXT = {
         text: 'Text', image: 'Bild', video: 'Video', audio: 'Ljud', voice: 'Röstmeddelande', file: 'Fil', contact: 'Kontaktkort',

@@ -2941,3 +2941,12 @@ i webbläsaren.
 Telefonen och väljer zippen med `#cb-input`) och åtta appar (`START_APPS` i src/script.js: Telefonen, Härkomst, Queries,
 Positioner, Chattar, EXIF, App-ID och Laboration). Ikonen kopieras från verktygets rad i listan, och ett tryck klickar
 på raden.
+
+### Profilbilder i Chattar och Telefonen (2026-11-21)
+
+Rollen `chat-avatars` (dold query i appens katalog, fälten `address` och `path`) ger en profilbild per adress. Sökvägen
+är relativ till mappen där databasen ligger; filen letas upp med och utan .jpg, .jpeg, .thumb eller .png efter namnet
+(.jpg först). Bilderna står i `state.avatars` (töms när extraktionen byts) och ritas i rutan för konversationen
+(`threadAv`, `data-av`) och i chattens huvud. Bara WhatsApp på iOS har rollen än: `ZWAPROFILEPICTUREITEM` (ZJID, ZPATH
+`Media/Profile/<id>-<tid>`, filen heter samma med .jpg). Provat på iPhone-labbet 2026-11-11: en bild på rätt chatt.
+Signal hade inga profilbilder sparade i labbet, och Telegrams bilder i Postbox är inte kopplade till chattarna.

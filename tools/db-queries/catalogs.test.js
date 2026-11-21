@@ -767,8 +767,9 @@ test('Chattar: varje databas med chattroller har alla fyra med fälten Chattar l
     for (const [cat, db] of dbs) {
         assert.ok(db.chatApp, db.id + ': chatApp saknas');
         // Bilagerollen är valfri: Snapchats medier ligger i cachen och kopplas inte till chatten.
+        // Profilbilderna (chat-avatars) är också valfria.
         const have = db.queries.filter((q) => /^chat-/.test(q.role || '')).map((q) => q.role).sort();
-        assert.deepStrictEqual(have.filter((r) => r !== 'chat-attachments'), ['chat-members', 'chat-messages', 'chat-threads'], db.id);
+        assert.deepStrictEqual(have.filter((r) => r !== 'chat-attachments' && r !== 'chat-avatars'), ['chat-members', 'chat-messages', 'chat-threads'], db.id);
         for (const [role, required] of Object.entries(CHAT_ROLES)) {
             const q = db.queries.find((x) => x.role === role);
             if (!q && role === 'chat-attachments') continue;
