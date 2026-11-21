@@ -94,13 +94,16 @@ jobs:
       - name: Kör röktestet i appen
         run: npm run test:app -- --smoke
 
-  # Edge på Windows, som html-versionen körs utan skrivbordsappen: under file:// och utan internet. Vid varje push
-  # bara den fristående html-filen med IntranetFileLinksEnabled (cirka fyra minuter), policyn som stoppade
+  # Edge på Windows, som html-versionen körs utan skrivbordsappen: under file:// och utan internet. Bara när en ny
+  # release byggs (versionen höjd) eller med "Run workflow", inte vid vanliga pushar: Windows-minuter räknas dubbelt.
+  # Då bara den fristående html-filen med IntranetFileLinksEnabled (cirka fyra minuter), policyn som stoppade
   # html-versionens verktyg på hanterade datorer. Med "Run workflow" och edge = alla körs också html-versionen utan
   # policy, med JIT blockerad, med förstärkt säkerhet och i en Edge som bara når lokala filer (cirka en timme).
   # Provet skriver ut vad edge://policy säger, och hur fort WebAssembly går. Ett eget jobb som inte stoppar releasen.
   # Varje steg körs även om ett före det misslyckades.
   htmltest:
+    needs: [prepare]
+    if: needs.prepare.outputs.skip != 'true' || github.event_name == 'workflow_dispatch'
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4

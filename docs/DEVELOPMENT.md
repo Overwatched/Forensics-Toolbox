@@ -2403,8 +2403,10 @@ proxy som inte finns, så att inget når internet. Sedan samma sak utan JIT. CI-
 och därefter med riktiga policyer i registret: `DefaultJavaScriptJitSetting` 2, `EnhanceSecurityMode` 2 och
 `URLBlocklist` `*` med `URLAllowlist` `file://*`. Provet skriver ut vad `edge://policy` säger och hur fort en slinga
 går i JavaScript och WebAssembly. Jobbet stoppar inte releasen. Sedan 2026-11-19 körs allt det bara med "Run workflow"
-och edge = alla (cirka en timme). Vid en push körs bara den fristående filen med `IntranetFileLinksEnabled`, eftersom
-det är den som används på datorer där Edge inte visar html-versionens verktyg.
+och edge = alla (cirka en timme). Annars körs bara den fristående filen med `IntranetFileLinksEnabled`, eftersom
+det är den som används på datorer där Edge inte visar html-versionens verktyg. Sedan 2026-11-21 körs jobbet bara när en
+ny release byggs (versionen höjd, `prepare` hoppar inte över) eller med "Run workflow", inte vid vanliga pushar:
+Windows-minuter räknas dubbelt i GitHubs kvot för privata repon.
 
 Mätt 2026-11-04 i Edge 156 på en Windows-maskin i CI, med en slinga på 30 miljoner varv:
 
