@@ -1987,7 +1987,9 @@
                 var entries = await ExtractionCore.find(z.read, z.file.size, function (name) { return !!ChatPhone.entryKey(name); });
                 entries.forEach(function (e) {
                     var k = ChatPhone.entryKey(e.name), into = k.kind === 'thumb' ? ph.thumbs : ph.files;
-                    if (!into[k.key]) into[k.key] = e;
+                    // Tumnageln 5005 går före de andra; annars den största filen.
+                    var have = into[k.key];
+                    if (!have || (k.kind === 'thumb' && !/\/5005\.jpg$/i.test(have.name) && (/\/5005\.jpg$/i.test(e.name) || (e.size || 0) > (have.size || 0)))) into[k.key] = e;
                 });
                 var hit = found.found[0];
                 if (!hit) { ph.state = 'none'; return; }
@@ -2047,6 +2049,19 @@
             var r = await Heic.toJpeg(heic, { preview: true, maxSide: 320 });
             ph.how[it.key] = r.from === 'preview' ? 'Förhandsbilden i HEIC-filen' : 'Avkodad ur HEIC-filen';
             return URL.createObjectURL(r.blob);
+        }
+        // En video utan telefonens tumnagel: en bildruta en bit in i filmen (H.264; HEVC spelas inte alltid).
+        if (it.video) {
+            var bmp = await videoFrameBitmap((await ExtractionCore.readEntry(z.read, f)).bytes);
+            if (!bmp) return null;
+            ph.how[it.key] = 'En bildruta ur videon';
+            var k = Math.min(1, 320 / Math.max(bmp.width, 1)), c = document.createElement('canvas');
+            c.width = Math.max(1, Math.round(bmp.width * k));
+            c.height = Math.max(1, Math.round(bmp.height * k));
+            c.getContext('2d').drawImage(bmp, 0, 0, c.width, c.height);
+            if (bmp.close) bmp.close();
+            var vb = await new Promise(function (resolve) { c.toBlob(resolve, 'image/jpeg', 0.82); });
+            return vb ? URL.createObjectURL(vb) : null;
         }
         if (!it.drawable) return null;
         return smallUrl((await ExtractionCore.readEntry(z.read, f)).bytes, 320);

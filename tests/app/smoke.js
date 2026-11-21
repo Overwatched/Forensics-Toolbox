@@ -1873,7 +1873,8 @@ const scenarios = [
         await c.setFiles(null, '#cb-input', [fx.files.ufdr]);
         await c.ev(null, `document.getElementById('cb-input').dispatchEvent(new Event('change')), 1`);
         await c.waitFor(PROV, `!ProvenanceApp.busy() && /report\\.xml: \\d+ filer från telefonen/.test(document.getElementById('ex-status').textContent)`, 60000, 'rapporten i Härkomst');
-        const list = await c.ev(PROV, `document.getElementById('ex-list').innerText`);
+        // Databaserna står i en hopfälld ruta, så texten läses som textContent.
+        const list = await c.ev(PROV, `document.getElementById('ex-list').textContent`);
         expect(/Rapport i UFDR-format, rapportverktygets version 10\.11\.0\.3022/.test(list), 'Rapporten: ' + list);
         expect(!/cellebrite|physical analyzer/i.test(list), 'Verktygets namn står i texten: ' + list);
         expect(/säger inte att den saknades på telefonen/.test(list) && /ctime/.test(list), 'Vad en rapport inte kan säga: ' + list);

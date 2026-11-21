@@ -2934,3 +2934,10 @@ i webbläsaren.
   Telefonvyn är en rekonstruktion: telefonens
   textstorlek, tema, modell och appversion finns inte i databasen. Verktygen delar en tråd, så medan ett av dem läser,
   dekrypterar eller kör en fråga står de andra still.
+
+### Startsidan (2026-11-21)
+
+`#content-placeholder` i Toolbox.html är en telefon med rubriken Vad vill du göra?: knappen Öppna en extraktion (öppnar
+Telefonen och väljer zippen med `#cb-input`) och åtta appar (`START_APPS` i src/script.js: Telefonen, Härkomst, Queries,
+Positioner, Chattar, EXIF, App-ID och Laboration). Ikonen kopieras från verktygets rad i listan, och ett tryck klickar
+på raden.

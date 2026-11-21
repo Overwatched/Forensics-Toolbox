@@ -208,10 +208,16 @@
                 '<td>' + (f.wal ? escapeHtml(ExtractionCore.sizeText(f.wal.size)) : '<span class="warn">saknas</span>') + '</td></tr>';
         }).join('');
         var note = z.report ? '<p class="muted ex-report-note">' + escapeHtml(UfdrRead.summaryText(z.report) + ' ' + UfdrRead.limitText(z.report)) + '</p>' : '';
+        // Databaserna står i en hopfälld ruta: de finns där för den som vill se dem. Läget står kvar när listan ritas om.
+        var was = document.querySelector('#ex-list details.ex-dbs');
+        if (was) dbsOpen = was.open;
+        var missingWal = z.found.filter(function (f) { return !f.wal; }).length;
         $('ex-list').innerHTML = note + (z.found.length
-            ? '<div class="result-scroll"><table><thead><tr><th>Databas</th><th>Sökväg i ' + Z() + '</th><th>Storlek</th><th>Ändrad (filsystemet)</th><th>-wal</th></tr></thead><tbody>' + rows + '</tbody></table></div>'
+            ? '<details class="ex-dbs"' + (dbsOpen ? ' open' : '') + '><summary>Databaserna som används (' + z.found.length + (missingWal ? ', ' + missingWal + ' utan -wal' : '') + ')</summary>' +
+                '<div class="result-scroll"><table><thead><tr><th>Databas</th><th>Sökväg i ' + Z() + '</th><th>Storlek</th><th>Ändrad (filsystemet)</th><th>-wal</th></tr></thead><tbody>' + rows + '</tbody></table></div></details>'
             : '<p class="muted">Ingen av databaserna hittades i ' + Z() + '.</p>');
     }
+    var dbsOpen = false;
 
     // Filer och filnamn från andra verktyg väntar på att en pågående öppning blir klar. Två öppningar
     // tätt efter varandra görs i tur och ordning, så att den sista gäller och de två inte blandas.

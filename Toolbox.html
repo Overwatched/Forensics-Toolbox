@@ -405,8 +405,14 @@
             </div>
 
             <div id="content-placeholder" class="content-placeholder">
-                <h2>Forensics Toolbox</h2>
-                <p>Klicka på ett verktyg i listan till vänster för att öppna det här</p>
+                <!-- Startsidan: en telefon med programmets viktigaste delar som appar (src/script.js fyller rutnätet). -->
+                <div class="start-phone" role="region" aria-label="Vad vill du göra?">
+                    <div class="start-notch" aria-hidden="true"></div>
+                    <h2>Vad vill du göra?</h2>
+                    <p class="start-sub">Välj här eller i listan till vänster</p>
+                    <button type="button" class="start-open" id="start-open">Öppna en extraktion (zip eller UFDR)…</button>
+                    <div class="start-grid" id="start-grid"></div>
+                </div>
 
                 <div class="good-to-know">
                     <div class="good-to-know-header">

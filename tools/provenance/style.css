@@ -345,3 +345,8 @@ button.chip.on .chip-n { color: inherit; }
 .seg button.detail + button.detail { border-left: 1px solid var(--border); }
 .seg button.detail.on { background: var(--accent); color: #fff; }
 .seg button.detail:not(.on):hover { background: var(--surface-hover); color: var(--text); }
+
+/* Databaserna som används: hopfällda under extraktionen. */
+#ex-list details.ex-dbs { margin-top: 8px; }
+#ex-list details.ex-dbs > summary { cursor: pointer; color: var(--text-muted); font-size: 13px; padding: 4px 0; }
+#ex-list details.ex-dbs[open] > summary { margin-bottom: 6px; }

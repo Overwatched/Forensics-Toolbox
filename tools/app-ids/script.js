@@ -232,8 +232,8 @@
                 name.className = 'app-name';
                 name.textContent = row.entry.name;
                 var appCell = cell(tr, name);
-                var sub = row.entry.note || (row.match === 'tillägg' ? 'Tillägg till ' + row.base : '');
-                if (row.entry.note && row.match === 'tillägg') sub += ' · tillägg till ' + row.base;
+                var how = row.match === 'tillägg' ? 'tillägg till ' + row.base : row.match === 'appgrupp' ? 'appgrupp' : '';
+                var sub = row.entry.note ? row.entry.note + (how ? ' · ' + how : '') : how ? how.charAt(0).toUpperCase() + how.slice(1) : '';
                 if (sub) {
                     var subEl = document.createElement('div');
                     subEl.className = 'sub';

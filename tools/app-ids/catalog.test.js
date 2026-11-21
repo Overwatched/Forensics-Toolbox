@@ -152,3 +152,21 @@ test('CSV: en cell som kan bli en formel får en apostrof', () => {
     const csv = catalog.lookupToCsv([{ input: '=cmd|"/c calc"', count: 1, entry: null, platform: 'ios', match: '' }]);
     assert.equal(csv.split('\r\n')[1].split(',')[0], '"\'=cmd|""/c calc"""');
 });
+
+test('ids från labbtelefonerna och appgrupper', function () {
+    assert.equal(catalog.resolveId('com.jbig.tonkeeper').entry.id, 'tonkeeper');
+    assert.equal(catalog.resolveId('com.tangem.wallet').entry.id, 'tangem');
+    assert.equal(catalog.resolveId('com.bunq.ios.NotificationService').match, 'tillägg');
+    assert.equal(catalog.resolveId('com.apple.mobiletimer').entry.name, 'Klocka');
+    const snap = catalog.resolveId('group.snapchat.picaboo');
+    assert.equal(snap.entry.id, 'snapchat');
+    assert.equal(snap.match, 'appgrupp');
+    assert.equal(catalog.resolveId('group.net.whatsapp.WhatsApp.shared').entry.id, 'whatsapp');
+    assert.equal(catalog.resolveId('group.org.whispersystems.signal.group').entry.id, 'signal');
+    assert.equal(catalog.resolveId('group.com.bunq.ios').entry.id, 'bunq');
+    assert.equal(catalog.resolveId('group.example.unknown').entry, null);
+    Object.keys(catalog.APP_GROUPS).forEach(function (g) {
+        assert.ok(catalog.APPS.some(function (e) { return e.id === catalog.APP_GROUPS[g]; }), g);
+    });
+    assert.equal(catalog.filterApps('ledger wallet')[0].id, 'ledger');
+});

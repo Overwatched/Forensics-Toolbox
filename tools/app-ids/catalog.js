@@ -18,6 +18,7 @@
         { id: 'valv', label: 'Valv & dolda filer' },
         { id: 'system', label: 'Förinstallerat iOS' },
         { id: 'android-system', label: 'Förinstallerat Android' },
+        { id: 'ovrigt', label: 'Övrigt' },
     ];
 
     function app(entry) {
@@ -97,7 +98,7 @@
         app({ id: 'trust', name: 'Trust Wallet', category: 'krypto', android: 'com.wallet.crypto.trustapp', ios: { bundleId: 'com.sixdays.trust', trackId: 1288339409 } }),
         app({ id: 'metamask', name: 'MetaMask', category: 'krypto', android: 'io.metamask', ios: { bundleId: 'io.metamask.MetaMask', trackId: 1438144202 } }),
         app({ id: 'coinbase', name: 'Coinbase', category: 'krypto', android: 'com.coinbase.android', ios: { bundleId: 'com.vilcsak.bitcoin2', trackId: 886427730 } }),
-        app({ id: 'coinbase-wallet', name: 'Coinbase Wallet', category: 'krypto', aliases: ['toshi'], android: 'org.toshi', ios: { bundleId: 'org.toshi.distribution', trackId: 1278383455 } }),
+        app({ id: 'coinbase-wallet', name: 'Coinbase Wallet', category: 'krypto', aliases: ['toshi', 'base app'], note: 'Visas som Wallet på hemskärmen i nyare versioner', android: 'org.toshi', ios: { bundleId: 'org.toshi.distribution', trackId: 1278383455 } }),
         app({ id: 'binance', name: 'Binance', category: 'krypto', android: 'com.binance.dev', ios: { bundleId: 'com.czzhao.binance', trackId: 1436799971 } }),
         app({ id: 'exodus', name: 'Exodus', category: 'krypto', android: 'exodusmovement.exodus', ios: { bundleId: 'exodus-movement.exodus', trackId: 1414384820 } }),
         app({ id: 'blockchain', name: 'Blockchain.com', category: 'krypto', android: 'piuk.blockchain.android', ios: { bundleId: 'com.rainydayapps.Blockchain', trackId: 493253309 } }),
@@ -105,7 +106,7 @@
         app({ id: 'phoenix', name: 'Phoenix', category: 'krypto', aliases: ['lightning'], android: 'fr.acinq.phoenix.mainnet', ios: { bundleId: 'co.acinq.phoenix', trackId: 1544097028 } }),
         app({ id: 'muun', name: 'Muun', category: 'krypto', android: 'io.muun.apollo', ios: { bundleId: 'com.muun.falcon', trackId: 1482037683 } }),
         app({ id: 'phantom', name: 'Phantom', category: 'krypto', aliases: ['solana'], android: 'app.phantom', ios: { bundleId: 'app.phantom', trackId: 1598432977 } }),
-        app({ id: 'ledger', name: 'Ledger Live', category: 'krypto', android: 'com.ledger.live', ios: { bundleId: 'com.ledger.live', trackId: 1361671700 } }),
+        app({ id: 'ledger', name: 'Ledger Live', category: 'krypto', aliases: ['ledger wallet'], note: 'Heter Ledger Wallet i nyare versioner', android: 'com.ledger.live', ios: { bundleId: 'com.ledger.live', trackId: 1361671700 } }),
         app({ id: 'crypto-com', name: 'Crypto.com', category: 'krypto', android: 'co.mona.android', ios: { bundleId: 'co.mona.Monaco', trackId: 1262148500 } }),
         app({ id: 'kraken', name: 'Kraken', category: 'krypto', android: 'com.kraken.invest.app', ios: { bundleId: 'com.kraken.invest.app', trackId: 1481947260 } }),
         app({ id: 'okx', name: 'OKX', category: 'krypto', android: 'com.okinc.okex.gp', ios: { bundleId: 'com.okex.OKExAppstoreFull', trackId: 1327268470 } }),
@@ -223,13 +224,13 @@
         app({ id: 'edge-wallet', name: 'Edge Wallet', category: 'krypto', ios: { bundleId: 'co.edgesecure.app', trackId: 1344400091 } }),
         app({ id: 'ellipal', name: 'ELLIPAL', category: 'krypto', ios: { bundleId: 'com.Ellipal.Ellipal', trackId: 1426179665 } }),
         app({ id: 'coolwallet', name: 'CoolWallet', category: 'krypto', ios: { bundleId: 'com.coolbitx.coolwallets', trackId: 1328764142 } }),
-        app({ id: 'tangem', name: 'Tangem', category: 'krypto', ios: { bundleId: 'com.tangem.Tangem', trackId: 1354868448 } }),
+        app({ id: 'tangem', name: 'Tangem', category: 'krypto', android: 'com.tangem.wallet', ios: { bundleId: 'com.tangem.Tangem', trackId: 1354868448 } }),
         app({ id: 'keplr', name: 'Keplr', category: 'krypto', ios: { bundleId: 'com.chainapsis.keplrwallet', trackId: 1567851089 } }),
         app({ id: 'core-avax', name: 'Core Wallet', category: 'krypto', ios: { bundleId: 'org.avalabs.corewallet', trackId: 6443685999 } }),
         app({ id: 'temple', name: 'Temple', category: 'krypto', ios: { bundleId: 'com.madfish.temple-wallet', trackId: 1610108763 } }),
         app({ id: 'mathwallet', name: 'MathWallet', category: 'krypto', ios: { bundleId: 'com.mathglobal.mathwallet5', trackId: 1582612388 } }),
         app({ id: 'changelly', name: 'Changelly', category: 'krypto', ios: { bundleId: 'com.changelly.iosapp', trackId: 1435140380 } }),
-        app({ id: 'moonpay', name: 'MoonPay', category: 'krypto', ios: { bundleId: 'com.moonpay.app', trackId: 1635031432 } }),
+        app({ id: 'moonpay', name: 'MoonPay', category: 'krypto', android: 'com.moonpay', ios: { bundleId: 'com.moonpay.app', trackId: 1635031432 } }),
         app({ id: '21bitcoin', name: '21bitcoin', category: 'krypto', ios: { bundleId: 'digital.fior.21app', trackId: 1579302952 } }),
         app({ id: 'bitbox', name: 'BitBox', category: 'krypto', ios: { bundleId: 'swiss.bitbox.BitBoxApp', trackId: 6670479223 } }),
         app({ id: 'nuri', name: 'Nuri', category: 'krypto', ios: { bundleId: 'com.nuri.nuriwallet', trackId: 6754772131 } }),
@@ -294,6 +295,27 @@
         app({ id: 'gallery-vault', name: 'Gallery Vault', category: 'valv', android: 'com.thinkyeah.galleryvault' }),
         app({ id: 'vaulty', name: 'Vaulty', category: 'valv', android: 'com.theronrogers.vaultyfree' }),
 
+        // Sedda på labbtelefonerna (iPhone 2026-11-19, OnePlus Nord, Samsung A33): id:t ur Info.plist eller data/data.
+        app({ id: 'tonkeeper', name: 'Tonkeeper', category: 'krypto', aliases: ['keeper', 'ton'], note: 'Heter Keeper på hemskärmen', ios: { bundleId: 'com.jbig.tonkeeper' } }),
+        app({ id: 'monero-com', name: 'Monero.com', category: 'krypto', aliases: ['cake wallet', 'monero'], android: 'com.monero.app', ios: { bundleId: 'com.cakewallet.monero' } }),
+        app({ id: 'mew', name: 'MEW wallet', category: 'krypto', aliases: ['myetherwallet'], ios: { bundleId: 'com.myetherwallet.mewwallet' } }),
+        app({ id: 'lobstr', name: 'LOBSTR', category: 'krypto', aliases: ['stellar'], ios: { bundleId: 'com.ultrastellar.lobstr' } }),
+        app({ id: 'thorwallet', name: 'THORWallet', category: 'krypto', ios: { bundleId: 'defisuisseag.thorwallet' } }),
+        app({ id: 'tether-wallet', name: 'Tether Wallet', category: 'krypto', aliases: ['usdt'], ios: { bundleId: 'io.tether.wallet.official' } }),
+        app({ id: 'proton-wallet', name: 'Proton Wallet', category: 'krypto', android: 'me.proton.wallet.android', ios: { bundleId: 'me.proton.wallet.ios' } }),
+        app({ id: 'hot-wallet', name: 'HOT Wallet', category: 'krypto', aliases: ['near'], ios: { bundleId: 'app.here.dev.wallet' } }),
+        app({ id: 'now-wallet', name: 'NOW Wallet', category: 'krypto', aliases: ['changenow'], ios: { bundleId: 'io.changenow.wallet-now' } }),
+        app({ id: 'iron-wallet', name: 'Iron Wallet', category: 'krypto', ios: { bundleId: 'com.wallet.crypto.btc.eth' } }),
+        app({ id: 'sweat-wallet', name: 'Sweat Wallet', category: 'krypto', aliases: ['sweatcoin'], ios: { bundleId: 'com.sweateconomy.wallet' } }),
+        app({ id: 'pi-network', name: 'Pi Network', category: 'krypto', aliases: ['pi'], ios: { bundleId: 'com.socialchain.blockchainvault' } }),
+        app({ id: 'revolut-x', name: 'Revolut X', category: 'krypto', ios: { bundleId: 'com.revolut.revolutx' } }),
+        app({ id: 'bitget-wallet', name: 'Bitget Wallet', category: 'krypto', aliases: ['bitkeep'], note: 'Plånboken, inte börsen Bitget', android: 'com.bitkeep.wallet' }),
+        app({ id: 'stack-wallet', name: 'Stack Wallet', category: 'krypto', android: 'com.cypherstack.stackwallet' }),
+        app({ id: 'bunq', name: 'bunq', category: 'betalning', ios: { bundleId: 'com.bunq.ios' } }),
+        app({ id: 'monfluo', name: 'Monfluo', category: 'betalning', aliases: ['budget'], ios: { bundleId: 'xyz.mnflopapp.Mnfl-Budget-Manager' } }),
+        app({ id: 'google-maps', name: 'Google Maps', category: 'ovrigt', ios: { bundleId: 'com.google.Maps' } }),
+        app({ id: 'utapp', name: 'utapp', category: 'ovrigt', note: 'Namnet ur appens Info.plist', ios: { bundleId: 'com.bounced' } }),
+
         // Förinstallerat iOS. Syns ofta som skapare/importör i Photos.sqlite.
         app({ id: 'ios-camera', name: 'Kamera', category: 'system', aliases: ['camera'], note: 'Tagen med iPhones kamera', ios: { bundleId: 'com.apple.camera' } }),
         app({ id: 'ios-photos', name: 'Bilder', category: 'system', aliases: ['photos', 'foton'], note: 'Bilder-appen (redigering, import)', ios: { bundleId: 'com.apple.mobileslideshow' } }),
@@ -321,6 +343,26 @@
         app({ id: 'ios-music', name: 'Musik', category: 'system', aliases: ['music', 'apple music'], ios: { bundleId: 'com.apple.Music' } }),
         app({ id: 'ios-appstore', name: 'App Store', category: 'system', ios: { bundleId: 'com.apple.AppStore' } }),
         app({ id: 'ios-freeform', name: 'Freeform', category: 'system', ios: { bundleId: 'com.apple.freeform' } }),
+        app({ id: 'ios-tv', name: 'TV', category: 'system', aliases: ['apple tv'], ios: { bundleId: 'com.apple.tv' } }),
+        app({ id: 'ios-books', name: 'Böcker', category: 'system', aliases: ['books', 'ibooks'], ios: { bundleId: 'com.apple.iBooks' } }),
+        app({ id: 'ios-watch', name: 'Watch', category: 'system', aliases: ['bridge', 'apple watch'], ios: { bundleId: 'com.apple.Bridge' } }),
+        app({ id: 'ios-calculator', name: 'Kalkylator', category: 'system', aliases: ['calculator'], ios: { bundleId: 'com.apple.calculator' } }),
+        app({ id: 'ios-compass', name: 'Kompass', category: 'system', aliases: ['compass'], ios: { bundleId: 'com.apple.compass' } }),
+        app({ id: 'ios-fitness', name: 'Fitness', category: 'system', ios: { bundleId: 'com.apple.Fitness' } }),
+        app({ id: 'ios-games', name: 'Spel', category: 'system', aliases: ['games'], ios: { bundleId: 'com.apple.games' } }),
+        app({ id: 'ios-home', name: 'Hem', category: 'system', aliases: ['home', 'homekit'], ios: { bundleId: 'com.apple.Home' } }),
+        app({ id: 'ios-journal', name: 'Dagbok', category: 'system', aliases: ['journal'], ios: { bundleId: 'com.apple.journal' } }),
+        app({ id: 'ios-magnifier', name: 'Förstoringsglas', category: 'system', aliases: ['magnifier'], ios: { bundleId: 'com.apple.Magnifier' } }),
+        app({ id: 'ios-measure', name: 'Mätverktyg', category: 'system', aliases: ['measure'], ios: { bundleId: 'com.apple.measure' } }),
+        app({ id: 'ios-itunes-store', name: 'iTunes Store', category: 'system', ios: { bundleId: 'com.apple.MobileStore' } }),
+        app({ id: 'ios-clock', name: 'Klocka', category: 'system', aliases: ['clock', 'mobiletimer'], ios: { bundleId: 'com.apple.mobiletimer' } }),
+        app({ id: 'ios-news', name: 'News', category: 'system', ios: { bundleId: 'com.apple.news' } }),
+        app({ id: 'ios-podcasts', name: 'Podcaster', category: 'system', aliases: ['podcasts'], ios: { bundleId: 'com.apple.podcasts' } }),
+        app({ id: 'ios-preview', name: 'Förhandsvisning', category: 'system', aliases: ['preview'], ios: { bundleId: 'com.apple.Preview' } }),
+        app({ id: 'ios-translate', name: 'Översätt', category: 'system', aliases: ['translate'], ios: { bundleId: 'com.apple.Translate' } }),
+        app({ id: 'ios-stocks', name: 'Aktier', category: 'system', aliases: ['stocks'], ios: { bundleId: 'com.apple.stocks' } }),
+        app({ id: 'ios-tips', name: 'Tips', category: 'system', ios: { bundleId: 'com.apple.tips' } }),
+        app({ id: 'ios-weather', name: 'Väder', category: 'system', aliases: ['weather'], ios: { bundleId: 'com.apple.weather' } }),
 
         // Förinstallerat Android. Syns ofta som owner_package_name i MediaStore.
         app({ id: 'pixel-camera', name: 'Pixel-kamera', category: 'android-system', aliases: ['google camera', 'gcam'], android: 'com.google.android.GoogleCamera' }),
@@ -428,11 +470,38 @@
         return order.map(function (key) { return counts[key]; });
     }
 
-    // Exakt träff först, annars närmaste kända id som prefix (t.ex. ShareExtension).
+    // Appgrupper (group.…) vars namn inte börjar med appens id. Sedda på iPhone-labbet 2026-11-19. Meta-apparnas
+    // gemensamma grupper delas av Messenger, Facebook och Instagram; WhatsApps family-grupp av WhatsApp och Business.
+    var APP_GROUPS = {
+        'group.snapchat.picaboo': 'snapchat',
+        'group.myetherwallet': 'mew', 'group.myetherwallet.walletconnect': 'mew',
+        'group.exchange.1inch': 'oneinch',
+        'group.me.proton.wallet': 'proton-wallet',
+        'group.robinhood.release.robinhood': 'robinhood',
+        'group.com.facebook.family': 'messenger', 'group.com.metaplatforms.family': 'messenger', 'group.com.facebook.msysstorage': 'messenger', 'group.com.facebook.lightspeed': 'messenger',
+        'group.net.whatsapp.family': 'whatsapp', 'group.net.whatsapp.stickers': 'whatsapp',
+        'group.com.zhiliaoapp.shared': 'tiktok',
+        'group.com.google.chrome': 'chrome',
+        'group.is.workflow.shortcuts': 'ios-shortcuts', 'group.is.workflow.my.app': 'ios-shortcuts',
+        'group.mobile.mexcglobal': 'mexc',
+        'group.com.revolut.software': 'revolut',
+        'group.tvappservices.container': 'ios-tv',
+        'group.homedevicesetup.diagnostics': 'ios-home',
+    };
+
+    // Exakt träff först, annars närmaste kända id som prefix (t.ex. ShareExtension). En appgrupp (group.<id>) går till
+    // appen med det id:t, eller till appen i APP_GROUPS.
     function resolveId(id) {
         var index = idIndex();
         var key = String(id || '').toLowerCase();
         if (index[key]) return { entry: index[key].entry, platform: index[key].platform, match: 'exakt', base: key };
+        if (/^group\./.test(key)) {
+            var named = APP_GROUPS[key];
+            var owner = named ? APPS.filter(function (e) { return e.id === named; })[0] : null;
+            if (owner) return { entry: owner, platform: 'ios', match: 'appgrupp', base: key };
+            var inner = resolveId(key.slice(6));
+            if (inner.entry) return { entry: inner.entry, platform: inner.platform, match: 'appgrupp', base: inner.base };
+        }
         var parts = key.split('.');
         for (var n = parts.length - 1; n >= 2; n--) {
             var prefix = parts.slice(0, n).join('.');
@@ -481,6 +550,7 @@
 
     var api = {
         GROUPS: GROUPS,
+        APP_GROUPS: APP_GROUPS,
         APPS: APPS,
         filterApps: filterApps,
         matches: matches,

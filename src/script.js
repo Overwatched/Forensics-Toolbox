@@ -51,10 +51,60 @@ function showBrowserNotice() {
 
 showBrowserNotice();
 
+// Startsidan: de viktigaste verktygen som appar på en telefon. Ikonen tas från verktygets rad i listan, och ett tryck
+// öppnar verktyget som ett klick i listan. Öppna en extraktion visar Telefonen och väljer zippen.
+const START_APPS = [
+    ['tools/phone', 'Telefonen', 'Bläddra i telefonen'],
+    ['tools/provenance/index.html', 'Härkomst', 'Var kommer bilden ifrån?'],
+    ['tools/db-queries/queries.html', 'Queries', 'Fråga databaserna'],
+    ['tools/positions/index.html', 'Positioner', 'Karta, rutt och var telefonen var'],
+    ['tools/chats/index.html', 'Chattar', 'Läs konversationerna'],
+    ['tools/exif-viewer/index.html', 'EXIF', 'Bildens metadata'],
+    ['tools/app-ids/index.html', 'App-ID', 'Vilken app är det?'],
+    ['tools/lab/index.html', 'Laboration', 'Gör en labb med klocka'],
+];
+function navItemFor(key) {
+    return document.querySelector('.nav-item[data-key="' + key + '"]') || document.querySelector('.nav-item[data-src="' + key + '"]');
+}
+function initStart() {
+    const grid = document.getElementById('start-grid');
+    if (!grid) return;
+    START_APPS.forEach(([key, title, what]) => {
+        const item = navItemFor(key);
+        if (!item) return;
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'start-app';
+        b.dataset.key = key;
+        b.title = what;
+        const icon = document.createElement('span');
+        icon.className = 'start-app-icon';
+        const svg = item.querySelector('.nav-item-icon svg');
+        if (svg) icon.append(svg.cloneNode(true));
+        const name = document.createElement('span');
+        name.className = 'start-app-name';
+        name.textContent = title;
+        const sub = document.createElement('span');
+        sub.className = 'start-app-what';
+        sub.textContent = what;
+        b.append(icon, name, sub);
+        b.addEventListener('click', () => item.click());
+        grid.append(b);
+    });
+    const open = document.getElementById('start-open');
+    const phone = navItemFor('tools/phone');
+    if (open) open.addEventListener('click', () => {
+        if (phone) phone.click();
+        const input = document.getElementById('cb-input');
+        if (input) input.click();
+    });
+}
+
 function initToolNav() {
     const host = document.getElementById('tool-host');
     const placeholder = document.getElementById('content-placeholder');
     if (!host || !placeholder) return;
+    initStart();
 
     const toolAliases = {
         'tools/photos-sqlite-queries/queries.html': 'tools/db-queries/queries.html?db=photos-ios17-plus',

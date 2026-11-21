@@ -49,7 +49,8 @@
     // mappen och filen med små bokstäver, som i bildbibliotekets rad.
     function entryKey(name) {
         var n = '/' + String(name).replace(/\\/g, '/').replace(/^\/+/, ''), m;
-        if ((m = /\/PhotoData\/Thumbnails\/V2\/(.+)\/5005\.jpg$/i.exec(n))) return { kind: 'thumb', key: m[1].toLowerCase() };
+        // Telefonens tumnaglar: 5005.JPG oftast, men andra nummer finns (en video har ibland bara en annan storlek).
+        if ((m = /\/PhotoData\/Thumbnails\/V2\/(.+)\/(\d+)\.jpg$/i.exec(n))) return { kind: 'thumb', key: m[1].toLowerCase(), size: Number(m[2]) };
         if (/\/PhotoData\/(Thumbnails|Caches|Metadata|Mutations)\//i.test(n) || !MEDIA.test(n)) return null;
         if ((m = /\/Media\/((?:DCIM|PhotoData\/CPLAssets)\/.+)$/i.exec(n))) return { kind: 'file', key: m[1].toLowerCase() };
         // Androids lagring: allt under data/media/<användare>/ (eller storage/emulated/<användare>/), som relative_path.

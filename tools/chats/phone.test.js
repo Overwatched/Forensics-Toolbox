@@ -13,12 +13,13 @@ test('hemskärmen: en app per app med databas, antalet chattar i de lästa, och 
 });
 
 test('bildernas nycklar: tumnageln och originalet på iOS, filen i DCIM och Pictures på Android', () => {
-    assert.deepStrictEqual(P.entryKey('private/var/mobile/Media/PhotoData/Thumbnails/V2/DCIM/100APPLE/IMG_0012.HEIC/5005.JPG'), { kind: 'thumb', key: 'dcim/100apple/img_0012.heic' });
+    assert.deepStrictEqual(P.entryKey('private/var/mobile/Media/PhotoData/Thumbnails/V2/DCIM/100APPLE/IMG_0012.HEIC/5005.JPG'), { kind: 'thumb', key: 'dcim/100apple/img_0012.heic', size: 5005 });
     assert.deepStrictEqual(P.entryKey('/private/var/mobile/Media/DCIM/100APPLE/IMG_0012.HEIC'), { kind: 'file', key: 'dcim/100apple/img_0012.heic' });
     assert.deepStrictEqual(P.entryKey('filesystem1/private/var/mobile/Media/PhotoData/CPLAssets/group388/AA82.JPG'), { kind: 'file', key: 'photodata/cplassets/group388/aa82.jpg' });
     assert.deepStrictEqual(P.entryKey('data/media/0/DCIM/Camera/PXL_1.jpg'), { kind: 'file', key: 'dcim/camera/pxl_1.jpg' });
     assert.deepStrictEqual(P.entryKey('data/media/0/Pictures/Screenshots/S.png'), { kind: 'file', key: 'pictures/screenshots/s.png' });
-    assert.strictEqual(P.entryKey('private/var/mobile/Media/PhotoData/Thumbnails/V2/DCIM/100APPLE/IMG_1.JPG/5003.JPG'), null);
+    // Andra storlekar än 5005 räknas också (en video har ibland bara en annan); 5005 väljs först när båda finns.
+    assert.deepStrictEqual(P.entryKey('private/var/mobile/Media/PhotoData/Thumbnails/V2/DCIM/100APPLE/IMG_1.JPG/5003.JPG'), { kind: 'thumb', key: 'dcim/100apple/img_1.jpg', size: 5003 });
     assert.strictEqual(P.entryKey('private/var/mobile/Media/PhotoData/Photos.sqlite'), null);
     assert.strictEqual(P.entryKey('data/media/0/DCIM/notes.txt'), null);
 });
