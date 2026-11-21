@@ -285,6 +285,28 @@ function powerlog(SQL) {
 }
 
 // En binär plist med en dict av strängar, som behållarens metadata (.com.apple.mobile_container_manager.metadata.plist).
+// Safaris cache i fixturen: behållaren (metadata-plist) och tre poster i NetworkCache Version 17.
+function safariCache() {
+    const { webkitRecord } = require('./webcache-builder.js');
+    const C = 'filesystem1/private/var/mobile/Containers/Data/Application/5AFA5AFA-1234-4567-89AB-CDEF01234567/';
+    const R = C + 'Library/Caches/WebKit/NetworkCache/Version 17/';
+    const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
+    const page = webkitRecord({ url: 'https://www.example.org/katter', mime: 'text/html', partition: 'example.org', ms: Date.UTC(2024, 5, 1, 14, 31),
+        body: '<!doctype html><html><head><title>Katter</title><link rel="stylesheet" href="/s.css"><script>document.title = "skript"</script></head>' +
+            '<body><h1>Sparad sida om katter</h1><img src="/bild.png" alt="katt"><a href="https://www.example.org/mer">Mer</a></body></html>',
+        headers: { 'Content-Type': 'text/html; charset=utf-8', Date: 'Sat, 01 Jun 2024 14:31:00 GMT' } });
+    const img = webkitRecord({ url: 'https://www.example.org/bild.png', mime: 'image/png', partition: 'example.org', body: png, inline: false, headers: { 'Content-Type': 'image/png' } });
+    const css = webkitRecord({ url: 'https://www.example.org/s.css', mime: 'text/css', partition: 'example.org', body: 'h1 { color: rgb(200, 0, 0); }', headers: { 'Content-Type': 'text/css' } });
+    const H = (n) => String(n).repeat(40).slice(0, 40);
+    return [
+        { name: C + '.com.apple.mobile_container_manager.metadata.plist', data: bplistDict({ MCMMetadataIdentifier: 'com.apple.mobilesafari' }) },
+        { name: R + 'Records/' + H('A') + '/Resource/' + H('1'), data: page.record },
+        { name: R + 'Records/' + H('A') + '/Resource/' + H('2'), data: img.record },
+        { name: R + 'Records/' + H('A') + '/Resource/' + H('3'), data: css.record },
+        { name: R + 'Blobs/' + img.blobName, data: img.blob },
+    ];
+}
+
 function bplistDict(obj) {
     const keys = Object.keys(obj);
     const n = keys.length;
@@ -899,6 +921,8 @@ async function build() {
         { name: P + 'Library/CallHistoryDB/CallHistory.storedata', data: callHistoryDb(SQL), deflate: true },
         { name: P + 'Library/AddressBook/AddressBook.sqlitedb', data: addressBookDb(SQL), deflate: true },
         { name: P + 'Library/Safari/History.db', data: safariHistoryDb(SQL), deflate: true },
+        // Safaris cache (WebKit NetworkCache): en sida med en bild (i Blobs) och en stilmall, ett skript och en länk.
+        ...safariCache(),
         // Bakgrunden ur PosterBoard och några lägen.
         { name: P + 'Containers/Data/Application/24242424-3535-4646-5757-686868686868/Library/Application Support/PRBPosterExtensionDataStore/61/PBFPosterExtensionDataStoreSQLiteDatabase.sqlite3', data: posterDb(SQL), deflate: true },
         { name: P + 'Containers/Data/Application/24242424-3535-4646-5757-686868686868/Library/Application Support/PRBPosterExtensionDataStore/61/Extensions/com.apple.MercuryPoster/configurations/' + POSTER + '/versions/2/RuntimeSnapshot-home.atx',

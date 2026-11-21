@@ -604,3 +604,9 @@ body {
 /* Profilbilden ur appen (chat-avatars) i stället för initialen. */
 .c-av.has-img, .c-avatar.has-img { background-size: cover; background-position: center; color: transparent; }
 .c-av.has-img::before { content: none; }
+
+/* Sparade sidor: sidan ur webbläsarens cache i en ram utan skript och utan nätverk, eller källkoden. */
+.w-page-btns { display: flex; gap: 8px; margin: 10px 0; }
+.w-page-note { margin: 6px 0; }
+.w-frame { width: 100%; height: 70vh; border: 1px solid var(--border); border-radius: 10px; background: #fff; }
+.w-source { white-space: pre-wrap; word-break: break-all; font-size: 11px; max-height: 70vh; overflow: auto; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 8px; }

@@ -1777,7 +1777,7 @@ const scenarios = [
         await ev(`document.querySelector('#c-device-body .d-dock [data-device-web]').click(), 1`);
         const list = await ev(`({ title: document.getElementById('c-device-title').textContent, chips: [...document.querySelectorAll('#c-device-body [data-web-tab]')].map(b => b.textContent),
             rows: [...document.querySelectorAll('#c-device-body .w-row')].map(r => r.querySelector('b').textContent + ' | ' + r.querySelector('.d-row-sub').textContent) })`);
-        expect(list.title === 'Safari' && list.chips.join('|') === 'Historik 3|Sökningar 1|Flikar 2', 'Safari: ' + JSON.stringify(list));
+        expect(list.title === 'Safari' && /^Historik 3\|Sökningar 1\|Flikar 2\|Sparade sidor /.test(list.chips.join('|')), 'Safari: ' + JSON.stringify(list));
         expect(list.rows[0] === 'Exempel | example.org · synkad' && list.rows[1] === 'example.org | example.org · laddades inte', 'Besöken: ' + JSON.stringify(list.rows));
         await ev(`document.querySelector('#c-device-body .w-row').click(), 1`);
         const kv = () => ev(`Object.fromEntries([...document.querySelectorAll('#c-device-body .d-kv')].map(k => [k.querySelector('.d-kv-label').textContent, k.querySelector('.d-kv-value').textContent]))`);
@@ -1795,6 +1795,17 @@ const scenarios = [
         const tab = await kv();
         expect(tab.Grupp === 'Privata flikar (privat surfning)' && /^\d{4}-\d\d-\d\d \d\d:\d\d/.test(tab['Senaste besöket']), 'Fliken: ' + JSON.stringify(tab));
         await ev(`document.getElementById('c-device-back').click(), 1`);
+        // Sparade sidor: sidan ur Safaris cache, med bilden ur Blobs och stilmallen inlagda, utan skript och utan länkar.
+        await ev(`document.querySelector('#c-device-body [data-web-tab="pages"]').click(), 1`);
+        const pages = await c.waitFor(CHAT, `(function(){ const r = [...document.querySelectorAll('#c-device-body .w-row')]; return r.length && r.map(x => x.querySelector('b').textContent + ' | ' + x.querySelector('.d-row-sub').textContent); })()`, 30000, 'sparade sidor');
+        expect(pages.length === 1 && /^example\.org \/katter \| 200|^example\.org \/katter/.test(pages[0]), 'Sparade sidor: ' + JSON.stringify(pages));
+        await ev(`document.querySelector('#c-device-body .w-row').click(), 1`);
+        const pageKv = await kv();
+        expect(pageKv.Adress === 'https://www.example.org/katter' && /^2024-06-01/.test(pageKv['Sparad i cachen']), 'Sidan: ' + JSON.stringify(pageKv));
+        await ev(`document.querySelector('[data-web-render="page"]').click(), 1`);
+        const shown = await c.waitFor(CHAT, `(function(){ const w = document.querySelector('#c-device-body .w-page .warn'); if (w) return { error: w.textContent }; const f = document.querySelector('#c-device-body .w-frame'); return f && f.srcdoc && { sandbox: f.getAttribute('sandbox'), script: /<script/i.test(f.srcdoc), img: /src="data:image.png;base64,/.test(f.srcdoc), css: /rgb.200, 0, 0./.test(f.srcdoc), href: /href="https:/.test(f.srcdoc), csp: /Content-Security-Policy/.test(f.srcdoc), note: document.querySelector('.w-page-note').textContent }; })()`, 30000, 'sidan');
+        expect(shown.sandbox === '' && !shown.script && shown.img && shown.css && !shown.href && shown.csp, 'Sidan i ramen: ' + JSON.stringify(shown));
+        await ev(`document.getElementById('c-device-back').click(), 1`);
         await ev(`document.getElementById('c-device-back').click(), 1`);
         await noInjectedScript(c);
         // Queries: söktermen ur adressen.
@@ -1806,7 +1817,7 @@ const scenarios = [
         await c.waitFor(QUER, `/rad(er)? på/.test(document.getElementById('run-status').textContent) || /run-warn/.test(document.getElementById('run-status').innerHTML)`, 30000, 'körningen');
         const q = await c.ev(QUER, `({ status: document.getElementById('run-status').innerText, cols: [...document.querySelectorAll('#run-result thead th')].map(t => t.textContent), rows: [...document.querySelectorAll('#run-result tbody tr')].map(tr => [...tr.children].map(td => td.textContent)) })`);
         expect(q.rows.length === 1 && q.rows[0][q.cols.indexOf('sokterm')] === 'tågtider göteborg' && q.rows[0][q.cols.indexOf('sokmotor')] === 'Google', 'Queries: ' + JSON.stringify(q.rows) + ' ' + q.status);
-        return '3 besök, 1 sökning och 2 flikar i Safari; 1 rad i Queries';
+        return '3 besök, 1 sökning och 2 flikar i Safari; en sparad sida ur cachen med bild och stilmall; 1 rad i Queries';
     }],
 
     ['Härkomst: sökning på tid listar filerna, och HTML i namnen körs inte', async ({ c }) => {

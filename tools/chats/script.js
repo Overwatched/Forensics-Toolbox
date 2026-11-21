@@ -3474,20 +3474,154 @@
         return '<button type="button" class="d-app has-data" data-device-web="' + esc(b.id) + '" aria-label="' + esc(name + ', ' + what) + '" title="' + esc(name + ' · ' + b.id) + '">' +
             iconHtml(name === 'Safari' ? 'Safari' : 'Webbläsare', badgeHtml(false, false, n), name, url) + '<span class="d-name">' + esc(name) + '</span></button>';
     }
-    var WEB_TABS = [['visits', 'Historik'], ['searches', 'Sökningar'], ['downloads', 'Nedladdningar'], ['tabs', 'Flikar'], ['cleared', 'Rensat']];
-    function webTabsOf(b) { return WEB_TABS.filter(function (t) { return b[t[0]] && (b[t[0]].length || t[0] === 'visits'); }); }
+    var WEB_TABS = [['visits', 'Historik'], ['searches', 'Sökningar'], ['downloads', 'Nedladdningar'], ['tabs', 'Flikar'], ['cleared', 'Rensat'], ['pages', 'Sparade sidor']];
+    // Sparade sidor läses först när fliken väljs, och fliken finns tills cachen visat sig vara tom.
+    function webTabsOf(b) { return WEB_TABS.filter(function (t) { return t[0] === 'pages' ? window.WebCache && (!b.pages || b.pages.length || b.pagesState === 'busy') : b[t[0]] && (b[t[0]].length || t[0] === 'visits'); }); }
     function webList(b, tab) { return b[tab] || []; }
+
+    // ---------- Sparade sidor (webbläsarens cache, WebCache) ----------
+    // Cachen hör till appen: behållaren på iOS (MCMMetadataIdentifier i behållarens metadata-plist), paketet på Android.
+    // Alla poster läses en gång; sidorna (HTML) listas, och de andra (bilder, stilmallar) används när en sida visas.
+    var CONTAINER_META = /\/Containers\/Data\/Application\/[0-9A-F-]{36}\/\.com\.apple\.mobile_container_manager\.metadata\.plist$/i;
+    async function loadPages(b) {
+        var z = state.zip;
+        b.pagesState = 'busy';
+        b.pages = [];
+        b.cacheFiles = {};
+        try {
+            var entries = await ExtractionCore.find(z.read, z.file.size, function (name) { return !!WebCache.kindOf(name) || CONTAINER_META.test(name); });
+            var mine = {}, blobs = {}, parse = window.KC && KC.bplist ? KC.bplist.parse : null;
+            if (b.platform === 'iOS') {
+                var metas = entries.filter(function (e) { return CONTAINER_META.test(e.name); });
+                var withCache = {};
+                entries.forEach(function (e) { var o = WebCache.ownerOf(e.name); if (o && o.container && WebCache.kindOf(e.name)) withCache[o.container] = true; });
+                for (var i = 0; i < metas.length; i++) {
+                    var o = WebCache.ownerOf(metas[i].name);
+                    if (!o || !withCache[o.container] || !parse) continue;
+                    try {
+                        var meta = parse((await ExtractionCore.readEntry(z.read, metas[i])).bytes);
+                        if (meta && meta.MCMMetadataIdentifier === b.id) mine[o.container] = true;
+                    } catch (err) { /* en plist som inte går att läsa hoppas över */ }
+                }
+            }
+            var own = entries.filter(function (e) {
+                var o = WebCache.ownerOf(e.name), k = WebCache.kindOf(e.name);
+                if (!o || !k) return false;
+                return b.platform === 'iOS' ? !!mine[o.container] : o.id === b.id;
+            });
+            own.forEach(function (e) { var m = WebCache.WEBKIT_BLOB.exec(e.name); if (m) blobs[m[1].toUpperCase()] = e; });
+            var recs = own.filter(function (e) { var k = WebCache.kindOf(e.name); return k === 'webkit' || k === 'chromium'; });
+            b.cacheEntries = recs.length;
+            for (var j = 0; j < recs.length && z === state.zip; j++) {
+                var e = recs[j];
+                if (e.size > 40 * 1048576) continue;
+                try {
+                    var bytes = (await ExtractionCore.readEntry(z.read, e)).bytes;
+                    var r = WebCache.kindOf(e.name) === 'webkit' ? WebCache.parseWebKit(bytes) : WebCache.parseChromium(bytes);
+                    var item = {
+                        url: r.url, host: Web.host(r.url), ms: r.ms, requestMs: r.requestMs || null, mime: r.mime, status: r.status, headers: r.headers, encoding: r.encoding || '',
+                        size: r.bodySize, engine: r.engine, entry: e, blob: r.inline ? null : blobs[r.bodyHash] || null, bodyHash: r.inline ? '' : r.bodyHash, partition: r.partition || '',
+                    };
+                    if (!b.cacheFiles[WebCache.bare(r.url)]) b.cacheFiles[WebCache.bare(r.url)] = item;
+                    if (WebCache.isHtml(r) && r.bodySize > 0) b.pages.push(item);
+                } catch (err) { /* en post som inte går att tolka hoppas över */ }
+                if (j % 50 === 49) await ZipRead.painted();
+            }
+            b.pages.sort(function (a, c) { return (c.ms || 0) - (a.ms || 0); });
+            b.pagesState = 'ready';
+        } catch (err) {
+            b.pagesState = 'error';
+            b.pagesError = errText(err);
+        }
+        if (state.device.screen === 'web' && state.device.web === b.id && state.device.webTab === 'pages') renderDevice();
+    }
+
+    // Innehållet i en post: i posten, i Blobs (WebKit) eller packat (Chromium, gzip och deflate; brotli går inte här).
+    async function cacheBody(item) {
+        var z = state.zip;
+        if (item.engine === 'webkit') {
+            if (item.blob) return (await ExtractionCore.readEntry(z.read, item.blob)).bytes;
+            if (item.bodyHash) throw new Error('Innehållet ligger i Blobs/' + item.bodyHash + ', som inte finns i ' + Z() + '.');
+            return WebCache.parseWebKit((await ExtractionCore.readEntry(z.read, item.entry)).bytes).body;
+        }
+        var body = WebCache.parseChromium((await ExtractionCore.readEntry(z.read, item.entry)).bytes).body;
+        if (!body) throw new Error('Innehållet saknas i posten.');
+        var enc = item.encoding;
+        if (!enc || enc === 'identity') return body;
+        if (enc === 'br') throw new Error('Innehållet är packat med brotli, som programmet inte kan packa upp än. Rubrikerna och adressen står här.');
+        if (enc !== 'gzip' && enc !== 'deflate') throw new Error('Innehållet är packat med ' + enc + '.');
+        var ds = new DecompressionStream(enc === 'gzip' ? 'gzip' : 'deflate');
+        return new Uint8Array(await new Response(new Blob([body]).stream().pipeThrough(ds)).arrayBuffer());
+    }
+
+    function bytesToDataUrl(bytes, mime) {
+        return new Promise(function (resolve) {
+            var r = new FileReader();
+            r.onload = function () { resolve(String(r.result)); };
+            r.onerror = function () { resolve(null); };
+            r.readAsDataURL(new Blob([bytes], { type: mime || 'application/octet-stream' }));
+        });
+    }
+
+    // Sidan i en ram utan skript och utan nätverk, med bilderna och stilmallarna som finns i cachen. Resultatet står i
+    // state.device.webPage och ritas av renderWebItem, så att det står kvar när vyn ritas om.
+    async function showCachedPage(b, item, how) {
+        var P = state.device, view = P.webPage = { entry: item.entry.name, how: how, state: 'busy' };
+        var done = function () { if (P.webPage === view && P.screen === 'webItem') renderDevice(); };
+        done();
+        try {
+            var bytes = await cacheBody(item);
+            var text = WebCache.decodeText(bytes, item.headers);
+            if (how === 'source') { view.text = text; view.state = 'ready'; done(); return; }
+            var doc = new DOMParser().parseFromString(text, 'text/html');
+            var want = {};
+            doc.querySelectorAll('img[src], img[data-src], link[rel~="stylesheet"][href], input[type="image"][src]').forEach(function (n) {
+                var raw = n.tagName === 'LINK' ? n.getAttribute('href') : n.getAttribute('src') || n.getAttribute('data-src');
+                var url = WebCache.resolve(raw || '', item.url);
+                if (url) want[WebCache.bare(url)] = n.tagName === 'LINK' ? 'css' : 'img';
+            });
+            var got = {}, keys = Object.keys(want).slice(0, 150);
+            for (var i = 0; i < keys.length; i++) {
+                var hit = b.cacheFiles[keys[i]];
+                if (!hit || hit === item || hit.size > 8 * 1048576) continue;
+                try {
+                    var data = await cacheBody(hit);
+                    if (want[keys[i]] === 'css') got[keys[i]] = { text: WebCache.decodeText(data, hit.headers) };
+                    else got[keys[i]] = { dataUrl: await bytesToDataUrl(data, /^image\//.test(hit.mime) ? hit.mime : '') };
+                } catch (err) { /* filen saknas eller är packad på ett sätt som inte går att läsa */ }
+            }
+            var page = WebCache.safePage(doc, item.url, function (url) { return got[WebCache.bare(url)] || null; });
+            view.html = page.html;
+            view.note = many(page.used.images, 'bild', 'bilder') + ' och ' + many(page.used.styles, 'stilmall', 'stilmallar') + ' ur cachen' +
+                (page.used.missing ? ', ' + many(page.used.missing, 'bild', 'bilder') + ' saknas (streckad ram)' : '') + '. Skript körs inte, inget hämtas från nätet och länkarna går inte att följa (adressen står när du håller över).';
+            view.state = 'ready';
+        } catch (err) {
+            view.state = 'error';
+            view.error = errText(err);
+        }
+        done();
+    }
+    function webPageHtml(x) {
+        var v = state.device.webPage;
+        if (!v || v.entry !== x.entry.name) return '<div class="w-page"></div>';
+        if (v.state === 'busy') return '<div class="w-page"><p class="d-empty"><span class="c-spin" aria-hidden="true"></span> Läser sidan…</p></div>';
+        if (v.state === 'error') return '<div class="w-page"><p class="d-empty warn">' + esc(v.error) + '</p></div>';
+        if (v.how === 'source') return '<div class="w-page"><pre class="w-source">' + esc(v.text) + '</pre></div>';
+        return '<div class="w-page"><p class="d-note w-page-note">' + esc(v.note) + '</p><iframe class="w-frame" sandbox="" referrerpolicy="no-referrer" title="Sparad sida"></iframe></div>';
+    }
     function renderWeb(body) {
         var P = state.device, f = fmt(), b = webBrowser(P.web);
         body.style.backgroundImage = '';
         if (!b) { openDevice('home'); return; }
         var tabs = webTabsOf(b);
         if (!tabs.some(function (t) { return t[0] === P.webTab; })) P.webTab = tabs.length ? tabs[0][0] : 'visits';
+        if (P.webTab === 'pages' && !b.pagesState) loadPages(b);
         var all = webList(b, P.webTab), shown = all.slice(0, P.limit);
         $('c-device-title').textContent = b.name;
-        $('c-device-sub').textContent = (b.visits ? many(b.visits.length, 'besök', 'besök') + ' · ' : '') + baseName(b.files[P.webTab] || b.files.visits || '');
+        $('c-device-sub').textContent = (b.visits ? many(b.visits.length, 'besök', 'besök') + ' · ' : '') + (P.webTab === 'pages' ? 'cachen' : baseName(b.files[P.webTab] || b.files.visits || ''));
         var chips = '<div class="n-chips" role="group" aria-label="Urval">' + tabs.map(function (t) {
-            return '<button type="button" class="n-chip" data-web-tab="' + t[0] + '" aria-pressed="' + (P.webTab === t[0]) + '">' + esc(t[1]) + ' <span>' + num(b[t[0]].length) + '</span></button>';
+            var n = t[0] === 'pages' ? (b.pagesState === 'ready' ? num(b.pages.length) : '…') : num(b[t[0]].length);
+            return '<button type="button" class="n-chip" data-web-tab="' + t[0] + '" aria-pressed="' + (P.webTab === t[0]) + '">' + esc(t[1]) + ' <span>' + n + '</span></button>';
         }).join('') + '</div>';
         var day = null;
         var rows = shown.map(function (x) {
@@ -3501,6 +3635,10 @@
                 top = x.term; sub = [x.engine, x.host].filter(Boolean).join(' · ');
             } else if (P.webTab === 'downloads') {
                 top = x.name; sub = [x.host, x.state, Web.sizeText(x.size)].filter(Boolean).join(' · ');
+            } else if (P.webTab === 'pages') {
+                var path = String(x.url).replace(/^[a-z]+:\/\/[^/]+/i, '') || '/';
+                top = (x.host || x.url) + (path.length > 1 ? ' ' + path.slice(0, 60) : '');
+                sub = [x.status.replace(/^HTTP\/[\d.]+\s*/, '') || '', WebCache.sizeText(x.size), x.encoding === 'br' ? 'brotli' : ''].filter(Boolean).join(' · ');
             } else if (P.webTab === 'tabs') {
                 if (x.group !== day) { day = x.group; head = '<p class="n-sec">' + esc(x.group) + '</p>'; }
                 top = x.title || x.host || x.url; sub = [x.host, x.closedMs ? 'stängd' : ''].filter(Boolean).join(' · ');
@@ -3517,10 +3655,16 @@
             downloads: 'Nedladdningarna med adressen, sidan de kom från och var filen sparades. Filen kan finnas kvar i zippen under sin sökväg.',
             tabs: 'Flikarna när extraktionen gjordes, också de privata. Tiden är flikens senaste besök (LastVisitTime).',
             cleared: 'Spåren efter rensad historik: tidsspannet som rensades, eller adressen när en enda sida togs bort.',
+            pages: b.platform === 'iOS' ? 'Sidorna som låg i webbläsarens cache (WebKit NetworkCache). Tiden är när posten sparades. ' + (b.cacheEntries != null ? b.cacheEntries + ' poster i cachen.' : '')
+                : 'Sidorna som låg i webbläsarens cache (Chromium, Cache_Data). Tiden är när svaret kom. ' + (b.cacheEntries != null ? b.cacheEntries + ' poster i cachen.' : ''),
         };
+        if (P.webTab === 'pages' && b.pagesState !== 'ready') {
+            body.innerHTML = chips + (b.pagesState === 'error' ? '<p class="d-empty warn">' + esc(b.pagesError || 'Cachen kunde inte läsas.') + '</p>' : '<p class="d-empty"><span class="c-spin" aria-hidden="true"></span> Läser webbläsarens cache…</p>');
+            return;
+        }
         body.innerHTML = chips + (rows || '<p class="d-empty">Inget i ' + esc((WEB_TABS.filter(function (t) { return t[0] === P.webTab; })[0] || ['', 'urvalet'])[1].toLowerCase()) + '.</p>') +
             (all.length > shown.length ? '<button type="button" class="c-btn d-more" data-device-more="1">Visa fler (' + num(all.length - shown.length) + ' kvar)</button>' : '') +
-            '<p class="d-note">Ur ' + esc(b.files[P.webTab] || '') + '. ' + esc(notes[P.webTab] || '') + '</p>' +
+            '<p class="d-note">' + (P.webTab === 'pages' ? '' : 'Ur ' + esc(b.files[P.webTab] || '') + '. ') + esc(notes[P.webTab] || '') + '</p>' +
             (state.web.errors.length ? '<p class="d-empty warn">' + esc(state.web.errors.join(' ')) + '</p>' : '');
     }
     function renderWebItem(body) {
@@ -3559,6 +3703,23 @@
                 x.chain && x.chain !== x.url ? kv('Omdirigeringar', x.chain, 'downloads_url_chains') : '', x.referrer ? kv('Hänvisning', x.referrer, 'downloads.referrer') : '',
                 x.tab ? kv('Fliken', x.tab, 'downloads.tab_url') : '', x.tabReferrer ? kv('Flikens hänvisning', x.tabReferrer, 'downloads.tab_referrer_url') : '',
                 x.lastAccessMs ? kv('Senast öppnad', t(x.lastAccessMs), 'downloads.last_access_time') : '', kv('Källa', 'downloads rad ' + x.id, b.files.downloads)];
+        } else if (P.webTab === 'pages') {
+            $('c-device-title').textContent = x.host || 'Sparad sida';
+            var src = x.engine === 'webkit' ? 'NetworkCache-posten' : 'Cache_Data (Chromium)';
+            rows = [kv('Adress', x.url, src + ' · nyckeln'),
+                kv(x.engine === 'webkit' ? 'Sparad i cachen' : 'Svaret kom', t(x.ms), x.engine === 'webkit' ? 'posten · tid (WallTime)' : 'HttpResponseInfo · response_time'),
+                x.requestMs ? kv('Frågan skickades', t(x.requestMs), 'HttpResponseInfo · request_time') : '',
+                x.headers.date ? kv('Serverns tid', x.headers.date, 'rubriken Date') : '',
+                kv('Svar', [x.status, x.mime].filter(Boolean).join(' · '), 'svarets rubriker'),
+                kv('Storlek', WebCache.sizeText(x.size) + (x.encoding ? ', packad med ' + x.encoding : '')),
+                x.headers['last-modified'] ? kv('Ändrad enligt servern', x.headers['last-modified'], 'rubriken Last-Modified') : '',
+                x.partition ? kv('Partition', x.partition, 'WebKit: webbplatsen som hämtade sidan') : '',
+                kv('Källa', x.entry.name + (x.blob ? ' och ' + x.blob.name : ''))];
+            $('c-device-sub').textContent = b.name + (x.ms ? ' · ' + f(x.ms) : '');
+            body.innerHTML = '<div class="w-page-btns"><button type="button" class="c-btn" data-web-render="page">Visa sidan</button> <button type="button" class="c-btn" data-web-render="source">Källkoden</button></div>' + webPageHtml(x) + '<div class="d-kvs">' + rows.join('') + '</div>';
+            var frame = body.querySelector('.w-frame');
+            if (frame) frame.srcdoc = state.device.webPage.html;
+            return;
         } else if (P.webTab === 'tabs') {
             $('c-device-title').textContent = x.title || x.host || 'Flik';
             rows = [kv('Adress', x.url, 'bookmarks.url'), x.title ? kv('Titel', x.title, 'bookmarks.title') : '', kv('Grupp', x.group + (x.private ? ' (privat surfning)' : ''), 'bookmarks.parent, windows'),
@@ -3891,6 +4052,11 @@
         if (b.dataset.deviceWeb) { if (state.device.web !== b.dataset.deviceWeb) state.device.webTab = ''; state.device.web = b.dataset.deviceWeb; return openDevice('web'); }
         if (b.dataset.webTab) { state.device.webTab = b.dataset.webTab; state.device.limit = LIST_STEP; renderDevice(); $('c-device-body').scrollTop = 0; return; }
         if (b.dataset.webId !== undefined) { state.device.webItem = Number(b.dataset.webId); return openDevice('webItem'); }
+        if (b.dataset.webRender) {
+            var wb = webBrowser(state.device.web), wi = wb && wb.pages ? wb.pages[state.device.webItem] : null;
+            if (wi) showCachedPage(wb, wi, b.dataset.webRender);
+            return;
+        }
         if (b.dataset.callFilter) { state.device.callFilter = b.dataset.callFilter; state.device.limit = LIST_STEP; return renderDevice(); }
         if (b.dataset.callId !== undefined) { state.device.call = Number(b.dataset.callId); return openDevice('call'); }
         if (b.dataset.contactId !== undefined) { state.device.contact = b.dataset.contactId; state.device.contactFrom = state.device.screen === 'call' ? 'call' : 'contacts'; return openDevice('contact'); }

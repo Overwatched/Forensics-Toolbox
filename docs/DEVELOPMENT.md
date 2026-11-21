@@ -2950,3 +2950,24 @@ Rollen `chat-avatars` (dold query i appens katalog, fälten `address` och `path`
 (`threadAv`, `data-av`) och i chattens huvud. Bara WhatsApp på iOS har rollen än: `ZWAPROFILEPICTUREITEM` (ZJID, ZPATH
 `Media/Profile/<id>-<tid>`, filen heter samma med .jpg). Provat på iPhone-labbet 2026-11-11: en bild på rätt chatt.
 Signal hade inga profilbilder sparade i labbet, och Telegrams bilder i Postbox är inte kopplade till chattarna.
+
+### Sparade sidor i webbläsarna (2026-11-21)
+
+Fliken Sparade sidor i en webbläsare i Telefonen läser webbläsarens cache (`tools/_shared/webcache.js`, testad i Node med
+påhittade poster ur `tests/app/webcache-builder.js`):
+
+- **WebKit** (Safari och andra appar på iOS): `…/Library/Caches/WebKit/NetworkCache/Version N/Records/<partition>/Resource/<hash>`.
+  Posten är WTF::Persistence: versionen (17 på iOS 26), nyckeln (partition, typ, adress, intervall, två SHA-1), tiden
+  (WallTime, sekunder som double), rubrikernas SHA-1 och storlek, innehållets SHA-1 och storlek, och om innehållet ligger
+  i posten. Annars ligger det i `Blobs/<SHA-1>`. Rubrikerna (adress, typ, HTTP-version och rubrikparen) läses som
+  längdprefixade strängar. Cachen hör till appen vars behållare har den i `MCMMetadataIdentifier`.
+- **Chromium** (Chrome och Samsung Internet på Android): `…/cache/Cache/Cache_Data/<hash>_0`. Huvudet är 24 byte (magi,
+  version, nyckelns längd och hash, utfyllnad), nyckeln är `1/0/_dk_<plats> <ram> <adress>`, ström 1 (innehållet) går
+  fram till sitt slut, och ström 0 (HttpResponseInfo) har tiderna (mikrosekunder sedan 1601) och rubrikerna med noll
+  mellan raderna. Innehållet sparas som det kom: gzip och deflate packas upp (`DecompressionStream`), brotli går inte i
+  Electron 44 och sidan säger det.
+- **Visa sidan:** skript, ramar, omdirigeringar och formulär tas bort, länkarna tappar sin adress (den står i title),
+  bilder och stilmallar ur samma cache läggs in som data-adresser, och sidan visas i en ram med `sandbox=""` och en CSP
+  som bara tillåter data:. Inget hämtas från nätet. Källkoden går att visa som text.
+
+Provat 2026-11-21 på labbet Två telefoner: Safari på iPhone (1 011 poster, 14 sidor) och Chrome på Samsung.
