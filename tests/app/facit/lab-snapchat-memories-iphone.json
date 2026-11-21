@@ -169,6 +169,24 @@
         "2026-11-19T08:30:22.245+01:00",
         "2026-11-19T08:30:39.766+01:00"
       ]
+    },
+    {
+      "zip": "lab",
+      "name": "snapchat-memory-89F5A58C-A3E0-48E9-9445-9A2DC40163F3.jpg",
+      "step": "My Eyes Only",
+      "what": "Filnamnet som Telefonen ger en sparad snap: snappen i My Eyes Only hittas på snap-id:t och dekrypteras med Snapchats nyckeltjänst i nyckelringen, utan koden (kontrollerat 2026-11-21)",
+      "memory": "89F5A58C",
+      "meo": true,
+      "decrypted": "nyckeltjänst"
+    },
+    {
+      "zip": "lab",
+      "name": "2633B71B-3571-463D-84BC-A4359D6BAD3A",
+      "step": "My Eyes Only",
+      "what": "Snap-id för den andra snappen i My Eyes Only: dekrypteras på samma sätt",
+      "memory": "2633B71B",
+      "meo": true,
+      "decrypted": "nyckeltjänst"
     }
   ],
   "searches": [
@@ -203,10 +221,12 @@
   ],
   "phone": {
     "zip": "lab",
-    "what": "Telefonen visar Memories ur scdb-27.sqlite3 med filerna dekrypterade med nycklarna i gallery.encrypteddb (kontrollerat 2026-11-20)",
+    "what": "Telefonen visar Memories ur scdb-27.sqlite3 med filerna dekrypterade, också My Eyes Only med nyckeltjänsten i nyckelringen (kontrollerat 2026-11-21)",
     "memories": 19,
     "meo": 2,
     "located": 13,
-    "drawn": 17
+    "drawn": 19,
+    "locked": 0,
+    "meoOpen": "89F5A58C"
   }
 }

@@ -71,7 +71,7 @@ test('snapchat (beta): en rekommenderad query per databas, undertext på alla, t
     const gallery = snapchat.databases.find((d) => d.id === 'snapchat-gallery');
     assert.strictEqual(gallery.cipher, 'snapchat-gallery', 'gallery.encrypteddb är krypterad med Snapchats inställningar');
     assert.deepStrictEqual(gallery.paths, ['gallery.encrypteddb']);
-    assert.deepStrictEqual(gallery.queries.filter((q) => q.hidden).map((q) => q.role), ['memory-locations']);
+    assert.deepStrictEqual(gallery.queries.filter((q) => q.hidden).map((q) => q.role), ['memory-locations', 'memory-key']);
     assert.strictEqual(snapchat.databases.find((d) => d.id === 'snapchat-arroyo').queries.find((q) => q.role === 'messages').fields.refs, 'local_message_references');
     const cache = snapchat.databases.find((d) => d.id === 'snapchat-cache');
     assert.match(cache.queries.find((q) => q.id === 'cached-media').sql, /CACHE_FILE_CLAIM[\s\S]*CACHE_FILE_METADATA/);

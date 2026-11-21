@@ -33,7 +33,22 @@ test('en snap med nyckel, position och filer i cachen; en i My Eyes Only med lå
     assert.strictEqual(a.address, 'Kungsholmen');
     assert.ok(a.key && !a.keyLocked && a.kind === 'bild');
     assert.ok(b.meo && b.keyLocked && b.key === null && b.media === 'k3' && b.kind === 'video' && b.durationS === 4.2);
-    assert.deepStrictEqual(M.counts(list), { all: 2, meo: 1, locked: 1, located: 1, files: 2 });
+    assert.deepStrictEqual(M.counts(list), { all: 2, meo: 1, locked: 1, unlocked: 0, located: 1, files: 2 });
+});
+
+test('My Eyes Only: nyckeln och iv:n öppnas med nyckeltjänstens masterKey och IV (AES-256-CBC)', async () => {
+    const mk = new Uint8Array(32).fill(5), miv = new Uint8Array(16).fill(6);
+    const k = await crypto.subtle.importKey('raw', mk, { name: 'AES-CBC' }, false, ['encrypt']);
+    const wrap = async (b) => new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-CBC', iv: miv }, k, b));
+    const list = M.build([{ id: 'B', capture: 785100000, format: 1, meo: 1 }], [{ id: 'B', key: await wrap(KEY), iv: await wrap(IV), encrypted: 1 }], [], []);
+    assert.strictEqual(list[0].keyLocked, true);
+    assert.strictEqual(await M.unlock(crypto.subtle, list, { key: new Uint8Array(32), iv: miv }), 0, 'fel nyckel öppnar inget');
+    assert.strictEqual(list[0].keyLocked, true);
+    assert.strictEqual(await M.unlock(crypto.subtle, list, { key: mk, iv: miv }), 1);
+    assert.deepStrictEqual(Array.from(list[0].key), Array.from(KEY));
+    assert.deepStrictEqual(Array.from(list[0].iv), Array.from(IV));
+    assert.ok(list[0].unlocked && !list[0].keyLocked);
+    assert.strictEqual(M.counts(list).unlocked, 1);
 });
 
 test('dekrypteringen med AES-256-CBC ger filen, och typen känns igen', async () => {

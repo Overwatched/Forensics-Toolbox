@@ -36,7 +36,7 @@ test('alla källor och roller finns', () => {
     assert.deepStrictEqual(Object.keys(byKey['snapchat-memories'].roles).sort(), ['coverage', 'memories', 'memory-id']);
     assert.strictEqual(byKey['snapchat-memories'].platform, 'iOS');
     assert.strictEqual(byKey['snapchat-gallery'].cipher, 'snapchat-gallery');
-    assert.deepStrictEqual(Object.keys(byKey['snapchat-gallery'].roles), ['memory-locations']);
+    assert.deepStrictEqual(Object.keys(byKey['snapchat-gallery'].roles), ['memory-locations', 'memory-key']);
     assert.deepStrictEqual(byKey['snapchat-android-arroyo'].paths, ['data/data/com.snapchat.android/databases/arroyo.db']);
     assert.deepStrictEqual(Object.keys(byKey['snapchat-cache'].roles).sort(), ['cache-key', 'cache-memory', 'cache-window', 'coverage']);
     assert.strictEqual(byKey.photos.bands.length, 4);

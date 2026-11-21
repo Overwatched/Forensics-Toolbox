@@ -503,7 +503,10 @@
         var link = null;
         var memory = linkMemory(ctx.memories, ctx.file);
         // iOS: en cachefil vars nyckel bär snappens id hör till den snappen i Memories, utan att tiden behöver jämföras.
-        var fileRow = fileKey ? (ctx.cacheRows || []).find(function (r) { return String(r.key).toLowerCase() === fileKey; }) : null;
+        // Flera rader för samma fil (en snap som flyttats till My Eyes Only har kvar originalets): raden för snappen som
+        // redan är känd (ctx.memoryId, ur det dekrypterade innehållet) gäller, annars den första.
+        var fileRows = fileKey ? (ctx.cacheRows || []).filter(function (r) { return String(r.key).toLowerCase() === fileKey; }) : [];
+        var fileRow = (ctx.memoryId ? fileRows.find(function (r) { var x = parseExternalKey(r.external); return x && x.snapId && x.snapId === String(ctx.memoryId).toUpperCase(); }) : null) || fileRows[0] || null;
         var fileExt = fileRow ? parseExternalKey(fileRow.external) : null;
         var videoId = fileRow ? memoryVideoKey(fileRow.external, fileRow.context) : null;
         if (videoId) fileExt = { kind: 'memory', snapId: videoId, part: 'media' };

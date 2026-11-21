@@ -3028,6 +3028,14 @@
                     catch (err) { S.notes.push('cache_controller.db kunde inte läsas: ' + errText(err)); }
                 }
                 S.list = Memories.build(snaps, keys, locs, claims);
+                // My Eyes Only: nycklarna öppnas med Snapchats nyckeltjänst i nyckelringen, om den finns.
+                if (S.list.some(function (m) { return m.keyLocked; })) {
+                    var meo = AppSecrets.snapchatMeoKey(chosenKeys().concat((state.zip && state.zip.secrets) || []));
+                    var hex = function (h) { return new Uint8Array(h.match(/../g).map(function (x) { return parseInt(x, 16); })); };
+                    S.meoSource = meo ? meo.source : null;
+                    S.unlocked = meo ? await Memories.unlock(crypto.subtle, S.list, { key: hex(meo.key), iv: hex(meo.iv) }) : 0;
+                    if (!meo) S.notes.push('Snapsen i My Eyes Only har krypterade nycklar. Nyckeln till dem (com.snapchat.keyservice.persistedkey) finns i nyckelringen; välj den med extraktionen, så visas de.');
+                }
                 var want = {};
                 S.list.forEach(function (m) { if (m.media) want[m.media] = true; if (m.overlay) want[m.overlay] = true; });
                 if (Object.keys(want).length) {
@@ -3081,7 +3089,8 @@
         body.innerHTML = (c.located ? '<div class="m-head"><button type="button" class="c-btn" data-memories-map="1">Visa på kartan (' + num(c.located) + ')</button></div>' : '') +
             (S.list.length ? '<div class="m-grid">' + tiles + '</div>' : '<p class="d-empty">Inga Memories i scdb-27.sqlite3.</p>') +
             (S.notes.length ? '<p class="d-empty warn">' + esc(S.notes.join(' ')) + '</p>' : '') +
-            '<p class="d-note">Ur scdb-27.sqlite3 (snapsen), gallery.encrypteddb (nyckeln, positionen och platsen; SQLCipher med nyckeln i nyckelringen) och Snapchats cache. Filerna dekrypteras med snapens nyckel (AES-256-CBC). My Eyes Only har nyckeln krypterad med koden.</p>';
+            '<p class="d-note">Ur scdb-27.sqlite3 (snapsen), gallery.encrypteddb (nyckeln, positionen och platsen; SQLCipher med nyckeln i nyckelringen) och Snapchats cache. Filerna dekrypteras med snapens nyckel (AES-256-CBC). ' +
+            (c.unlocked ? 'My Eyes Only: ' + num(c.unlocked) + ' nycklar öppnades med Snapchats nyckeltjänst i nyckelringen (com.snapchat.keyservice.persistedkey), utan koden.' : c.locked ? 'My Eyes Only har nyckeln krypterad; nyckeln till den står i nyckelringen (com.snapchat.keyservice.persistedkey).' : '') + '</p>';
         fillMemoryThumbs(body, S);
     }
     // Miniatyrerna en i taget, så länge rutnätet visas.
@@ -3118,11 +3127,13 @@
             m.copyOf ? kv('Kopia av', m.copyOf, 'ZDUPLICATEDFROMSNAPID') : '',
             kv('Snap-id', m.id, 'ZGALLERYSNAP.ZSNAPID'),
             kv('Filen', e ? e.name : m.media ? 'Finns inte i ' + Z() : 'Ingen i cachen', 'cache_controller.db · CACHE_FILE_CLAIM (EXTERNAL_KEY snap-media-<id>)'),
-            kv('Nyckel', m.keyLocked ? 'Krypterad med koden till My Eyes Only' : m.key ? 'AES-256-CBC med snapens nyckel och iv' : 'Saknas', 'gallery.encrypteddb · snap_key_iv'),
+            kv('Nyckel', m.keyLocked ? 'Krypterad (My Eyes Only); nyckeltjänsten i nyckelringen saknas' : m.unlocked ? 'AES-256-CBC med snapens nyckel och iv. Nyckeln var krypterad (My Eyes Only) och öppnades med Snapchats nyckeltjänst, utan koden' : m.key ? 'AES-256-CBC med snapens nyckel och iv' : 'Saknas',
+                m.unlocked ? 'gallery.encrypteddb · snap_key_iv (encrypted 1), nyckelringen · com.snapchat.keyservice.persistedkey (masterKey, initializationVector)' : 'gallery.encrypteddb · snap_key_iv'),
         ].join('');
         var canImage = !!(m.key && e);
-        body.innerHTML = '<div class="m-view" id="m-view">' + (canImage ? '<span class="c-spin" aria-hidden="true"></span>' : '<p class="d-empty">' + esc(m.keyLocked ? 'My Eyes Only: filen går inte att öppna utan koden.' : 'Filen finns inte i ' + Z() + '.') + '</p>') + '</div>' +
-            (canImage ? '<div class="m-actions">' + (inHub ? '<button type="button" class="c-btn" data-memory-exif="' + esc(m.id) + '">Visa i EXIF</button>' : '') + '<button type="button" class="c-btn" data-memory-save="' + esc(m.id) + '">Spara filen</button></div>' : '') +
+        body.innerHTML = '<div class="m-view" id="m-view">' + (canImage ? '<span class="c-spin" aria-hidden="true"></span>' : '<p class="d-empty">' + esc(m.keyLocked ? 'My Eyes Only: nyckeln är krypterad, och nyckeln till den (com.snapchat.keyservice.persistedkey i nyckelringen) saknas.' : 'Filen finns inte i ' + Z() + '.') + '</p>') + '</div>' +
+            '<div class="m-actions">' + (inHub ? '<button type="button" class="c-btn c-primary" data-memory-assess="' + esc(m.id) + '" title="Härkomst söker snappen på dess snap-id">Bedöm i Härkomst</button>' : '') +
+            (canImage ? (inHub ? '<button type="button" class="c-btn" data-memory-exif="' + esc(m.id) + '">Visa i EXIF</button>' : '') + '<button type="button" class="c-btn" data-memory-save="' + esc(m.id) + '">Spara filen</button>' : '') + '</div>' +
             '<div class="d-kvs">' + rows + '</div>';
         if (!canImage) return;
         Promise.all([memoryUrl(m, 'media'), m.overlay && S.files[m.overlay] ? memoryUrl(m, 'overlay').catch(function () { return null; }) : null]).then(function (r) {
@@ -4134,6 +4145,11 @@
         if (b.dataset.deviceMemories) return openDevice('memories', 'Snapchat');
         if (b.dataset.memoryId) { state.device.memory = b.dataset.memoryId; return openDevice('memory', 'Snapchat'); }
         if (b.dataset.memoriesMap) { memoriesToMap().catch(showError); return; }
+        // Bedöm i Härkomst: snap-id:t söks där, och Härkomst hittar filen i cachen, dekrypterar den och bedömer den.
+        if (b.dataset.memoryAssess) {
+            toHub({ type: 'names-for', to: 'provenance', names: [b.dataset.memoryAssess], zipName: state.zip ? state.zip.file.name : '' });
+            return;
+        }
         if (b.dataset.memoryExif) {
             var mx = memoryOf(b.dataset.memoryExif);
             if (mx) memoryFile(mx).then(function (file) { toHub({ type: 'file-for', to: 'exif', from: 'Snapchat Memories', files: [{ file: file, path: state.zip.file.name + ' › ' + (state.device.memories.files[mx.media] || {}).name + ' (dekrypterad)' }] }); }).catch(showError);

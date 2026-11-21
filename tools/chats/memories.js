@@ -1,7 +1,8 @@
 // Snapchat Memories på iPhone i Telefonen: snapsen ur scdb-27.sqlite3, positionerna, platsnamnen och nyckeln per snap
 // ur gallery.encrypteddb (SQLCipher 3, nyckeln i nyckelringen), och filerna i Snapchats cache (cache_controller.db och
 // mappen com.snap.file_manager_3_SCContent_…). Varje fil är krypterad med AES-256-CBC med snapens nyckel och iv.
-// En snap i My Eyes Only har nyckeln krypterad (snap_key_iv.encrypted = 1) och går inte att öppna utan koden.
+// En snap i My Eyes Only har nyckeln krypterad (snap_key_iv.encrypted = 1): med Snapchats nyckeltjänst i nyckelringen
+// (com.snapchat.keyservice.persistedkey, masterKey och IV) öppnas den med AES-256-CBC (unlock). Ingen lösenkod behövs.
 // Kontrollerat på iPhone-labbet 2026-11-19: 23 filer dekrypterades till JPEG, MP4 och WebP. Testas i Node.
 (function (root) {
     'use strict';
@@ -84,6 +85,7 @@
                 durationS: Number(s.duration) > 0 ? Number(s.duration) : null, w: Number(s.w) || null, h: Number(s.h) || null,
                 meo: Number(s.meo) === 1, overlay: null, hasOverlay: Number(s.overlay) === 1, zone: s.zone || '', front: Number(s.front) === 1, copyOf: s.copyOf || '',
                 keyLocked: !!k && Number(k.encrypted) === 1, key: k && Number(k.encrypted) !== 1 ? bytesOf(k.key) : null, iv: k && Number(k.encrypted) !== 1 ? bytesOf(k.iv) : null,
+                lockedKey: k && Number(k.encrypted) === 1 ? bytesOf(k.key) : null, lockedIv: k && Number(k.encrypted) === 1 ? bytesOf(k.iv) : null, unlocked: false,
                 hasKey: !!k, lat: isFinite(lat) && isFinite(lon) && !(lat === 0 && lon === 0) ? lat : null, lon: isFinite(lat) && isFinite(lon) && !(lat === 0 && lon === 0) ? lon : null,
                 address: l && l.address ? String(l.address) : '', media: null,
             };
@@ -116,13 +118,30 @@
         return new Uint8Array(await subtle.decrypt({ name: 'AES-CBC', iv: iv }, k, data));
     }
 
+    // Nycklarna till snapsen i My Eyes Only: snap_key_iv har nyckeln (48 byte) och iv:n (32 byte) krypterade med
+    // AES-256-CBC och PKCS7, under nyckeltjänstens masterKey och IV. meo: { key, iv } som byte. Antalet som öppnades.
+    async function unlock(subtle, list, meo) {
+        if (!meo || !meo.key || !meo.iv) return 0;
+        var n = 0;
+        for (var i = 0; i < (list || []).length; i++) {
+            var m = list[i];
+            if (!m.keyLocked || !m.lockedKey || !m.lockedIv) continue;
+            try {
+                var key = await decrypt(subtle, m.lockedKey, meo.key, meo.iv), iv = await decrypt(subtle, m.lockedIv, meo.key, meo.iv);
+                if (key.length !== 32 || iv.length !== 16) continue;
+                m.key = key; m.iv = iv; m.keyLocked = false; m.unlocked = true; n++;
+            } catch (e) { /* fel nyckel: snappen förblir låst */ }
+        }
+        return n;
+    }
+
     function counts(list) {
-        var c = { all: list.length, meo: 0, locked: 0, located: 0, files: 0 };
-        list.forEach(function (m) { if (m.meo) c.meo++; if (m.keyLocked) c.locked++; if (m.lat !== null) c.located++; if (m.media) c.files++; });
+        var c = { all: list.length, meo: 0, locked: 0, unlocked: 0, located: 0, files: 0 };
+        list.forEach(function (m) { if (m.meo) c.meo++; if (m.keyLocked) c.locked++; if (m.unlocked) c.unlocked++; if (m.lat !== null) c.located++; if (m.media) c.files++; });
         return c;
     }
 
-    var api = { FILES: FILES, FILE_MANAGER: FILE_MANAGER, SQL: SQL, which: which, pick: pick, build: build, mime: mime, decrypt: decrypt, counts: counts, cocoaMs: cocoaMs };
+    var api = { FILES: FILES, FILE_MANAGER: FILE_MANAGER, SQL: SQL, which: which, pick: pick, build: build, mime: mime, decrypt: decrypt, unlock: unlock, counts: counts, cocoaMs: cocoaMs };
     if (typeof module !== 'undefined' && module.exports) module.exports = api;
     else root.Memories = api;
 })(typeof window !== 'undefined' ? window : this);

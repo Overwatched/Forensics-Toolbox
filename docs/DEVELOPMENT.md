@@ -728,6 +728,18 @@ flygplansläge fram till S09. Facit: `tests/app/facit/lab-snapchat-memories-ipho
   posten får `ZISPRIVATE` 1, och originalets rad tas bort. Filen i cachen är densamma men krypteras om; nyckeln i
   `ZENCRYPTION` gäller inte längre. När den flyttades syns i cachen: originalets `snap-media-<id>` får `DELETED_TIMESTAMP_MILLIS`
   och kopians rad skapas samma sekund. Sökning på originalets id hittar kopian (`role-memory-id`).
+- **My Eyes Only öppnas utan koden** (2026-11-21): kopians nyckel står i `gallery.encrypteddb` (`snap_key_iv`,
+  `encrypted` 1: nyckeln 48 byte och iv:n 32 byte, var för sig AES-256-CBC med PKCS7) under Snapchats nyckeltjänst i
+  nyckelringen: posten `com.snapchat.keyservice.persistedkey` (åtkomstgrupp `…com.toyopagroup.picaboo`) är en
+  NSKeyedArchiver-plist `SCKeyServicePersistedKey` med `masterKey` (32), `initializationVector` (16), `passphrase` (32),
+  `keyTag` och `userId`. masterKey och IV:n öppnar snapnyckeln, som dekrypterar filen som vanligt. `AppSecrets` läser
+  posten (`snapchatMeoKey`), Härkomst har `snapMeoCipher` med rollen `memory-key` i katalogen för gallery.encrypteddb,
+  och Telefonen `Memories.unlock`. Lösenkoden behövs inte och går inte att ta fram: `passphrase` är inte SHA-256 eller
+  HMAC av en fyrsiffrig kod och inte PBKDF2 med 1 000 eller 10 000 varv. En fil som flyttats till My Eyes Only har två
+  rader i cachen; det dekrypterade innehållets snap-id avgör kopplingen (`plainId`, `fileRows` i snapchat.js).
+  Kontrollerat på iPhone-labbet 2026-11-19: båda snapsen i My Eyes Only gav JPEG.
+- **Filnamnet från Telefonen:** en sparad snap som skickas vidare heter `snapchat-memory-<snap-id>.<ändelse>`; Härkomst
+  söker snap-id:t i det (`snapMemoryFile`). Memory-vyn i Telefonen har Bedöm i Härkomst, som skickar snap-id:t.
 - **Sökning på id:** början av ett id räcker också på iOS (`LIKE … || '%'`). Listan har snappens fil i cachen och kopian
   eller exporten i kamerarullen med skälet i Varför (`snapGalleryCopiesIos`).
 - **Flygplansläge:** snaps som togs då har `ZHASLOCATION` 0 och ingen rad i `snap_location_table`.
@@ -1680,8 +1692,8 @@ senare.
     filen heter `CACHE_KEY` i `com.snap.file_manager_3_SCContent_…`). Filerna är AES-256-CBC med PKCS7 och snapens nyckel
     och iv (WebCrypto). Overlayn (text och ritning) läggs ovanpå bilden. Visa på kartan skickar minnena med position till
     Positioner med en liten bild, Visa i EXIF och Spara filen tar den dekrypterade filen. Kontrollerat på iPhone-labbet
-    2026-11-19: 19 minnen, 17 dekrypterade (15 JPEG, 2 MP4, och 2 overlays i WebP), 2 i My Eyes Only med låst nyckel,
-    13 med position (facit `phone`). Fyndet att gallery.encrypteddb går att öppna och att snap_key_iv är nycklarna kom
+    2026-11-19: 19 minnen, alla dekrypterade (sedan 2026-11-21 också de 2 i My Eyes Only, med nyckeltjänsten i
+    nyckelringen, `Memories.unlock`), 13 med position (facit `phone`). Fyndet att gallery.encrypteddb går att öppna och att snap_key_iv är nycklarna kom
     från MSF-projektet; att cachens filer dekrypteras med dem prövades här.
   - **En app** visar sina chattar, den senaste först (`appThreads`), 200 i taget. En chatt öppnas i telefonvyn med
     knappen tillbaka (`#c-phone-back`) till appens lista. Att byta till Lista lämnar inte telefonen: där står knappen

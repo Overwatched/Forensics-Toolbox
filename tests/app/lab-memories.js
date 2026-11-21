@@ -45,10 +45,12 @@ async function assess(c, name) {
         const m = ProvenanceApp.model();
         if (hits) return { hits };
         // Ett snap-id bedömer snappens fil i cachen, som har ett annat namn.
-        const byId = m && m.file.memory && String(m.file.memory.id).toUpperCase().indexOf(${JSON.stringify(name.toUpperCase())}) === 0;
+        // Telefonens namn snapchat-memory-<snap-id>.<ändelse> söks på id:t.
+        const byId = m && m.file.memory && String(m.file.memory.id).toUpperCase().indexOf(${JSON.stringify(name.toUpperCase().replace(/^SNAPCHAT-MEMORY-/, '').replace(/\.[A-Z0-9]+$/, ''))}) === 0;
         if (!m || (m.file.filename !== ${JSON.stringify(name)} && !byId)) return { error: document.getElementById('run-status').innerText };
         const mem = m.file.memory;
-        return { importerFrom: m.file.importerFrom || null,
+        const meta = ProvenanceApp.meta && ProvenanceApp.meta();
+        return { importerFrom: m.file.importerFrom || null, content: (meta && meta.fileEntry && meta.fileEntry.contentNote) || null,
             memory: mem ? { id: mem.id, by: mem.by, copy: mem.copy, front: mem.front, capturedMs: mem.capturedMs, savedMs: mem.savedMs, video: !!mem.video, sends: (mem.sends || []).length,
                 synced: !!(mem.origin && mem.origin.synced), meo: !!mem.meo, imports: (mem.imports || []).map(i => i.id) } : null,
             imports: (m.file.memoryImports || []).map(i => i.id),
@@ -72,6 +74,7 @@ function check(f, d, facit) {
         expect(m.savedMs >= a && m.savedMs <= b, 'Sparad ' + new Date(m.savedMs).toISOString() + ', utanför ' + f.savedBetween.join(' – '));
     }
     if (f.meo) expect(m.meo, 'My Eyes Only syns inte');
+    if (f.decrypted) expect(d.content && d.content.includes(f.decrypted), 'Innehållet dekrypterades inte: ' + d.content);
     if (f.synced) expect(m.synced, 'Raden är inte märkt som hämtad från servern');
     if (f.capturedBetween) {
         const [a, b] = f.capturedBetween.map(Date.parse);
@@ -123,8 +126,26 @@ function scenarios(zips, facit) {
         await c.ev(PH, `document.querySelector('[data-device-memories]').click(), 1`);
         const r = await c.waitFor(PH, `(function(){ const t = document.querySelectorAll('.m-tile').length, d = [...document.querySelectorAll('.m-img')].filter(x => x.style.backgroundImage || x.querySelector('video')).length;
             return t && d >= ${facit.phone.drawn} && { tiles: t, drawn: d, locked: document.querySelectorAll('.m-img.locked').length, meo: document.querySelectorAll('.m-tile.meo').length, map: (document.querySelector('[data-memories-map]') || {}).textContent || '' }; })()`, 120000, 'Memories ritade');
-        expect(r.tiles === facit.phone.memories && r.meo === facit.phone.meo && r.locked === facit.phone.meo && r.map.includes('(' + facit.phone.located + ')'), 'Memories: ' + JSON.stringify(r));
-        return r.tiles + ' minnen, ' + r.drawn + ' dekrypterade, ' + r.meo + ' i My Eyes Only';
+        expect(r.tiles === facit.phone.memories && r.meo === facit.phone.meo && r.locked === (facit.phone.locked != null ? facit.phone.locked : facit.phone.meo) && r.map.includes('(' + facit.phone.located + ')'), 'Memories: ' + JSON.stringify(r));
+        // En snap i My Eyes Only: bilden visas, och Bedöm i Härkomst och den dekrypterade filen (som från EXIF) ger snappen där.
+        let meoDone = '';
+        if (facit.phone.meoOpen) {
+            const id = facit.phone.meoOpen;
+            await c.ev(PH, `[...document.querySelectorAll('.m-tile.meo')].find(t => t.dataset.memoryId.startsWith(${JSON.stringify(id)})).click(), 1`);
+            const img = await c.waitFor(PH, `(function(){ const i = document.querySelector('#m-view img'); return i && i.naturalWidth > 0 && i.naturalWidth; })()`, 30000, 'bilden i My Eyes Only');
+            const full = await c.ev(PH, `document.querySelector('[data-memory-assess]').dataset.memoryAssess`);
+            await c.ev(PH, `document.querySelector('[data-memory-assess]').click(), 1`);
+            const viaButton = await c.waitFor(PROV, `(function(){ const m = ProvenanceApp.model(); return !ProvenanceApp.busy() && m && m.file.memory && m.file.memory.id === ${JSON.stringify(full)} && !!m.file.memory.meo; })()`, 120000, 'Bedöm i Härkomst');
+            await c.ev('exif-viewer/index.html', `window.parent.postMessage({ source: 'forensics-toolbox', type: 'file-for', to: 'provenance', files: [{ file: new File([new Uint8Array([0xff, 0xd8, 0xff, 1, 2, 3])], 'snapchat-memory-' + ${JSON.stringify(full)} + '.jpg') }] }, '*'), 1`).catch(async () => {
+                await c.nav('EXIF'); await sleep(500);
+                return c.ev('exif-viewer/index.html', `window.parent.postMessage({ source: 'forensics-toolbox', type: 'file-for', to: 'provenance', files: [{ file: new File([new Uint8Array([0xff, 0xd8, 0xff, 1, 2, 3])], 'snapchat-memory-' + ${JSON.stringify(full)} + '.jpg') }] }, '*'), 1`);
+            });
+            await sleep(800);
+            const viaFile = await c.waitFor(PROV, `(function(){ const m = ProvenanceApp.model(); return !ProvenanceApp.busy() && document.getElementById('filename').value === ${JSON.stringify(full)} && m && m.file.memory && m.file.memory.id === ${JSON.stringify(full)}; })()`, 120000, 'den dekrypterade filen i Härkomst');
+            expect(img > 0 && viaButton && viaFile, 'My Eyes Only: ' + JSON.stringify({ img, viaButton, viaFile }));
+            meoDone = ', snappen i My Eyes Only visas och bedöms i Härkomst';
+        }
+        return r.tiles + ' minnen, ' + r.drawn + ' dekrypterade, ' + r.meo + ' i My Eyes Only' + meoDone;
     }]);
     if (facit.meo) out.push([facit.meo.zip + ' Telefonen: ' + facit.meo.what, async ({ c }) => {
         await ensure(c, facit.meo.zip);

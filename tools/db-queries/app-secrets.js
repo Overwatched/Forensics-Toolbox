@@ -268,6 +268,31 @@
         return fieldText(it.acct) === 'egocipher.key.avoidkeyderivation' && /(^|\.)com\.toyopagroup\.picaboo$/.test(fieldText(it.agrp));
     }
 
+    // Snapchats nyckeltjänst på iOS: kontot com.snapchat.keyservice.persistedkey i Snapchats åtkomstgrupp. Värdet är en
+    // NSKeyedArchiver-plist (SCKeyServicePersistedKey) med masterKey (32 byte), initializationVector (16), passphrase och
+    // keyTag. masterKey och IV:n öppnar nycklarna till snapsen i My Eyes Only (snap_key_iv med encrypted = 1 i
+    // gallery.encrypteddb: AES-256-CBC med PKCS7, nyckel 48 och iv 32 byte krypterade). Ingen lösenkod behövs.
+    // Kontrollerat mot iPhone-labbet Snapchat Memories (iOS 26.4.1, 2026-11-19): båda snapsen i My Eyes Only gav JPEG.
+    function isSnapchatKeyServiceItem(it) {
+        return fieldText(it.acct) === 'com.snapchat.keyservice.persistedkey' && /(^|\.)com\.toyopagroup\.picaboo$/.test(fieldText(it.agrp));
+    }
+
+    function addSnapchatKeyService(out, value, group, parseBinary) {
+        if (!(value instanceof Uint8Array)) return;
+        var a;
+        try { a = plistOf(value, parseBinary); } catch (e) { return; }
+        var o = a && a.$objects, top = a && a.$top && a.$top.root;
+        if (!o || top == null) return;
+        var ref = function (x) { return x && typeof x === 'object' && x.value !== undefined ? o[x.value] : typeof x === 'number' ? o[x] : x; };
+        var root = ref(top);
+        var key = root && ref(root.masterKey), iv = root && ref(root.initializationVector);
+        if (!(key instanceof Uint8Array) || key.length !== 32 || !(iv instanceof Uint8Array) || iv.length !== 16) return;
+        var app = appEntry(out, SNAPCHAT_IOS);
+        app.meoKey = toHex(key);
+        app.meoIv = toHex(iv);
+        app.notes.push('com.snapchat.keyservice.persistedkey' + (group ? ' (' + fieldText(group) + ')' : ''));
+    }
+
     function addSnapchatKey(out, value, group) {
         if (!(value instanceof Uint8Array) || value.length !== 32) return;
         var a = appEntry(out, SNAPCHAT_IOS);
@@ -294,6 +319,7 @@
         p.genp.forEach(function (it) {
             if (it && typeof it === 'object' && isSignalItem(it)) addSignalKey(out, it.v_Data, it.agrp);
             else if (it && typeof it === 'object' && isSnapchatGalleryItem(it)) addSnapchatKey(out, it.v_Data, it.agrp);
+            else if (it && typeof it === 'object' && isSnapchatKeyServiceItem(it)) addSnapchatKeyService(out, it.v_Data, it.agrp, parseBinary);
         });
         return out;
     }
@@ -317,7 +343,7 @@
     // classKeyIdxToUnwrappedMetadataClassKey: { idx: nyckel } }. Extraktionsverktyget har låst upp klassnycklarna
     // och postens nyckel. Klassnyckeln öppnar postens metadatanyckel, som öppnar metadatan (DER: svce, acct, agrp),
     // och postens nyckel öppnar värdet (DER: v_Data). TamperCheck ska vara samma i posten som i det dekrypterade.
-    // Bara värdena i Signals post och i Snapchats post för Memories dekrypteras. Kontrollerat mot två iOS-extraktioner utan Signal: alla 1 496
+    // Bara värdena i Signals post och i Snapchats poster för Memories och nyckeltjänsten dekrypteras. Kontrollerat mot två iOS-extraktioner utan Signal: alla 1 496
     // poster öppnas, och fälten heter som i plisten bredvid zippen.
     async function fromKeychainEntries(p, source, parseBinary) {
         var out = empty(source || 'nyckelringen');
@@ -337,11 +363,12 @@
                 var itemKey = await openSealed(classKeys[String(e.classKeyIdx)], e.metadata.wrappedKey, parseBinary);
                 var attrs = der.parseRecord(await openSealed(itemKey, e.metadata.ciphertext, parseBinary));
                 if (attrs.TamperCheck !== e.metadata.tamperCheck) { failed++; continue; }
-                var snap = isSnapchatGalleryItem(attrs);
-                if (!isSignalItem(attrs) && !snap) continue;
+                var snap = isSnapchatGalleryItem(attrs), keyService = isSnapchatKeyServiceItem(attrs);
+                if (!isSignalItem(attrs) && !snap && !keyService) continue;
                 var secret = der.parseRecord(await openSealed(e.data.unwrappedKey, e.data.ciphertext, parseBinary));
                 if (secret.TamperCheck !== e.data.tamperCheck) { failed++; continue; }
-                if (snap) addSnapchatKey(out, secret.v_Data, attrs.agrp);
+                if (keyService) addSnapchatKeyService(out, secret.v_Data, attrs.agrp, parseBinary);
+                else if (snap) addSnapchatKey(out, secret.v_Data, attrs.agrp);
                 else addSignalKey(out, secret.v_Data, attrs.agrp);
             } catch (err) { failed++; }
         }
@@ -446,6 +473,16 @@
         return signalKeys(found, profile === 'signal-ios' ? SIGNAL_IOS : SIGNAL);
     }
 
+    // Snapchats nyckel till My Eyes Only på iOS (nyckeltjänsten i nyckelringen): { key, iv, source } som hex, eller null.
+    function snapchatMeoKey(found) {
+        var hit = null;
+        (found || []).forEach(function (f) {
+            var a = f && f.apps && f.apps[SNAPCHAT_IOS];
+            if (!hit && a && a.meoKey && a.meoIv) hit = { key: a.meoKey, iv: a.meoIv, source: f.source || 'nyckelringen' };
+        });
+        return hit;
+    }
+
     // Finns Signals databasnyckel, för Android eller iOS, i det som hittats?
     function hasSignalKey(found) {
         var has = function (app) { var k = signalKeys(found, app); return !!(k && k.dbKey); };
@@ -475,7 +512,7 @@
         SIGNAL: SIGNAL, SIGNAL_IOS: SIGNAL_IOS, SNAPCHAT_IOS: SNAPCHAT_IOS, isSecretsPath: isSecretsPath, isKeyFileName: isKeyFileName, isExtraKeyPath: isExtraKeyPath,
         besideKeyFiles: besideKeyFiles, deviceIdOf: deviceIdOf,
         fromSecretsFile: fromSecretsFile, fromKeystoreFile: fromKeystoreFile, fromKeychainPlist: fromKeychainPlist, fromKeyFile: fromKeyFile, readKeyBytes: readKeyBytes,
-        parseXmlPlist: parseXmlPlist, parseManual: parseManual, signalKeys: signalKeys, keysForProfile: keysForProfile, hasSignalKey: hasSignalKey, keyHint: keyHint, missingKeyText: missingKeyText,
+        parseXmlPlist: parseXmlPlist, parseManual: parseManual, signalKeys: signalKeys, keysForProfile: keysForProfile, snapchatMeoKey: snapchatMeoKey, hasSignalKey: hasSignalKey, keyHint: keyHint, missingKeyText: missingKeyText,
     };
     if (typeof module !== 'undefined' && module.exports) module.exports = api;
     else root.AppSecrets = api;

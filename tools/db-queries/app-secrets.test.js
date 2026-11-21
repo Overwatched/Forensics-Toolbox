@@ -252,3 +252,22 @@ test('Snapchats nyckel till Memories (iOS): ur nyckelringen, öppen eller krypte
     // Bara en inklistrad nyckel: ingen nyckel för Snapchat.
     assert.strictEqual(s.keysForProfile([{ dbKey: 'ab'.repeat(32) }], 'snapchat-gallery'), null);
 });
+
+// Snapchats nyckeltjänst på iOS (com.snapchat.keyservice.persistedkey): en NSKeyedArchiver-plist med masterKey och
+// initializationVector, som öppnar nycklarna till snapsen i My Eyes Only. Påhittade värden i samma form som labbet.
+test('krypterade poster: Snapchats nyckeltjänst ger nyckeln till My Eyes Only', async () => {
+    const { bplist, Uid } = require('./fixtures/keychain-builder');
+    const mk = Buffer.alloc(32, 7), iv = Buffer.alloc(16, 9);
+    const archive = bplist({ $version: 100000, $archiver: 'NSKeyedArchiver', $top: { root: new Uid(1) },
+        $objects: ['$null', { $class: new Uid(7), keyTag: new Uid(3), masterKey: new Uid(4), userId: new Uid(2), passphrase: new Uid(6), initializationVector: new Uid(5) },
+            '3c75669d-0000', 'TAG', mk, iv, Buffer.alloc(32, 1), { $classname: 'SCKeyServicePersistedKey', $classes: ['SCKeyServicePersistedKey', 'NSObject'] }] });
+    const r = await s.readKeyBytes(xmlBytes([OTHER_ITEM,
+        { svce: 'com.toyopagroup.picaboo', acct: 'egocipher.key.avoidkeyderivation', agrp: '3MY7A92V5W.com.toyopagroup.picaboo', value: Buffer.alloc(32, 3) },
+        { svce: 'com.toyopagroup.picaboo', acct: 'com.snapchat.keyservice.persistedkey', agrp: '3MY7A92V5W.com.toyopagroup.picaboo', value: archive }]), 'k.plist');
+    assert.strictEqual(r.failed, 0);
+    assert.deepStrictEqual(s.snapchatMeoKey([r]), { key: mk.toString('hex'), iv: iv.toString('hex'), source: 'k.plist' });
+    assert.strictEqual(s.keysForProfile([r], 'snapchat-gallery').dbKey, Buffer.alloc(32, 3).toString('hex'));
+    // En annan app med samma kontonamn räknas inte.
+    const other = await s.readKeyBytes(xmlBytes([{ svce: 'x', acct: 'com.snapchat.keyservice.persistedkey', agrp: 'X.com.annan.app', value: archive }]), 'k.plist');
+    assert.strictEqual(s.snapchatMeoKey([other]), null);
+});

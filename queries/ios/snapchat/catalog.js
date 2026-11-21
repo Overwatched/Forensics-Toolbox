@@ -624,7 +624,7 @@ window.SNAPCHAT_CATALOG = {
         "gallery.encrypteddb"
       ],
       "cipher": "snapchat-gallery",
-      "source": "Kontrollerad mot en labbtelefon (iOS 26.4.1, 2026-11-16): SQLCipher med rå nyckel på 32 byte, saltet först i filen, sidor på 1024 byte och HMAC-SHA1. HMAC stämde för alla sidor. snap_id är samma id som ZSNAPID i scdb-27.sqlite3, och positionen stämde med telefonens egna positioner vid tagningen. Snapchats SQLite döper de automatiska indexen till sqlcph_autoindex_…; programmet ger dem SQLites namn i minnet, så att databasen går att läsa. snap_address_title var tom i labbet.",
+      "source": "Kontrollerad mot en labbtelefon (iOS 26.4.1, 2026-11-16): SQLCipher med rå nyckel på 32 byte, saltet först i filen, sidor på 1024 byte och HMAC-SHA1. HMAC stämde för alla sidor. snap_id är samma id som ZSNAPID i scdb-27.sqlite3, och positionen stämde med telefonens egna positioner vid tagningen. Snapchats SQLite döper de automatiska indexen till sqlcph_autoindex_…; programmet ger dem SQLites namn i minnet, så att databasen går att läsa. snap_address_title var tom i labbet. My Eyes Only kontrollerat 2026-11-19 (iPhone-labbet): snap_key_iv med encrypted = 1 har nyckeln (48 byte) och iv:n (32 byte) krypterade med AES-256-CBC under nyckeltjänstens masterKey och initializationVector (com.snapchat.keyservice.persistedkey i nyckelringen); båda snapsen gav JPEG.",
       "queries": [
         {
           "id": "locations",
@@ -658,6 +658,32 @@ window.SNAPCHAT_CATALOG = {
             "title": "address_title"
           },
           "sql": "SELECT\n  l.snap_id,\n  l.latitude,\n  l.longitude,\n  t.address_title\nFROM snap_location_table l\nLEFT JOIN snap_address_title t ON t.snap_id = l.snap_id\nORDER BY l.snap_id;",
+          "epoch": "unixMs"
+        },
+        {
+          "id": "my-eyes-only",
+          "title": "Snaps i My Eyes Only",
+          "subtitle": "Visar vilka sparade snaps som har nyckeln krypterad (encrypted = 1), alltså ligger i My Eyes Only. Nyckeln öppnas med Snapchats nyckeltjänst i nyckelringen (com.snapchat.keyservice.persistedkey), utan koden; Telefonen och Härkomst gör det.",
+          "params": [],
+          "returns": "snap-id, krypterad nyckel",
+          "sql": "SELECT\n  snap_id,\n  encrypted\nFROM snap_key_iv\nORDER BY encrypted DESC, snap_id;"
+        },
+        {
+          "id": "role-memory-key",
+          "hidden": true,
+          "role": "memory-key",
+          "title": "Härkomst: nyckeln till en sparad snap",
+          "description": "Används av Härkomst. Snappens nyckel och iv; med encrypted = 1 (My Eyes Only) är de krypterade med nyckeltjänstens masterKey och IV (AES-256-CBC).",
+          "params": [
+            "snapId"
+          ],
+          "fields": {
+            "snapId": "snap_id",
+            "key": "key",
+            "iv": "iv",
+            "encrypted": "encrypted"
+          },
+          "sql": "SELECT\n  snap_id,\n  key,\n  iv,\n  encrypted\nFROM snap_key_iv\nWHERE upper(snap_id) = upper('{{snapId}}');",
           "epoch": "unixMs"
         }
       ]

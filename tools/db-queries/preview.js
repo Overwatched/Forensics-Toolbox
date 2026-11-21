@@ -137,7 +137,7 @@
         [/^(ZMEDIATYPE|ZCAMERAFRONTFACING)$/, function () { return '0'; }],
         [/^ZHASLOCATION$/, function () { return '1'; }],
         [/^ZSERVLETMEDIAFORMAT$/, function () { return 'image_jpeg'; }],
-        [/^(text_eller_ritning|my_eyes_only)$/i, function (i) { return String(i % 2); }],
+        [/^(text_eller_ritning|my_eyes_only|encrypted)$/i, function (i) { return String(i % 2); }],
         [/^kopia_av$/i, function () { return ''; }],
         // Samsungs Rubin och MediaStores ursprung och ordning.
         [/^(tid|slut|forsta|sista|andrad|tagen|rensas)$/i, function (i) { return '2026-11-06 15:0' + i + ':0' + i; }],

@@ -2840,11 +2840,15 @@
             var ownExt = sc && sc.row ? ProvenanceSnapchat.parseExternalKey(sc.row.external) : null;
             var ownVideo = sc && sc.row ? ProvenanceSnapchat.memoryVideoKey(sc.row.external, sc.row.context) : null;
             var iosLink = run.iosMemoryLink || null;
-            var ownId = ownVideo || (ownExt && ownExt.kind === 'memory' ? ownExt.snapId : input.file.memory ? input.file.memory.id : iosLink ? iosLink.id : null);
+            // Snappen vars nyckel dekrypterade filen. En fil som flyttats till My Eyes Only har kvar originalets rad i cachen
+            // (borttagen) med originalets id; det dekrypterade innehållet säger vilken snap filen är nu.
+            var plainId = run.memoryPlain && run.memoryPlain.id ? String(run.memoryPlain.id) : null;
+            var ownId = ownVideo || plainId || (ownExt && ownExt.kind === 'memory' ? ownExt.snapId : input.file.memory ? input.file.memory.id : iosLink ? iosLink.id : null);
             if (ownId && memSrc.roles['memory-id'] && !ctx.memories.some(function (x) { return String(x.id).toUpperCase() === String(ownId).toUpperCase(); })) {
                 ctx.memories = ctx.memories.concat(runRole(memDb, memSrc.roles['memory-id'], { snapId: ownId }, ['created', 'captured'], run).rows.map(memoryRow));
             }
             if (input.file.memory) { ctx.memoryId = input.file.memory.id; ctx.memoryBy = input.file.memory.by; }
+            else if (plainId) { ctx.memoryId = plainId; ctx.memoryBy = 'id'; }
             else if (iosLink) { ctx.memoryId = iosLink.id; ctx.memoryBy = iosLink.by; }
             // iOS: positionerna står i gallery.encrypteddb, under samma snap-id.
             if (iosMem && ctx.memories.length) {
@@ -3063,13 +3067,19 @@
             .find(function (r) { return String(r.id || '').toUpperCase() === ext.snapId; });
         if (!mem) return { reason: 'Filen lästes, men ' + lies + '. Snappen finns inte i scdb-27.sqlite3, så nyckeln saknas' };
         // My Eyes Only (labbet 2026-11-19): filen krypteras om när snappen flyttas dit, och nyckeln i ZENCRYPTION gäller inte
-        // längre. Snapchat skyddar My Eyes Only med en lösenkod; programmet har ingen väg till den nyckeln.
+        // längre. Den nya nyckeln står krypterad i gallery.encrypteddb och öppnas med nyckeltjänsten (snapMeoCipher).
         var meo = Number(mem.private) === 1;
         var meoText = meo ? '. Snappen ligger i My Eyes Only (ZGALLERYENTRY.ZISPRIVATE 1' + (mem.copyFrom ? ', en kopia av snap ' + mem.copyFrom + ' (ZDUPLICATEDFROMSNAPID)' : '') +
-            '). Filen krypterades om när snappen flyttades dit, med My Eyes Only-nyckeln som skyddas av användarens lösenkod, så innehållet kan inte visas' : '';
+            '). Filen krypterades om när snappen flyttades dit, och nyckeln till den gick inte att öppna' : '';
         var archive = null;
         try { archive = mem.encryption && window.KC && window.KC.bplist ? window.KC.bplist.parse(bytesOf(mem.encryption)) : null; } catch (e) { archive = null; }
-        var c = ProvenanceSnapchat.memoryCipher(archive);
+        var c = ProvenanceSnapchat.memoryCipher(archive), meoOpen = null;
+        // My Eyes Only: nyckeln i gallery.encrypteddb (snap_key_iv, encrypted 1) öppnas med Snapchats nyckeltjänst.
+        if (meo) {
+            meoOpen = await snapMeoCipher(ext.snapId);
+            if (meoOpen.cipher) { c = meoOpen.cipher; meoText = ''; }
+            else meoText = '. Snappen ligger i My Eyes Only (ZGALLERYENTRY.ZISPRIVATE 1' + (mem.copyFrom ? ', en kopia av snap ' + mem.copyFrom + ' (ZDUPLICATEDFROMSNAPID)' : '') + '). ' + meoOpen.reason;
+        }
         if (!c) return { reason: 'Filen lästes, men ' + lies + (meoText || '. Snappens rad i scdb-27.sqlite3 har ingen nyckel som går att läsa (ZENCRYPTION), så innehållet kunde inte läsas'), memoryId: ext.snapId, meo: meo };
         if (!bytes.length || bytes.length % 16) return { reason: 'Filen lästes, men ' + lies + (meoText || '. Filens storlek är inte ett helt antal AES-block, så den går inte att dekryptera med nyckeln'), memoryId: ext.snapId, meo: meo };
         var plain = await aesCbc(c.key, c.iv, bytes);
@@ -3082,8 +3092,37 @@
         return {
             bytes: plain, sha256: sha, contentType: type, memoryId: ext.snapId, overlay: overlay,
             note: 'Filen ligger krypterad i ' + Z() + ' (en sparad snap i Snapchats Memories, snap-id ' + ext.snapId + '). Det som visas är det dekrypterade innehållet: ' + num(plain.length) + ' byte' + (sha ? ', SHA-256 ' + sha : '') +
-                '. Nyckeln och IV står i scdb-27.sqlite3 (ZGALLERYSNAP.ZENCRYPTION), och AES-256-CBC med dem gav ' + (type === 'image/jpeg' ? 'en JPEG' : type) + '.',
+                (meoOpen && meoOpen.cipher ? '. Snappen ligger i My Eyes Only. Nyckeln och IV står krypterade i gallery.encrypteddb (snap_key_iv, encrypted 1) och öppnades med Snapchats nyckeltjänst i nyckelringen (com.snapchat.keyservice.persistedkey, masterKey och IV), utan koden. AES-256-CBC med dem gav '
+                    : '. Nyckeln och IV står i scdb-27.sqlite3 (ZGALLERYSNAP.ZENCRYPTION), och AES-256-CBC med dem gav ') + (type === 'image/jpeg' ? 'en JPEG' : type) + '.',
         };
+    }
+
+    // Nyckeln till en snap i My Eyes Only (iOS): raden i gallery.encrypteddb (snap_key_iv) har nyckeln och iv:n krypterade
+    // med AES-256-CBC under Snapchats nyckeltjänst i nyckelringen (com.snapchat.keyservice.persistedkey: masterKey, IV).
+    // -> { cipher: { key, iv } } eller { reason }. Kontrollerat på iPhone-labbet 2026-11-19.
+    async function snapMeoCipher(snapId) {
+        var hit = hitFor(SNAP_KEYS_IOS.gallery);
+        if (!hit) return { reason: 'gallery.encrypteddb, där snappens nyckel står, finns inte i ' + Z() + ', så innehållet kan inte visas.' };
+        var src = sourceByKey(SNAP_KEYS_IOS.gallery);
+        if (!src.roles['memory-key']) return { reason: 'Katalogen saknar frågan efter nyckeln (memory-key).' };
+        var cipher = snapGalleryCipher();
+        if (!cipher.passphrase) return { reason: 'Nyckeln står i gallery.encrypteddb, som är krypterad, och nyckelringen (egocipher.key.avoidkeyderivation) hittades inte. Välj nyckelringen med extraktionen.' };
+        var meoKey = AppSecrets.snapchatMeoKey(chosenKeys().concat((state.zip && state.zip.secrets) || []));
+        if (!meoKey) return { reason: 'Snappens nyckel är krypterad, och nyckeln till den (com.snapchat.keyservice.persistedkey i nyckelringen) hittades inte. Välj nyckelringen med extraktionen.' };
+        var db;
+        try { db = await loadDb(hit, src.title, cipher); } catch (e) { return { reason: 'gallery.encrypteddb kunde inte läsas: ' + e.message }; }
+        var row = runRole(db, src.roles['memory-key'], { snapId: snapId }, [], { queries: [] }).rows[0];
+        if (!row) return { reason: 'Snappen har ingen nyckel i gallery.encrypteddb (snap_key_iv).' };
+        var hex = function (h) { return new Uint8Array(h.match(/../g).map(function (x) { return parseInt(x, 16); })); };
+        var k = bytesOf(row.key), v = bytesOf(row.iv);
+        if (!k || !v) return { reason: 'Snappens rad i snap_key_iv saknar nyckel eller iv.' };
+        if (Number(row.encrypted) !== 1) return { cipher: { key: k, iv: v } };
+        try {
+            var mk = hex(meoKey.key), miv = hex(meoKey.iv);
+            var key = await aesCbc(mk, miv, k), iv = await aesCbc(mk, miv, v);
+            if (key && iv && key.length === 32 && iv.length === 16) return { cipher: { key: key, iv: iv } };
+        } catch (e) { /* fel nyckel nedan */ }
+        return { reason: 'Nyckeltjänstens nyckel i nyckelringen öppnade inte snappens nyckel.' };
     }
 
     // Texten och ritningen på en sparad snap (iOS): cachefilen snap-overlay-<id>, dekrypterad med snappens nyckel. -> bytes (WebP) eller null.
@@ -3168,7 +3207,8 @@
     // med id:t och deras filer. En Memories-post (ZENTRYID, memories_entry_id) kan ha flera snaps. null när id:t inte
     // finns i Memories, annars { memories: [{ memory, entry | entries | missing }] }.
     async function snapMemoryFile(text) {
-        var id = String(text || '').trim();
+        // Telefonen sparar och skickar en dekrypterad snap som snapchat-memory-<snap-id>.<ändelse>: id:t gäller.
+        var id = String(text || '').trim().replace(/^snapchat-memory-/i, '').replace(/\.(jpe?g|png|webp|heic|mp4|mov|bin)$/i, '');
         // Ett helt uuid, eller början av ett (minst åtta tecken): rollen söker på början.
         if (!/^[0-9a-f]{8}(-?[0-9a-f]{1,4}){0,4}[0-9a-f-]*$/i.test(id) || id.length > 36 || !state.zip) return null;
         var keys = snapKeys();
@@ -4542,6 +4582,14 @@
     async function runDiskFile(file) {
         var z = state.zip;
         if (!z || !z.platform) { setStatus('run-status', 'Öppna en extraktion först.', 'warn'); return; }
+        // En sparad snap som Telefonen dekrypterat (snapchat-memory-<snap-id>.<ändelse>) finns bara krypterad i zippen:
+        // den söks på snap-id:t, som när id:t skrivs in.
+        var snapName = /^snapchat-memory-([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.[a-z0-9]+$/i.exec(file.name || '');
+        if (snapName) {
+            $('filename').value = snapName[1];
+            await run();
+            return;
+        }
         clearBatch();
         if (file.size > MAX_MEDIA) { setStatus('run-status', 'Filen är ' + ExtractionCore.sizeText(file.size) + ', över gränsen på 200 MB.', 'warn'); return; }
         busy(true);
