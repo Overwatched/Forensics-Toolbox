@@ -255,6 +255,29 @@
             "mark": "markering"
           },
           "sql": "WITH f AS (SELECT generation_added AS g FROM files WHERE _display_name = '{{filename}}' ORDER BY generation_added LIMIT 1),\n  c AS (SELECT _id, _display_name, relative_path, owner_package_name, date_added, generation_added, generation_modified, is_download, download_uri, referer_uri FROM files WHERE media_type IN (1, 3) OR is_download = 1 OR _display_name = '{{filename}}')\nSELECT * FROM (SELECT c.*, 'före' AS markering FROM c, f WHERE generation_added < f.g ORDER BY generation_added DESC LIMIT 6)\nUNION ALL SELECT c.*, 'filen' FROM c, f WHERE generation_added = f.g\nUNION ALL SELECT * FROM (SELECT c.*, 'efter' FROM c, f WHERE generation_added > f.g ORDER BY generation_added LIMIT 6)\nORDER BY generation_added;"
+        },
+        {
+          "id": "role-store-downloads",
+          "hidden": true,
+          "role": "store-downloads",
+          "title": "Telefonen: nedladdningarna per app",
+          "description": "Används av Telefonen. Filerna som en app laddat ner (is_download = 1) med appen (owner_package_name), adressen och sidan när de finns. Tor Browser sparar ingen adress (download_uri och referer_uri tomma), och Telefonen visar dess nedladdningar härifrån.",
+          "params": [],
+          "epoch": "unixS",
+          "fields": {
+            "pk": "_id",
+            "path": "_data",
+            "filename": "_display_name",
+            "relativePath": "relative_path",
+            "owner": "owner_package_name",
+            "mime": "mime_type",
+            "size": "_size",
+            "added": "date_added",
+            "modified": "date_modified",
+            "url": "download_uri",
+            "referrer": "referer_uri"
+          },
+          "sql": "SELECT _id, _data, _display_name, relative_path, owner_package_name, mime_type, _size, date_added, date_modified, download_uri, referer_uri\nFROM files\nWHERE is_download = 1\nORDER BY date_added DESC;"
         }
       ]
     },

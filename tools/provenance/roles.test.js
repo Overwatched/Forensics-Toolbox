@@ -52,7 +52,7 @@ test('alla källor och roller finns', () => {
     assert.strictEqual(byKey.wellbeing.platform, 'Android');
     assert.strictEqual(byKey.knowledgec.platform, 'iOS');
     assert.ok(byKey['android-mediastore'].paths.length >= 3);
-    assert.deepStrictEqual(Object.keys(byKey['android-mediastore'].roles).sort(), ['file', 'gallery', 'media-extra', 'media-origin', 'neighbours']);
+    assert.deepStrictEqual(Object.keys(byKey['android-mediastore'].roles).sort(), ['file', 'gallery', 'media-extra', 'media-origin', 'neighbours', 'store-downloads']);
     // Rubin: krypterad med nyckeln Logging, positioner och appar i förgrunden till Härkomst.
     assert.strictEqual(byKey['samsung-rubin-logging'].cipher, 'rubin-logging');
     assert.strictEqual(byKey['samsung-rubin-logging'].platform, 'Android');

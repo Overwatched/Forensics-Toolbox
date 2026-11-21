@@ -689,6 +689,34 @@ function safariTabsDb(SQL) {
     return exported(db);
 }
 
+// Tor Browser på Android, i labbtelefonens form (2026-11-21): places.sqlite med ett bokmärke och inga besök (privat läge),
+// Tors state-fil, konsensusfilen, fenix_preferences.xml, profilens times.json, en privat flikbild, och nedladdningen i
+// Download med Tor Browser som ägare i MediaStore och utan adress. Ingen data ur telefonen.
+const TOR_T = Date.UTC(2026, 10, 21, 13, 4, 57) / 1000;
+const TOR_PKG = 'data/data/org.torproject.torbrowser/';
+function torEntries(SQL, jpeg) {
+    const places = webDb(SQL, 'android-gecko');
+    places.run("INSERT INTO moz_places (id, url, title, guid, visit_count_local, typed) VALUES (1, 'https://example.com/', 'Example Domain', 'p1', 0, 0)");
+    places.run("INSERT INTO moz_bookmarks (id, fk, type, parent, position, title, guid, dateAdded, lastModified) VALUES (1, NULL, 2, NULL, 0, 'root', 'root________', ?, ?), (5, NULL, 2, 1, 0, 'mobile', 'mobile______', ?, ?), (6, 1, 1, 5, 0, 'Example Domain', 'b6', ?, ?)",
+        [(TOR_T - 200) * 1e3, (TOR_T - 200) * 1e3, (TOR_T - 200) * 1e3, (TOR_T - 200) * 1e3, (TOR_T - 79) * 1e3, (TOR_T - 79) * 1e3]);
+    const store = new SQL.Database();
+    store.run('CREATE TABLE files (_id INTEGER PRIMARY KEY, _data TEXT, _display_name TEXT, relative_path TEXT, bucket_display_name TEXT, mime_type TEXT, media_type INTEGER, owner_package_name TEXT, datetaken INTEGER, date_added INTEGER, date_modified INTEGER, is_trashed INTEGER, is_pending INTEGER, is_favorite INTEGER, is_download INTEGER, download_uri TEXT, referer_uri TEXT, generation_added INTEGER, generation_modified INTEGER, _size INTEGER)');
+    insert(store, 'files', { _id: 117, _data: '/storage/emulated/0/Download/nyckel.asc', _display_name: 'nyckel.asc', relative_path: 'Download/', mime_type: 'application/pgp-keys', media_type: 0, owner_package_name: 'org.torproject.torbrowser',
+        date_added: TOR_T, date_modified: TOR_T, is_trashed: 0, is_pending: 0, is_favorite: 0, is_download: 1, download_uri: null, referer_uri: null, generation_added: 5, generation_modified: 5, _size: 833 });
+    const stateText = '# Tor state file last generated on 2026-11-21 14:05:32 local time\n# Other times below are in UTC\n\nDormant 0\nGuard in=default rsa_id=AAAA nickname=nod1 sampled_on=2026-11-11T12:16:55 sampled_idx=0 listed=1\nLastWritten 2026-11-21 13:05:32\nTorVersion Tor 0.4.9.16 (git-c51547ca15ea6659)\nTotalBuildTimes 29\n';
+    const prefs = "<?xml version='1.0' encoding='utf-8' standalone='yes' ?>\n<map>\n    <boolean name=\"pref_key_last_known_mode_private\" value=\"true\" />\n    <long name=\"pref_key_last_browse_activity_time\" value=\"" + (TOR_T - 19) * 1000 + "\" />\n    <long name=\"pref_key_growth_usage_time\" value=\"52363\" />\n    <int name=\"pref_key_app_launch_count\" value=\"1\" />\n</map>\n";
+    return [
+        { name: TOR_PKG + 'files/places.sqlite', data: exported(places), deflate: true },
+        { name: TOR_PKG + 'files/tor/state', data: stateText, mtime: TOR_T + 35 },
+        { name: TOR_PKG + 'files/tor/cached-microdesc-consensus', data: 'network-status-version 3 microdesc\nvote-status consensus\nvalid-after 2026-11-21 12:00:00\n', mtime: TOR_T - 185 },
+        { name: TOR_PKG + 'shared_prefs/fenix_preferences.xml', data: prefs },
+        { name: TOR_PKG + 'files/mozilla/abcd1234.default/times.json', data: '{"created": ' + (TOR_T - 205) * 1000 + ', "firstUse": null}' },
+        { name: TOR_PKG + 'no_backup/mozac_browser_thumbnails/private_thumbnails/flik1.0', data: jpeg, mtime: TOR_T - 30 },
+        { name: 'data/data/com.android.providers.media.module/databases/external.db', data: exported(store), deflate: true },
+        { name: 'data/media/0/Download/nyckel.asc', data: '-----BEGIN PGP SIGNATURE-----\npåhittad\n-----END PGP SIGNATURE-----\n', mtime: TOR_T },
+    ];
+}
+
 function samsungEntries(SQL, jpeg) {
     const other = (tag) => Buffer.concat([jpeg, Buffer.from(tag)]);
     const rtc = (localText, utcText) => localText + ' [RTC] 148911.38 37981.19    ' + utcText + ' ' + Date.parse(utcText.replace(' ', 'T') + 'Z') / 1000;
@@ -963,6 +991,7 @@ async function build() {
         samsung: path.join(dir, 'Testextraktion-Samsung.zip'),
         samsungNoZone: path.join(dir, 'Testextraktion-Samsung-utan-zon.zip'),
         samsungSignal: path.join(dir, 'Testextraktion-Samsung-med-Signal.zip'),
+        tor: path.join(dir, 'Testextraktion-Tor.zip'),
         // Snapchat Memories på iOS 26, med nyckelringen bredvid (samma id i namnet).
         snapchatIos: path.join(dir, 'snapchat', '00008030-0000000000000003_fs.zip'),
         snapchatIosKey: path.join(dir, 'snapchat', '00008030-0000000000000003_keychain.plist'),
@@ -988,6 +1017,7 @@ async function build() {
     fs.writeFileSync(files.powerlogArchive, require('node:zlib').gzipSync(powerlog(SQL)));
     fs.writeFileSync(files.samsung, buildZip(samsungEntries(SQL, jpeg)));
     fs.writeFileSync(files.samsungNoZone, buildZip(samsungNoZoneEntries(SQL, jpeg)));
+    fs.writeFileSync(files.tor, buildZip(torEntries(SQL, jpeg)));
     const snapIos = await snapchatIosEntries(SQL, jpeg, photos);
     fs.writeFileSync(files.snapchatIos, buildZip(snapIos.entries));
     fs.writeFileSync(files.snapchatIosKey, snapIos.keychain);
@@ -995,7 +1025,7 @@ async function build() {
     fs.writeFileSync(files.samsungSignal, buildZip(signalEntries));
     const sum = (data) => crypto.createHash('sha256').update(data).digest('hex');
     const signalAndroidPartSums = { file: sum(signalEntries.find((e) => e.name === SIGNAL_ANDROID_PART).data), content: sum(signalEntries.find((e) => /chatt_kamera\.jpg$/.test(e.name)).data) };
-    return { files, snapchatIos: snapIos.info, signalAndroidKey: SIGNAL_ANDROID_KEY, signalAndroidModernKey: SIGNAL_ANDROID_MODERN.toString('base64'), signalAndroidPartSums, T: T * 1000, imageName: 'IMG_0001.JPG', T2: T2 * 1000, waMedia: 'mottagen.jpg', T3: T3 * 1000, tgMedia: TG_MEDIA, TS: TS * 1000, TS2: TS2 * 1000, TS3: TS3 * 1000,
+    return { files, snapchatIos: snapIos.info, signalAndroidKey: SIGNAL_ANDROID_KEY, signalAndroidModernKey: SIGNAL_ANDROID_MODERN.toString('base64'), signalAndroidPartSums, T: T * 1000, imageName: 'IMG_0001.JPG', T2: T2 * 1000, waMedia: 'mottagen.jpg', T3: T3 * 1000, tgMedia: TG_MEDIA, TS: TS * 1000, TS2: TS2 * 1000, TS3: TS3 * 1000, TOR_T: TOR_T * 1000,
         longChat: { count: LONG.count, needles: LONG.needles, gapAfter: LONG.gapAfter, timeMs: (i) => longTime(i) * 1000 } };
 }
 

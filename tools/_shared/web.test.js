@@ -30,7 +30,7 @@ async function dbFor(key) {
     Object.values(SCHEMAS[key]).forEach((sql) => db.run(sql.replace(/(?<!IS )NOT NULL/gi, '')));
     return db;
 }
-const SCHEMA_OF = { 'ios-safari-history': 'ios-safari-history', 'ios-safari-tabs': 'ios-safari-tabs', 'ios-safari-bookmarks': 'ios-safari-bookmarks', 'android-chrome': 'android-chrome', 'android-sbrowser': 'android-sbrowser', 'ios-chrome': 'android-chrome' };
+const SCHEMA_OF = { 'ios-safari-history': 'ios-safari-history', 'ios-safari-tabs': 'ios-safari-tabs', 'ios-safari-bookmarks': 'ios-safari-bookmarks', 'android-chrome': 'android-chrome', 'android-sbrowser': 'android-sbrowser', 'ios-chrome': 'android-chrome', 'android-gecko': 'android-gecko' };
 const srcOf = (id) => Web.sources(catalog).find((s) => s.key === id);
 function exec(db, q, values) {
     const r = db.exec(Roles.fill(q.sql, values || {}));
@@ -58,8 +58,8 @@ function plistWithDate(iso) {
     return new Uint8Array(Buffer.concat([head, ...objects, Buffer.from(offsets), trailer]));
 }
 
-test('katalogen: sex databaser, varje query går att förbereda mot labbtelefonernas scheman, och rollerna har sina fält', async () => {
-    assert.deepStrictEqual(catalog.databases.map((d) => d.id), ['ios-safari-history', 'ios-safari-tabs', 'ios-safari-bookmarks', 'android-chrome', 'android-sbrowser', 'ios-chrome']);
+test('katalogen: sju databaser, varje query går att förbereda mot labbtelefonernas scheman, och rollerna har sina fält', async () => {
+    assert.deepStrictEqual(catalog.databases.map((d) => d.id), ['ios-safari-history', 'ios-safari-tabs', 'ios-safari-bookmarks', 'android-chrome', 'android-sbrowser', 'ios-chrome', 'android-gecko']);
     const errors = [];
     for (const d of catalog.databases) {
         const db = await dbFor(SCHEMA_OF[d.id]);
@@ -77,7 +77,7 @@ test('katalogen: sex databaser, varje query går att förbereda mot labbtelefone
     }
     assert.deepStrictEqual(errors, []);
     assert.deepStrictEqual(Web.sources(catalog).map((s) => s.key + ':' + Object.keys(s.roles).join(',')),
-        ['ios-safari-history:visits,searches,cleared', 'ios-safari-tabs:tabs', 'android-chrome:visits,searches,downloads', 'android-sbrowser:visits,searches,downloads', 'ios-chrome:visits,searches,downloads']);
+        ['ios-safari-history:visits,searches,cleared', 'ios-safari-tabs:tabs', 'android-chrome:visits,searches,downloads', 'android-sbrowser:visits,searches,downloads', 'ios-chrome:visits,searches,downloads', 'android-gecko:visits,bookmarks']);
 });
 
 test('Safari: besöken med ursprung och omdirigering, söktermerna ur adressen och den rensade historiken', async () => {
@@ -184,4 +184,26 @@ test('webbläsaren efter sökvägen, värddatorn och filnamnet', () => {
     assert.strictEqual(Web.fileName('https://example.com/dir/fil.pdf?x=1'), 'fil.pdf');
     assert.strictEqual(Web.decodeTerm('%E2%98%80+sol'), '☀ sol');
     assert.strictEqual(Web.decodeTerm('100%'), '100%');
+});
+
+test('Tor Browser (places.sqlite): bokmärket med tiden, inga besök i privat läge, och nedladdningen ur MediaStore', async () => {
+    const src = srcOf('android-gecko');
+    const db = await dbFor('android-gecko');
+    // Som i labbet: mapparna och ett bokmärke, men inga besök.
+    insert(db, 'moz_places', { id: 1, url: 'https://example.com/', title: 'Example Domain', guid: 'p1', visit_count_local: 0, typed: 0 });
+    [[1, null, 'root', 'root________', null], [5, null, 'mobile', 'mobile______', 1]].forEach(([id, fk, title, guid, parent]) => insert(db, 'moz_bookmarks', { id, fk, type: 2, parent, position: 0, title, guid, dateAdded: 1795266095537, lastModified: 1795266095537 }));
+    insert(db, 'moz_bookmarks', { id: 6, fk: 1, type: 1, parent: 5, position: 0, title: 'Example Domain', guid: 'b6', dateAdded: 1795266218214, lastModified: 1795266218214 });
+    const b = Web.bookmarks(src, exec(db, src.roles.bookmarks));
+    assert.deepStrictEqual(b.map((x) => [x.title, x.url, x.ms, x.folder]), [['Example Domain', 'https://example.com/', 1795266218214, 'Mobilens bokmärken']]);
+    assert.deepStrictEqual(Web.visits(src, exec(db, src.roles.visits)), []);
+    const saved = exec(db, catalog.databases.find((d) => d.id === 'android-gecko').queries.find((q) => q.id === 'gecko-saved'));
+    assert.deepStrictEqual(saved.values[0].slice(0, 3), [0, 1, 1]);
+    assert.match(saved.values[0][3], /privat läge/);
+    // En nedladdning i MediaStore med appen som ägare och utan adress.
+    const rows = [{ pk: 1000000117, path: '/storage/emulated/0/Download/a.asc.key', filename: 'a.asc.key', relativePath: 'Download/', owner: 'org.torproject.torbrowser', mime: 'application/pgp-keys', size: 833, added: 1795266297, addedMs: 1795266297000, url: null, referrer: null },
+        { pk: 2, filename: 'b.pdf', owner: 'com.android.chrome', addedMs: 1 }];
+    const d = Web.storeDownloads(rows, 'org.torproject.torbrowser');
+    assert.deepStrictEqual(d.map((x) => [x.name, x.ms, x.url, x.mediaStore, x.fromStore]), [['a.asc.key', 1795266297000, '', '1000000117', true]]);
+    assert.strictEqual(Web.browserOf(src, 'Dump/data/data/org.torproject.torbrowser/files/places.sqlite').name, 'Tor Browser');
+    db.close();
 });

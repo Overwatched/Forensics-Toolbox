@@ -228,7 +228,7 @@ test('rollqueryer för Härkomst: dolda, med epoch och fältkarta som stämmer m
     assert.deepStrictEqual(roles(snapchat.databases.find((d) => d.id === 'snapchat-arroyo').queries), ['conversation-members', 'coverage', 'messages']);
     assert.deepStrictEqual(roles(snapchat.databases.find((d) => d.id === 'snapchat-friends').queries), ['friends', 'save-setting']);
     assert.deepStrictEqual(roles(snapchat.databases.find((d) => d.id === 'snapchat-notifications').queries), ['coverage', 'notifications']);
-    assert.deepStrictEqual(roles(android.categories.find((c) => c.id === 'mediastore').queries), ['file', 'gallery', 'media-extra', 'media-origin', 'neighbours']);
+    assert.deepStrictEqual(roles(android.categories.find((c) => c.id === 'mediastore').queries), ['file', 'gallery', 'media-extra', 'media-origin', 'neighbours', 'store-downloads']);
 });
 
 // Extraktion: databaserna hittas i en zip på sökvägarna i "paths". De skrivs utan inledande /

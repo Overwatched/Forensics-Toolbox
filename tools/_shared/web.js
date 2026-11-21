@@ -1,11 +1,11 @@
-// Webbhistorik ur katalogen Webbhistorik (queries/web): rollerna web-visits, web-searches, web-downloads, web-tabs och
-// web-cleared. Här görs rollernas rader om till besök, sökningar, nedladdningar och flikar, och en databas kopplas
+// Webbhistorik ur katalogen Webbhistorik (queries/web): rollerna web-visits, web-searches, web-downloads, web-tabs,
+// web-cleared och web-bookmarks. Här görs rollernas rader om till besök, sökningar, nedladdningar och flikar, och en databas kopplas
 // till sin webbläsare. Ingen SQL finns här. Används av Telefonen; testas i Node (web.test.js).
 (function (root) {
     'use strict';
 
     var Roles = typeof module !== 'undefined' && module.exports ? require('../provenance/roles.js') : root.ProvenanceRoles;
-    var ROLES = { visits: 'web-visits', searches: 'web-searches', downloads: 'web-downloads', tabs: 'web-tabs', cleared: 'web-cleared' };
+    var ROLES = { visits: 'web-visits', searches: 'web-searches', downloads: 'web-downloads', tabs: 'web-tabs', cleared: 'web-cleared', bookmarks: 'web-bookmarks' };
     var KINDS = Object.keys(ROLES);
 
     // Databaserna i katalogen med någon roll: { key, platform, app, title, label, paths, roles }.
@@ -33,10 +33,12 @@
         'com.android.chrome': 'Chrome', 'com.chrome.beta': 'Chrome Beta', 'com.chrome.dev': 'Chrome Dev', 'com.chrome.canary': 'Chrome Canary',
         'com.sec.android.app.sbrowser': 'Samsung Internet', 'com.sec.android.app.sbrowser.beta': 'Samsung Internet Beta',
         'com.microsoft.emmx': 'Edge', 'com.brave.browser': 'Brave', 'com.opera.browser': 'Opera', 'com.vivaldi.browser': 'Vivaldi', 'com.kiwibrowser.browser': 'Kiwi',
+        'org.torproject.torbrowser': 'Tor Browser', 'org.torproject.torbrowser_alpha': 'Tor Browser Alpha', 'org.mozilla.firefox': 'Firefox', 'org.mozilla.firefox_beta': 'Firefox Beta',
+        'org.mozilla.fenix': 'Firefox Nightly', 'org.mozilla.focus': 'Firefox Focus',
     };
     var IOS_IDS = { Safari: 'com.apple.mobilesafari', Chrome: 'com.google.chrome.ios' };
     function browserOf(src, path) {
-        var m = /\/data\/(?:data|user\/\d+|user_de\/\d+)\/([^\/]+)\//.exec(String(path || ''));
+        var m = /(?:^|\/)data\/(?:data|user\/\d+|user_de\/\d+)\/([^\/]+)\//.exec(String(path || ''));
         if (m) return { id: m[1], name: ANDROID_NAMES[m[1]] || (src.app + ' (' + m[1] + ')'), platform: 'Android' };
         return { id: IOS_IDS[src.app] || src.key, name: src.app || src.title, platform: src.platform || 'iOS' };
     }
@@ -117,6 +119,26 @@
         }).sort(function (a, b) { return (b.ms || 0) - (a.ms || 0); });
     }
 
+    // Bokmärkena, det senaste först: { id, ms (tillagt), modifiedMs, url, host, title, folder }.
+    function bookmarks(src, result) {
+        return Roles.mapRows(src.roles.bookmarks, result, ['added', 'modified']).map(function (r) {
+            return { id: text(r.id), ms: r.addedMs || null, raw: r.added, modifiedMs: r.modifiedMs || null, url: text(r.url), host: host(r.url), title: text(r.title).trim(), folder: text(r.folder) };
+        }).sort(function (a, b) { return (b.ms || 0) - (a.ms || 0); });
+    }
+
+    // Nedladdningarna i MediaStore som en app gjort (rollen store-downloads i katalogen för Android), i samma form som
+    // downloads ovan. För webbläsare utan egen lista (Tor Browser sparar ingen, och ingen adress). rows: rollens rader
+    // (mapRows med added och modified), pkg: appens paket.
+    function storeDownloads(rows, pkg) {
+        return (rows || []).filter(function (r) { return text(r.owner) === pkg; }).map(function (r) {
+            return {
+                id: text(r.pk), ms: r.addedMs || null, raw: r.added, endMs: null, path: text(r.path), current: '', name: text(r.filename) || fileName(r.path) || 'Utan namn',
+                mediaStore: text(r.pk), mime: text(r.mime), size: num(r.size), received: null, state: 'klar', opened: false, url: text(r.url), host: host(r.url), chain: '',
+                referrer: text(r.referrer), site: '', tab: '', tabReferrer: '', lastAccessMs: null, fromStore: true, relativePath: text(r.relativePath), modifiedMs: r.modifiedMs || null,
+            };
+        }).sort(function (a, b) { return (b.ms || 0) - (a.ms || 0); });
+    }
+
     // 1,2 MB.
     function sizeText(n) {
         if (n === null || n === undefined || !isFinite(n) || n < 0) return '';
@@ -126,7 +148,7 @@
         return (v < 10 ? v.toFixed(1) : Math.round(v)).toString().replace('.', ',') + ' ' + u[i];
     }
 
-    var api = { sources: sources, databases: databases, browserOf: browserOf, host: host, fileName: fileName, visits: visits, searches: searches, downloads: downloads, tabs: tabs, cleared: cleared,
+    var api = { sources: sources, databases: databases, browserOf: browserOf, host: host, fileName: fileName, visits: visits, searches: searches, downloads: downloads, tabs: tabs, cleared: cleared, bookmarks: bookmarks, storeDownloads: storeDownloads,
         decodeTerm: decodeTerm, sizeText: sizeText, KINDS: KINDS, ORIGIN: ORIGIN };
     if (typeof module !== 'undefined' && module.exports) module.exports = api;
     else root.Web = api;

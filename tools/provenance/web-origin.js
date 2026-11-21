@@ -53,7 +53,15 @@
     // Appar på iPhone som sparar en bild ur webben i bildbiblioteket (ZIMPORTEDBYBUNDLEIDENTIFIER).
     var IOS_BROWSERS = { 'com.apple.mobilesafari': 'Safari', 'com.google.chrome.ios': 'Chrome' };
 
-    var api = { tail: tail, storeId: storeId, fileName: fileName, matchDownload: matchDownload, visitsBefore: visitsBefore, IOS_BROWSERS: IOS_BROWSERS, NAME_TIME_MS: NAME_TIME_MS };
+    // Gecko-webbläsarna på Android (Tor Browser, Firefox): de sparar ingen lista över nedladdningar i en databas som
+    // Chrome; MediaStores owner_package_name säger att appen laddade ner filen.
+    function isGeckoPackage(pkg) { return /^org\.(torproject|mozilla)\./.test(String(pkg || '')); }
+    function isTorPackage(pkg) { return /^org\.torproject\./.test(String(pkg || '')); }
+    // Ligger filen i Download (relative_path Download/ eller sökvägen)?
+    function inDownloads(p) { return /(^|\/)download\//i.test(String(p || '').replace(/\\/g, '/')); }
+
+    var api = { tail: tail, storeId: storeId, fileName: fileName, matchDownload: matchDownload, visitsBefore: visitsBefore, IOS_BROWSERS: IOS_BROWSERS, NAME_TIME_MS: NAME_TIME_MS,
+        isGeckoPackage: isGeckoPackage, isTorPackage: isTorPackage, inDownloads: inDownloads };
     if (typeof module !== 'undefined' && module.exports) module.exports = api;
     else root.ProvenanceWeb = api;
 })(typeof window !== 'undefined' ? window : this);

@@ -59,3 +59,16 @@ test('upplysningen Webbläsaren: nedladdningen med sidan, en sparad bild i Safar
     assert.strictEqual(saved.verdictText, 'Sparad ur Safari');
     assert.strictEqual(saved.plain, 'Safari sparade filen i bildbiblioteket. Strax före besöktes Solros – Wikipedia.');
 });
+
+test('Tor Browser: nedladdningen i Download känns igen på appen i MediaStore, utan adress och utan historik', () => {
+    assert.ok(W.isGeckoPackage('org.torproject.torbrowser') && W.isGeckoPackage('org.mozilla.firefox') && !W.isGeckoPackage('com.android.chrome'));
+    assert.ok(W.isTorPackage('org.torproject.torbrowser') && !W.isTorPackage('org.mozilla.firefox'));
+    assert.ok(W.inDownloads('Download/') && W.inDownloads('/storage/emulated/0/Download/a.key') && !W.inDownloads('DCIM/Camera/'));
+    const src = { db: 'external.db', table: 'files' };
+    const f = core.factorWeb({ format: fmt, file: { pk: 1000000117 }, web: { browser: { name: 'Tor Browser' }, how: 'owner', private: true, source: src, visits: [], download: { startMs: T, url: '' } } });
+    assert.strictEqual(f.verdictText, 'Nedladdad i Tor Browser');
+    assert.match(f.items[0].text, /^Filen laddades ner i Tor Browser 2026-11-20 13:05:00\. Appen äger filen i MediaStore \(owner_package_name\)/);
+    assert.match(f.items[1].text, /sparar inte varifrån filen kom: download_uri och referer_uri/);
+    assert.match(f.items[2].text, /privat läge och sparar ingen historik/);
+    assert.strictEqual(f.plain, 'Filen laddades ner i Tor Browser.');
+});

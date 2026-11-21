@@ -197,7 +197,7 @@
         [/^(sokterm|normaliserad)$/i, pick(['tågtider göteborg', 'väder stockholm'])],
         [/^sokmotor$/i, pick(['Google', 'DuckDuckGo'])],
         [/^grupp$/i, pick(['Flikar', 'Privata flikar', 'Resor'])],
-        [/^(besok|besok_totalt|skriven|flikar|ordning|generation|mottagna_byte|fara|avbrott)$/i, function (i) { return String(i % 4); }],
+        [/^(besok|besok_totalt|skriven|flikar|adresser|bokmarken|ordning|generation|mottagna_byte|fara|avbrott)$/i, function (i) { return String(i % 4); }],
         [/^(besok_id|sida_id|url_id)$/i, function (i) { return String(120 + i); }],
         [/^sekunder_pa_sidan$/i, function (i) { return String(12.5 + i * 7); }],
         [/^sparad_som$/i, function () { return '/storage/emulated/0/Download/fil (1).pdf'; }],

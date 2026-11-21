@@ -2681,6 +2681,22 @@
             return { browser: who, download: m.d, how: m.how, visits: ProvenanceWeb.visitsBefore(visits(), m.d.startMs, WEB_SPAN_MS, 5), visitSource: visitSource,
                 source: { db: webBase(hit.db.name), table: 'downloads', column: 'target_path, start_time, downloads_url_chains, referrer, tab_url', queryId: role.id } };
         }
+        // Tor Browser och Firefox har ingen lista över nedladdningar (Tor Browser sparar ingen alls): MediaStore säger att
+        // appen äger filen i Download och när den lades till. Adressen sparas inte. Kontrollerat med Tor Browser 2026-11-21.
+        var pkg = String(fileRow.importer || '');
+        if (platform === 'Android' && ProvenanceWeb.isGeckoPackage(pkg) && ProvenanceWeb.inDownloads(fileRow.relativePath || fileRow.path)) {
+            var gw = Web.browserOf({ app: pkg }, '/data/data/' + pkg + '/files/places.sqlite'), gv = [], gvSource = null;
+            var ghit = hits.filter(function (h) { return h.db.name.indexOf('/' + pkg + '/') >= 0; })[0];
+            if (ghit) {
+                var gsrc = sourceByKey(ghit.key), gdb = await loadDb(ghit, gsrc.title), grole = gsrc.roles['web-visits'];
+                if (grole) {
+                    gv = ProvenanceWeb.visitsBefore(runRole(gdb, grole, {}, ['time'], run).rows, fileRow.addedMs, WEB_SPAN_MS, 5);
+                    gvSource = { db: webBase(ghit.db.name), table: 'moz_historyvisits', column: 'visit_date', queryId: grole.id };
+                }
+            }
+            return { browser: gw, download: { startMs: fileRow.addedMs, url: fileRow.downloadUri || '', referrer: '' }, how: 'owner', private: ProvenanceWeb.isTorPackage(pkg), visits: gv, visitSource: gvSource,
+                source: { db: 'external.db', table: 'files', column: 'owner_package_name, date_added, download_uri' } };
+        }
         return null;
     }
 

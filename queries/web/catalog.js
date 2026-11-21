@@ -2,7 +2,7 @@
 window.WEB_CATALOG = {
   "id": "web",
   "title": "Webbhistorik",
-  "sourceNote": "Webbläsarnas egna databaser: Safari på iPhone, Chrome och Samsung Internet. Rollerna (dolda) används av Telefonen.",
+  "sourceNote": "Webbläsarnas egna databaser: Safari på iPhone, Chrome, Samsung Internet, Firefox och Tor Browser. Rollerna (dolda) används av Telefonen.",
   "paramLabels": {},
   "databases": [
     {
@@ -604,6 +604,95 @@ window.WEB_CATALOG = {
             "lastAccess": "last_access_ms"
           },
           "sql": "SELECT d.id, (d.start_time / 1000 - 11644473600000) AS start_ms, CASE WHEN d.end_time > 0 THEN (d.end_time / 1000 - 11644473600000) END AS end_ms, d.target_path, d.current_path, d.mime_type,\n  d.total_bytes, d.received_bytes, CASE d.state WHEN 0 THEN 'pågår' WHEN 1 THEN 'klar' WHEN 2 THEN 'avbruten' WHEN 3 THEN 'avbruten' WHEN 4 THEN 'avbröts (fel)' ELSE 'state ' || d.state END AS state_text, d.opened, (SELECT c.url FROM downloads_url_chains c WHERE c.id = d.id ORDER BY c.chain_index DESC LIMIT 1) AS url, (SELECT group_concat(url, ' → ') FROM (SELECT c.url FROM downloads_url_chains c WHERE c.id = d.id ORDER BY c.chain_index)) AS chain,\n  NULLIF(d.referrer, '') AS referrer, NULLIF(d.site_url, '') AS site_url, NULLIF(d.tab_url, '') AS tab_url, NULLIF(d.tab_referrer_url, '') AS tab_referrer_url,\n  CASE WHEN d.last_access_time > 0 THEN (d.last_access_time / 1000 - 11644473600000) END AS last_access_ms\nFROM downloads d ORDER BY d.start_time DESC;"
+        }
+      ]
+    },
+    {
+      "id": "android-gecko",
+      "os": "Android",
+      "app": "Firefox",
+      "label": "Android — Firefox och Tor Browser: places.sqlite",
+      "blurb": "Historiken och bokmärkena i Firefox och Tor Browser. Tor Browser surfar alltid i privat läge och sparar inga besök; bokmärken sparas ändå.",
+      "dbPathHint": "/data/data/org.torproject.torbrowser/files/places.sqlite (+ -wal). Samma fil i Firefox (org.mozilla.firefox) och andra Gecko-webbläsare.",
+      "paths": [
+        "files/places.sqlite"
+      ],
+      "source": "Kontrollerat mot Tor Browser 16.0.2 på en labbtelefon (Android 13, 2026-11-21): moz_historyvisits var tom efter fyra sidor i privat läge, och bokmärket stod i moz_bookmarks med dateAdded (millisekunder sedan 1970, UTC; Firefox för Android sparar millisekunder, inte mikrosekunder som Firefox på datorn) på millisekunden. visit_date antas också vara millisekunder (samma bibliotek), men det är inte prövat: besöken saknades i labbet. Andra spår av Tor Browser (tor/state, fenix_preferences.xml, nedladdningar i MediaStore) visas i Telefonen. Firefox använder samma schema; det är inte prövat i labbet.",
+      "queries": [
+        {
+          "id": "gecko-bookmarks",
+          "title": "Bokmärken",
+          "recommended": true,
+          "params": [],
+          "subtitle": "Varje bokmärke med mapp, titel, adress och när det lades till. Sparas också i privat läge.",
+          "returns": "tillagd, ändrad, mapp, titel, adress, id, UTC",
+          "sql": "SELECT datetime(b.dateAdded / 1000, 'unixepoch', 'localtime') AS tillagd_lokal, datetime(b.lastModified / 1000, 'unixepoch', 'localtime') AS andrad_lokal,\n  CASE (SELECT f.guid FROM moz_bookmarks f WHERE f.id = b.parent) WHEN 'mobile______' THEN 'Mobilens bokmärken' WHEN 'toolbar_____' THEN 'Verktygsfältet' WHEN 'menu________' THEN 'Menyn' WHEN 'unfiled_____' THEN 'Övriga' ELSE COALESCE((SELECT f.title FROM moz_bookmarks f WHERE f.id = b.parent), '') END AS mapp,\n  b.title AS titel, p.url AS adress, b.id, b.guid,\n  datetime(b.dateAdded / 1000, 'unixepoch') AS tillagd_utc\nFROM moz_bookmarks b JOIN moz_places p ON p.id = b.fk\nWHERE b.type = 1\nORDER BY b.dateAdded;"
+        },
+        {
+          "id": "gecko-visits",
+          "title": "Besök i tidsspann",
+          "timeEpoch": "unix-ms",
+          "params": [
+            "timeStart",
+            "timeEnd"
+          ],
+          "subtitle": "Varje besök med tid, titel, adress och hur det kom till. Tor Browser sparar inga besök (privat läge), så där är listan tom.",
+          "returns": "tid, titel, adress, övergång, besök, skriven, id, UTC",
+          "sql": "SELECT datetime(v.visit_date / 1000, 'unixepoch', 'localtime') AS tid_lokal, p.title AS titel, p.url AS adress,\n  CASE v.visit_type WHEN 1 THEN 'länk' WHEN 2 THEN 'skriven adress' WHEN 3 THEN 'bokmärke' WHEN 4 THEN 'inbäddad' WHEN 5 THEN 'omdirigering (permanent)' WHEN 6 THEN 'omdirigering (tillfällig)' WHEN 7 THEN 'nedladdning' WHEN 8 THEN 'länk i ram' WHEN 9 THEN 'omladdning' ELSE 'typ ' || v.visit_type END AS overgang,\n  p.visit_count_local AS besok_totalt, p.typed AS skriven, v.id AS besok_id,\n  datetime(v.visit_date / 1000, 'unixepoch') AS tid_utc\nFROM moz_historyvisits v JOIN moz_places p ON p.id = v.place_id\nWHERE v.visit_date BETWEEN {{unixMsStart}} AND {{unixMsEnd}}\nORDER BY v.visit_date, v.id;"
+        },
+        {
+          "id": "gecko-saved",
+          "title": "Vad som är sparat",
+          "params": [],
+          "subtitle": "Antalet besök, adresser och bokmärken. Inga besök men bokmärken är vad privat läge (Tor Browser) lämnar.",
+          "returns": "besök, adresser, bokmärken, tolkning",
+          "sql": "SELECT (SELECT count(*) FROM moz_historyvisits) AS besok, (SELECT count(*) FROM moz_places) AS adresser, (SELECT count(*) FROM moz_bookmarks WHERE type = 1) AS bokmarken,\n  CASE WHEN (SELECT count(*) FROM moz_historyvisits) = 0 THEN 'Inga besök sparade: privat läge (Tor Browser surfar alltid så), eller rensad historik. Adresserna som finns hör till bokmärkena.'\n    ELSE 'Historiken sparas: besöken står i moz_historyvisits.' END AS tolkning;"
+        },
+        {
+          "id": "tables",
+          "group": "Avancerat",
+          "title": "Tabeller i databasen",
+          "subtitle": "Tabellerna i databasen. moz_historyvisits är besöken, moz_places adresserna och moz_bookmarks bokmärkena.",
+          "returns": "namn",
+          "params": [],
+          "sql": "SELECT name AS tabell FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name;"
+        },
+        {
+          "id": "role-web-visits",
+          "hidden": true,
+          "role": "web-visits",
+          "title": "Telefonen: besöken",
+          "description": "Används av Telefonen och Härkomst. Ett besök per rad.",
+          "params": [],
+          "epoch": "unixMs",
+          "fields": {
+            "id": "visit_id",
+            "time": "time_ms",
+            "url": "url",
+            "title": "title",
+            "transition": "transition_text",
+            "count": "visit_count",
+            "typed": "typed"
+          },
+          "sql": "SELECT v.id AS visit_id, v.visit_date AS time_ms, p.url, p.title,\n  CASE v.visit_type WHEN 1 THEN 'länk' WHEN 2 THEN 'skriven adress' WHEN 3 THEN 'bokmärke' WHEN 4 THEN 'inbäddad' WHEN 5 THEN 'omdirigering (permanent)' WHEN 6 THEN 'omdirigering (tillfällig)' WHEN 7 THEN 'nedladdning' WHEN 8 THEN 'länk i ram' WHEN 9 THEN 'omladdning' ELSE 'typ ' || v.visit_type END AS transition_text,\n  p.visit_count_local AS visit_count, p.typed\nFROM moz_historyvisits v JOIN moz_places p ON p.id = v.place_id ORDER BY v.visit_date DESC, v.id DESC;"
+        },
+        {
+          "id": "role-web-bookmarks",
+          "hidden": true,
+          "role": "web-bookmarks",
+          "title": "Telefonen: bokmärkena",
+          "description": "Används av Telefonen. Ett bokmärke per rad.",
+          "params": [],
+          "epoch": "unixMs",
+          "fields": {
+            "id": "id",
+            "added": "added_ms",
+            "modified": "modified_ms",
+            "url": "url",
+            "title": "title",
+            "folder": "folder"
+          },
+          "sql": "SELECT b.id, b.dateAdded AS added_ms, b.lastModified AS modified_ms, p.url, b.title,\n  CASE (SELECT f.guid FROM moz_bookmarks f WHERE f.id = b.parent) WHEN 'mobile______' THEN 'Mobilens bokmärken' WHEN 'toolbar_____' THEN 'Verktygsfältet' WHEN 'menu________' THEN 'Menyn' WHEN 'unfiled_____' THEN 'Övriga' ELSE COALESCE((SELECT f.title FROM moz_bookmarks f WHERE f.id = b.parent), '') END AS folder\nFROM moz_bookmarks b JOIN moz_places p ON p.id = b.fk WHERE b.type = 1 ORDER BY b.dateAdded DESC;"
         }
       ]
     }

@@ -2214,6 +2214,43 @@ const scenarios = [
         return 'snap-id → filen i cachen, dekrypterad, position ur gallery.encrypteddb, samma bild skickad till konto c1c1c1c1…';
     }],
 
+    ['Tor Browser: Telefonen visar bokmärket, nedladdningen ur MediaStore, Om appen och flikbilden, och Härkomst säger att filen laddades ner i Tor Browser', async ({ c, fx }) => {
+        const CHAT = 'chats/index.html';
+        const ev = (e) => c.ev(CHAT, e);
+        await c.nav('Härkomst');
+        await c.ev(PROV, `document.getElementById('ex-close').click(), 1`);
+        await c.setFiles(null, '#cb-input', [fx.files.tor]);
+        await c.ev(null, `document.getElementById('cb-input').dispatchEvent(new Event('change')), 1`);
+        await c.waitFor(PROV, `!ProvenanceApp.busy() && document.getElementById('ex-status').textContent.includes('Testextraktion-Tor.zip') && /databas(er)? hittades/.test(document.getElementById('ex-status').textContent)`, 60000, 'Tor-zippen');
+        // Härkomst: filen i Download med Tor Browser som ägare.
+        await assessNamed(c, 'nyckel.asc');
+        const web = await c.ev(PROV, `(function(){ const f = ProvenanceApp.model().factors.find(x => x.id === 'web'); return f && { verdict: f.verdictText, text: f.items.map(i => i.text).join(' | ') }; })()`);
+        expect(web && web.verdict === 'Nedladdad i Tor Browser' && /owner_package_name/.test(web.text) && /download_uri och referer_uri i MediaStore är tomma/.test(web.text) && /privat läge och sparar ingen historik/.test(web.text), 'Webbläsaren i Härkomst: ' + JSON.stringify(web));
+        // Telefonen.
+        await c.nav('Chattar');
+        await c.waitFor(CHAT, `!ChatsApp.busy() && ChatsApp.device().web && ChatsApp.device().web.state === 'ready'`, 60000, 'webbhistoriken');
+        const w = await ev(`ChatsApp.device().web`);
+        const tor = w.browsers.find((b) => b.id === 'org.torproject.torbrowser');
+        expect(tor && tor.name === 'Tor Browser' && tor.visits === 0 && tor.bookmarks === 1 && tor.downloads === 1 && tor.thumbs === 1 && !w.errors.length, 'Webbläsarna: ' + JSON.stringify(w));
+        expect(tor.about.includes('Tor senast i bruk: 2026-11-21 13:05:32') || tor.about.some((a) => /^Tor senast i bruk: 2026-11-21 1[34]:05:32/.test(a)), 'Om appen: ' + JSON.stringify(tor.about));
+        expect(['Tor-version: 0.4.9.16', 'Kretsar byggda: 29', 'Antal starter: 1', 'Senast i privat läge: Ja'].every((x) => tor.about.includes(x)), 'Om appen: ' + JSON.stringify(tor.about));
+        await ev(`document.getElementById('c-device-open').click(), 1`);
+        await c.waitFor(CHAT, `!!document.querySelector('#c-device-body [data-device-web="org.torproject.torbrowser"]')`, 60000, 'Tor Browser i telefonen');
+        await ev(`document.querySelector('#c-device-body [data-device-web="org.torproject.torbrowser"]').click(), 1`);
+        const view = await ev(`({ title: document.getElementById('c-device-title').textContent, chips: [...document.querySelectorAll('#c-device-body [data-web-tab]')].map(b => b.textContent), note: document.querySelector('#c-device-body .d-note').textContent })`);
+        expect(view.title === 'Tor Browser' && view.chips.join('|') === 'Historik 0|Bokmärken 1|Nedladdningar 1|Om appen ' + tor.about.length + '|Flikbilder 1' && /privat läge och sparar ingen historik/.test(view.note), 'Tor Browser i Telefonen: ' + JSON.stringify(view));
+        await ev(`document.querySelector('#c-device-body [data-web-tab="downloads"]').click(), 1`);
+        await ev(`document.querySelector('#c-device-body .w-row').click(), 1`);
+        const dl = await ev(`Object.fromEntries([...document.querySelectorAll('#c-device-body .d-kv')].map(k => [k.querySelector('.d-kv-label').textContent, k.querySelector('.d-kv-value').textContent]))`);
+        expect(dl.Fil === '/storage/emulated/0/Download/nyckel.asc' && dl.Adress === 'Sparas inte' && /org\.torproject\.torbrowser/.test(dl.App), 'Nedladdningen: ' + JSON.stringify(dl));
+        await ev(`document.getElementById('c-device-back').click(), 1`);
+        await ev(`document.querySelector('#c-device-body [data-web-tab="thumbs"]').click(), 1`);
+        const thumb = await c.waitFor(CHAT, `(function(){ const i = document.querySelector('#c-device-body .w-thumb img'); return i && i.naturalWidth > 0 && document.querySelector('#c-device-body .w-thumb span').textContent; })()`, 20000, 'flikbilden');
+        expect(/^Privat flik/.test(thumb), 'Flikbilden: ' + thumb);
+        await ev(`document.getElementById('c-device-back').click(), 1`);
+        return 'bokmärket, nedladdningen utan adress, Om appen (' + tor.about.length + ' rader), flikbilden och Webbläsaren i Härkomst';
+    }],
+
     ['Samsung: batterihistoriken och SSRM ger app, kamera och skärm, med råraderna, och en flyttad klocka räknas inte', async ({ c, fx, downloads }) => {
         await c.nav('Härkomst');
         // Härkomst behåller det som visas när en annan zip väljs, så det som är öppet stängs först.

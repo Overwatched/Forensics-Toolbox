@@ -17,6 +17,7 @@
 //   npm run test:app -- --memories  bara laborationerna Snapchat Memories (OnePlus: FT_LAB_MEMORIES_DIR, iPhone:
 //                                   FT_LAB_MEMORIES_IOS_DIR, annars mapparna i "1 Labbar" enligt lab-paths.js)
 //   FT_SHOTS=<mapp>                 skärmdumpar efter varje del
+//   --tor                           bara facit mot labben Tor Browser (FT_LAB_TOR_ZIP eller labbmappen)
 //   FT_ONLY=<text>                  bara delarna med den texten i namnet, medan man arbetar med en av dem
 'use strict';
 
@@ -34,7 +35,8 @@ const args = process.argv.slice(2);
 const onlySmoke = args.includes('--smoke');
 const onlySamsung = args.includes('--samsung');
 const onlyMemories = args.includes('--memories');
-const onlyFacit = args.includes('--facit') || onlySamsung || onlyMemories;
+const onlyTor = args.includes('--tor');
+const onlyFacit = args.includes('--facit') || onlySamsung || onlyMemories || onlyTor;
 
 function labZip() {
     const p = process.env.FT_LAB_ZIP || labPath('1 Labbar/2026-11-02 OnePlus Nord - Signal/Lab-Android-Nord-2026-11-02.zip');
@@ -78,7 +80,8 @@ async function main() {
     const samsungZip = process.env.FT_LAB_SAMSUNG_ZIP && fs.existsSync(process.env.FT_LAB_SAMSUNG_ZIP) ? process.env.FT_LAB_SAMSUNG_ZIP : null;
     const memZips = require('./lab-memories').zipsIn();
     const memIosZips = require('./lab-memories').zipsIn(null, require('./lab-memories').facitIos);
-    if (onlyFacit && !lab && !labIos && !labIosLog && !namedZips.length && !ufedReports.length && !samsungReport && !samsungZip && !memZips && !memIosZips) {
+    const torZip = require('./lab-tor').zipPath();
+    if (onlyFacit && !lab && !labIos && !labIosLog && !namedZips.length && !ufedReports.length && !samsungReport && !samsungZip && !memZips && !memIosZips && !torZip) {
         console.error('Labbzipparna finns inte. Ange sökvägarna i FT_LAB_ZIP, FT_LAB_IOS_DIR och FT_LAB_IOS_LOG_DIR.');
         process.exit(1);
     }
@@ -112,6 +115,10 @@ async function main() {
         if (!onlySmoke && !onlySamsung && memIosZips) groups.push(['Facit mot laborationen Snapchat Memories (iPhone, 2026-11-19)', require('./lab-memories').scenarios(memIosZips, require('./lab-memories').facitIos)]);
         if (!onlySmoke && !memIosZips) console.log('Snapchat Memories-labben på iPhone: zippen finns inte, hoppar över (FT_LAB_MEMORIES_IOS_DIR).\n');
         if (onlyMemories) groups.splice(0, beforeMemories);
+        const beforeTor = groups.length;
+        if (!onlySmoke && !onlySamsung && !onlyMemories && torZip) groups.push(['Facit mot labben Tor Browser (OnePlus, 2026-11-21)', require('./lab-tor').scenarios(torZip)]);
+        if (!onlySmoke && !torZip) console.log('Tor-labben: zippen finns inte, hoppar över (FT_LAB_TOR_ZIP).\n');
+        if (onlyTor) groups.splice(0, beforeTor);
         for (const [group, list] of groups) {
             console.log(group);
             for (const [name, fn] of list) {

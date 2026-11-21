@@ -1,0 +1,26 @@
+{
+  "dir": "1 Labbar/2026-11-21 OnePlus - Tor",
+  "zip": "Lab-Android-Nord-2026-11-21-Tor.zip",
+  "source": "Labben Tor Browser på OnePlus Nord (Android 13), 2026-11-21: Tor Browser 16.0.2 installerad 13:01:14 UTC, fyra sidor i privat läge, ett bokmärke 13:03:37, en nedladdning 13:04:56 och Quit 13:05:28. Zippen är hämtningen efter Quit (tor-after-quit.tar) och MediaStore (mediastore.tar), se LÄSMIG.txt.",
+  "browser": {
+    "id": "org.torproject.torbrowser",
+    "name": "Tor Browser",
+    "visits": 0,
+    "bookmarks": [{ "title": "Example Domain", "url": "https://example.com/", "addedBetween": ["2026-11-21T13:03:37.000Z", "2026-11-21T13:03:39.000Z"] }],
+    "downloads": [{ "name": "tor-browser-android-aarch64-16.0.2.apk.asc.key", "addedBetween": ["2026-11-21T13:04:56.000Z", "2026-11-21T13:04:58.000Z"] }],
+    "about": {
+      "Tor senast i bruk": "2026-11-21T13:05:32Z",
+      "Tor-version": "0.4.9.16",
+      "Kretsar byggda": "29",
+      "Senaste surfaktivitet": "2026-11-21T13:04:38.027Z",
+      "Profilen skapad (första start)": "2026-11-21T13:01:31.865Z",
+      "Antal starter": "1",
+      "Senast i privat läge": "Ja"
+    },
+    "thumbs": 0
+  },
+  "provenance": {
+    "file": "tor-browser-android-aarch64-16.0.2.apk.asc.key",
+    "verdict": "Nedladdad i Tor Browser"
+  }
+}

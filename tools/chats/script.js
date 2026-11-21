@@ -350,7 +350,7 @@
         for (var i = 0; i < hits.length; i++) {
             var h = hits[i], src = webOf(h.key), who = Web.browserOf(src, h.db.name);
             var b = w.browsers.filter(function (x) { return x.id === who.id; })[0];
-            if (!b) { b = { id: who.id, name: who.name, platform: who.platform, files: {}, visits: null, searches: null, downloads: null, tabs: null, cleared: null }; w.browsers.push(b); }
+            if (!b) { b = { id: who.id, name: who.name, platform: who.platform, files: {}, visits: null, searches: null, downloads: null, tabs: null, cleared: null, bookmarks: null }; w.browsers.push(b); }
             var kinds = Object.keys(src.roles).filter(function (k) { return !b.files[k]; });
             if (!kinds.length) continue;
             var d = { hit: h, src: { app: who.name, cipher: null, derive: null }, zip: w.zip, loaded: null };
@@ -370,7 +370,80 @@
             }
         }
         w.browsers = w.browsers.filter(function (b) { return Object.keys(b.files).length; });
+        try { await geckoExtras(w); } catch (err) { if (err && err.cancelled) throw err; w.errors.push('Tor Browser och Firefox: ' + errText(err)); }
         w.state = 'ready';
+    }
+
+    // Firefox och Tor Browser på Android (TorBrowser): filerna utanför places.sqlite som säger när appen användes
+    // (b.about: rader med fil och fält), flikbilderna i no_backup (b.thumbs) och nedladdningarna i MediaStore med appen
+    // som ägare (rollen store-downloads), eftersom Tor Browser inte sparar någon egen lista.
+    async function geckoExtras(w) {
+        var gecko = window.TorBrowser ? w.browsers.filter(function (b) { return b.platform === 'Android' && TorBrowser.isGecko(b.id); }) : [];
+        if (!gecko.length) return;
+        var z = w.zip, f = fmt();
+        var entries = (await ExtractionCore.find(z.read, z.file.size, function (name) { return !!TorBrowser.fileOf(name); }))
+            .sort(function (a, b) { return (/\/user\/(?!0\/)\d+\//.test(a.name) ? 1 : 0) - (/\/user\/(?!0\/)\d+\//.test(b.name) ? 1 : 0); });
+        var textOf = async function (e) { return new TextDecoder('utf-8').decode((await ExtractionCore.readEntry(z.read, e)).bytes); };
+        var rel = function (e) { return e.name.replace(/^.*?\/data\/(?:data|user\/\d+)\/[^\/]+\//, ''); };
+        for (var i = 0; i < gecko.length; i++) {
+            var b = gecko[i], about = [], thumbs = [], seen = {};
+            var mine = entries.filter(function (e) { return TorBrowser.fileOf(e.name).pkg === b.id; });
+            // value: text, eller en tid i ms (visas i vald zon och sparas som ms).
+            var row = function (label, value, e, field, note, isTime) {
+                if (value === null || value === undefined || value === '') return;
+                about.push({ label: label, value: isTime ? f(value) : String(value), ms: isTime ? value : null, file: rel(e), field: field, note: note || '' });
+            };
+            for (var k = 0; k < mine.length; k++) {
+                var e = mine[k], kind = TorBrowser.fileOf(e.name).kind;
+                if (kind === 'thumb') { thumbs.push({ entry: e, private: TorBrowser.fileOf(e.name).private, ms: ExtractionCore.entryTimes(e).modifiedMs || null }); continue; }
+                if (seen[kind]) continue;
+                seen[kind] = true;
+                try {
+                    if (kind === 'state') {
+                        var st = TorBrowser.torState(await textOf(e));
+                        row('Tor senast i bruk', st.lastWrittenMs, e, 'LastWritten', 'Tor skriver filen när den stängs och då och då medan den körs.', true);
+                        row('Tor-version', st.version, e, 'TorVersion');
+                        row('Kretsar byggda', st.builds, e, 'TotalBuildTimes');
+                        if (st.guards) row('Vaktnoder', st.guards, e, 'Guard', 'Deras tider (sampled_on, confirmed_on) slumpas bakåt av Tor och säger inte när Tor användes.');
+                    } else if (kind === 'consensus') {
+                        var va = TorBrowser.consensusValidAfter(await textOf(e)), mt = ExtractionCore.entryTimes(e).modifiedMs;
+                        row('Nätverkslistan hämtad', mt, e, 'filens ändringstid', 'Tor hämtar listan över noder när den ansluter.' + (va ? ' Listan gäller från ' + f(va) + ' (valid-after).' : ''), true);
+                    } else if (kind === 'prefs') {
+                        var p = TorBrowser.fenixPrefs(await textOf(e));
+                        row('Senaste surfaktivitet', p.lastBrowseMs, e, 'pref_key_last_browse_activity_time', '', true);
+                        row('Senast på startsidan', p.lastHomeMs, e, 'pref_key_last_home_activity_time', '', true);
+                        row('Användningstid', p.usageS !== null ? Comms.durationText(p.usageS) : '', e, 'pref_key_growth_usage_time', 'Den tid appen varit öppen, enligt appen själv.');
+                        row('Antal starter', p.launches, e, 'pref_key_app_launch_count');
+                        row('Senast i privat läge', p.privateMode === null ? '' : p.privateMode ? 'Ja' : 'Nej', e, 'pref_key_last_known_mode_private');
+                        row('Version', p.version, e, 'pref_key_extensions_version');
+                    } else if (kind === 'times') {
+                        var t = TorBrowser.profileTimes(await textOf(e));
+                        row('Profilen skapad (första start)', t.createdMs, e, 'created', '', true);
+                    }
+                } catch (err) { w.errors.push(b.name + ' (' + rel(e) + '): ' + errText(err)); }
+            }
+            b.about = about;
+            b.thumbs = thumbs.sort(function (x, y) { return (y.ms || 0) - (x.ms || 0); });
+            if (about.length) b.files.about = mine.filter(function (e) { return TorBrowser.fileOf(e.name).kind !== 'thumb'; }).map(function (e) { return e.name; })[0] || '';
+            if (thumbs.length) b.files.thumbs = thumbs[0].entry.name;
+        }
+        // Nedladdningarna i MediaStore för webbläsarna utan egen lista.
+        var need = gecko.filter(function (b) { return !b.downloads; });
+        if (!need.length) return;
+        var found = await ExtractionCore.open(z.read, z.file.size, PHOTO_TARGETS, null);
+        var hit = found.found.filter(function (h) { return h.key === 'android-mediastore'; })[0];
+        var src = PHOTO_SOURCES.filter(function (x) { return x.key === 'android-mediastore'; })[0];
+        if (!hit || !src || !src.roles['store-downloads']) return;
+        var loaded = await loadDb({ hit: hit, src: { app: 'MediaStore', platform: 'Android' }, zip: z, loaded: null });
+        try {
+            var q = src.roles['store-downloads'];
+            var rows = Roles().mapRows(q, query(loaded, q, {}), ['added', 'modified'], { raw: false });
+            need.forEach(function (b) {
+                var d = Web.storeDownloads(rows, b.id);
+                b.downloads = d;
+                b.files.downloads = hit.db.name;
+            });
+        } finally { loaded.sqlDb.close(); }
     }
 
     // Kontakterna och samtalen, med katalogens roller contacts, contact-points och calls. Den första databasen av
@@ -3484,14 +3557,16 @@
     }
     // Ikonen för en webbläsare med data: telefonens egen ikon, annars en jordglob. Siffran är antalet besök.
     function webAppHtml(b, name, id) {
-        var n = b.visits ? b.visits.length : b.tabs ? b.tabs.length : 0, what = b.visits ? many(n, 'besök', 'besök') : many(n, 'flik', 'flikar');
+        var n = b.visits && b.visits.length ? b.visits.length : b.tabs ? b.tabs.length : b.bookmarks ? b.bookmarks.length : 0;
+        var what = b.visits && b.visits.length ? many(n, 'besök', 'besök') : b.tabs ? many(n, 'flik', 'flikar') : b.bookmarks ? many(n, 'bokmärke', 'bokmärken') : many(n, 'besök', 'besök');
         var url = phoneIcon(id || b.id);
         return '<button type="button" class="d-app has-data" data-device-web="' + esc(b.id) + '" aria-label="' + esc(name + ', ' + what) + '" title="' + esc(name + ' · ' + b.id) + '">' +
             iconHtml(name === 'Safari' ? 'Safari' : 'Webbläsare', badgeHtml(false, false, n), name, url) + '<span class="d-name">' + esc(name) + '</span></button>';
     }
-    var WEB_TABS = [['visits', 'Historik'], ['searches', 'Sökningar'], ['downloads', 'Nedladdningar'], ['tabs', 'Flikar'], ['cleared', 'Rensat'], ['pages', 'Sparade sidor']];
+    var WEB_TABS = [['visits', 'Historik'], ['searches', 'Sökningar'], ['bookmarks', 'Bokmärken'], ['downloads', 'Nedladdningar'], ['tabs', 'Flikar'], ['cleared', 'Rensat'], ['pages', 'Sparade sidor'], ['about', 'Om appen'], ['thumbs', 'Flikbilder']];
     // Sparade sidor läses först när fliken väljs, och fliken finns tills cachen visat sig vara tom.
-    function webTabsOf(b) { return WEB_TABS.filter(function (t) { return t[0] === 'pages' ? window.WebCache && (!b.pages || b.pages.length || b.pagesState === 'busy') : b[t[0]] && (b[t[0]].length || t[0] === 'visits'); }); }
+    // Gecko-webbläsarnas cache (Firefox, Tor Browser) läses inte: Tor Browser har ingen på disk.
+    function webTabsOf(b) { return WEB_TABS.filter(function (t) { return t[0] === 'pages' ? window.WebCache && !(window.TorBrowser && TorBrowser.isGecko(b.id)) && (!b.pages || b.pages.length || b.pagesState === 'busy') : b[t[0]] && (b[t[0]].length || t[0] === 'visits'); }); }
     function webList(b, tab) { return b[tab] || []; }
 
     // ---------- Sparade sidor (webbläsarens cache, WebCache) ----------
@@ -3654,7 +3729,9 @@
             } else if (P.webTab === 'searches') {
                 top = x.term; sub = [x.engine, x.host].filter(Boolean).join(' · ');
             } else if (P.webTab === 'downloads') {
-                top = x.name; sub = [x.host, x.state, Web.sizeText(x.size)].filter(Boolean).join(' · ');
+                top = x.name; sub = [x.host || (x.fromStore ? x.relativePath || 'MediaStore' : ''), x.fromStore ? '' : x.state, Web.sizeText(x.size)].filter(Boolean).join(' · ');
+            } else if (P.webTab === 'bookmarks') {
+                top = x.title || x.host || x.url; sub = [x.host, x.folder].filter(Boolean).join(' · ');
             } else if (P.webTab === 'pages') {
                 var path = String(x.url).replace(/^[a-z]+:\/\/[^/]+/i, '') || '/';
                 top = (x.host || x.url) + (path.length > 1 ? ' ' + path.slice(0, 60) : '');
@@ -3678,6 +3755,27 @@
             pages: b.platform === 'iOS' ? 'Sidorna som låg i webbläsarens cache (WebKit NetworkCache). Tiden är när posten sparades. ' + (b.cacheEntries != null ? b.cacheEntries + ' poster i cachen.' : '')
                 : 'Sidorna som låg i webbläsarens cache (Chromium, Cache_Data). Tiden är när svaret kom. ' + (b.cacheEntries != null ? b.cacheEntries + ' poster i cachen.' : ''),
         };
+        var tor = TorBrowserOf(b);
+        if (tor) {
+            notes.visits = b.name + ' surfar alltid i privat läge och sparar ingen historik, inga cookies och ingen cache. Det som finns kvar står under Bokmärken, Nedladdningar, Om appen och Flikbilder.';
+            if (b.visits && b.visits.length) notes.visits = 'Besöken i moz_historyvisits (places.sqlite). Tiderna i vald zon.';
+        }
+        notes.bookmarks = 'Bokmärkena i moz_bookmarks (places.sqlite), med när de lades till. De sparas också i privat läge.';
+        if (b.downloads && b.downloads.length && b.downloads[0].fromStore) notes.downloads = 'Ur MediaStore (external.db): filerna som ' + b.name + ' laddade ner (owner_package_name ' + b.id + ', is_download 1), med tiden de lades till. ' + b.name + ' sparar ingen egen lista och ingen adress (download_uri är tom).';
+        notes.thumbs = 'Bilderna av flikarna (no_backup/mozac_browser_thumbnails). De privata finns bara medan appen är öppen och tas bort när den avslutas, så de syns bara i en extraktion gjord medan appen var igång. Tiden är filens ändringstid.';
+        // Om appen: raderna med fil och fält, utan klick.
+        if (P.webTab === 'about') {
+            body.innerHTML = chips + '<div class="d-kvs">' + (b.about || []).map(function (r) { return kv(r.label, r.value, r.file + ' · ' + r.field, r.note); }).join('') + '</div>' +
+                '<p class="d-note">' + esc(tor ? 'Det som säger att och när ' + b.name + ' användes, ur appens filer utanför databaserna. Androids användningsloggar (usagestats) visar dessutom när appen var i förgrunden.' : 'Ur appens filer utanför databaserna.') + '</p>';
+            return;
+        }
+        if (P.webTab === 'thumbs') {
+            body.innerHTML = chips + '<div class="w-thumbs">' + (b.thumbs || []).map(function (x, i) {
+                return '<button type="button" class="w-thumb" data-web-thumb="' + i + '" title="' + esc(baseName(x.entry.name) + (x.ms ? ' · ' + f(x.ms) : '')) + '"><img alt="" data-w-thumb-img="' + i + '"><span>' + esc((x.private ? 'Privat flik' : 'Flik') + (x.ms ? ' · ' + f(x.ms).slice(11, 16) : '')) + '</span></button>';
+            }).join('') + '</div><p class="d-note">' + esc(notes.thumbs) + '</p>';
+            fillWebThumbs(body, b);
+            return;
+        }
         if (P.webTab === 'pages' && b.pagesState !== 'ready') {
             body.innerHTML = chips + (b.pagesState === 'error' ? '<p class="d-empty warn">' + esc(b.pagesError || 'Cachen kunde inte läsas.') + '</p>' : '<p class="d-empty"><span class="c-spin" aria-hidden="true"></span> Läser webbläsarens cache…</p>');
             return;
@@ -3686,6 +3784,20 @@
             (all.length > shown.length ? '<button type="button" class="c-btn d-more" data-device-more="1">Visa fler (' + num(all.length - shown.length) + ' kvar)</button>' : '') +
             '<p class="d-note">' + (P.webTab === 'pages' ? '' : 'Ur ' + esc(b.files[P.webTab] || '') + '. ') + esc(notes[P.webTab] || '') + '</p>' +
             (state.web.errors.length ? '<p class="d-empty warn">' + esc(state.web.errors.join(' ')) + '</p>' : '');
+    }
+    function TorBrowserOf(b) { return window.TorBrowser && b && b.platform === 'Android' && TorBrowser.isTor(b.id); }
+    // Flikbilderna: JPEG-filerna ur zippen, en i taget, så länge vyn visas.
+    function fillWebThumbs(body, b) {
+        (async function () {
+            for (var i = 0; i < (b.thumbs || []).length; i++) {
+                var x = b.thumbs[i], img = body.querySelector('[data-w-thumb-img="' + i + '"]');
+                if (!img || state.device.webTab !== 'thumbs') return;
+                try {
+                    if (!x.url) x.url = URL.createObjectURL(new Blob([(await ExtractionCore.readEntry(state.zip.read, x.entry)).bytes], { type: 'image/jpeg' }));
+                    img.src = x.url;
+                } catch (err) { img.closest('.w-thumb').classList.add('none'); }
+            }
+        })();
     }
     function renderWebItem(body) {
         var P = state.device, f = fmt(), b = webBrowser(P.web);
@@ -3714,6 +3826,17 @@
             $('c-device-title').textContent = x.term;
             rows = [kv('Sökterm', x.term, ios ? 'ur adressen (q= eller p=)' : 'keyword_search_terms.term'), kv('Tid', t(x.ms), ios ? 'history_visits.visit_time' : 'urls.last_visit_time (senaste besöket)'),
                 x.engine ? kv('Sökmotor', x.engine) : '', kv('Adress', x.url), kv('Källa', (ios ? 'history_visits rad ' : 'urls rad ') + x.id, b.files.searches)];
+        } else if (P.webTab === 'bookmarks') {
+            $('c-device-title').textContent = x.title || x.host || 'Bokmärke';
+            rows = [kv('Titel', x.title, 'moz_bookmarks.title'), kv('Adress', x.url, 'moz_places.url'), kv('Tillagt', t(x.ms), 'moz_bookmarks.dateAdded (millisekunder sedan 1970)'),
+                x.modifiedMs && x.modifiedMs !== x.ms ? kv('Ändrat', t(x.modifiedMs), 'moz_bookmarks.lastModified') : '', x.folder ? kv('Mapp', x.folder, 'moz_bookmarks.parent') : '',
+                kv('Källa', 'moz_bookmarks rad ' + x.id, b.files.bookmarks)];
+        } else if (P.webTab === 'downloads' && x.fromStore) {
+            $('c-device-title').textContent = x.name;
+            rows = [kv('Fil', x.path, 'files._data'), kv('Lades till', t(x.ms), 'files.date_added'), x.modifiedMs && x.modifiedMs !== x.ms ? kv('Ändrad', t(x.modifiedMs), 'files.date_modified') : '',
+                kv('App', b.name + ' (' + b.id + ')', 'files.owner_package_name'), x.mime ? kv('Typ', x.mime, 'files.mime_type') : '', x.size !== null ? kv('Storlek', Web.sizeText(x.size) + ' (' + num(x.size) + ' byte)', 'files._size') : '',
+                kv('Adress', x.url || 'Sparas inte', 'files.download_uri', x.url ? '' : b.name + ' sparar inte varifrån filen kom.'), x.referrer ? kv('Sidan', x.referrer, 'files.referer_uri') : '',
+                kv('Källa', 'files rad ' + x.id, b.files.downloads)];
         } else if (P.webTab === 'downloads') {
             $('c-device-title').textContent = x.name;
             rows = [kv('Fil', x.path, 'downloads.target_path', x.mediaStore ? 'En post i MediaStore (_id ' + x.mediaStore + '), som säger var filen ligger.' : ''), x.current && x.current !== x.path ? kv('Sparad som', x.current, 'downloads.current_path') : '',
@@ -4181,6 +4304,16 @@
         if (b.dataset.deviceWeb) { if (state.device.web !== b.dataset.deviceWeb) state.device.webTab = ''; state.device.web = b.dataset.deviceWeb; return openDevice('web'); }
         if (b.dataset.webTab) { state.device.webTab = b.dataset.webTab; state.device.limit = LIST_STEP; renderDevice(); $('c-device-body').scrollTop = 0; return; }
         if (b.dataset.webId !== undefined) { state.device.webItem = Number(b.dataset.webId); return openDevice('webItem'); }
+        if (b.dataset.webThumb !== undefined) {
+            var tb = webBrowser(state.device.web), f2 = fmt();
+            if (tb && tb.thumbs) openViewer(tb.thumbs.map(function (x) {
+                return { caption: tb.name + ' · ' + (x.private ? 'privat flik' : 'flik') + (x.ms ? ' · ' + f2(x.ms) : '') + ' · ' + x.entry.name, load: async function () {
+                    if (!x.url) x.url = URL.createObjectURL(new Blob([(await ExtractionCore.readEntry(state.zip.read, x.entry)).bytes], { type: 'image/jpeg' }));
+                    return { url: x.url };
+                } };
+            }), Number(b.dataset.webThumb));
+            return;
+        }
         if (b.dataset.webRender) {
             var wb = webBrowser(state.device.web), wi = wb ? webList(wb, 'pages')[state.device.webItem] : null;
             var cur = state.device.webPage;
@@ -4334,7 +4467,12 @@
         device: function () {
             var P = state.device, ph = P.photos, g = P.gallery;
             return { on: P.on, shown: deviceShown(), screen: P.screen, app: P.app, info: P.info ? { state: P.info.state, notes: P.info.memos ? P.info.memos.notes.length : null } : null,
-                web: state.web ? { state: state.web.state, errors: state.web.errors, browsers: state.web.browsers.map(function (b) { return { id: b.id, name: b.name, visits: b.visits ? b.visits.length : null, searches: b.searches ? b.searches.length : null, downloads: b.downloads ? b.downloads.length : null, tabs: b.tabs ? b.tabs.length : null, cleared: b.cleared ? b.cleared.length : null }; }) } : null,
+                web: state.web ? { state: state.web.state, errors: state.web.errors, browsers: state.web.browsers.map(function (b) {
+                    var o = { id: b.id, name: b.name, visits: b.visits ? b.visits.length : null, searches: b.searches ? b.searches.length : null, downloads: b.downloads ? b.downloads.length : null, tabs: b.tabs ? b.tabs.length : null, cleared: b.cleared ? b.cleared.length : null };
+                    if (b.bookmarks) o.bookmarks = b.bookmarks.length;
+                    if (b.about) { o.about = b.about.map(function (r) { return r.label + ': ' + r.value; }); o.thumbs = (b.thumbs || []).length; }
+                    return o;
+                }) } : null,
                 comms: state.comms ? { state: state.comms.state, calls: state.comms.calls ? state.comms.calls.length : null, contacts: state.comms.contacts ? state.comms.contacts.list.length : null, errors: state.comms.errors } : null, photos: ph ? { state: ph.state, items: ph.items.length, thumbs: Object.keys(ph.thumbs).length, files: Object.keys(ph.files).length, note: ph.note } : null,
                 gallery: g ? { tiles: $('c-device-body').querySelectorAll('.g-tile').length, shown: $('c-device-body').querySelectorAll('.g-tile.has').length, loads: g.stats.loads, failed: g.stats.failed, urls: g.urls.map.size } : null };
         },

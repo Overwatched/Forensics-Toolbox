@@ -1900,6 +1900,7 @@
         mediastore: 'Nedladdningens sökväg är filens post i MediaStore (content://…/%ID%).',
         path: 'Nedladdningen sparades på filens sökväg.',
         'name-time': 'Nedladdningen har samma namn och slutade inom tio minuter från när filen lades till; kopplingen är inte säker.',
+        owner: 'Appen äger filen i MediaStore (owner_package_name), och tiden är när filen lades till (date_added). Appen sparar ingen egen lista över nedladdningar.',
     };
     function factorWeb(input) {
         var w = input.web;
@@ -1915,7 +1916,10 @@
             items.push({ state: 'info', text: name + ' sparade filen i bildbiblioteket' + (w.savedMs ? ' ' + fmt(w.savedMs) : '') + '. ' + name + ' sparar inte varifrån bilden kom, så bara sidorna som besöktes strax före säger var den fanns.', source: w.source });
             plain = name + ' sparade filen i bildbiblioteket.';
         }
-        if (w.visits && w.visits.length) {
+        if (w.how === 'owner' && !(w.download && w.download.url)) items.push({ state: 'info', text: name + ' sparar inte varifrån filen kom: download_uri och referer_uri i MediaStore är tomma.', source: w.source });
+        if (w.private && !(w.visits && w.visits.length)) {
+            items.push({ state: 'info', text: name + ' surfar alltid i privat läge och sparar ingen historik, så sidorna som besöktes före går inte att se.', source: w.visitSource || w.source });
+        } else if (w.visits && w.visits.length) {
             items.push({ state: 'info', text: 'Sidorna som besöktes i ' + name + ' de tio minuterna före, den senaste först: ' + w.visits.map(page).join('; ') + '.', source: w.visitSource });
             if (!w.download) plain += ' Strax före besöktes ' + (w.visits[0].title || w.visits[0].url) + '.';
         } else {

@@ -2299,7 +2299,7 @@ Queries (Meddelanden, samtal och kontakter, beta) och dolda roller som Chattar o
 ### Webbhistorik (`queries/web/`, `tools/_shared/web.js`, `Web`)
 
 Byggd 2026-11-20 med queries först: `WEB_CATALOG` har frågorna i Queries (Webbhistorik, beta) och dolda roller
-(`web-visits`, `web-searches`, `web-downloads`, `web-tabs`, `web-cleared`) som Telefonen läser. Generatorn ligger
+(`web-visits`, `web-searches`, `web-downloads`, `web-tabs`, `web-cleared`, `web-bookmarks`) som Telefonen läser. Generatorn ligger
 inte i repot; katalogen ändras direkt i `catalog.json` och synkas till `catalog.js` med `npm run sync-queries`.
 - **Databaserna:** Safaris `History.db`, `SafariTabs.db` och `Bookmarks.db` (`/private/var/mobile/Library/Safari/`),
   Chromes `History` (`app_chrome/Default/History`, samma fil i Edge, Brave och andra Chromium-webbläsare), Samsung
@@ -2334,6 +2334,22 @@ inte i repot; katalogen ändras direkt i `catalog.json` och synkas till `catalog
     inte källan, så bara besöken före visas. Hämtningar i Safari (`Downloads.plist`) läses inte än.
   - Besöken de tio minuterna före (högst fem). Upplysningen väger inte och visas också när filen saknar skapandetid.
   - Prövat i Samsung-labbet: F-Droid.apk kopplas till Samsung Internets nedladdning genom MediaStores post 24.
+- **Tor Browser och Firefox på Android** (2026-11-21, labben Tor Browser på OnePlus): familjen `android-gecko`
+  (`files/places.sqlite`) med Bokmärken, Besök, Vad som är sparat och rollerna `web-visits` och `web-bookmarks`
+  (`Web.bookmarks`). Firefox för Android sparar `dateAdded` (och troligen `visit_date`) i millisekunder sedan 1970,
+  inte mikrosekunder som Firefox på datorn. Tor Browser surfar alltid privat: inga besök, cookies, sessionsfil eller
+  cache, men bokmärken sparas. I Telefonen (`geckoExtras`) läser `tools/_shared/torbrowser.js` (`TorBrowser`)
+  appens filer utanför databasen till fliken Om appen: `files/tor/state` (LastWritten = senaste användning,
+  TorVersion, TotalBuildTimes; vakternas tider slumpas bakåt av Tor och används inte), `cached-microdesc-consensus`
+  (filens ändringstid = anslutningen, valid-after), `shared_prefs/fenix_preferences.xml` (senaste surfaktivitet,
+  användningstid, starter, privat läge) och profilens `times.json` (första start). Flikbilderna
+  (`no_backup/mozac_browser_thumbnails/private_thumbnails/*.0`, JPEG) finns bara medan appen är öppen. Nedladdningarna
+  tas ur MediaStore med rollen `store-downloads` (`owner_package_name`, `is_download`; `Web.storeDownloads`), eftersom
+  Tor Browser inte har någon lista och inte sparar adressen. Fliken Sparade sidor visas inte för Gecko. Härkomst:
+  en fil i Download som en Gecko-webbläsare äger får upplysningen Webbläsaren med `how: 'owner'` (Nedladdad i Tor
+  Browser, adressen sparas inte, ingen historik i privat läge). Facit: `tests/app/facit/lab-tor-oneplus.json`,
+  `tests/app/lab-tor.js` (`node tests/app/run.js --tor`), zippen `Lab-Android-Nord-2026-11-21-Tor.zip` (efter Quit och
+  MediaStore); röktestets `Testextraktion-Tor.zip` har också en flikbild.
 
 ### Raderade bilder och Secure Folder (`queries/android/samsung/`, `android-users` i `queries/system-logs/`)
 
