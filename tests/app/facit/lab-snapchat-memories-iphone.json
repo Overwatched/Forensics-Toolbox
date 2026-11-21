@@ -187,6 +187,13 @@
       "memory": "2633B71B",
       "meo": true,
       "decrypted": "nyckeltjänst"
+    },
+    {
+      "zip": "lab",
+      "name": "34c383dfddaef26020c05b083a07f031",
+      "step": "S07 (lab 1)",
+      "what": "Den skickade snappen i cachen: samma bild som snappen i Memories den skickades ur, med texten ritad ovanpå (kontrollerat 2026-11-21)",
+      "sentFrom": "EE2BBC28"
     }
   ],
   "searches": [

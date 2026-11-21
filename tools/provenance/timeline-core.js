@@ -886,6 +886,8 @@
             else if (mem.meo) items.push({ state: 'info', text: mem.meo.self ? 'Snappen ligger i My Eyes Only (memories_entry.is_private = 1). Kopian i galleriet är inte krypterad.'
                 : 'Snappen flyttades sedan till My Eyes Only (snap ' + String(mem.meo.id).slice(0, 8) + '…, copy_from_snap_id; memories_entry.is_private = 1). Kopian i galleriet är inte krypterad.' });
             (mem.imports || []).forEach(function (im) { items.push({ state: 'info', text: importText(im) }); });
+            // En fil i galleriet: snaps som skickades med samma bild eller längd (i Snapchat igång för en fil i cachen).
+            if (type.type !== 'snapchat') sendItems(mem).forEach(function (it) { items.push(it); });
             if (input.platform === 'Android' && mem.anchor !== 'cache') items.push({ state: 'info', text: 'Memories följer kontot, som kan vara inloggat på flera enheter. Att snappen togs på den här telefonen visar Kamera igång, inte Memories.' });
         } else if (input.snapchatSetting && isSnapchatApp(type.importer) && !type.chat) {
             items.push({ state: 'info', text: settingText(input.snapchatSetting) });
@@ -1037,6 +1039,16 @@
     }
 
     // En rad i Memories som Snapchat själv lagt in från kamerarullen, med den här filen (camera_roll_id = filens _id).
+    // Snaps som skickades med samma bild eller video som snappen i Memories (jämförda i scriptet, snapSends): upplysningar.
+    function sendItems(mem) {
+        return ((mem && mem.sends) || []).map(function (sd) {
+            var head = (sd.by === 'duration' ? 'En video med samma längd skickades i Snapchat' : 'Samma bild skickades i Snapchat') + (sd.to ? ' till ' + sd.to : '') + ' ' + formatUtc(sd.ms) + (sd.serverId != null ? ' (meddelande ' + sd.serverId + ')' : '');
+            return { state: 'info', text: head + (sd.by === 'duration'
+                ? '. Längden skiljer ' + sd.diffMs + ' ms från snappen i Memories, och videor räknas som samma upp till ' + sd.limitMs + ' ms. Kontrollera videorna.'
+                : '. Bildjämförelse mot snappen i Memories: medelskillnad ' + sd.diff.toFixed(1).replace('.', ',') + ' av 255, och bilder räknas som samma under ' + sd.limit + '. Kontrollera bilderna.') };
+        });
+    }
+
     function importText(im) {
         return 'Snapchat har lagt in filen i Memories som en egen post ' + formatUtc(im.createdMs) + (im.featured ? ' (en "featured story" som Snapchat sätter ihop)' : '') +
             ' (memories_snap ' + String(im.id).slice(0, 8) + '…, camera_roll_id ' + im.cameraRollId + '). Den posten är en kopia av filen, inte en tagning.';
@@ -1256,10 +1268,16 @@
             var kcSnap = running.filter(function (e) { return isSnapchatApp(e.app); });
             if (own.length) items.push({ state: 'support', text: 'Snapchat skrev själv i sitt register vid tidpunkten (' + own[0].source.db + ' → ' + own[0].source.table + '), vilket förutsätter att appen kördes.' });
             // Samma bild skickad i en chatt (bildjämförelse mot snappen i Memories, i scriptet): en upplysning, inget belägg.
-            ((file.memory && file.memory.sends) || []).forEach(function (sd) {
-                items.push({ state: 'info', text: 'Samma bild skickades i Snapchat' + (sd.to ? ' till ' + sd.to : '') + ' ' + formatUtc(sd.ms) + (sd.serverId != null ? ' (meddelande ' + sd.serverId + ')' : '') +
-                    '. Bildjämförelse mot snappen i Memories: medelskillnad ' + sd.diff.toFixed(1).replace('.', ',') + ' av 255, och bilder räknas som samma under ' + sd.limit + '. Kontrollera bilderna.' });
-            });
+            sendItems(file.memory).forEach(function (it) { items.push(it); });
+            // Den bedömda filen är en skickad snap som också finns i Memories (jämförd i scriptet, sentSnapMemory).
+            var sf = file.sentFromMemory;
+            if (sf) {
+                items.push({ state: 'info', text: 'Den skickade filen finns också i Snapchats Memories: snap ' + sf.id + (sf.capturedMs ? ', tagen ' + formatUtc(sf.capturedMs) : '') +
+                    (sf.savedMs ? ', sparad ' + formatUtc(sf.savedMs) + (sf.sentMs != null ? (sf.savedMs <= sf.sentMs ? ', före sändningen' : ', efter sändningen') : '') : '') +
+                    (sf.meo ? '. Snappen ligger i My Eyes Only' + (sf.meo.copyOf ? ' (en kopia av snap ' + sf.meo.copyOf + ')' : '') : '') +
+                    (sf.by === 'duration' ? '. Samma längd: skillnad ' + Math.round(sf.diff) + ' ms (gränsen ' + sf.limit + ' ms)' : '. Samma bild: medelskillnad ' + sf.diff.toFixed(1).replace('.', ',') + ' av 255 (gränsen ' + sf.limit + ')') +
+                    (sf.second != null ? ', nästa närmast ' + (sf.by === 'duration' ? Math.round(sf.second) + ' ms' : sf.second.toFixed(1).replace('.', ',')) : '') + ', ' + sf.compared + ' jämförda. Kontrollera ' + (sf.video ? 'videorna' : 'bilderna') + '.' });
+            }
             if (kcSnap.length) items.push({ state: 'support', text: 'Snapchat var igång vid tidpunkten enligt ' + (ownStream(kcSnap[0].stream) ? kcSnap[0].stream : kcLabel + ' (' + kcSnap[0].stream + ')') + '.' });
             else if (running.length) items.push({ state: 'info', text: (ownStream(running[0].stream) ? running[0].stream : kcLabel) + ' registrerar ' + runningNames.join(', ') + ' vid tidpunkten, inte Snapchat. Snapchat kan ha skrivit i registret i bakgrunden, till exempel vid en notis.' });
             else items.push({ state: 'info', text: coverageReason(streamKey, input, T, kcLabel) });
@@ -1483,7 +1501,15 @@
                 return { id: 'camera', title: title, state: 'support', items: [{ state: 'support', text: 'En inspelning med Snapchats kamera registrerades ' + duration(T - last.ms) + ' före filen (MEDIA_CONTEXT_TYPE 34, nyckel ' + String(last.cacheKey).slice(0, 12) + '…).' }],
                     plain: 'Snapchats kamera spelade in strax innan filen skickades.' };
             }
-            var sentNote = 'Filen skickades från den här telefonen' + (type.recipient ? ' till @' + type.recipient : '') + ', men ingen inspelning med Snapchats kamera är registrerad strax före. En stillbild med Snapchats kamera ger inte alltid en inspelningspost, och filen kan också ha valts ur bildbiblioteket.';
+            // Den skickade filen finns i Memories: snappen togs tidigare och skickades därifrån (sentSnapMemory i scriptet).
+            var sfm = input.file && input.file.sentFromMemory;
+            if (sfm && sfm.capturedMs != null && sfm.sentMs != null && sfm.capturedMs < sfm.sentMs - 2 * MINUTE) {
+                return { id: 'camera', title: title, state: 'info', items: [{ state: 'info', text: 'Filen skickades från den här telefonen' + (type.recipient ? ' till @' + type.recipient : '') + ', och samma ' + (sfm.video ? 'video' : 'bild') +
+                    ' ligger i Snapchats Memories, tagen ' + formatUtc(sfm.capturedMs) + ' med Snapchats ' + (sfm.front ? 'frontkamera' : 'bakre kamera') + ' enligt Memories. Filen togs alltså tidigare och skickades ur Memories; Memories följer kontot, så tagningen kan ha gjorts på en annan enhet.' }],
+                    plain: 'Filen togs tidigare med Snapchats kamera och skickades senare ur Memories.' };
+            }
+            var sentNote = 'Filen skickades från den här telefonen' + (type.recipient ? ' till @' + type.recipient : '') + ', men ingen inspelning med Snapchats kamera är registrerad strax före. En stillbild med Snapchats kamera ger inte alltid en inspelningspost, och filen kan också ha valts ur bildbiblioteket' +
+                (sfm ? ' eller ur Snapchats Memories, där samma ' + (sfm.video ? 'video' : 'bild') + ' ligger (tagen ' + formatUtc(sfm.capturedMs) + ')' : '') + '.';
             return byLogs(sentNote) || { id: 'camera', title: title, state: 'missing', items: [{ state: 'missing', text: sentNote }],
                 plain: 'Det syns inte om filen togs med Snapchats kamera eller valdes ur bildbiblioteket innan den skickades.' };
         }

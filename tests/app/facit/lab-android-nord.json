@@ -32,6 +32,9 @@
       },
       "versions": [
         "Snapchat 14.30.0.54"
+      ],
+      "sends": [
+        "96ccba52c4ad"
       ]
     },
     {
@@ -42,7 +45,10 @@
         "app": "com.snapchat.android",
         "at": "2026-10-31T00:48:25.0+01:00",
         "until": "2026-10-31T00:48:30.5+01:00"
-      }
+      },
+      "sends": [
+        "e309fe0928bd"
+      ]
     },
     {
       "name": "Snapchat-1788669324.jpg",
@@ -113,6 +119,16 @@
         "deletedLast": true
       },
       "toleranceMs": 2000
+    },
+    {
+      "name": "96ccba52c4ad30d3905afa6ab7182fd1",
+      "what": "Den skickade selfien i Snapchats cache (typ 5, uppladdad före meddelandet): samma bild som snappen i Memories (kontrollerat 2026-11-21)",
+      "sentFrom": "bff7a647"
+    },
+    {
+      "name": "e309fe0928bd9162c0bb3c2669e5119f",
+      "what": "Den skickade videon i Snapchats cache (typ 5): samma längd som videon i Memories (kontrollerat 2026-11-21)",
+      "sentFrom": "4669844f"
     }
   ]
 }

@@ -22,7 +22,8 @@ async function assess(c, name) {
         if (!m || m.file.filename !== ${JSON.stringify(name)}) return { error: document.getElementById('run-status').innerText };
         return {
             T: m.file.createdMs, type: m.type.type, versions: ProvenanceApp.meta().appVersionsText || '',
-            memory: m.file.memory ? { capturedMs: m.file.memory.capturedMs, front: m.file.memory.front } : null,
+            memory: m.file.memory ? { capturedMs: m.file.memory.capturedMs, front: m.file.memory.front, sends: (m.file.memory.sends || []).map(x => String(x.cacheKey)) } : null,
+            sentFrom: m.file.sentFromMemory ? String(m.file.sentFromMemory.id) : null,
             snap: m.file.snapchatCache ? { messageMs: m.file.snapchatCache.messageCreatedMs || null, own: m.file.snapchatCache.own } : null,
             factors: Object.fromEntries(m.factors.map(f => [f.id, f.state])),
             windows: m.windows.map(w => ({ id: w.id, label: w.label, centerMs: w.centerMs, startMs: w.startMs, endMs: w.endMs })),
@@ -49,6 +50,9 @@ function check(f, d) {
         expect(d.memory, 'Ingen koppling till Memories');
         near(d.memory.capturedMs, f.captured, tol, 'Tagen enligt Memories');
     }
+    // Skickade snaps med samma bild eller längd (snapSends), och snappen i Memories som en skickad fil är (sentSnapMemory).
+    (f.sends || []).forEach((k) => expect(d.memory && d.memory.sends.some((x) => x.startsWith(k)), 'Den skickade snappen ' + k + ' saknas: ' + JSON.stringify(d.memory && d.memory.sends)));
+    if (f.sentFrom) expect(d.sentFrom && d.sentFrom.startsWith(f.sentFrom), 'Snappen i Memories: ' + d.sentFrom + ', facit ' + f.sentFrom);
     if (f.front != null) expect(d.memory && d.memory.front === f.front, 'Kameran: ' + (d.memory && d.memory.front ? 'fram' : 'bak') + ', facit ' + (f.front ? 'fram' : 'bak'));
     const T = d.T;
     if (f.foreground) {

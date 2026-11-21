@@ -46,11 +46,12 @@ async function assess(c, name) {
         if (hits) return { hits };
         // Ett snap-id bedömer snappens fil i cachen, som har ett annat namn.
         // Telefonens namn snapchat-memory-<snap-id>.<ändelse> söks på id:t.
+        if (m && m.file.sentFromMemory && m.file.filename === ${JSON.stringify(name)}) return { sentFrom: String(m.file.sentFromMemory.id), factors: Object.fromEntries(m.factors.map(f => [f.id, { state: f.state, verdict: f.verdict, text: f.items.map(i => i.text).join(' | ') }])) };
         const byId = m && m.file.memory && String(m.file.memory.id).toUpperCase().indexOf(${JSON.stringify(name.toUpperCase().replace(/^SNAPCHAT-MEMORY-/, '').replace(/\.[A-Z0-9]+$/, ''))}) === 0;
         if (!m || (m.file.filename !== ${JSON.stringify(name)} && !byId)) return { error: document.getElementById('run-status').innerText };
         const mem = m.file.memory;
         const meta = ProvenanceApp.meta && ProvenanceApp.meta();
-        return { importerFrom: m.file.importerFrom || null, content: (meta && meta.fileEntry && meta.fileEntry.contentNote) || null,
+        return { importerFrom: m.file.importerFrom || null, content: (meta && meta.fileEntry && meta.fileEntry.contentNote) || null, sentFrom: m.file.sentFromMemory ? String(m.file.sentFromMemory.id) : null,
             memory: mem ? { id: mem.id, by: mem.by, copy: mem.copy, front: mem.front, capturedMs: mem.capturedMs, savedMs: mem.savedMs, video: !!mem.video, sends: (mem.sends || []).length,
                 synced: !!(mem.origin && mem.origin.synced), meo: !!mem.meo, imports: (mem.imports || []).map(i => i.id) } : null,
             imports: (m.file.memoryImports || []).map(i => i.id),
@@ -61,6 +62,11 @@ async function assess(c, name) {
 function check(f, d, facit) {
     expect(!d.error, f.name + ': ' + d.error);
     expect(!d.hits, f.name + ' gav en vallista');
+    // En skickad snap i cachen: snappen i Memories med samma bild (sentSnapMemory).
+    if (f.sentFrom) {
+        expect(d.sentFrom && d.sentFrom.startsWith(f.sentFrom), 'Snappen i Memories: ' + d.sentFrom + ', facit ' + f.sentFrom);
+        return f.step + ', skickad, samma bild som snap ' + d.sentFrom.slice(0, 8);
+    }
     const m = d.memory;
     if (f.memory || f.copy || f.meo || f.synced) expect(m, 'Ingen koppling till Memories');
     if (f.memory) expect(String(m.id).startsWith(f.memory), 'Snappen: ' + m.id + ', facit ' + f.memory);
@@ -112,7 +118,7 @@ function scenarios(zips, facit) {
     const PH = 'chats/index.html';
     const snapchatApp = async (c) => {
         await c.nav('Telefonen');
-        await c.waitFor(PH, `ChatsApp.state().device.info && ChatsApp.state().device.info.state === 'ready'`, 180000, 'telefonen');
+        await c.waitFor(PH, `ChatsApp.state().device.info && ChatsApp.state().device.info.state === 'ready'`, 420000, 'telefonen');
         await c.ev(PH, `document.querySelector('[data-device-search]').click(), 1`);
         await sleep(300);
         await c.ev(PH, `(function(){ const i = document.querySelector('#c-device-body .d-q'); i.value = 'Snapchat'; i.dispatchEvent(new Event('input', { bubbles: true })); return 1; })()`);

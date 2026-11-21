@@ -738,6 +738,20 @@ flygplansläge fram till S09. Facit: `tests/app/facit/lab-snapchat-memories-ipho
   HMAC av en fyrsiffrig kod och inte PBKDF2 med 1 000 eller 10 000 varv. En fil som flyttats till My Eyes Only har två
   rader i cachen; det dekrypterade innehållets snap-id avgör kopplingen (`plainId`, `fileRows` i snapchat.js).
   Kontrollerat på iPhone-labbet 2026-11-19: båda snapsen i My Eyes Only gav JPEG.
+- **Skickad snap ↔ Memories** (2026-11-21):
+  - *Fil i galleriet eller memories_media → Memory → skickade snaps:* när filen kopplats till en snap i Memories
+    läses snappens innehåll (`memoryPlainOf`: dekrypterat på iOS, också My Eyes Only; memories_media på Android) och
+    jämförs med snaps som skickades i fönstret (`snapSends`). Bilder som 24 × 24 i gråskala, videor på längden
+    (`videoSeconds`, webbläsarens egen läsning, `SAME_DURATION_MS` 150 ms). Står i Skapandetid för en fil i galleriet
+    (`sendItems`) och i Snapchat igång för en fil i cachen.
+  - *Android: skickad media* är en cachepost av typ 5 utan extern nyckel, 0–5 s före ett eget meddelande med media
+    (`UPLOAD_MS`, `uploadFor` i snapchat.js), okrypterad. Labbet Nord 2026-10-31: selfien 1,1 av 255 mot sin Memory,
+    videon 0 ms (selfien i galleriet → Memory → skickad till @labzy2026).
+  - *Skickad snap → Memory (och My Eyes Only):* en skickad fil i cachen jämförs med alla snaps i Memories
+    (`sentSnapMemory`, bilder med texten ovanpå, videor på längden); en entydig träff ger `file.sentFromMemory`, en
+    händelse i tidslinjen och en upplysning, och Kamera igång säger att filen togs tidigare och skickades ur Memories.
+    iPhone-labbet: S07 (34c383df…) → EE2BBC28 med 0,1 av 255 (nästa 22). En skickad video på iOS ligger inte som
+    ren MP4 i cachen (protobuf först) och jämförs inte ännu.
 - **Filnamnet från Telefonen:** en sparad snap som skickas vidare heter `snapchat-memory-<snap-id>.<ändelse>`; Härkomst
   söker snap-id:t i det (`snapMemoryFile`). Memory-vyn i Telefonen har Bedöm i Härkomst, som skickar snap-id:t.
 - **Sökning på id:** början av ett id räcker också på iOS (`LIKE … || '%'`). Listan har snappens fil i cachen och kopian

@@ -2594,14 +2594,96 @@
         return run.iosMemoryLink;
     }
 
-    // En sparad bild i Memories förminskad som i grayGrid, dekrypterad och med texten ovanpå. null när filen saknas eller inte går att läsa.
+    // En sparad bild i Memories förminskad som i grayGrid, med texten ovanpå. null när filen saknas eller inte går att läsa.
     async function memoryGrid(m) {
+        var plain = await memoryPlainOf(m);
+        return plain && /^image\//.test(plain.contentType) ? await grayGrid(plain.bytes, plain.contentType, plain.overlay) : null;
+    }
+
+    // Innehållet i en snap i Memories: på iOS dekrypterat ur cachen (snapMemoryContent, också My Eyes Only med
+    // nyckeltjänsten), på Android filen i memories_media som den är. -> { bytes, contentType, overlay, id } eller null.
+    async function memoryPlainOf(m) {
         try {
             var f = await memoryFileOf(m);
-            if (!f.entry || f.entry.size > MAX_MEDIA) return null;
-            var inner = await snapMemoryContent(f.entry, (await ExtractionCore.readEntry(state.zip.read, f.entry)).bytes);
-            return inner && inner.bytes && /^image\//.test(inner.contentType) ? await grayGrid(inner.bytes, inner.contentType, inner.overlay) : null;
-        } catch (e) { return null; }
+            var e = f.entry || (f.entries && f.entries.length ? f.entries[0] : null);
+            if (!e || e.size > MAX_MEDIA) return null;
+            var bytes = (await ExtractionCore.readEntry(state.zip.read, e)).bytes;
+            if (state.zip.platform === 'iOS') {
+                var inner = await snapMemoryContent(e, bytes);
+                return inner && inner.bytes ? { bytes: inner.bytes, contentType: inner.contentType, overlay: inner.overlay || null, id: m.id } : null;
+            }
+            var type = mediaTypeOf(bytes);
+            return type ? { bytes: bytes, contentType: type, overlay: null, id: m.id } : null;
+        } catch (err) { return null; }
+    }
+
+    // En videos längd i sekunder, ur webbläsarens egen läsning av filen. null när den inte går att läsa (HEVC m.m.).
+    function videoSeconds(bytes, type) {
+        return new Promise(function (resolve) {
+            var url = URL.createObjectURL(new Blob([bytes], { type: type || 'video/mp4' })), v = document.createElement('video'), done = false;
+            var fin = function (x) { if (done) return; done = true; URL.revokeObjectURL(url); v.removeAttribute('src'); resolve(x); };
+            v.preload = 'metadata';
+            v.muted = true;
+            v.onloadedmetadata = function () { fin(isFinite(v.duration) && v.duration > 0 ? v.duration : null); };
+            v.onerror = function () { fin(null); };
+            setTimeout(function () { fin(null); }, 6000);
+            v.src = url;
+        });
+    }
+
+    // Snappen i Memories som en skickad snap är (förslag 3, 2026-11-21): den skickade filen jämförs med varje snap i
+    // Memories, bilder som 24 × 24 i gråskala (SAME_IMAGE_DIFF), videor på längden (SAME_DURATION_MS). Bara en entydig
+    // träff räknas. Snaps i My Eyes Only räknas (kopian bär originalets tider). -> { info, event } eller null.
+    async function sentSnapMemory(sc, row, keys) {
+        var all = await snapEntries();
+        var e = all.find(function (x) { return ProvenanceSnapchat.cacheKeyFromPath(x.name) === String(sc.key || '').toLowerCase(); });
+        if (!e || e.size > MAX_MEDIA) return null;
+        var bytes = (await ExtractionCore.readEntry(state.zip.read, e)).bytes;
+        var type = mediaTypeOf(bytes);
+        if (!type) return null;
+        var src = sourceByKey(keys.memories);
+        if (!src.roles.memories) return null;
+        var db = await snapDb(keys.memories);
+        var video = /^video\//.test(type);
+        var cands = runRole(db, src.roles.memories, { window: ALL_TIME }, ['created', 'captured'], { queries: [] }).rows.map(memoryRow)
+            .filter(function (m) { return ProvenanceSnapchat.isVideoMemory(m) === video; });
+        if (!cands.length) return null;
+        var scores = [];
+        if (video) {
+            var sec = await videoSeconds(bytes, type);
+            if (sec == null) return null;
+            cands.forEach(function (m) { if (m.duration != null && Number(m.duration) > 0) scores.push({ m: m, diff: Math.abs(Number(m.duration) - sec) * 1000 }); });
+        } else {
+            var mine = await grayGrid(bytes, type);
+            if (!mine) return null;
+            var z = state.zip;
+            z.memoryGrids = z.memoryGrids || {};
+            for (var i = 0; i < cands.length; i++) {
+                var id = String(cands[i].id || '').toUpperCase();
+                if (!(id in z.memoryGrids)) {
+                    if (i % 5 === 0) { progress('Jämför den skickade bilden med de sparade snapsen i Memories (' + (i + 1) + ' av ' + cands.length + ')…'); await tick(); }
+                    z.memoryGrids[id] = await memoryGrid(cands[i]);
+                }
+                var d = ProvenanceSnapchat.grayDiff(mine, z.memoryGrids[id]);
+                if (d != null) scores.push({ m: cands[i], diff: d });
+            }
+        }
+        scores.sort(function (a, b) { return a.diff - b.diff; });
+        var limit = video ? ProvenanceSnapchat.SAME_DURATION_MS : ProvenanceSnapchat.SAME_IMAGE_DIFF;
+        var best = scores[0], second = scores[1];
+        if (!best || best.diff > limit || (second && second.diff <= limit)) return null;
+        var m = best.m, o = ProvenanceSnapchat.memoryOrigin(m), ios = state.zip.platform === 'iOS';
+        var meo = Number(m.private) === 1;
+        var info = { id: m.id, by: video ? 'duration' : 'image', diff: best.diff, second: second ? second.diff : null, limit: limit, compared: scores.length, video: video,
+            capturedMs: m.capturedMs || null, savedMs: o.savedMs == null ? null : o.savedMs, sentMs: row.createdMs == null ? null : row.createdMs, front: Number(m.front) === 1,
+            meo: meo ? { copyOf: m.copyFrom || null } : null };
+        var how = video ? 'samma längd (skillnad ' + Math.round(best.diff) + ' ms)' : 'samma bild (medelskillnad ' + best.diff.toFixed(1).replace('.', ',') + ' av 255)';
+        var event = { ms: m.capturedMs || o.savedMs || row.createdMs, kind: 'snap-memory', lane: 'snapchat', app: ProvenanceSnapchat.appId(state.zip.platform), isFile: false, bold: false,
+            video: video, front: Number(m.front) === 1, memoryId: m.id, latitude: null, longitude: null,
+            text: 'Snappen ' + String(m.id).slice(0, 8) + '… i Memories har ' + how + ' som den bedömda filen' + (meo ? '; den ligger i My Eyes Only' : ''),
+            plain: 'Den bedömda filen finns också sparad i Snapchats Memories' + (meo ? ', nu i My Eyes Only' : ''),
+            source: ios ? { db: 'scdb-27.sqlite3', table: 'ZGALLERYSNAP', column: 'ZCAPTURETIMEUTC (jämförd med cachefilen)' } : { db: 'memories.db', table: 'memories_snap', column: 'snap_capture_time (jämförd med memories_media)' } };
+        return { info: info, event: event };
     }
 
     // Längd (ms) och storlek per _id för bilder och video i MediaStore, en gång per zip. En egen fråga (role-media-extra),
@@ -2935,6 +3017,25 @@
                 if (sends.length) input.file.memory.sends = sends.map(function (x) { var c = Object.assign({}, x); delete c.event; return c; });
             }
         }
+        // En fil i galleriet eller i memories_media som hör till en snap i Memories: snappens innehåll jämförs med snaps som
+        // skickades i fönstret, som när snappens egen fil i cachen bedöms (förslag 1, 2026-11-21).
+        if (input.file.memory && !input.file.memory.sends && !run.memoryPlain) {
+            var memRow = (ctx.memories || []).find(function (x) { return String(x.id).toUpperCase() === String(input.file.memory.id).toUpperCase(); });
+            var memPlain = memRow ? await memoryPlainOf(memRow) : null;
+            if (memPlain) {
+                progress('Jämför snappen i Memories med snaps som skickades i fönstret…');
+                var sends2 = await snapSends(out.sent || out.events, memPlain, entries);
+                sends2.forEach(function (x) { if (out.events.indexOf(x.event) < 0) out.events.push(x.event); });
+                if (sends2.length) input.file.memory.sends = sends2.map(function (x) { var c = Object.assign({}, x); delete c.event; return c; });
+            }
+        }
+        // Den bedömda filen är en skickad snap: samma bild eller video i Memories, också i My Eyes Only (förslag 3).
+        if (sc && out.link && out.link.external && out.link.external.kind === 'sent' && !out.link.external.aux && keys.memories && hitFor(keys.memories)) {
+            progress('Letar efter den skickade snappen i Memories…');
+            var from = await sentSnapMemory(sc, out.link.row, keys);
+            if (from) { input.file.sentFromMemory = from.info; out.events.push(from.event); }
+        }
+        out.events.sort(function (a, b) { return a.ms - b.ms; });
         // Snapchats version när en sparad snap i fönstret togs (Android): snappen närmast T.
         var T0 = input.file.createdMs;
         var withUa = (ctx.memories || []).filter(function (m) { return m.userAgent && m.capturedMs; })
@@ -3194,9 +3295,10 @@
     // till samma rutnät i gråskala och jämförs; under ProvenanceSnapchat.SAME_IMAGE_DIFF räknas de som samma bild, och
     // skillnaden står i texten. Händelserna för de skickade snapsen får det i sin text. Bara bilder.
     async function snapSends(events, plain, entries) {
-        if (!/^image\//.test(plain.contentType || '')) return [];
-        var mine = await grayGrid(plain.bytes, plain.contentType, plain.overlay);
-        if (!mine) return [];
+        var video = /^video\//.test(plain.contentType || '');
+        if (!video && !/^image\//.test(plain.contentType || '')) return [];
+        var mine = video ? await videoSeconds(plain.bytes, plain.contentType) : await grayGrid(plain.bytes, plain.contentType, plain.overlay);
+        if (mine == null) return [];
         var byKey = {};
         entries.forEach(function (e) { var k = ProvenanceSnapchat.cacheKeyFromPath(e.name); if (k) byKey[k] = e; });
         var out = [];
@@ -3207,14 +3309,26 @@
             if (!e || e.size > MAX_MEDIA) continue;
             var bytes = (await ExtractionCore.readEntry(state.zip.read, e)).bytes;
             var type = mediaTypeOf(bytes);
+            if (video) {
+                // En video jämförs på längden (Android: den skickade filen ligger som MP4 i cachen).
+                if (!/^video\//.test(type)) continue;
+                var sec = await videoSeconds(bytes, type);
+                if (sec == null) continue;
+                var dms = Math.round(Math.abs(sec - mine) * 1000), sameLen = dms <= ProvenanceSnapchat.SAME_DURATION_MS;
+                ev.text += '. Jämförd med snappen i Memories: längden skiljer ' + dms + ' ms' + (sameLen ? ', samma längd' : '');
+                if (!sameLen) continue;
+                ev.plain = 'En video med samma längd skickas' + (ev.sentTo ? ' till ' + ev.sentTo : '') + ' från den här telefonen i Snapchat';
+                out.push({ ms: ev.ms, to: ev.sentTo || null, serverId: ev.serverId, by: 'duration', diffMs: dms, limitMs: ProvenanceSnapchat.SAME_DURATION_MS, cacheKey: ev.cacheKey, event: ev });
+                continue;
+            }
             if (!/^image\//.test(type)) continue;
             var d = ProvenanceSnapchat.grayDiff(mine, await grayGrid(bytes, type));
             if (d == null) continue;
             var same = d < ProvenanceSnapchat.SAME_IMAGE_DIFF;
-            ev.text += '. Bildjämförelse mot den bedömda snappen i Memories: medelskillnad ' + d.toFixed(1).replace('.', ',') + ' av 255' + (same ? ', samma bild' : '');
+            ev.text += '. Bildjämförelse mot snappen i Memories: medelskillnad ' + d.toFixed(1).replace('.', ',') + ' av 255' + (same ? ', samma bild' : '');
             if (!same) continue;
             ev.plain = 'Samma bild skickas' + (ev.sentTo ? ' till ' + ev.sentTo : '') + ' från den här telefonen i Snapchat';
-            out.push({ ms: ev.ms, to: ev.sentTo || null, serverId: ev.serverId, diff: d, limit: ProvenanceSnapchat.SAME_IMAGE_DIFF, cacheKey: ev.cacheKey, event: ev });
+            out.push({ ms: ev.ms, to: ev.sentTo || null, serverId: ev.serverId, by: 'image', diff: d, limit: ProvenanceSnapchat.SAME_IMAGE_DIFF, cacheKey: ev.cacheKey, event: ev });
         }
         return out;
     }

@@ -435,6 +435,8 @@
     // 6,618 s mot 6,609 s i labbet (den automatiska kopian 6,687 s). Kopplingen görs bara när en enda video har
     // längden inom gränsen. file: { durationMs }. -> { row, by: 'duration', diffMs } eller null.
     var SAME_DURATION_MS = 150;
+    // Androids uppladdning (typ 5) före det egna meddelandet: 1–3 s i labben, med marginal.
+    var UPLOAD_MS = 5000;
     function linkVideoByDuration(memories, file) {
         if (!file || file.durationMs == null || !(file.durationMs > 0)) return null;
         var hits = (memories || []).filter(function (m) {
@@ -548,9 +550,25 @@
             return hit ? hit.message : null;
         };
 
+        // Android (labben 2026-10-31 och 2026-11-16): en skickad bild eller video laddas upp ur en cachepost av typ 5 utan
+        // extern nyckel, 0–5 s före det egna meddelandet med media. Posten är den skickade filen, okrypterad.
+        var ownMedia = app === ANDROID ? (ctx.messages || []).filter(function (m) {
+            if (m.createdMs == null) return false;
+            var info = messageInfo(m.content), sender = hexId(m.senderId) || info.senderId;
+            return isOwn(sender, ctx) && (info.hasMediaKey || (m.remoteMediaCount != null && Number(m.remoteMediaCount) > 0));
+        }) : [];
+        var uploadFor = function (r) {
+            if (!ownMedia.length || r.createdMs == null) return null;
+            var best = null;
+            ownMedia.forEach(function (m) { var d = m.createdMs - r.createdMs; if (d >= 0 && d <= UPLOAD_MS && (!best || d < best.d)) best = { m: m, d: d }; });
+            return best;
+        };
+
         (ctx.cacheRows || []).forEach(function (r) {
             var info = contextInfo(r.context);
             var ext = parseExternalKey(r.external);
+            var upload = info.code === 5 && (ext.kind === 'other' || ext.kind === 'uuid') ? uploadFor(r) : null;
+            if (upload) ext = { kind: 'sent', recipient: null, mediaId: null, upload: true, gapMs: upload.d };
             // Snapchat 14.30 på iOS (labbet 2026-11-19): en skickad snap har bara ett uuid som nyckel (typ 3), och samma uuid
             // står i det egna meddelandets local_message_references. Meddelandet kan skrivas senare än filen, när telefonen
             // varit i flygplansläge (1 min 32 s i labbet).
@@ -559,23 +577,24 @@
                 if (own3 && (!own3.senderId || isOwn(hexId(own3.senderId), ctx))) ext = { kind: 'sent', recipient: null, mediaId: ext.id.toUpperCase(), refs: [ext.id] };
             }
             var isFile = fileKey && String(r.key).toLowerCase() === fileKey;
-            var linkedMessage = ext.kind === 'message' ? byMessage[ext.conversationId + ':' + ext.serverMessageId] || null : ext.kind === 'chat' ? messageForSnap(ext.snapId)
+            var linkedMessage = upload ? upload.m : ext.kind === 'message' ? byMessage[ext.conversationId + ':' + ext.serverMessageId] || null : ext.kind === 'chat' ? messageForSnap(ext.snapId)
                 : ext.kind === 'sent' && ext.refs ? messageForRefs(ext.refs) : null;
             var chat = linkedMessage ? chatWith(linkedMessage.conversation) : null;
             var sentTo = ext.kind === 'sent' ? (ext.recipient ? '@' + ext.recipient : chat || (linkedMessage ? 'konversation ' + String(linkedMessage.conversation).slice(0, 8) + '…' : null)) : null;
             if (isFile) {
                 link = { row: r, context: info, external: ext, message: linkedMessage };
             }
-            if (!info.show && !isFile) { hidden++; hiddenTypes[info.code] = (hiddenTypes[info.code] || 0) + 1; return; }
+            if (!info.show && !isFile && !upload) { hidden++; hiddenTypes[info.code] = (hiddenTypes[info.code] || 0) + 1; return; }
             if (r.createdMs == null) return;
             var what = 'Snapchat cachar media: typ ' + info.code + (info.known ? ' (' + info.label + ')' : '');
             if (ext.kind === 'message') what += ', konversation ' + ext.conversationId.slice(0, 8) + '…, meddelande ' + ext.serverMessageId;
             else if (ext.kind === 'chat') what += ', chattsnap ' + ext.snapId.slice(0, 8) + '…' + (linkedMessage ? ', meddelande ' + linkedMessage.serverId : '');
             else if (ext.kind === 'recording') what += ', inspelning ' + ext.recordingId.slice(0, 8) + '…';
+            else if (ext.kind === 'sent' && ext.upload) what += ', skickad' + (sentTo ? ' till ' + sentTo : '') + ' (uppladdad ' + (ext.gapMs / 1000).toFixed(1).replace('.', ',') + ' s före det egna meddelandet ' + linkedMessage.serverId + ')';
             else if (ext.kind === 'sent') what += ', skickad' + (sentTo ? ' till ' + sentTo : '') + (linkedMessage && ext.refs ? ' (meddelande ' + linkedMessage.serverId + ', local_message_references)' : '') + (ext.aux ? ' (' + ext.aux + ')' : '');
             else if (ext.kind === 'story') what += ', ' + ext.part;
             else if (ext.kind === 'memory') what += ', snap ' + ext.snapId.slice(0, 8) + '…';
-            var plain = ext.kind === 'sent' && info.code === 3 ? (ext.aux ? null : 'En snap eller bild skickas' + (sentTo ? ' till ' + sentTo : '') + ' från den här telefonen') : info.plain;
+            var plain = ext.kind === 'sent' && (info.code === 3 || ext.upload) ? (ext.aux ? null : 'En snap eller bild skickas' + (sentTo ? ' till ' + sentTo : '') + ' från den här telefonen') : info.plain;
             // Tillfälliga poster utan extern nyckel (mellanlagring vid inspelning och hämtning) får ingen egen mening.
             if ((info.code === 34 && ext.kind !== 'recording') || (info.code === 3 && ext.kind === 'other')) plain = null;
             if (isFile) {
@@ -711,7 +730,7 @@
         PICABOO: PICABOO, ANDROID: ANDROID, appId: appId, isSnapchatApp: isSnapchatApp, JOURNAL: JOURNAL, linkMemory: linkMemory, hexId: hexId,
         SAVE_SETTING: SAVE_SETTING, saveSetting: saveSetting, saveSettingFromFlat: saveSettingFromFlat, memoryOrigin: memoryOrigin, isVideoMemory: isVideoMemory, memoryVideoKey: memoryVideoKey, copyKind: copyKind, AUTO_COPY_MS: AUTO_COPY_MS,
         linkVideoByDuration: linkVideoByDuration, SAME_DURATION_MS: SAME_DURATION_MS, isGalleryName: isGalleryName, sentFrom: sentFrom,
-        memoryCipher: memoryCipher, unpad: unpad, grayDiff: grayDiff, SAME_IMAGE_DIFF: SAME_IMAGE_DIFF, jpegCore: jpegCore, sameBytes: sameBytes,
+        memoryCipher: memoryCipher, unpad: unpad, grayDiff: grayDiff, SAME_IMAGE_DIFF: SAME_IMAGE_DIFF, SAME_DURATION_MS: SAME_DURATION_MS, jpegCore: jpegCore, sameBytes: sameBytes,
         CONTEXT: CONTEXT, contextInfo: contextInfo, parseExternalKey: parseExternalKey,
         fields: fields, senderId: senderId, hasMediaKey: hasMediaKey, strings: strings, flatStrings: flatStrings, friendNames: friendNames, messageInfo: messageInfo,
         accountId: accountId, cacheKeyFromPath: cacheKeyFromPath, isRecordingPath: isRecordingPath, uuidText: uuidText, hex: hex, build: build,

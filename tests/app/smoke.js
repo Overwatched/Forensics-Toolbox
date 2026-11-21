@@ -2174,7 +2174,7 @@ const scenarios = [
         const same = r.sentText.find((t) => /samma bild/.test(t));
         const other = r.sentText.find((t) => !/samma bild/.test(t));
         expect(same && /skickad till konto c1c1c1c1… \(meddelande 6, local_message_references\)/.test(same) && /Samma bild skickas till konto c1c1c1c1…/.test(same), 'Den skickade kopian i tidslinjen: ' + same);
-        expect(other && /Bildjämförelse mot den bedömda snappen i Memories: medelskillnad \d/.test(other), 'Den andra skickade bilden: ' + other);
+        expect(other && /Bildjämförelse mot snappen i Memories: medelskillnad \d/.test(other), 'Den andra skickade bilden: ' + other);
         expect(/Sökt på snap-id\s+D3D3D3D3-1234-4567-89AB-CDEF01234567 \(samma som filens\)/i.test(r.card), 'Raden om sökningen i filkortet: ' + r.card.slice(0, 400));
         expect(r.card.includes('dekrypterade innehållet') && r.card.includes(sc.contentSha256) && r.card.includes('ZGALLERYSNAP.ZENCRYPTION'), 'Innehållet i filkortet: ' + r.card.slice(0, 900));
         expect(r.preview, 'Den dekrypterade bilden visas inte');
