@@ -1,11 +1,12 @@
 // Tidslinjen under kartan: ett band per källa, med bilder och positioner som streck, samtal och meddelanden som romber
 // och vistelser som staplar. Långa uppehåll trycks ihop (ett brott med uppehållets längd), så att en enstaka gammal bild
-// inte gör resten till ett streck. Ett klick öppnar punkten, ett drag markerar allt i spannet, och markören följer
+// inte gör resten till ett streck. Ett klick öppnar punkten, ett drag väljer ett spann som kartan visar, och markören följer
 // uppspelningen. Skalan (scale) testas i Node.
 //
 //   MapTimeline.scale(tider, bredd)   → { x(ms), ms(x), segments, breaks }
-//   MapTimeline.create(behållare, { onPick(ref), onBrush(frånMs, tillMs) }) → { draw(lanes, markörMs), destroy() }
-//   lanes: [{ name, color, items: [{ ms, until, kind: 'point' | 'event' | 'stay', color, title, ref }] }]
+//   MapTimeline.create(behållare, { onPick(ref), onBrush(frånMs, tillMs) }) → { draw(lanes, markörMs, spann), destroy() }
+//   lanes: [{ name, color, items: [{ ms, until, kind: 'point' | 'event' | 'stay', color, title, ref, active }] }]
+//   spann: { from, to } eller null. Utanför spannet tonas tidslinjen ned.
 (function (root) {
     'use strict';
 
@@ -79,10 +80,10 @@
         function colors() {
             var css = getComputedStyle(host);
             var v = function (n, d) { return (css.getPropertyValue(n) || '').trim() || d; };
-            return { text: v('--text', '#e8e8ed'), muted: v('--text-muted', '#98989f'), border: v('--border', '#3a3a40'), accent: v('--accent', '#0a84ff'), band: v('--surface-hover', '#323238') };
+            return { text: v('--text', '#e8e8ed'), muted: v('--text-muted', '#98989f'), border: v('--border', '#3a3a40'), accent: v('--accent', '#0a84ff'), band: v('--surface-hover', '#323238'), bg: v('--surface', '#1c1c1e') };
         }
 
-        // focus: { from, to } som markeras som ett fält (fönstret runt en tid), eller null.
+        // focus: spannet { from, to } som kartan visar, eller null.
         function draw(lanes, cursor, focus) {
             if (lanes !== undefined) state.lanes = lanes || [];
             if (cursor !== undefined) state.cursor = cursor;
@@ -145,15 +146,13 @@
                 ctx.fillText(g, gx, h - 7);
                 freeGap = gx + gw + 6;
             });
+            var f0 = null, f1 = null;
             if (state.focus) {
-                var f0 = X(Math.max(state.focus.from, sc.segments[0].from)), f1 = X(Math.min(state.focus.to, sc.segments[sc.segments.length - 1].to));
-                if (f1 > f0) {
-                    ctx.fillStyle = c.accent; ctx.globalAlpha = 0.1;
-                    ctx.fillRect(f0, AXIS, f1 - f0, h - AXIS);
-                    ctx.globalAlpha = 0.6; ctx.strokeStyle = c.accent;
-                    ctx.strokeRect(f0 + 0.5, AXIS + 0.5, f1 - f0 - 1, h - AXIS - 1);
-                    ctx.globalAlpha = 1;
-                }
+                f0 = X(Math.max(state.focus.from, sc.segments[0].from));
+                f1 = Math.max(f0 + 2, X(Math.min(state.focus.to, sc.segments[sc.segments.length - 1].to)));
+                ctx.fillStyle = c.accent; ctx.globalAlpha = 0.1;
+                ctx.fillRect(f0, AXIS, f1 - f0, h - AXIS);
+                ctx.globalAlpha = 1;
             }
             // Punkterna.
             state.lanes.forEach(function (l, i) {
@@ -169,6 +168,7 @@
                         state.hits.push({ x0: x, x1: x2, y0: y, y1: y + LANE, it: it });
                     } else if (it.kind === 'event') {
                         ctx.beginPath(); ctx.moveTo(x, mid - 6); ctx.lineTo(x + 5, mid); ctx.lineTo(x, mid + 6); ctx.lineTo(x - 5, mid); ctx.closePath(); ctx.fill();
+                        if (it.active) { ctx.strokeStyle = c.text; ctx.lineWidth = 2; ctx.stroke(); ctx.lineWidth = 1; }
                         state.hits.push({ x0: x - 5, x1: x + 5, y0: y, y1: y + LANE, it: it });
                     } else {
                         ctx.fillRect(x - 1, mid - 7, 2, 14);
@@ -176,6 +176,16 @@
                     }
                 });
             });
+            // Utanför spannet tonas allt ned, och kanterna markeras.
+            if (f0 !== null) {
+                ctx.fillStyle = c.bg; ctx.globalAlpha = 0.6;
+                ctx.fillRect(LABEL, AXIS, Math.max(0, f0 - LABEL), h - AXIS);
+                ctx.fillRect(f1, AXIS, Math.max(0, w - f1), h - AXIS);
+                ctx.globalAlpha = 1;
+                ctx.strokeStyle = c.accent; ctx.lineWidth = 2;
+                ctx.beginPath(); ctx.moveTo(f0, AXIS); ctx.lineTo(f0, h); ctx.moveTo(f1, AXIS); ctx.lineTo(f1, h); ctx.stroke();
+                ctx.lineWidth = 1;
+            }
             if (state.cursor != null) {
                 var cx = X(state.cursor);
                 ctx.strokeStyle = c.accent; ctx.lineWidth = 2;

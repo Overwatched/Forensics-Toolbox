@@ -3721,9 +3721,19 @@
                 x.partition ? kv('Partition', x.partition, 'WebKit: webbplatsen som hämtade sidan') : '',
                 kv('Källa', x.entry.name + (x.blob ? ' och ' + x.blob.name : ''))];
             $('c-device-sub').textContent = b.name + (x.ms ? ' · ' + f(x.ms) : '');
-            body.innerHTML = '<div class="w-page-btns"><button type="button" class="c-btn" data-web-render="page">Visa sidan</button> <button type="button" class="c-btn" data-web-render="source">Källkoden</button></div>' + webPageHtml(x) + '<div class="d-kvs">' + rows.join('') + '</div>';
+            // Sidan visas direkt, ur cachen och utan nätet. Källkoden är det andra läget.
+            var v = P.webPage && P.webPage.entry === x.entry.name ? P.webPage : null;
+            if (!v) {
+                v = P.webPage = { entry: x.entry.name, how: 'page', state: 'busy' };
+                setTimeout(function () { if (P.webPage === v) showCachedPage(b, x, 'page'); }, 0);
+            }
+            var how = v.how === 'source' ? 'source' : 'page';
+            body.innerHTML = '<div class="n-chips w-page-btns" role="group" aria-label="Visa">' +
+                '<button type="button" class="n-chip" data-web-render="page" aria-pressed="' + (how === 'page') + '">Sidan</button>' +
+                '<button type="button" class="n-chip" data-web-render="source" aria-pressed="' + (how === 'source') + '">Källkoden</button></div>' +
+                webPageHtml(x) + '<div class="d-kvs">' + rows.join('') + '</div>';
             var frame = body.querySelector('.w-frame');
-            if (frame) frame.srcdoc = state.device.webPage.html;
+            if (frame) frame.srcdoc = v.html;
             return;
         } else if (P.webTab === 'tabs') {
             $('c-device-title').textContent = x.title || x.host || 'Flik';
@@ -4058,8 +4068,9 @@
         if (b.dataset.webTab) { state.device.webTab = b.dataset.webTab; state.device.limit = LIST_STEP; renderDevice(); $('c-device-body').scrollTop = 0; return; }
         if (b.dataset.webId !== undefined) { state.device.webItem = Number(b.dataset.webId); return openDevice('webItem'); }
         if (b.dataset.webRender) {
-            var wb = webBrowser(state.device.web), wi = wb && wb.pages ? wb.pages[state.device.webItem] : null;
-            if (wi) showCachedPage(wb, wi, b.dataset.webRender);
+            var wb = webBrowser(state.device.web), wi = wb ? webList(wb, 'pages')[state.device.webItem] : null;
+            var cur = state.device.webPage;
+            if (wi && !(cur && cur.entry === wi.entry.name && cur.how === b.dataset.webRender && cur.state === 'ready')) showCachedPage(wb, wi, b.dataset.webRender);
             return;
         }
         if (b.dataset.callFilter) { state.device.callFilter = b.dataset.callFilter; state.device.limit = LIST_STEP; return renderDevice(); }

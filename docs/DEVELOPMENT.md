@@ -2680,24 +2680,30 @@ inklistrade koordinater. EXIF kan skicka synliga positioner dit via hubben.
   tiden (rangen, inte den absoluta tiden, så att en enstaka gammal punkt inte gör resten enfärgad), med en skala under valet.
   Orimligt snabba sträckor är röda och streckade som förut (över 250 km/h och 200 m); ett klick på en sådan sträcka
   visar avståndet, tiden, hastigheten och punkterna i båda ändar (`badInfo`, lagret `route-bad`).
-- **Samtal och meddelanden på kartan** (knappen i Källor): Positioner skickar ett tidsfönster på ±30 min runt varje
+- **Samtal och meddelanden i tidslinjen** (knappen i Källor): Positioner skickar ett tidsfönster på ±30 min runt varje
   position med tid och zon (ihopslagna, högst två månader sammanlagt) som `phone-events`. Queries kör katalogernas
   rollqueryer för samtal (`calls`: CallHistory.storedata, calllog.db) och meddelanden (`messages`: Signal, WhatsApp,
   Telegram, Snapchat; `events-messages`: sms.db och mmssms.db, nya dolda queryer i comms-katalogen) och skickar tillbaka
-  tid, riktning, vem och app (inte texten). Varje händelse läggs där telefonen var: interpolerad mellan positionerna
-  närmast före och efter (högst 30 min bort), annars vid den närmaste, och rutan säger vilka positioner och hur långt
-  isär. Händelserna är en egen källa utan rutt (rosa). Provat på iPhone-labbet 2026-11-19: 12 samtal och 107 meddelanden
-  ur sex appar. Telegrams tabeller skapas innan databasen skrivskyddas, som i Queries.
+  tid, riktning, vem och app (inte texten). Händelserna har ingen egen position och ritas inte på kartan (2026-11-21:
+  en uträknad plats blev missvisande). De går till kartan med `addEvents` (`{ key, kind, ms, name, app, dir, duration,
+  source, origin }`, samma key läggs inte till två gånger) och står i tidslinjen (ett band per app, bundle-id blir
+  appens namn) och i Händelser utan plats under den: tid, vem, app, riktning, Närmast (positionen närmast i tid bland
+  de som ritas, högst 30 min bort, öppnas med ett klick) och Källa (raden i Queries). Ett klick på en romb visar raden.
+  Provat på labbet Två telefoner (iOS) 2026-11-21: 11 samtal och 39 meddelanden.
 - **Tidslinjen** (`timeline.js`, `MapTimeline`; knappen Tidslinje längst ner): ett band per källa med bilder och
   positioner som streck, händelser som romber och vistelser som staplar. Uppehåll längre än max(2 h, 1/40 av spannet)
-  trycks ihop till ett brott med uppehållets längd (`MapTimeline.scale`). Klick öppnar punkten, ett drag markerar
-  punkterna i spannet och zoomar dit, och uppspelningens markör står i tidslinjen. Tiderna på axeln är UTC.
+  trycks ihop till ett brott med uppehållets längd (`MapTimeline.scale`). Klick öppnar punkten, och uppspelningens
+  markör står i tidslinjen. Tiderna på axeln är UTC.
+- **Spannet i tidslinjen** (`timeRange`, `setRange`): ett drag väljer ett spann, och kartan, rutten, bubblorna, listan
+  och händelserna visar bara det som hände i det (punkter utan tid visas inte). Tidslinjen visar allt och tonar ned det
+  utanför. Spannet står som en etikett med en tratt i menyraden, en tratt på knappen Tidslinje och Rensa i tidslinjens
+  rad. Allt runt tiden och Visa i tidslinjen (för en klunga) väljer också ett spann (`focusTime(from, to, fit)`).
 - **Popupen** (2026-11-21): adressen överst, ur källan när raden har en (`address`, t.ex. Snapchats snap_address_title
   eller en kolumn address/adress i Queries, `QueryRunCore.toPoints`), annars närmaste namngivna väg (inom 120 m) och ort
   i kartan som visas (`nearbyText`, ur de ritade kartrutorna, ingen tjänst frågas; järnväg och färjor räknas inte).
   Rutan Runt <tid> (±5/15/60 min) har Var var telefonen? (bara för filer) och Allt runt tiden, som hämtar positioner
-  och sedan samtal och meddelanden (±max(N, 30) min, så att de har positioner att läggas vid) och markerar fönstret i
-  tidslinjen (`focusTime`, etiketten Runt …). Händelser från ett tidigare fönster står kvar (`evKey`).
+  och sedan samtal och meddelanden (±max(N, 30) min) i tidslinjen och väljer ±N min som spann. Händelser från ett
+  tidigare fönster står kvar.
 - **Källan i Queries:** varje punkt ur Queries eller rollqueryerna har `origin` (zippens sökväg till databasen, -wal,
   queryns id och titel, SQL:en som kördes med tidsfönstret ifyllt, radernas nummer och huvudtabellen
   `QueryRunCore.mainTable`). Raden/Raderna i Queries i popupen skickar `open-source`; huvudfönstret gör om den till
@@ -2709,7 +2715,7 @@ inklistrade koordinater. EXIF kan skicka synliga positioner dit via hubben.
   meddelanden per app, filer, vistelser, positioner per typ) med Markera alla och Visa i tidslinjen. Tidslinjen har ett
   band per app för händelserna. Provat med 11 samtal och 39 meddelanden på samma plats (labbet Två telefoner).
 - **Aktiva val** står som etiketter i menyraden (`setActive` för verktygets egna, t.ex. Vistelser och En per 10 min;
-  kartans egna: Grupperade, Färg efter tid, Rutt per enhet, dolda, Runt …). Etiketten öppnar sin ruta, × tar bort valet.
+  kartans egna: Grupperade, Färg efter tid, Rutt per enhet, dolda, spannet i tidslinjen). Etiketten öppnar sin ruta, × tar bort valet.
 - **Tidslinjen** visas från början när det finns punkter med tid, tills den stängs med knappen.
 - **Vistelsens bubbla:** fälten Ankomst, Avfärd, Varaktighet, Antal positioner, Adress och Källa (databas · tabell) finns i
   Anpassa bubblan, och knappen Ankomst, avfärd och tid i bubblor (under Vistelser) slår på dem för alla vistelser.
@@ -2939,8 +2945,10 @@ i webbläsaren.
 
 `#content-placeholder` i Toolbox.html är en telefon med rubriken Vad vill du göra?: knappen Öppna en extraktion (öppnar
 Telefonen och väljer zippen med `#cb-input`) och åtta appar (`START_APPS` i src/script.js: Telefonen, Härkomst, Queries,
-Positioner, Chattar, EXIF, App-ID och Laboration). Ikonen kopieras från verktygets rad i listan, och ett tryck klickar
-på raden.
+Positioner, Chattar, EXIF, App-ID och Laboration, plus Inställningar). Ikonen kopieras från verktygets rad i listan
+och har samma färg (`--app` per verktyg i src/style.css), och ett tryck klickar på raden. Inställningar visas i telefonen
+(`#start-settings`: mörkt läge och verktygslistan, som knapparna högst upp i listan, version och nätverk). Hem överst i
+listan, och programmets namn, visar startsidan igen (`showHome`); verktygen står kvar i sina ramar.
 
 ### Profilbilder i Chattar och Telefonen (2026-11-21)
 
@@ -2967,7 +2975,7 @@ påhittade poster ur `tests/app/webcache-builder.js`):
   mellan raderna. Innehållet sparas som det kom: gzip och deflate packas upp (`DecompressionStream`), brotli i
   skrivbordsappen genom Node (`forensicsMedia.brotli`, IPC `brotli` i electron/main.js, högst 64 MB); i HTML-mappen säger
   sidan att den inte går att packa upp.
-- **Visa sidan:** skript, ramar, omdirigeringar och formulär tas bort, länkarna tappar sin adress (den står i title),
+- **Sidan** visas direkt när posten öppnas (Källkoden är det andra läget): skript, ramar, omdirigeringar och formulär tas bort, länkarna tappar sin adress (den står i title),
   bilder och stilmallar ur samma cache läggs in som data-adresser, och sidan visas i en ram med `sandbox=""` och en CSP
   som bara tillåter data:. Inget hämtas från nätet. Källkoden går att visa som text.
 

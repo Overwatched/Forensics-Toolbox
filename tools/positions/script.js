@@ -49,7 +49,7 @@
     var thinMinutes = 0;
     var thinned = { shown: 0, total: 0 };
     // En fil (en bild) och en händelse (samtal, meddelande) visas alltid för sig: de glesas inte ut och blir inga vistelser.
-    function isFilePoint(p) { return p.exifId != null || !!p.path || !!p.file || !!p.event; }
+    function isFilePoint(p) { return p.exifId != null || !!p.path || !!p.file; }
     function pointMs(p) { return p.taken && p.taken.sort ? MapCore.instant(p.taken.sort, p.taken.zone || '') : null; }
     function thin(list) {
         thinned = { shown: list.length, total: list.length };
@@ -262,9 +262,9 @@
         });
     }
 
-    // ---------- Samtal och meddelanden på kartan ----------
-    // Queries läser samtalen och meddelandena i tidsspannet för punkterna som visas, och här läggs varje händelse där
-    // telefonen var vid tiden: mellan positionerna närmast före och efter (högst 30 minuter bort), eller vid den närmaste.
+    // ---------- Samtal och meddelanden i tidslinjen ----------
+    // Queries läser samtalen och meddelandena i tidsspannet för punkterna som visas. De har ingen egen position och ritas
+    // inte på kartan: de står i kartans tidslinje och i listan under den, med positionen närmast i tid som en länk.
     var EVENT_GAP = 30 * 60000;
     function realMs(p) {
         return p.taken && MapCore.zoneMinutes(p.taken.zone) !== null ? MapCore.instant(p.taken.sort, p.taken.zone) : null;
@@ -272,61 +272,28 @@
     function eventRefs() {
         var out = [];
         layers.forEach(function (l) {
-            if (!l.visible || l.key === 'events') return;
-            l.points.forEach(function (p) { var ms = realMs(p); if (ms !== null && !p.event) out.push({ ms: ms, p: p }); });
+            if (!l.visible) return;
+            l.points.forEach(function (p) { var ms = realMs(p); if (ms !== null) out.push({ ms: ms, p: p }); });
         });
         return out.sort(function (a, b) { return a.ms - b.ms; });
     }
-    function gapText(ms) {
-        var s = Math.round(Math.abs(ms) / 1000);
-        return s < 60 ? s + ' s' : s < 3600 ? Math.round(s / 60) + ' min' : (s / 3600).toFixed(1).replace('.', ',') + ' h';
-    }
     function placeEvents(events) {
-        var refs = eventRefs(), pts = [], skipped = 0;
         var dirWord = { ut: 'utgående', in: 'inkommande', missat: 'missat' };
-        events.forEach(function (e) {
-            var lo = 0, hi = refs.length;
-            while (lo < hi) { var mid = (lo + hi) >> 1; if (refs[mid].ms <= e.ms) lo = mid + 1; else hi = mid; }
-            var b = lo > 0 && e.ms - refs[lo - 1].ms <= EVENT_GAP ? refs[lo - 1] : null;
-            var a = lo < refs.length && refs[lo].ms - e.ms <= EVENT_GAP ? refs[lo] : null;
-            if (!b && !a) { skipped++; return; }
-            var lat, lon, acc, how;
-            if (b && a && a.ms > b.ms) {
-                var f = (e.ms - b.ms) / (a.ms - b.ms), d = MapCore.haversine(b.p, a.p);
-                lat = b.p.lat + (a.p.lat - b.p.lat) * f;
-                lon = b.p.lon + (a.p.lon - b.p.lon) * f;
-                acc = Math.max(b.p.accuracy || 0, a.p.accuracy || 0, d / 2) || null;
-                how = 'Mellan ' + b.p.name + ' (' + gapText(e.ms - b.ms) + ' före) och ' + a.p.name + ' (' + gapText(a.ms - e.ms) + ' efter), ' + MapCore.formatDistance(d) + ' isär';
-            } else {
-                var n = b || a;
-                lat = n.p.lat; lon = n.p.lon; acc = n.p.accuracy || null;
-                how = 'Vid ' + n.p.name + ', ' + gapText(e.ms - n.ms) + (n === b ? ' före' : ' efter');
-            }
-            var t = new Date(e.ms).toISOString().slice(0, 19).replace('T', ' ');
+        var list = events.map(function (e) {
             var who = e.who ? (e.dir === 'ut' ? ' till ' : ' från ') + e.who : '';
-            var name = e.kind === 'call' ? (e.dir === 'missat' ? 'Missat samtal' : 'Samtal') + who : 'Meddelande' + who;
-            pts.push({
-                id: pts.length + 1, event: e.kind, evKey: [e.kind, e.ms, e.app, e.who, e.dir].join('|'), origin: e.origin || null, name: name, path: '', lat: lat, lon: lon,
-                taken: { sort: t, zone: 'UTC', text: t + ' UTC', kind: 'Tid', source: 'import' }, accuracy: acc,
-                type: e.kind === 'call' ? 'Samtal' : 'Meddelande', app: e.app || '', device: '', software: '', mime: '',
-                extra: [['Riktning', dirWord[e.dir] || e.dir || ''], e.duration ? ['Varaktighet', gapText(e.duration * 1000)] : null, ['App', e.app || ''],
-                    ['Var telefonen var', how], ['Ur databasen', e.source || '']].filter(function (x) { return x && x[1]; }),
-            });
+            return {
+                key: [e.kind, e.ms, e.app, e.who, e.dir].join('|'), kind: e.kind, ms: e.ms, app: e.app || '', dir: e.dir || '', dirText: dirWord[e.dir] || e.dir || '',
+                duration: e.duration || 0, source: e.source || '', origin: e.origin || null,
+                name: e.kind === 'call' ? (e.dir === 'missat' ? 'Missat samtal' : 'Samtal') + who : 'Meddelande' + who,
+            };
         });
-        // Händelser som redan visas (från ett annat tidsfönster) står kvar.
-        var placed = pts.length;
-        var old = layers.filter(function (l) { return l.key === 'events'; })[0];
-        if (old && pts.length) {
-            var have = {};
-            pts.forEach(function (p) { have[p.evKey] = true; });
-            old.points.forEach(function (p) { if (p.evKey && !have[p.evKey]) pts.push(Object.assign({}, p)); });
-        }
-        if (pts.length) receivePositions({ layerKey: 'events', layerName: 'Samtal och meddelanden', points: pts, noun: ['händelse', 'händelser'], route: false, color: '#ff375f' });
-        return { placed: placed, skipped: skipped };
+        var total = ensureMap().addEvents(list);
+        ensureMap().showEvents(true);
+        return { placed: list.length, total: total };
     }
     $('events-add').addEventListener('click', function () {
         var refs = eventRefs();
-        if (!refs.length) { setStatus('Lägg först till positioner eller bilder med tid och zon. Händelserna placeras där telefonen var vid tiden.', 'error'); return; }
+        if (!refs.length) { setStatus('Lägg först till positioner eller bilder med tid och zon. Händelserna läses för tiderna de täcker.', 'error'); return; }
         // Ett fönster runt varje position, ihopslaget där fönstren går omlott: bara tiderna där det finns en position att
         // lägga händelsen vid läses.
         var wins = [];
@@ -619,7 +586,7 @@
                 setStatus('Letar efter telefonens positioner ±' + minutes + ' min kring ' + (p.taken ? p.taken.text : '') + '…', 'busy');
                 window.parent.postMessage({ source: 'forensics-toolbox', type: 'phone-positions', atMs: atMs, minutes: minutes, title: p.name }, '*');
             },
-            // Allt runt tiden: telefonens positioner först, sedan samtalen och meddelandena (de läggs där telefonen var).
+            // Allt runt tiden: telefonens positioner först, sedan samtalen och meddelandena (i tidslinjen, de har ingen plats).
             aroundTime: function (p, atMs, minutes) {
                 around = { atMs: atMs, minutes: minutes, step: 'positions' };
                 setStatus('Läser positioner, samtal och meddelanden ±' + minutes + ' min kring ' + (p.taken ? p.taken.text : '') + '…', 'busy');
@@ -1024,8 +991,7 @@
     function aroundDone(text, ok) {
         var a = around;
         around = null;
-        var from = a.atMs - a.minutes * 60000, to = a.atMs + a.minutes * 60000;
-        ensureMap().focusTime(from, to, true);
+        ensureMap().focusTime(a.atMs - a.minutes * 60000, a.atMs + a.minutes * 60000, true);
         setStatus(text, ok ? 'ok' : 'error');
     }
     window.addEventListener('message', function (e) {
@@ -1042,14 +1008,13 @@
             return;
         }
         if (data && data.source === 'forensics-toolbox' && data.type === 'phone-events-done' && around && around.step === 'events') {
-            var placed = data.ok && Array.isArray(data.events) && data.events.length ? placeEvents(data.events) : null;
-            aroundDone(around.posText + ' ' + (data.text || '') + (placed && placed.skipped ? ' ' + placed.skipped + ' av händelserna ligger mer än 30 minuter från en position och visas inte.' : ''), data.ok);
+            if (data.ok && Array.isArray(data.events) && data.events.length) placeEvents(data.events);
+            aroundDone(around.posText + ' ' + (data.text || '') + (data.ok && data.events && data.events.length ? ' De står i tidslinjen, inte på kartan.' : ''), data.ok);
             return;
         }
         if (data && data.source === 'forensics-toolbox' && data.type === 'phone-events-done') {
             var r = data.ok && Array.isArray(data.events) && data.events.length ? placeEvents(data.events) : null;
-            if (r && !r.placed) { setStatus((data.text || '') + ' Ingen av dem ligger inom 30 minuter från en position med tid och zon.', 'error'); return; }
-            setStatus((data.text || '') + (r && r.skipped ? ' ' + r.skipped + ' av dem ligger mer än 30 minuter från en position och visas inte.' : ''), data.ok ? 'ok' : 'error');
+            setStatus((data.text || '') + (r ? ' De står i tidslinjen under kartan, inte på kartan: de har ingen egen position.' : ''), data.ok ? 'ok' : 'error');
             return;
         }
         if (!data || data.source !== 'forensics-toolbox' || data.type !== 'positions' || !Array.isArray(data.points)) return;
@@ -1064,6 +1029,10 @@
 
     // För provkörningen (tests/app): punkterna med vilken fil som kan visas som miniatyr, också utan WebGL.
     window.PositionsApp = {
+        events: function () { return ensureMap().events(); },
+        shown: function () { return ensureMap().drawnCount(); },
+        times: function () { return ensureMap().times(); },
+        range: function (from, to) { ensureMap().focusTime(from, to, false); },
         points: function () { return visiblePoints().map(function (p) { return { id: p.id, exifId: p.exifId, name: p.name, file: p.file ? p.file.type || '' : '', device: p.device || '', time: p.taken ? p.taken.text : '', type: p.type || '' }; }); },
         open: function (id) { return ensureMap().focus(id); },
     };

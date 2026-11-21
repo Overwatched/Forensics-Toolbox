@@ -67,6 +67,18 @@
 
             <nav class="tool-nav">
 
+                <button class="nav-item nav-item--home active" data-type="home" title="Startsidan: Vad vill du göra?">
+                    <span class="nav-item-icon">
+                        <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                            <path d="M4 11L12 4L20 11V19.5C20 20 19.6 20.5 19 20.5H14.5V15H9.5V20.5H5C4.4 20.5 4 20 4 19.5V11Z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" />
+                        </svg>
+                    </span>
+                    <span class="nav-item-text">
+                        <span class="nav-item-title">Hem</span>
+                        <span class="nav-item-desc">Vad vill du göra?</span>
+                    </span>
+                </button>
+
                 <div class="nav-group">
                     <div class="nav-group-title">Lokala verktyg</div>
 
@@ -412,6 +424,18 @@
                     <p class="start-sub">Välj här eller i listan till vänster</p>
                     <button type="button" class="start-open" id="start-open">Öppna en extraktion (zip eller UFDR)…</button>
                     <div class="start-grid" id="start-grid"></div>
+                    <!-- Inställningar i telefonen: tema och verktygslistan, samma som knapparna högst upp i listan. -->
+                    <div class="start-settings" id="start-settings" hidden>
+                        <button type="button" class="start-back" id="start-back">‹ Tillbaka</button>
+                        <h3>Inställningar</h3>
+                        <div class="start-rows">
+                            <label class="start-row"><span>Mörkt läge</span><input type="checkbox" id="start-dark" role="switch"></label>
+                            <label class="start-row"><span>Verktygslistan</span><input type="checkbox" id="start-sidebar" role="switch"></label>
+                            <div class="start-row"><span>Version</span><span class="muted" id="start-version"></span></div>
+                            <div class="start-row"><span>Nätverk</span><span class="muted" id="start-net"></span></div>
+                        </div>
+                        <p class="start-sub">Allt körs lokalt. Inget skickas från verktygen.</p>
+                    </div>
                 </div>
 
                 <div class="good-to-know">

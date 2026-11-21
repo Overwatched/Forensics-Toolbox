@@ -380,7 +380,7 @@
 
 /* Tidslinjen ovanför raden längst ner. */
 .map-timeline {
-    position: absolute; left: 10px; right: 54px; bottom: 62px; z-index: 3; max-height: 40%; overflow: auto;
+    position: absolute; left: 10px; right: 54px; bottom: 62px; z-index: 3; max-height: 55%; overflow: auto;
     background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 4px 0;
     box-shadow: 0 6px 20px rgba(0, 0, 0, 0.25);
 }
@@ -390,8 +390,27 @@
     position: absolute; z-index: 1; max-width: 220px; pointer-events: none; font-size: 11px; line-height: 1.35;
     color: var(--text); background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 3px 6px;
 }
-.map-time .map-timeline-btn { box-shadow: none; padding: 4px 8px; }
+.map-time .map-timeline-btn { box-shadow: none; padding: 4px 8px; display: inline-flex; align-items: center; gap: 4px; }
 .map-time .map-timeline-btn.active { border-color: var(--accent); color: var(--accent); }
+.map-funnel { display: inline-flex; color: var(--accent); }
+.map-funnel.display-none { display: none; }
+.map-timeline-plot { position: relative; }
+.map-timeline-head { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; padding: 2px 10px 4px; min-height: 24px; }
+.map-timeline-hint { margin: 0; font-size: 11px; }
+.map-timeline-range { display: inline-flex; align-items: center; gap: 6px; margin-left: auto; font-size: 12px; font-weight: 600; }
+.map-timeline-range.display-none { display: none; }
+.map-timeline-clear { padding: 2px 10px; font-size: 12px; }
+.map-events-btn { font-weight: 650; }
+.map-events { border-top: 1px solid var(--border); max-height: 220px; overflow: auto; font-size: 12px; }
+.map-events-tools { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 6px 10px; font-size: 11px; position: sticky; top: 0; background: var(--surface); border-bottom: 1px solid var(--border); }
+.map-ev { display: flex; gap: 8px; padding: 6px 10px; border-bottom: 1px solid var(--border); }
+.map-ev.active { background: var(--surface-hover); box-shadow: inset 3px 0 0 var(--accent); }
+.map-ev-dot { flex: none; width: 9px; height: 9px; margin-top: 4px; transform: rotate(45deg); border-radius: 1px; }
+.map-ev-body { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 2px; }
+.map-ev-top { display: flex; gap: 8px; }
+.map-ev-top b { font-variant-numeric: tabular-nums; }
+.map-ev-actions { display: flex; flex-wrap: wrap; gap: 2px 12px; }
+.map-active-chip button .map-funnel { margin-right: 3px; vertical-align: -1px; }
 
 .map-popup-groups { display: flex; flex-direction: column; gap: 4px; margin-top: 8px; }
 .map-popup-group summary { display: flex; justify-content: space-between; gap: 8px; cursor: pointer; padding: 4px 6px; border-radius: 6px; background: var(--surface-hover); font-weight: 600; }

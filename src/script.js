@@ -62,7 +62,9 @@ const START_APPS = [
     ['tools/exif-viewer/index.html', 'EXIF', 'Bildens metadata'],
     ['tools/app-ids/index.html', 'App-ID', 'Vilken app är det?'],
     ['tools/lab/index.html', 'Laboration', 'Gör en labb med klocka'],
+    ['settings', 'Inställningar', 'Tema och verktygslistan'],
 ];
+const SETTINGS_ICON = '<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="1.6"/><path d="M12 2.8V5.2M12 18.8V21.2M21.2 12H18.8M5.2 12H2.8M18.5 5.5L16.8 7.2M7.2 16.8L5.5 18.5M18.5 18.5L16.8 16.8M7.2 7.2L5.5 5.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>';
 function navItemFor(key) {
     return document.querySelector('.nav-item[data-key="' + key + '"]') || document.querySelector('.nav-item[data-src="' + key + '"]');
 }
@@ -70,8 +72,8 @@ function initStart() {
     const grid = document.getElementById('start-grid');
     if (!grid) return;
     START_APPS.forEach(([key, title, what]) => {
-        const item = navItemFor(key);
-        if (!item) return;
+        const item = key === 'settings' ? null : navItemFor(key);
+        if (!item && key !== 'settings') return;
         const b = document.createElement('button');
         b.type = 'button';
         b.className = 'start-app';
@@ -79,8 +81,16 @@ function initStart() {
         b.title = what;
         const icon = document.createElement('span');
         icon.className = 'start-app-icon';
-        const svg = item.querySelector('.nav-item-icon svg');
-        if (svg) icon.append(svg.cloneNode(true));
+        // Samma färg som verktygets ikon i listan (--app i style.css).
+        if (item) {
+            const svg = item.querySelector('.nav-item-icon svg');
+            if (svg) icon.append(svg.cloneNode(true));
+            const color = getComputedStyle(item).getPropertyValue('--app').trim();
+            if (color) b.style.setProperty('--app', color);
+        } else {
+            icon.innerHTML = SETTINGS_ICON;
+            b.style.setProperty('--app', '#8e8e93');
+        }
         const name = document.createElement('span');
         name.className = 'start-app-name';
         name.textContent = title;
@@ -88,9 +98,28 @@ function initStart() {
         sub.className = 'start-app-what';
         sub.textContent = what;
         b.append(icon, name, sub);
-        b.addEventListener('click', () => item.click());
+        b.addEventListener('click', () => (item ? item.click() : showSettings(true)));
         grid.append(b);
     });
+    // Inställningarna visas i telefonen i stället för apparna.
+    const settings = document.getElementById('start-settings');
+    const dark = document.getElementById('start-dark');
+    const side = document.getElementById('start-sidebar');
+    function showSettings(on) {
+        settings.hidden = !on;
+        grid.hidden = on;
+        document.querySelectorAll('.start-phone > h2, .start-phone > .start-sub, #start-open').forEach((n) => { n.hidden = on; });
+        if (!on) return;
+        dark.checked = document.documentElement.getAttribute('data-theme') !== 'light';
+        side.checked = !document.querySelector('.app').classList.contains('sidebar-collapsed');
+        document.getElementById('start-version').textContent = ((document.querySelector('.version-row p') || {}).textContent || '').replace(/^Version\s+/, '');
+        document.getElementById('start-net').textContent = navigator.onLine ? 'Online' : 'Offline';
+    }
+    if (settings) {
+        document.getElementById('start-back').addEventListener('click', () => showSettings(false));
+        dark.addEventListener('change', () => { if (dark.checked !== (document.documentElement.getAttribute('data-theme') !== 'light')) document.getElementById('theme-toggle').click(); });
+        side.addEventListener('change', () => { if (side.checked === document.querySelector('.app').classList.contains('sidebar-collapsed')) document.getElementById('sidebar-toggle').click(); });
+    }
     const open = document.getElementById('start-open');
     const phone = navItemFor('tools/phone');
     if (open) open.addEventListener('click', () => {
@@ -574,6 +603,24 @@ function initToolNav() {
             openTool(item.dataset.src);
         });
     });
+
+    // Hem: startsidan igen. Verktygen står kvar i sina ramar, med det de har öppet.
+    function showHome() {
+        document.querySelectorAll('.nav-item.active').forEach((el) => el.classList.remove('active'));
+        document.querySelectorAll('.nav-item[data-type="home"]').forEach((el) => el.classList.add('active'));
+        placeholder.style.display = '';
+        host.hidden = true;
+        showFrame(null);
+        activePath = '';
+        renderBar();
+    }
+    document.querySelectorAll('.nav-item[data-type="home"]').forEach((item) => item.addEventListener('click', showHome));
+    const brand = document.querySelector('.sidebar-header h1');
+    if (brand) {
+        brand.classList.add('is-home-link');
+        brand.title = 'Till startsidan';
+        brand.addEventListener('click', showHome);
+    }
 
     window.addEventListener('message', (event) => {
         if (!fromToolFrame(event)) return;

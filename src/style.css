@@ -331,8 +331,33 @@ body {
 }
 
 .nav-item-icon--local {
-    background: var(--local);
+    background: var(--app, var(--local));
 }
+
+/* Varje verktyg har sin färg, samma i listan och på startsidan (src/script.js läser --app). */
+.nav-item--home { --app: #0a84ff; margin-bottom: 8px; }
+.nav-item--home .nav-item-icon { background: var(--app); }
+.nav-item[data-key="tools/phone"] { --app: #0a84ff; }
+.nav-item[data-src="tools/provenance/index.html"] { --app: #ff9f0a; }
+.nav-item[data-src="tools/db-queries/queries.html"] { --app: #30d158; }
+.nav-item[data-src="tools/positions/index.html"] { --app: #ff375f; }
+.nav-item[data-src="tools/chats/index.html"] { --app: #64d2ff; }
+.nav-item[data-src="tools/exif-viewer/index.html"] { --app: #bf5af2; }
+.nav-item[data-src="tools/app-ids/index.html"] { --app: #5e5ce6; }
+.nav-item[data-src="tools/lab/index.html"] { --app: #8e8e93; }
+.nav-item[data-src="tools/time-converter/time.html"] { --app: #ff453a; }
+.nav-item[data-src="tools/ios-keychain/keychain.html"] { --app: #c9a227; }
+.nav-item[data-src="tools/CyberChef/index.html"] { --app: #d63384; }
+.nav-item[data-src="tools/file-diff/diff.html"] { --app: #00c7be; }
+.nav-item[data-src="tools/hash-calculator/hash.html"] { --app: #a2845e; }
+.nav-item[data-src="tools/text-formatter/formatter.html"] { --app: #7d7aff; }
+.nav-item[data-src="tools/QR2URL/QR2URL.html"] { --app: #ff6482; }
+
+/* Ett aktivt verktyg: ikonen behåller sin färg och får en vit ring mot den blå raden. */
+.nav-item.active .nav-item-icon { box-shadow: 0 0 0 1.5px rgba(255, 255, 255, 0.85); }
+
+.sidebar-header h1.is-home-link { cursor: pointer; }
+.sidebar-header h1.is-home-link:hover { color: var(--accent); }
 
 .nav-item-icon--download {
     background: var(--download);
@@ -551,11 +576,12 @@ body {
 
 .start-phone {
     position: relative;
-    width: min(400px, 100%);
-    border-radius: 44px;
-    border: 10px solid #2c2c2e;
+    width: min(480px, 100%);
+    min-height: min(720px, calc(100vh - 60px));
+    border-radius: 52px;
+    border: 12px solid #2c2c2e;
     background: linear-gradient(160deg, color-mix(in srgb, var(--accent) 22%, var(--surface)) 0%, var(--surface) 60%);
-    padding: 34px 20px 26px;
+    padding: 44px 26px 30px;
     box-shadow: 0 18px 50px rgba(0, 0, 0, 0.22);
 }
 
@@ -564,9 +590,9 @@ body {
     top: 10px;
     left: 50%;
     transform: translateX(-50%);
-    width: 96px;
-    height: 22px;
-    border-radius: 12px;
+    width: 110px;
+    height: 26px;
+    border-radius: 14px;
     background: #2c2c2e;
 }
 
@@ -593,8 +619,10 @@ body {
 .start-grid {
     display: grid;
     grid-template-columns: repeat(4, minmax(0, 1fr));
-    gap: 16px 8px;
+    gap: 22px 10px;
 }
+
+.start-grid[hidden], .start-phone [hidden] { display: none; }
 
 .start-app {
     display: flex;
@@ -611,33 +639,37 @@ body {
 }
 
 .start-app-icon {
-    width: 56px;
-    height: 56px;
-    border-radius: 14px;
+    width: 68px;
+    height: 68px;
+    border-radius: 17px;
     display: flex;
     align-items: center;
     justify-content: center;
     color: #fff;
-    background: var(--accent);
+    background: var(--app, var(--accent));
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.18);
     transition: transform 0.12s ease;
 }
 
-.start-app:nth-child(2) .start-app-icon { background: #ff9f0a; }
-.start-app:nth-child(3) .start-app-icon { background: #30d158; }
-.start-app:nth-child(4) .start-app-icon { background: #ff375f; }
-.start-app:nth-child(5) .start-app-icon { background: #64d2ff; }
-.start-app:nth-child(6) .start-app-icon { background: #bf5af2; }
-.start-app:nth-child(7) .start-app-icon { background: #5e5ce6; }
-.start-app:nth-child(8) .start-app-icon { background: #8e8e93; }
 
 .start-app:hover .start-app-icon { transform: translateY(-2px); }
 
-.start-app-icon svg { width: 28px; height: 28px; }
+.start-app-icon svg { width: 34px; height: 34px; }
 
-.start-app-name { font-size: 12px; font-weight: 600; }
+.start-app-name { font-size: 13px; font-weight: 600; }
 
-.start-app-what { font-size: 10.5px; color: var(--text-muted); line-height: 1.25; }
+.start-app-what { font-size: 11px; color: var(--text-muted); line-height: 1.25; }
+
+.start-settings { text-align: left; }
+.start-settings h3 { font-size: 22px; font-weight: 700; color: var(--text); margin: 8px 0 12px; }
+.start-back { font: inherit; font-size: 14px; color: var(--accent); background: none; border: 0; padding: 0; cursor: pointer; }
+.start-rows { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; margin-bottom: 12px; }
+.start-row { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 11px 14px; font-size: 14px; color: var(--text); border-bottom: 1px solid var(--border); }
+.start-row:last-child { border-bottom: 0; }
+.start-row input[type="checkbox"] { appearance: none; width: 44px; height: 26px; border-radius: 13px; background: var(--border); position: relative; cursor: pointer; transition: background 0.15s ease; flex: none; }
+.start-row input[type="checkbox"]::after { content: ''; position: absolute; top: 2px; left: 2px; width: 22px; height: 22px; border-radius: 50%; background: #fff; transition: transform 0.15s ease; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3); }
+.start-row input[type="checkbox"]:checked { background: #30d158; }
+.start-row input[type="checkbox"]:checked::after { transform: translateX(18px); }
 
 .good-to-know {
     margin-top: 28px;

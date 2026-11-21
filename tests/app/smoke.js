@@ -64,7 +64,17 @@ const scenarios = [
             const part = it.src.split('?')[0].replace(/^tools\/|^documentation\//, '');
             await c.waitFor(part, 'document.readyState === "complete"', 30000, it.title + ' laddas');
         }
-        return items.length + ' verktyg';
+        // Hem tar tillbaka startsidan, apparna har verktygens färger och Inställningar visas i telefonen.
+        await c.nav('Hem');
+        const home = await c.ev(null, `(function(){ const ph = document.getElementById('content-placeholder'), host = document.getElementById('tool-host');
+            const apps = [...document.querySelectorAll('.start-app')], colors = apps.map(a => getComputedStyle(a.querySelector('.start-app-icon')).backgroundColor);
+            const side = getComputedStyle(document.querySelector('.nav-item[data-src="tools/provenance/index.html"] .nav-item-icon')).backgroundColor;
+            apps.find(a => a.dataset.key === 'settings').click();
+            const r = { shown: getComputedStyle(ph).display !== 'none' && host.hidden, bar: document.getElementById('context-bar').hidden, apps: apps.length, distinct: new Set(colors).size, same: colors[1] === side,
+                settings: !document.getElementById('start-settings').hidden && document.getElementById('start-grid').hidden, version: document.getElementById('start-version').textContent };
+            document.getElementById('start-back').click(); r.back = !document.getElementById('start-grid').hidden; return r; })()`);
+        expect(home.shown && home.bar && home.apps === 9 && home.distinct >= 8 && home.same && home.settings && /^\d+\.\d+$/.test(home.version) && home.back, 'Startsidan: ' + JSON.stringify(home));
+        return items.length + ' verktyg, Hem och startsidans Inställningar';
     }],
 
     ['Härkomst: de tre testdatan ger underlag och protokoll', async ({ c, downloads }) => {
@@ -494,8 +504,19 @@ const scenarios = [
         await c.ev('positions/index.html', `document.getElementById('status').textContent = '', document.getElementById('events-add').click(), 1`);
         const ev = await c.waitFor('positions/index.html', `(function(){ const t = document.getElementById('status').textContent; return /samtal och \d+ meddelanden? ur|Inga samtal|Ingen av dem|ingen databas/.test(t) && t; })()`, 60000, 'samtal och meddelanden');
         expect(!/kunde inte/.test(ev), 'Samtal och meddelanden: ' + ev);
-        const evLayer = await c.ev('positions/index.html', `[...document.querySelectorAll('#layer-list .layer span')].some(s => /^Samtal och meddelanden/.test(s.textContent))`);
-        if (/samtal och \d+ meddelanden? ur/.test(ev) && !/Ingen av dem/.test(ev)) expect(evLayer, 'Händelserna blev ingen källa: ' + ev);
+        // Händelserna har ingen egen plats: de står i tidslinjen och listan under den, inte som punkter eller källa på kartan.
+        const evShown = await c.ev('positions/index.html', `(function(){ return { n: PositionsApp.events().length, layer: [...document.querySelectorAll('#layer-list .layer span')].some(s => /^Samtal och meddelanden/.test(s.textContent)),
+            onMap: PositionsApp.points().some(p => /^(Samtal|Meddelande)$/.test(p.type)), rows: document.querySelectorAll('.map-events .map-ev').length, btn: document.querySelector('.map-events-btn').textContent }; })()`);
+        const evLayer = evShown.n > 0;
+        expect(!evShown.layer && !evShown.onMap, 'Händelserna ritades på kartan: ' + JSON.stringify(evShown));
+        if (/samtal och \d+ meddelanden? ur/.test(ev)) expect(evShown.n > 0 && evShown.rows > 0 && /Händelser utan plats \(\d+\)/.test(evShown.btn), 'Händelserna i tidslinjen: ' + JSON.stringify(evShown) + ' ' + ev);
+        // Ett spann i tidslinjen: kartan och listan visar bara det, med en etikett och Rensa.
+        const range = await c.ev('positions/index.html', `(async function(){ const all = PositionsApp.shown(); const ms = PositionsApp.times(); if (ms.length < 2) return { skip: true };
+            PositionsApp.range(ms[0], ms[0]); await new Promise(r => setTimeout(r, 200));
+            const r = { all: all, inRange: PositionsApp.shown(), chip: [...document.querySelectorAll('.map-active-chip')].some(x => x.querySelector('.map-funnel') && /UTC/.test(x.textContent)),
+                clear: !document.querySelector('.map-timeline-range').classList.contains('display-none'), icon: !document.querySelector('.map-timeline-btn .map-funnel').classList.contains('display-none') };
+            document.querySelector('.map-timeline-clear').click(); await new Promise(r => setTimeout(r, 200)); r.after = PositionsApp.shown(); r.chipAfter = [...document.querySelectorAll('.map-active-chip')].some(x => x.querySelector('.map-funnel')); return r; })()`);
+        if (!range.skip) expect(range.inRange >= 1 && range.inRange < range.all && range.chip && range.clear && range.icon && range.after === range.all && !range.chipAfter, 'Spannet i tidslinjen: ' + JSON.stringify(range));
         // Vistelser och tidslinjen.
         const stays = await c.ev('positions/index.html', `(function(){ const s = document.getElementById('view-mode'); s.value = 'stays'; s.dispatchEvent(new Event('change'));
             const r = { count: document.querySelector('.map-bar-count').textContent, chips: [...document.querySelectorAll('.map-active-chip')].map(x => x.textContent) };
@@ -507,7 +528,7 @@ const scenarios = [
             return { shown: !document.querySelector('.map-timeline').classList.contains('display-none'), h: canvas ? canvas.clientHeight : 0 }; })()`);
         expect(tl.shown && tl.h > 30, 'Tidslinjen: ' + JSON.stringify(tl));
         await c.nav('Queries');
-        return after.rows + ' positioner i Positioner' + (phone.popup ? ', popupen utan Var var telefonen?' : ', utan karta (WebGL2)') + ', ' + (evLayer ? 'händelser på kartan' : 'inga händelser nära') + ', vistelser och tidslinjen' + (srcHit ? ', källan öppnar raden i Queries' : '');
+        return after.rows + ' positioner i Positioner' + (phone.popup ? ', popupen utan Var var telefonen?' : ', utan karta (WebGL2)') + ', ' + (evLayer ? 'händelserna i tidslinjen' : 'inga händelser') + ', vistelser och tidslinjen' + (srcHit ? ', källan öppnar raden i Queries' : '');
     }],
 
     ['Queries: en inläst databas läses inte om, och en query som skriver påverkar inte nästa', async ({ c }) => {
@@ -1802,9 +1823,12 @@ const scenarios = [
         await ev(`document.querySelector('#c-device-body .w-row').click(), 1`);
         const pageKv = await kv();
         expect(pageKv.Adress === 'https://www.example.org/katter' && /^2024-06-01/.test(pageKv['Sparad i cachen']), 'Sidan: ' + JSON.stringify(pageKv));
-        await ev(`document.querySelector('[data-web-render="page"]').click(), 1`);
+        // Sidan visas utan att man klickar.
         const shown = await c.waitFor(CHAT, `(function(){ const w = document.querySelector('#c-device-body .w-page .warn'); if (w) return { error: w.textContent }; const f = document.querySelector('#c-device-body .w-frame'); return f && f.srcdoc && { sandbox: f.getAttribute('sandbox'), script: /<script/i.test(f.srcdoc), img: /src="data:image.png;base64,/.test(f.srcdoc), css: /rgb.200, 0, 0./.test(f.srcdoc), href: /href="https:/.test(f.srcdoc), csp: /Content-Security-Policy/.test(f.srcdoc), note: document.querySelector('.w-page-note').textContent }; })()`, 30000, 'sidan');
         expect(shown.sandbox === '' && !shown.script && shown.img && shown.css && !shown.href && shown.csp, 'Sidan i ramen: ' + JSON.stringify(shown));
+        await ev(`document.querySelector('[data-web-render="source"]').click(), 1`);
+        const source = await c.waitFor(CHAT, `(function(){ const p = document.querySelector('#c-device-body pre.w-source'); return p && /<title>|<img/i.test(p.textContent) && document.querySelector('[data-web-render="source"]').getAttribute('aria-pressed'); })()`, 20000, 'källkoden');
+        expect(source === 'true', 'Källkoden: ' + source);
         await ev(`document.getElementById('c-device-back').click(), 1`);
         await ev(`document.getElementById('c-device-back').click(), 1`);
         await noInjectedScript(c);

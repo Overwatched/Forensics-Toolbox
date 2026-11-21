@@ -38,6 +38,14 @@
         return node;
     }
 
+    // En liten tratt: ett filter är aktivt.
+    function funnelIcon() {
+        var span = make('span', 'map-funnel');
+        span.setAttribute('aria-hidden', 'true');
+        span.innerHTML = '<svg viewBox="0 0 16 16" width="12" height="12"><path d="M2 3h12l-4.6 5.4V13l-2.8-1.4V8.4z" fill="currentColor"/></svg>';
+        return span;
+    }
+
     function theme() {
         return document.documentElement.getAttribute('data-theme') === 'light' ? 'light' : 'dark';
     }
@@ -587,9 +595,29 @@
         // Tidslinjen (MapTimeline): ett band per källa ovanför raden.
         var timelineBtn = make('button', 'map-bar-btn map-timeline-btn', 'Tidslinje');
         timelineBtn.type = 'button';
-        timelineBtn.title = 'Ett band per källa med punkterna i tidsordning. Klicka på en punkt, eller dra över ett spann för att markera det på kartan.';
+        timelineBtn.title = 'Ett band per källa med punkterna i tidsordning. Klicka på en punkt, eller dra över ett spann för att bara visa det på kartan.';
         timelineBtn.setAttribute('aria-pressed', 'false');
+        var timelineIcon = funnelIcon();
+        timelineIcon.classList.add('display-none');
+        timelineBtn.append(timelineIcon);
+        // Raden överst i tidslinjen: knappen för händelserna utan plats och spannet som filtrerar kartan.
         var timelinePanel = make('div', 'map-timeline display-none');
+        var timelineHead = make('div', 'map-timeline-head');
+        var eventsBtn = make('button', 'link-btn map-events-btn display-none', '');
+        eventsBtn.type = 'button';
+        eventsBtn.setAttribute('aria-expanded', 'false');
+        var rangeHint = make('span', 'map-note map-timeline-hint', 'Dra över tidslinjen för att bara visa ett spann.');
+        var rangeBox = make('span', 'map-timeline-range display-none');
+        var rangeText = make('span', '', '');
+        var rangeClear = make('button', 'secondary-btn map-timeline-clear', 'Rensa');
+        rangeClear.type = 'button';
+        rangeClear.title = 'Visa allt igen';
+        rangeBox.append(funnelIcon(), rangeText, rangeClear);
+        timelineHead.append(eventsBtn, rangeHint, rangeBox);
+        var timelinePlot = make('div', 'map-timeline-plot');
+        var eventsList = make('div', 'map-events display-none');
+        eventsList.setAttribute('aria-label', 'Händelser utan plats');
+        timelinePanel.append(timelineHead, timelinePlot, eventsList);
         timeBar.append(timelineBtn, timeSpanBtn, timeControls);
         var baseSection = make('div', 'map-section');
         var basemapRow = make('div', 'map-segment');
@@ -706,7 +734,7 @@
         host.append(timelinePanel, timeBar, consent, editor, pickBar);
         return {
             editor: editor, pickBar: pickBar, bubbleCustom: bubbleCustom, bubbleReset: bubbleReset,
-            wrap: host, map: mapEl, status: status, route: route.input, perDevice: perDevice.input, cluster: cluster.input, timeColor: timeColor.input, timeLegend: timeLegend, count: count, activeRow: activeRow, bar: bar, openPop: openPop, alert: alert, pops: pops, timeSpanBtn: timeSpanBtn, timeControls: timeControls, timelineBtn: timelineBtn, timelinePanel: timelinePanel, toast: toast, toastText: toastText, toastClose: toastClose,
+            wrap: host, map: mapEl, status: status, route: route.input, perDevice: perDevice.input, cluster: cluster.input, timeColor: timeColor.input, timeLegend: timeLegend, count: count, activeRow: activeRow, bar: bar, openPop: openPop, alert: alert, pops: pops, timeSpanBtn: timeSpanBtn, timeControls: timeControls, timelineBtn: timelineBtn, timelinePanel: timelinePanel, timelineIcon: timelineIcon, timelinePlot: timelinePlot, eventsBtn: eventsBtn, eventsList: eventsList, rangeHint: rangeHint, rangeBox: rangeBox, rangeText: rangeText, rangeClear: rangeClear, toast: toast, toastText: toastText, toastClose: toastClose,
             online: online.input, fit: fit, measureBtn: measureBtn, saveBtn: saveBtn, measureNote: measureNote,
             listBtn: listBtn, list: list, numbers: numbers,
             bubbleStandard: bubbleStandard,
@@ -800,8 +828,18 @@
         var bubbleCfg = {};
         var picked = {};
 
+        // Spannet som valts i tidslinjen ({ from, to } i UTC-ms): bara punkterna i det ritas, och punkter utan tid inte alls.
+        var timeRange = null;
+        function inRange(p) {
+            if (!timeRange) return true;
+            var ms = pointMs(p.taken);
+            if (ms === null) return false;
+            var until = pointMs(p.until) || ms;
+            return ms <= timeRange.to && until >= timeRange.from;
+        }
+
         function drawnPoints() {
-            return points.filter(function (p) { return !hidden[p.id]; });
+            return points.filter(function (p) { return !hidden[p.id] && inRange(p); });
         }
 
         function routePoints() {
@@ -1479,7 +1517,7 @@
         function bubbleCandidates() {
             var list = [];
             points.forEach(function (p) {
-                if (hidden[p.id]) return;
+                if (hidden[p.id] || !inRange(p)) return;
                 var parts = bubbleContent(p);
                 if (parts.length) list.push({ point: p, parts: parts });
             });
@@ -2046,10 +2084,8 @@
                 var inTime = make('button', 'link-btn', 'Visa i tidslinjen');
                 inTime.type = 'button';
                 inTime.addEventListener('click', function () {
-                    timeFocus = { from: Math.min.apply(null, times) - 30000, to: Math.max.apply(null, times) + 30000 };
-                    if (!timelineOn) setTimeline(true);
-                    drawTimeline();
-                    updateActive();
+                    closePopup();
+                    setRange(Math.min.apply(null, times) - 30000, Math.max.apply(null, times) + 30000);
                 });
                 actions.append(inTime);
             }
@@ -2359,15 +2395,13 @@
             if (el.perDevice.checked) chips.push({ text: 'Rutt per enhet', pop: 'route', clear: function () { el.perDevice.checked = false; refreshData(); } });
             var nHidden = Object.keys(hidden).filter(function (id) { return byId[id]; }).length;
             if (nHidden) chips.push({ text: nHidden + (nHidden === 1 ? ' dold' : ' dolda'), title: 'Dolda punkter. × visar dem igen.', clear: function () { setHidden(Object.keys(hidden).filter(function (id) { return byId[id]; }).map(function (id) { return byId[id].id; }), false); } });
-            if (timeFocus) {
-                var t = function (ms) { return new Date(ms).toISOString().slice(11, 16); };
-                chips.push({ text: 'Runt ' + t((timeFocus.from + timeFocus.to) / 2) + ' ±' + Math.round((timeFocus.to - timeFocus.from) / 120000) + ' min (UTC)', title: 'Fönstret är markerat i tidslinjen.', clear: function () { timeFocus = null; drawTimeline(); updateActive(); } });
-            }
+            if (timeRange) chips.push({ text: rangeLabel(timeRange), icon: true, title: 'Bara det som hände i spannet visas. × visar allt igen.', clear: function () { setRange(null); } });
             var row = el.activeRow;
             row.textContent = '';
             chips.forEach(function (c) {
                 var chip = make('span', 'map-active-chip');
                 var b = make('button', '', c.text);
+                if (c.icon) b.prepend(funnelIcon());
                 b.type = 'button';
                 b.title = c.title || 'Ändra i menyn';
                 if (c.pop) b.addEventListener('click', function (e) { e.stopPropagation(); el.openPop(c.pop); });
@@ -2394,20 +2428,128 @@
         // ---------- Tidslinjen ----------
         var timeline = null;
         var timelineOn = false;
-        // Ett tidsfönster som markeras i tidslinjen (Allt runt tiden): { from, to } i UTC-ms.
-        var timeFocus = null;
         function pointMs(t) { return t && t.sort ? root.MapCore.instant(t.sort, t.zone || '') : null; }
+        function clockText(ms, sec) { return new Date(ms).toISOString().slice(11, sec ? 19 : 16); }
+        function rangeLabel(r) {
+            var d0 = new Date(r.from).toISOString().slice(0, 10), d1 = new Date(r.to).toISOString().slice(0, 10);
+            return d0 + ' ' + clockText(r.from) + '–' + (d1 !== d0 ? d1 + ' ' : '') + clockText(r.to) + ' UTC';
+        }
+
+        // Samtal och meddelanden har ingen egen plats och ritas inte på kartan: de står i tidslinjen och i en lista under
+        // den, med positionen närmast i tid som en länk. { key, kind: 'call' | 'message', ms, name, app, dir, duration, source, origin }.
+        var events = [];
+        var eventsOpen = false;
+        var activeEvent = null;
+        var EVENT_COLORS = { Samtal: '#ff375f', WhatsApp: '#25d366', Signal: '#3a76f0', Telegram: '#2aabee', Snapchat: '#f7c600', SMS: '#30d158', iMessage: '#30d158', Meddelanden: '#30d158' };
+        // Samtalen har appens bundle-id eller paket (net.whatsapp.WhatsApp): de kända får sitt namn.
+        function appName(app) {
+            var a = String(app || '');
+            var known = [[/whatsapp/i, 'WhatsApp'], [/signal|whispersystems|securesms/i, 'Signal'], [/telegra/i, 'Telegram'], [/snapchat/i, 'Snapchat'], [/facetime/i, 'FaceTime'],
+                [/^(com\.apple\.|com\.android\.|com\.samsung\.|com\.google\.android\.dialer|telefon|phone|samtal)/i, '']];
+            for (var i = 0; i < known.length; i++) if (known[i][0].test(a)) return known[i][1];
+            return a;
+        }
+        function eventLane(e) { var a = appName(e.app); return e.kind === 'call' ? 'Samtal' + (a ? ' · ' + a : '') : a || e.app || 'Meddelanden'; }
+        function eventColor(e) { return EVENT_COLORS[e.kind === 'call' ? 'Samtal' : appName(e.app)] || '#ff9f0a'; }
+        function eventsInRange() {
+            return events.filter(function (e) { return !timeRange || (e.ms <= timeRange.to && e.ms + (e.duration || 0) * 1000 >= timeRange.from); });
+        }
+        // Positionen närmast i tid (högst 30 minuter bort) bland punkterna som ritas: { p, ms } eller null.
+        var NEAR_MS = 30 * 60000;
+        function nearestTimed(list, ms) {
+            var lo = 0, hi = list.length;
+            while (lo < hi) { var mid = (lo + hi) >> 1; if (list[mid].ms <= ms) lo = mid + 1; else hi = mid; }
+            var best = null;
+            [list[lo - 1], list[lo]].forEach(function (c) { if (c && Math.abs(c.ms - ms) <= NEAR_MS && (!best || Math.abs(c.ms - ms) < Math.abs(best.ms - ms))) best = c; });
+            return best;
+        }
+        function gapWords(ms) {
+            var s = Math.round(Math.abs(ms) / 1000);
+            return s < 60 ? s + ' s' : Math.round(s / 60) + ' min';
+        }
+        function renderEvents() {
+            var shown = eventsInRange();
+            el.eventsBtn.classList.toggle('display-none', !events.length);
+            el.eventsBtn.textContent = (eventsOpen ? '▾ ' : '▸ ') + 'Händelser utan plats (' + (timeRange ? shown.length + ' av ' + events.length : events.length) + ')';
+            el.eventsBtn.title = 'Samtal och meddelanden har ingen egen position och ritas inte på kartan. Här står de i tidsordning.';
+            el.eventsBtn.setAttribute('aria-expanded', String(eventsOpen));
+            el.eventsList.classList.toggle('display-none', !eventsOpen || !events.length);
+            el.eventsList.textContent = '';
+            if (!eventsOpen || !events.length) return;
+            var timed = drawnPoints().map(function (p) { return { ms: pointMs(p.taken), p: p }; })
+                .filter(function (x) { return x.ms !== null; }).sort(function (a, b) { return a.ms - b.ms; });
+            var tools = make('div', 'map-events-tools');
+            var clear = make('button', 'link-btn', 'Ta bort händelserna');
+            clear.type = 'button';
+            clear.addEventListener('click', function () { events = []; eventsOpen = false; renderEvents(); drawTimeline(); });
+            tools.append(make('span', 'muted', 'Tider i UTC. Platsen är positionen närmast i tid, inte händelsens egen.'), clear);
+            el.eventsList.append(tools);
+            if (!shown.length) el.eventsList.append(make('p', 'map-note', 'Inga händelser i spannet.'));
+            shown.slice(0, 500).forEach(function (e) {
+                var row = make('div', 'map-ev' + (e.key === activeEvent ? ' active' : ''));
+                row.dataset.key = e.key;
+                var dot = make('span', 'map-ev-dot');
+                dot.style.background = eventColor(e);
+                var body = make('div', 'map-ev-body');
+                var top = make('div', 'map-ev-top');
+                top.append(make('b', '', clockText(e.ms, true)), make('span', '', e.name || ''));
+                body.append(top);
+                var meta = [appName(e.app) || e.app, e.dirText, e.duration ? gapWords(e.duration * 1000) : ''].filter(Boolean).join(' · ');
+                if (meta) body.append(make('div', 'muted', meta));
+                var acts = make('div', 'map-ev-actions');
+                var near = nearestTimed(timed, e.ms);
+                if (near) {
+                    var go = make('button', 'link-btn', 'Närmast: ' + (near.p.name || 'position') + ', ' + gapWords(near.ms - e.ms) + (near.ms <= e.ms ? ' före' : ' efter'));
+                    go.type = 'button';
+                    go.title = 'Visa positionen närmast i tid. Händelsen har ingen egen plats.';
+                    go.addEventListener('click', function () { centerAbove(near.p); openPoint(near.p); });
+                    acts.append(go);
+                } else acts.append(make('span', 'muted', 'Ingen position inom 30 min'));
+                if (e.origin && opts.openSource) {
+                    var src = make('button', 'link-btn', 'Källa' + (e.source ? ': ' + e.source : ''));
+                    src.type = 'button';
+                    src.title = 'Öppna raden i Queries';
+                    src.addEventListener('click', function () { opts.openSource({ origin: e.origin, name: e.name, taken: { text: clockText(e.ms, true) + ' UTC' } }); });
+                    acts.append(src);
+                }
+                body.append(acts);
+                row.append(dot, body);
+                el.eventsList.append(row);
+            });
+            if (shown.length > 500) el.eventsList.append(make('p', 'map-note', 'De första 500 visas. Välj ett kortare spann i tidslinjen.'));
+        }
+        // Punkten mitt i det som syns ovanför tidslinjen.
+        function centerAbove(p) {
+            if (!map) return;
+            var below = timelineOn ? el.timelinePanel.offsetHeight + 60 : 0;
+            map.easeTo({ center: [p.lon, p.lat], offset: [0, -below / 2], duration: 300 });
+        }
+        function showEvent(key) {
+            activeEvent = key;
+            eventsOpen = true;
+            renderEvents();
+            drawTimeline();
+            var row = el.eventsList.querySelector('.map-ev.active');
+            if (row) row.scrollIntoView({ block: 'nearest' });
+        }
+        el.eventsBtn.addEventListener('click', function () { eventsOpen = !eventsOpen; renderEvents(); drawTimeline(); });
+
         function timelineLanes() {
             var lanes = [], byName = {};
-            drawnPoints().forEach(function (p) {
+            function lane(name, color) {
+                if (!byName[name]) { byName[name] = { name: name, color: color, items: [] }; lanes.push(byName[name]); }
+                return byName[name];
+            }
+            // Tidslinjen visar allt som inte är dolt, också utanför spannet, så att spannet går att ändra.
+            points.forEach(function (p) {
+                if (hidden[p.id]) return;
                 var ms = pointMs(p.taken);
                 if (ms === null) return;
-                // Samtal och meddelanden får ett band per app, så att täta händelser går att skilja åt.
-                var name = p.event ? (p.event === 'call' ? 'Samtal' : p.app || 'Meddelanden') : p.layer || root.MapCore.sourceOf(p) || 'Punkter';
-                var lane = byName[name];
-                if (!lane) { lane = byName[name] = { name: name, color: p.color || '#0a84ff', items: [] }; lanes.push(lane); }
                 var until = pointMs(p.until);
-                lane.items.push({ ms: ms, until: until, kind: p.event ? 'event' : (p.stay || (p.visit && until)) ? 'stay' : 'point', color: p.color, title: p.name + ' · ' + p.taken.text, ref: p.id });
+                lane(p.layer || root.MapCore.sourceOf(p) || 'Punkter', p.color || '#0a84ff').items.push({ ms: ms, until: until, kind: (p.stay || (p.visit && until)) ? 'stay' : 'point', color: p.color, title: p.name + ' · ' + p.taken.text, ref: p.id });
+            });
+            events.forEach(function (e) {
+                lane(eventLane(e), eventColor(e)).items.push({ ms: e.ms, kind: 'event', title: (e.name || '') + ' · ' + clockText(e.ms, true) + ' UTC', ref: 'ev:' + e.key, active: e.key === activeEvent });
             });
             return lanes;
         }
@@ -2415,27 +2557,37 @@
             // Raden för markerade punkter står ovanför tidslinjen när den visas.
             el.pickBar.style.bottom = timelineOn ? (el.timelinePanel.offsetHeight + 70) + 'px' : '';
             if (!timelineOn || !timeline) return;
-            timeline.draw(timelineLanes(), timeCursor, timeFocus);
+            timeline.draw(timelineLanes(), timeCursor, timeRange);
             el.pickBar.style.bottom = (el.timelinePanel.offsetHeight + 70) + 'px';
         }
-        // Ett drag över tidslinjen markerar punkterna i spannet och visar dem på kartan.
-        function brushTime(from, to) {
-            var ids = drawnPoints().filter(function (p) {
-                var ms = pointMs(p.taken);
-                if (ms === null) return false;
-                var until = pointMs(p.until) || ms;
-                return ms <= to && until >= from;
-            }).map(function (p) { return p.id; });
-            picked = {};
-            ids.forEach(function (id) { picked[id] = true; });
-            applyPick(listOpen);
-            var t = function (ms) { return new Date(ms).toISOString().slice(0, 16).replace('T', ' '); };
-            notify(ids.length + (ids.length === 1 ? ' punkt' : ' punkter') + ' mellan ' + t(from) + ' och ' + t(to).slice(11) + ' UTC är markerade.', 'ok');
-            if (ids.length && map) {
+        // Spannet i tidslinjen: kartan, listan och händelserna visar bara det som hände i det. null visar allt igen.
+        function setRange(from, to, fitView) {
+            timeRange = from == null ? null : { from: Math.min(from, to), to: Math.max(from, to) };
+            el.rangeBox.classList.toggle('display-none', !timeRange);
+            el.rangeHint.classList.toggle('display-none', !!timeRange);
+            el.rangeText.textContent = timeRange ? rangeLabel(timeRange) : '';
+            el.timelineIcon.classList.toggle('display-none', !timeRange);
+            el.timelineBtn.classList.toggle('is-filtered', !!timeRange);
+            if (timeRange && !timelineOn) setTimeline(true);
+            if (popup && selectedId !== null && byId[selectedId] && !inRange(byId[selectedId])) closePopup();
+            routeChanged();
+            renderEvents();
+            drawTimeline();
+            updateActive();
+            var shown = drawnPoints();
+            if (fitView && shown.length && map) {
                 var b = new root.maplibregl.LngLatBounds();
-                ids.forEach(function (id) { b.extend([byId[id].lon, byId[id].lat]); });
+                shown.forEach(function (p) { b.extend([p.lon, p.lat]); });
                 map.fitBounds(b, { padding: 80, maxZoom: 17, duration: 300 });
             }
+            return shown.length;
+        }
+        el.rangeClear.addEventListener('click', function () { setRange(null); });
+        // Ett drag över tidslinjen visar bara spannet på kartan.
+        function brushTime(from, to) {
+            var n = setRange(from, to, true);
+            var ne = eventsInRange().length;
+            notify(n + (n === 1 ? ' punkt' : ' punkter') + (events.length ? ' och ' + ne + (ne === 1 ? ' händelse' : ' händelser') : '') + ' i ' + rangeLabel(timeRange) + '. Rensa i tidslinjen visar allt.', 'ok');
         }
         function setTimeline(on) {
             timelineOn = !!on && !!root.MapTimeline;
@@ -2444,11 +2596,13 @@
             el.timelineBtn.setAttribute('aria-pressed', String(timelineOn));
             if (!timelineOn) el.pickBar.style.bottom = '';
             if (timelineOn && !timeline) {
-                timeline = root.MapTimeline.create(el.timelinePanel, {
-                    onPick: function (id) {
-                        var p = byId[id];
+                timeline = root.MapTimeline.create(el.timelinePlot, {
+                    onPick: function (ref) {
+                        if (typeof ref === 'string' && ref.indexOf('ev:') === 0) { showEvent(ref.slice(3)); return; }
+                        var p = byId[ref];
                         if (!p) return;
-                        if (map) map.easeTo({ center: [p.lon, p.lat], duration: 300 });
+                        if (!inRange(p)) setRange(null);
+                        centerAbove(p);
                         openPoint(p);
                     },
                     onBrush: brushTime,
@@ -2478,6 +2632,7 @@
             refreshData();
             if (!timelineChosen && !timelineOn && list.some(function (p) { return pointMs(p.taken) !== null; })) setTimeline(true);
             else drawTimeline();
+            renderEvents();
             updateActive();
         }
 
@@ -2807,6 +2962,7 @@
         var listLimit = LIST_PAGE;
         function listMatches(p) {
             if (listInView && !pointInView(p)) return false;
+            if (!inRange(p)) return false;
             if (listSource && root.MapCore.sourceOf(p) !== listSource) return false;
             var terms = listQuery.toLowerCase().split(/\s+/).filter(Boolean);
             if (!terms.length) return true;
@@ -2964,7 +3120,7 @@
                 if (at >= LIST_CAP) LIST_CAP = listLimit = at + 50;
             }
             var shown = matched.slice(0, LIST_CAP);
-            listCount.textContent = listQuery.trim() || listInView || listSource ? matched.length + ' av ' + rows.length : '';
+            listCount.textContent = listQuery.trim() || listInView || listSource || timeRange ? matched.length + ' av ' + rows.length : '';
             shown.forEach(function (row) {
                 var p = row.point;
                 var item = make('div', 'map-list-row' + (String(p.id) === activeId ? ' active' : '') +
@@ -3615,14 +3771,28 @@
             },
             // En etikett för ett av verktygets val, t.ex. setActive('view', { text: 'Vistelser', pop: 'points', clear }). null tar bort den.
             setActive: function (key, chip) { extActive[key] = chip || null; updateActive(); },
-            // Markerar ett tidsfönster i tidslinjen och punkterna i det på kartan: { from, to } i UTC-ms.
-            focusTime: function (from, to, mark) {
-                timeFocus = { from: from, to: to };
-                if (!timelineOn) setTimeline(true);
+            // Väljer ett spann i tidslinjen (UTC-ms): kartan visar bara det. fit flyttar vyn till punkterna i spannet.
+            focusTime: function (from, to, fit) { setRange(from, to, fit); },
+            // Samtal och meddelanden utan egen plats, i tidslinjen och listan under den (se events ovan). Samma key byts inte.
+            addEvents: function (list) {
+                var have = {};
+                events.forEach(function (e) { have[e.key] = true; });
+                (list || []).forEach(function (e) { if (e && e.key && isFinite(e.ms) && !have[e.key]) { have[e.key] = true; events.push(e); } });
+                events.sort(function (a, b) { return a.ms - b.ms; });
+                if (events.length && !timelineOn) setTimeline(true);
+                renderEvents();
                 drawTimeline();
-                updateActive();
-                if (mark) brushTime(from, to);
+                return events.length;
             },
+            events: function () { return events.slice(); },
+            // För provkörningen: hur många punkter som ritas, och tiderna (UTC-ms, en gång var) för punkterna som inte är dolda.
+            drawnCount: function () { return drawnPoints().length; },
+            times: function () {
+                var seen = {};
+                points.forEach(function (p) { var ms = hidden[p.id] ? null : pointMs(p.taken); if (ms !== null) seen[ms] = true; });
+                return Object.keys(seen).map(Number).sort(function (a, b) { return a - b; });
+            },
+            showEvents: function (open) { eventsOpen = open !== false; renderEvents(); drawTimeline(); },
             // Texten på knappen Tidsspann, t.ex. "2024-06-01 14:00 – 16:00". Tom: inget spann valt.
             setTimeSpan: function (text) {
                 el.timeSpanBtn.textContent = text || 'Tidsspann';
